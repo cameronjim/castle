@@ -18,6 +18,8 @@ import _common as c  # noqa: E402
 INPUT_PATH = "/Game/Input"
 PLAYER_PATH = "/Game/Blueprints/Player"
 UI_PATH = "/Game/Blueprints/UI"
+WORLD_PATH = "/Game/Blueprints/World"
+AI_PATH = "/Game/Blueprints/AI"
 IMAGE_PATH = "/Game/Flashbacks/Images"
 
 IA_NAMES = [
@@ -38,6 +40,11 @@ EXPECTED = (
         c.asset_path(PLAYER_PATH, "BP_CastlePlayerController"),
         c.asset_path(PLAYER_PATH, "BP_CastleGameMode"),
         c.asset_path(UI_PATH, "WBP_Flashback"),
+        c.asset_path(UI_PATH, "WBP_Hud"),
+        c.asset_path(WORLD_PATH, "BP_Pickup_Pistol"),
+        c.asset_path(WORLD_PATH, "BP_Pickup_Keycard"),
+        c.asset_path(WORLD_PATH, "BP_Door_Keycard"),
+        c.asset_path(AI_PATH, "BP_Guard"),
     ]
     + [c.asset_path(IMAGE_PATH, "T_FB01_0{0}".format(i)) for i in range(1, 7)]
     + [
@@ -138,11 +145,69 @@ def check_blueprints():
         fail("BP_CastlePlayerController_C")
     else:
         cdo = unreal.get_default_object(pc_class)
-        say(
-            "  BP_CastlePlayerController.flashback_widget_class = {0}".format(
-                name_of(prop(cdo, "flashback_widget_class"))
-            )
-        )
+        for name in ("flashback_widget_class", "hud_widget_class"):
+            value = prop(cdo, name)
+            say("  BP_CastlePlayerController.{0:<24} = {1}".format(name, name_of(value)))
+            if value is None:
+                fail("BP_CastlePlayerController." + name + " is unset")
+
+
+def value_text(value):
+    """Comparable text for a property value: 'WEAPON' for an enum, str() for everything else."""
+    name = getattr(value, "name", None)
+    if name is not None:
+        return str(name)
+    return str(value)
+
+
+def check_world_blueprints():
+    say("---- world blueprints ----")
+
+    for name, expected in (
+        ("BP_Pickup_Pistol", [("pickup_type", "WEAPON"), ("magazine_amount", 12), ("ammo_amount", 24)]),
+        ("BP_Pickup_Keycard", [("pickup_type", "KEYCARD"), ("keycard_id", "cellblock")]),
+    ):
+        cls = c.load_generated_class(WORLD_PATH, name)
+        if cls is None:
+            fail(name + "_C")
+            continue
+        cdo = unreal.get_default_object(cls)
+        for field, want in expected:
+            got = prop(cdo, field)
+            say("  {0}.{1:<20} = {2}".format(name, field, got))
+            if value_text(got) != str(want):
+                fail("{0}.{1} is {2}, expected {3}".format(name, field, got, want))
+
+    door_class = c.load_generated_class(WORLD_PATH, "BP_Door_Keycard")
+    if door_class is None:
+        fail("BP_Door_Keycard_C")
+    else:
+        cdo = unreal.get_default_object(door_class)
+        for field, want in (
+            ("locked", True),
+            ("required_keycard_id", "cellblock"),
+            ("completes_objective_id", "security_door"),
+        ):
+            got = prop(cdo, field)
+            say("  BP_Door_Keycard.{0:<22} = {1}".format(field, got))
+            if value_text(got) != str(want):
+                fail("BP_Door_Keycard.{0} is {1}, expected {2}".format(field, got, want))
+
+    guard_class = c.load_generated_class(AI_PATH, "BP_Guard")
+    if guard_class is None:
+        fail("BP_Guard_C")
+    else:
+        cdo = unreal.get_default_object(guard_class)
+        controller = prop(cdo, "ai_controller_class")
+        say("  BP_Guard.ai_controller_class      = {0}".format(name_of(controller)))
+        if controller is None or "GuardAIController" not in c.class_name(controller):
+            fail("BP_Guard.ai_controller_class is not AGuardAIController")
+        say("  BP_Guard.auto_possess_ai          = {0}".format(prop(cdo, "auto_possess_ai")))
+
+    if c.load_generated_class(UI_PATH, "WBP_Hud") is None:
+        fail("WBP_Hud_C")
+    else:
+        say("  WBP_Hud_C loads")
 
 
 def check_data_assets():
@@ -229,12 +294,60 @@ def check_maps():
         starts = [a for a in actors if isinstance(a, unreal.PlayerStart)]
         say("    PlayerStarts: {0}, trigger volumes: {1}".format(len(starts), len(triggers)))
 
+        if map_path.endswith("L_M01_CellBlockD"):
+            check_m01_gameplay(actors)
+
+
+def label_of(actor):
+    try:
+        return actor.get_actor_label()
+    except Exception:  # noqa: BLE001
+        return "<unlabelled>"
+
+
+def check_m01_gameplay(actors):
+    """Mission 1 needs guards with patrol points, a door, the pickups and a nav volume."""
+    guards = [a for a in actors if "BP_Guard" in c.class_name(type(a)) or "GuardCharacter" in c.class_name(type(a))]
+    doors = [a for a in actors if "Door" in c.class_name(type(a)) and "Frame" not in c.class_name(type(a))]
+    pickups = [a for a in actors if "Pickup" in c.class_name(type(a))]
+    points = [a for a in actors if isinstance(a, unreal.TargetPoint)]
+    nav = [a for a in actors if isinstance(a, unreal.NavMeshBoundsVolume)]
+
+    say("    guards: {0}, patrol points: {1}, pickups: {2}, doors: {3}, nav volumes: {4}".format(
+        len(guards), len(points), len(pickups), len(doors), len(nav)))
+
+    total_patrol = 0
+    for guard in guards:
+        assigned = list(prop(guard, "patrol_points") or [])
+        loot = list(prop(guard, "drop_on_death") or [])
+        total_patrol += len(assigned)
+        say("      {0:<16} patrol={1} drops={2}".format(
+            label_of(guard), len(assigned), ", ".join(c.class_name(x) for x in loot) or "-"))
+        if len(assigned) < 2:
+            fail("{0} has {1} patrol point(s), expected 2".format(label_of(guard), len(assigned)))
+
+    if len(guards) != 5:
+        fail("L_M01_CellBlockD has {0} guards, expected 5".format(len(guards)))
+    if len(points) < 10:
+        fail("L_M01_CellBlockD has {0} ATargetPoints, expected at least 10".format(len(points)))
+    if not doors:
+        fail("L_M01_CellBlockD has no BP_Door_Keycard")
+    if len(pickups) < 2:
+        fail("L_M01_CellBlockD has {0} pickups, expected at least 2".format(len(pickups)))
+    if not nav:
+        fail("L_M01_CellBlockD has no NavMeshBoundsVolume; guards cannot move")
+
+    looters = [g for g in guards if list(prop(g, "drop_on_death") or [])]
+    if len(looters) != 1:
+        fail("{0} guard(s) carry loot, expected exactly 1".format(len(looters)))
+
 
 def main():
     say("==== verifying stage 1-2 starter content ====")
     check_existence()
     check_input()
     check_blueprints()
+    check_world_blueprints()
     check_data_assets()
     check_maps()
     if PROBLEMS:
