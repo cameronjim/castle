@@ -118,6 +118,46 @@ def apply_game_mode(level_label):
     return c.set_level_game_mode(game_mode, level_label)
 
 
+def load_level(package_path):
+    subsystem = c.level_editor_subsystem()
+    if subsystem is not None:
+        return bool(subsystem.load_level(package_path))
+    if hasattr(unreal, "EditorLevelLibrary"):
+        return bool(unreal.EditorLevelLibrary.load_level(package_path))
+    return False
+
+
+def ensure_game_mode(package_path):
+    """For a map that already exists: set the GameMode override if it isn't set yet.
+
+    The first run creates the maps before the Blueprints exist, so the override has to be
+    fixable on a later pass instead of only at creation time.
+    """
+    game_mode = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
+    if game_mode is None:
+        c.log("exists", package_path, "BP_CastleGameMode_C not found; override left unset")
+        return False
+    if not load_level(package_path):
+        c.log("exists", package_path, "could not open level to check GameMode override")
+        return False
+
+    settings = c.world_settings()
+    if settings is not None:
+        try:
+            if settings.get_editor_property("default_game_mode") == game_mode:
+                c.log("exists", package_path, "GameMode override already set")
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+
+    if c.set_level_game_mode(game_mode, package_path):
+        save_level()
+        c.log("updated", package_path, "GameMode override = BP_CastleGameMode_C")
+        return True
+    c.log("exists", package_path, "GameMode override could not be set")
+    return False
+
+
 def new_level(package_path):
     """True when a fresh empty level was created at package_path."""
     subsystem = c.level_editor_subsystem()
@@ -141,7 +181,7 @@ def save_level():
 def build_sandbox():
     full = c.asset_path(MAPS_PATH, "L_Sandbox")
     if c.exists(full):
-        c.log("exists", full)
+        ensure_game_mode(full)
         return False
     if not new_level(full):
         c.log("FAILED", full, "new_level returned false")
@@ -173,7 +213,7 @@ def trigger_class():
 def build_cell_block_d():
     full = c.asset_path(MAPS_PATH, "L_M01_CellBlockD")
     if c.exists(full):
-        c.log("exists", full)
+        ensure_game_mode(full)
         return False
     if not new_level(full):
         c.log("FAILED", full, "new_level returned false")
