@@ -51,12 +51,11 @@ static UWorld* FindScreenshotWorld()
 	return nullptr;
 }
 
-/** Teleport the player pawn, point the camera, and ask for one screenshot. */
-DEFINE_LATENT_AUTOMATION_COMMAND_FOUR_PARAMETER(
-	FCastleTakeRoomShot, FCastleScreenshotM01Cell*, Test, FVector, Location, FRotator, Rotation,
-	FString, FileName);
+/** Teleport the player pawn and point the camera. The shot comes a beat later. */
+DEFINE_LATENT_AUTOMATION_COMMAND_THREE_PARAMETER(
+	FCastlePlaceCamera, FCastleScreenshotM01Cell*, Test, FVector, Location, FRotator, Rotation);
 
-bool FCastleTakeRoomShot::Update()
+bool FCastlePlaceCamera::Update()
 {
 	UWorld* World = FindScreenshotWorld();
 	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
@@ -70,6 +69,18 @@ bool FCastleTakeRoomShot::Update()
 	Pawn->TeleportTo(Location, Rotation, false, true);
 	PC->SetControlRotation(Rotation);
 
+	// The first-person arms and pistol are parented to the camera, so they fill the frame in a
+	// still. These shots are of the room, not the view model.
+	Pawn->SetActorHiddenInGame(true);
+	return true;
+}
+
+/** Ask for one screenshot. Separate from the teleport so motion blur has settled first. */
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
+	FCastleTakeRoomShot, FCastleScreenshotM01Cell*, Test, FString, FileName);
+
+bool FCastleTakeRoomShot::Update()
+{
 	const FString FullPath = RoomScreenshotPath(FileName);
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 	PlatformFile.CreateDirectoryTree(*FPaths::GetPath(FullPath));
@@ -95,16 +106,20 @@ bool FCastleScreenshotM01Cell::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(3.f));
 
 	// Eye height is 170 cm. The cell runs x 0..300, corridor 1 x 300..2300, y -150..150.
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(
-		this, FVector(60.f, 0.f, 170.f), FRotator(0.f, 0.f, 0.f), TEXT("cell.png")));
+	// Each shot is placed, given a second for motion blur to settle, then captured.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(60.f, 0.f, 170.f), FRotator(0.f, 0.f, 0.f)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("cell.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(
-		this, FVector(600.f, 0.f, 170.f), FRotator(-5.f, 0.f, 0.f), TEXT("corridor.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(600.f, 0.f, 170.f), FRotator(-5.f, 0.f, 0.f)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("corridor.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(
-		this, FVector(700.f, 0.f, 170.f), FRotator(0.f, 180.f, 0.f), TEXT("doorway.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(700.f, 0.f, 170.f), FRotator(0.f, 180.f, 0.f)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("doorway.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
 	return true;
