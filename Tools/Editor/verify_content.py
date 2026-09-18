@@ -304,7 +304,7 @@ def check_guard_presentation():
 
 
 def check_view_model():
-    """Frank's arms and pistol, assigned on BP_CastleCharacter."""
+    """Frank's view model: the pistol, on the camera. There are deliberately no arms."""
     say("---- first-person view model ----")
 
     cls = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
@@ -314,23 +314,24 @@ def check_view_model():
 
     cdo = unreal.get_default_object(cls)
 
-    arms = prop(cdo, "arms_mesh")
-    arms_asset = prop(arms, "skeletal_mesh_asset") if arms is not None else None
-    say("  ArmsMesh.skeletal_mesh_asset = {0}".format(name_of(arms_asset)))
-    if arms_asset is None:
-        fail("BP_CastleCharacter.ArmsMesh has no skeletal mesh")
-
     weapon = prop(cdo, "weapon_mesh")
     weapon_asset = prop(weapon, "static_mesh") if weapon is not None else None
     say("  WeaponMesh.static_mesh       = {0}".format(name_of(weapon_asset)))
     if weapon_asset is None:
         fail("BP_CastleCharacter.WeaponMesh has no pistol mesh")
 
-    for field in ("arms_idle_anim", "arms_pistol_idle_anim"):
-        value = prop(cdo, field)
-        say("  {0:<28} = {1}".format(field, name_of(value)))
-        if value is None:
-            fail("BP_CastleCharacter." + field + " is unset")
+    say("  WeaponRelativeLocation       = {0}".format(prop(cdo, "weapon_relative_location")))
+    say("  WeaponAimLocation            = {0}".format(prop(cdo, "weapon_aim_location")))
+
+    # The only skeletal mesh available is the full body mannequin, which wraps the camera in
+    # its own torso. Arms stay off until there is an arms-only mesh to use.
+    if prop(cdo, "use_arms_mesh"):
+        fail("BP_CastleCharacter.bUseArmsMesh is on; the mannequin arms fill the screen")
+    arms = prop(cdo, "arms_mesh")
+    arms_asset = prop(arms, "skeletal_mesh_asset") if arms is not None else None
+    say("  ArmsMesh.skeletal_mesh_asset = {0}".format(name_of(arms_asset)))
+    if arms_asset is not None:
+        fail("BP_CastleCharacter.ArmsMesh has a mesh; run create_blueprints.py to clear it")
 
 
 def check_data_assets():

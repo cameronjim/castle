@@ -25,8 +25,8 @@ ANIM_BP_PATH = MANNEQUIN_PATH + "/Animations/ThirdPerson_AnimBP"
 GUARD_PATH = "/Game/Blueprints/AI"
 PLAYER_PATH = "/Game/Blueprints/Player"
 
-# The same mannequin does double duty as Frank's first-person arms: UE 5.8 ships no arms-only
-# mesh, so the full body is hidden down to the arms and pushed under the camera.
+# Frank has no arms: the mannequin is a full body and parented to the camera it fills the
+# lower screen with its own torso. These clips are the guards' locomotion only.
 ARMS_ANIM_PATHS = [
     MANNEQUIN_PATH + "/Animations/ThirdPersonIdle",
     MANNEQUIN_PATH + "/Animations/ThirdPersonWalk",
@@ -103,7 +103,8 @@ def check_locomotion_anims():
 
 
 def check_view_model():
-    say("---- first-person arms ----")
+    # There are no first-person arms: the mannequin is a full body and wraps the camera.
+    say("---- first-person view model ----")
     player_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
     if player_class is None:
         fail("BP_CastleCharacter_C would not load")
@@ -117,9 +118,8 @@ def check_view_model():
     else:
         assigned = prop(arms, "skeletal_mesh_asset")
         say("  ArmsMesh.skeletal_mesh_asset = {0}".format(name_of(assigned)))
-        say("  ArmsMesh.relative_location   = {0}".format(prop(arms, "relative_location")))
-        if assigned is None:
-            fail("BP_CastleCharacter.ArmsMesh has no mesh; run create_blueprints.py")
+        if assigned is not None:
+            fail("BP_CastleCharacter.ArmsMesh has a mesh; run create_blueprints.py to clear it")
 
     weapon = prop(cdo, "weapon_mesh")
     if weapon is None:

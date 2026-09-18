@@ -34,12 +34,10 @@ PLAYER_PATH = "/Game/Blueprints/Player"
 UI_PATH = "/Game/Blueprints/UI"
 INPUT_PATH = "/Game/Input"
 
-# UE 5.8 ships no first-person arms mesh: its FirstPerson template renders the full body
-# mannequin. So Frank's arms are the same UE4 mannequin the guards use, hidden down to the
-# arms by ACastleCharacter::HiddenViewModelBones and pushed under the camera.
-MANNEQUIN_MESH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
-MANNEQUIN_IDLE = "/Game/Mannequin/Animations/ThirdPersonIdle"
-
+# UE 5.8 ships no first-person arms mesh, and the full body mannequin parented to the camera
+# fills the lower screen with its own torso. So there are no arms: the view model is the
+# pistol alone, attached to the camera. See ACastleCharacter::bUseArmsMesh.
+#
 # Copied out of Templates/TemplateResources/Standard/Weapons. Its internal references are
 # absolute (/Game/Weapons/...), so Content/Weapons is where these have to live.
 PISTOL_MESH = "/Game/Weapons/Pistol/Meshes/SM_Pistol"
@@ -180,32 +178,63 @@ def set_component_asset(bp, component_name, setter_name, prop_name, asset, conte
         return False
 
 
-def configure_view_model(bp):
-    """Give BP_CastleCharacter its first-person arms, pistol and idle poses.
+def clear_component_asset(bp, component_name, setter_name, prop_name, context):
+    """Blank a mesh on an inherited component. Returns True if it had one to clear."""
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property(component_name)
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        return False
 
-    The C++ holds only the properties; which meshes and animations fill them is content.
+    try:
+        if component.get_editor_property(prop_name) is None:
+            return False
+        getattr(component, setter_name)(None)
+        c.log("updated", context, "cleared")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error(context, exc)
+        return False
+
+
+def configure_view_model(bp):
+    """Give BP_CastleCharacter its view model pistol.
+
+    The arms stay empty on purpose. The only skeletal mesh available is the full body
+    mannequin, and parented to the camera it puts its own torso and shoulders across the
+    lower two thirds of the screen. ACastleCharacter::bUseArmsMesh is false to match, so the
+    pistol alone is the view model until a real arms-only mesh exists.
     """
     if bp is None:
         return
 
-    arms = c.load_or_none(MANNEQUIN_MESH)
     pistol = c.load_or_none(PISTOL_MESH)
-    idle = c.load_or_none(MANNEQUIN_IDLE)
 
-    changed = set_component_asset(
-        bp, "arms_mesh", "set_skeletal_mesh_asset", "skeletal_mesh_asset", arms,
+    changed = clear_component_asset(
+        bp, "arms_mesh", "set_skeletal_mesh_asset", "skeletal_mesh_asset",
         "BP_CastleCharacter.ArmsMesh")
     changed = set_component_asset(
         bp, "weapon_mesh", "set_static_mesh", "static_mesh", pistol,
         "BP_CastleCharacter.WeaponMesh") or changed
 
-    # The UE4 mannequin pack has no separate pistol idle, so both poses are the same clip; the
-    # difference the player sees is the pistol appearing in frame.
-    applied = apply_defaults(
-        bp, "BP_CastleCharacter", PLAYER_PATH,
-        [("arms_idle_anim", idle), ("arms_pistol_idle_anim", idle)])
+    # The arms poses go with the arms; a pose on a mesh-less component is dead weight.
+    cdo = c.blueprint_cdo(bp)
+    if cdo is not None:
+        for prop in ("arms_idle_anim", "arms_pistol_idle_anim"):
+            try:
+                if cdo.get_editor_property(prop) is None:
+                    continue
+                cdo.set_editor_property(prop, None)
+                c.log("updated", "BP_CastleCharacter", "cleared " + prop)
+                changed = True
+            except Exception:  # noqa: BLE001 - property may not exist in this build
+                continue
 
-    if changed and not applied:
+    if changed:
         c.compile_blueprint(bp)
         c.save(bp)
 
