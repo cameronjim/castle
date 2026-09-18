@@ -86,6 +86,16 @@ rule here, change the test and the code in the same commit.
   each phase covers.
 
 ## Weapon
+- Bullets trace on the `Weapon` channel (`ECC_GameTraceChannel1`, default Block), never
+  `Visibility`: the engine's Pawn and CharacterMesh profiles ignore Visibility, which is
+  why shots passed through guards in the first playtest. Every damageable character
+  blocks `Weapon` on both its capsule and its mesh. The capsule guarantees the hit; a
+  second trace against the mesh recovers the bone for headshots. `bTraceComplex` stays
+  false.
+- `OnHit(HitActor)` fires when the trace lands on an actor with a health component. The
+  HUD flashes the crosshair white for 0.1 s on it.
+- `Fire()` does nothing if `bHasWeapon` is false (Frank starts unarmed; `GiveWeapon()`
+  from a pickup arms him).
 - `Fire()` does nothing if `CurrentAmmo == 0`, if reloading, or if less than
   `1 / FireRate` seconds have passed since the last shot. An empty click sound plays in
   the first case.
@@ -108,6 +118,24 @@ rule here, change the test and the code in the same commit.
   while the takedown plays. Guards can still shoot the player during this.
 - `OnTakedownPerformed(Target)` fires once at the start of the takedown.
 
+## Player look and viewmodel
+- Look input is multiplied by `LookSensitivity` (default 0.45) and, while aiming, by
+  `AimLookMultiplier` (0.7) as well.
+- Aiming blends FOV from `HipFOV` 90 to `AimFOV` 70 over 0.15 s, multiplies walk speed by
+  0.6, and shrinks the crosshair gap from 8 px to 4 px. Sprinting cancels aim and reload
+  and fades the crosshair to 40%.
+- The crosshair is hidden while unarmed. Four green bars, 14 x 3 px, centred.
+- Viewmodel: arms and pistol are owner-only, cast no shadow, and never affect gameplay.
+  Fire kicks them back 3 cm and up 2 degrees over 0.05 s (return over 0.15 s) and flashes
+  a muzzle light for 0.05 s. Reload dips them out of frame for `ReloadSeconds`. Aim lerps
+  the pistol toward screen centre so the sights meet the crosshair. Sway scales with speed.
+
+## Navigation
+- Nav data is generated at runtime (`RuntimeGeneration=Dynamic`) and the game mode calls
+  a build at BeginPlay if the map shipped with none. Maps are generated headlessly and no
+  one presses Build Paths, so this is what makes guards able to move at all. The smoke
+  test asserts a navmesh exists and at least one guard is moving after a few seconds.
+
 ## Guard AI states (stage 2/3)
 - `Calm`: patrol. Hearing radius `CalmHearingRadius`, sight cone `SightHalfAngle`.
 - `Suspicious`: heard something or saw something briefly. Walks to the stimulus,
@@ -117,6 +145,13 @@ rule here, change the test and the code in the same commit.
   perceiving the player, then to `Calm`.
 - Noise: player sprinting emits a noise event every 0.5 s with loudness 1.0. Walking
   0.4. Crouching 0. Gunshots 3.0. Takedowns 0.6 (the body drop).
+- Guards animate from animation assets, not an animation Blueprint: `IdleAnim` below
+  20 uu/s ground speed, `WalkAnim` above, switched only on state change. Guards carry a
+  head-mounted spotlight (3000 cd, 25/35 degree cone) that turns off on death. The beam is
+  the visible read of where they're looking; stealth design should treat it as the sight
+  cone's visual.
+- Guard death logs the cause at Log level; every bullet hit logs actor, bone, and damage
+  at Verbose so a playtest can be reconstructed from `Castle.log`.
 
 ## Save data (stage 3)
 - One slot, `CastleSave`, autosaved at mission complete and at checkpoints. Manual save
