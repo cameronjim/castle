@@ -109,6 +109,12 @@ GRAPH_EXPECTATIONS = (
 
 def expression_class_names(material):
     """Class names of a material's expressions, or None when the list isn't readable."""
+    try:
+        nodes = unreal.MaterialEditingLibrary.get_material_expressions(material)
+        if nodes is not None:
+            return [c.class_name(type(node)) for node in nodes if node is not None]
+    except Exception:  # noqa: BLE001 - fall through to the editor properties
+        pass
     for prop in ("expression_collection", "expressions"):
         try:
             value = material.get_editor_property(prop)
@@ -149,6 +155,17 @@ def check_materials():
         for node in wanted:
             if node not in names:
                 fail("{0} has no {1}; the procedural graph did not build".format(path, node))
+        for prop_name, material_property in (
+            ("base colour", unreal.MaterialProperty.MP_BASE_COLOR),
+            ("roughness", unreal.MaterialProperty.MP_ROUGHNESS),
+        ):
+            try:
+                node = unreal.MaterialEditingLibrary.get_material_property_input_node(
+                    material, material_property)
+            except Exception:  # noqa: BLE001
+                continue
+            if node is None:
+                fail("{0} has nothing wired into {1}".format(path, prop_name))
 
 
 def check_actors(by_label):
