@@ -28,6 +28,13 @@ class CASTLE_API UWeaponComponent : public UActorComponent
 public:
 	UWeaponComponent();
 
+	/**
+	 * False while the owner is empty-handed: Fire and Reload do nothing and the HUD shows no ammo.
+	 * The player's component starts false and APickupActor turns it on; guards start armed.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon")
+	bool bHasWeapon = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Ammo", meta = (ClampMin = "1"))
 	int32 MagazineSize = 12;
 
@@ -74,6 +81,17 @@ public:
 	/** Fired when Fire() is called with an empty magazine; play the dry-fire click from this. */
 	UPROPERTY(BlueprintAssignable, Category = "Weapon")
 	FOnEmptyClickSignature OnEmptyClick;
+
+	/** Arms the owner with Magazine rounds loaded and Reserve spare, and fires OnAmmoChanged. */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void GiveWeapon(int32 Magazine, int32 Reserve);
+
+	/** Disarms the owner. Ammo is kept so a later GiveWeapon can restore it. */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void RemoveWeapon();
+
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	bool HasWeapon() const { return bHasWeapon; }
 
 	/** Fires one round if allowed. Returns true when a shot went out. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")

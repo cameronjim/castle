@@ -54,9 +54,24 @@ void UWeaponComponent::SetTestTimeSeconds(double InSeconds)
 	TestTimeOverride = InSeconds;
 }
 
+void UWeaponComponent::GiveWeapon(int32 Magazine, int32 Reserve)
+{
+	bHasWeapon = true;
+	CurrentAmmo = FMath::Clamp(Magazine, 0, MagazineSize);
+	ReserveAmmo = FMath::Max(Reserve, 0);
+	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
+}
+
+void UWeaponComponent::RemoveWeapon()
+{
+	CancelReload();
+	bHasWeapon = false;
+	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
+}
+
 bool UWeaponComponent::CanFire() const
 {
-	if (bIsReloading || CurrentAmmo <= 0)
+	if (!bHasWeapon || bIsReloading || CurrentAmmo <= 0)
 	{
 		return false;
 	}
@@ -95,6 +110,12 @@ void UWeaponComponent::GetFireViewPoint(FVector& OutLocation, FRotator& OutRotat
 
 bool UWeaponComponent::Fire()
 {
+	if (!bHasWeapon)
+	{
+		// Empty-handed: not even a dry-fire click.
+		return false;
+	}
+
 	if (bIsReloading)
 	{
 		return false;
@@ -169,7 +190,7 @@ void UWeaponComponent::TraceAndApplyDamage()
 
 bool UWeaponComponent::Reload()
 {
-	if (bIsReloading || ReserveAmmo <= 0 || CurrentAmmo >= MagazineSize)
+	if (!bHasWeapon || bIsReloading || ReserveAmmo <= 0 || CurrentAmmo >= MagazineSize)
 	{
 		return false;
 	}
