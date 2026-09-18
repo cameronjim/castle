@@ -46,7 +46,13 @@ Build the standalone game target (for packaging tests):
 Exit code 0 is success. Errors look like `error C2065` (compiler) or `Error: ... UnrealHeaderTool`
 (reflection). UHT errors come first and block compilation; fix them before reading further.
 
-Build time: 2-5 minutes for a full rebuild of the Castle module, 20-40 seconds incremental.
+`Source/Castle.Target.cs` and `CastleEditor.Target.cs` must stay on
+`BuildSettingsVersion.V7` and `EngineIncludeOrderVersion.Unreal5_8`. Older values make UBT
+refuse to build against the launcher engine (it reports `OtherCompilationError` in under a
+second with no compiler output). 5.8 also writes `Castle.slnx` next to `Castle.sln`; both are
+ignored by git.
+
+Build time: about 80 seconds for a full rebuild of the Castle module, 20-40 seconds incremental.
 If the editor is open, close it or use Live Coding (Ctrl+Alt+F11 in the editor) instead.
 Building with the editor open and Live Coding off produces a DLL the editor won't reload.
 
