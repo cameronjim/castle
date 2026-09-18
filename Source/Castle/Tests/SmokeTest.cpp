@@ -1,5 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Components/LightComponent.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -75,6 +76,21 @@ bool FCastleAssertM01Playable::Update()
 		++DoorCount;
 	}
 	Test->TestTrue(TEXT("At least one door is placed"), DoorCount >= 1);
+
+	// --- lighting -----------------------------------------------------------------------------
+	// Nothing in the generated maps is built lighting, so a Static light renders as a black
+	// surface until someone builds it. Every light has to be Movable.
+	int32 StaticLightCount = 0;
+	for (TObjectIterator<ULightComponent> It; It; ++It)
+	{
+		const ULightComponent* Light = *It;
+		if (Light && Light->GetWorld() == World && Light->Mobility == EComponentMobility::Static)
+		{
+			++StaticLightCount;
+			Test->AddError(FString::Printf(TEXT("Static light component %s in L_M01."), *Light->GetPathName()));
+		}
+	}
+	Test->TestEqual(TEXT("No light in L_M01 has Static mobility"), StaticLightCount, 0);
 
 	// --- player -------------------------------------------------------------------------------
 	const APlayerController* PC = World->GetFirstPlayerController();
