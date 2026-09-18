@@ -125,10 +125,14 @@ rule here, change the test and the code in the same commit.
   0.6, and shrinks the crosshair gap from 8 px to 4 px. Sprinting cancels aim and reload
   and fades the crosshair to 40%.
 - The crosshair is hidden while unarmed. Four green bars, 14 x 3 px, centred.
-- Viewmodel: arms and pistol are owner-only, cast no shadow, and never affect gameplay.
-  Fire kicks them back 3 cm and up 2 degrees over 0.05 s (return over 0.15 s) and flashes
-  a muzzle light for 0.05 s. Reload dips them out of frame for `ReloadSeconds`. Aim lerps
-  the pistol toward screen centre so the sights meet the crosshair. Sway scales with speed.
+- Viewmodel is the pistol only, attached to the camera, owner-only, no shadow, never
+  affecting gameplay. There is no arms mesh: UE 5.8 ships none, and the full-mannequin
+  fallback put the torso in the camera. `bUseArmsMesh` stays false until a real arms asset
+  exists. Hip transform (42, 18, -14) with yaw -90 because the template pistol is modelled
+  barrel along +Y; aim lerps to (38, 0, -11.5) so the slide sits on the crosshair. Fire
+  kicks it back 3 cm and up 2 degrees over 0.05 s (return over 0.15 s) and flashes a
+  muzzle light at the barrel end for 0.05 s. Reload dips it out of frame for
+  `ReloadSeconds`. Sway scales with speed. Nothing is shown while unarmed.
 
 ## Navigation
 - Nav data is generated at runtime (`RuntimeGeneration=Dynamic`) and the game mode calls
@@ -150,8 +154,15 @@ rule here, change the test and the code in the same commit.
   head-mounted spotlight (3000 cd, 25/35 degree cone) that turns off on death. The beam is
   the visible read of where they're looking; stealth design should treat it as the sight
   cone's visual.
-- Guard death logs the cause at Log level; every bullet hit logs actor, bone, and damage
-  at Verbose so a playtest can be reconstructed from `Castle.log`.
+- Guard death logs the killer and cause at Log level (takedowns name the attacker);
+  every bullet hit logs actor, bone, and damage at Verbose so a playtest can be
+  reconstructed from `Castle.log`.
+- Guard death is always visible. `GoLimp(Killer)` ragdolls the mesh (the mannequin's
+  physics asset from the High feature pack; the Standard pack's copy is an empty stub and
+  must never be used). If the mesh reports it is not simulating afterwards, a procedural
+  collapse runs instead: 0.6 s tip of 85 degrees away from the killer, 20 cm drop,
+  animation stopped. Either way the flashlight turns off and the capsule stops colliding.
+  Which path ran is logged once per guard at Warning.
 
 ## Save data (stage 3)
 - One slot, `CastleSave`, autosaved at mission complete and at checkpoints. Manual save
