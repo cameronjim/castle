@@ -17,17 +17,28 @@
 #include "InputMappingContext.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Misc/PackageName.h"
 #include "Mission/MissionDefinition.h"
+#include "Mission/MissionFlowController.h"
 #include "Mission/MissionSubsystem.h"
 #include "UI/CastleHudWidget.h"
 #include "UI/CastlePauseWidget.h"
+#include "UI/MissionEndCardWidget.h"
 
 void ACastlePlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (FinalCardPrompt.IsEmpty())
+	{
+		FinalCardPrompt = NSLOCTEXT("Castle", "EndCardPressAnyKey", "Press any key");
+	}
+
+	MissionFlow = NewObject<UMissionFlowController>(this, TEXT("MissionFlow"));
+
 	if (UMissionSubsystem* MissionSubsystem = UMissionSubsystem::Get(this))
 	{
+		MissionSubsystem->OnMissionComplete.AddDynamic(this, &ACastlePlayerController::HandleMissionComplete);
 		MissionSubsystem->OnFlashbackRequested.AddDynamic(this, &ACastlePlayerController::HandleFlashbackRequested);
 	}
 
@@ -259,7 +270,15 @@ void ACastlePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	if (UMissionSubsystem* MissionSubsystem = UMissionSubsystem::Get(this))
 	{
+		MissionSubsystem->OnMissionComplete.RemoveDynamic(this, &ACastlePlayerController::HandleMissionComplete);
 		MissionSubsystem->OnFlashbackRequested.RemoveDynamic(this, &ACastlePlayerController::HandleFlashbackRequested);
+	}
+
+	if (EndCardWidget)
+	{
+		EndCardWidget->OnEndCardFinished.RemoveDynamic(this, &ACastlePlayerController::HandleEndCardFinished);
+		EndCardWidget->RemoveFromParent();
+		EndCardWidget = nullptr;
 	}
 
 	if (ActiveFlashbackWidget)
@@ -289,7 +308,9 @@ void ACastlePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void ACastlePlayerController::HandleFlashbackRequested(UFlashbackDefinition* Flashback)
 {
-	PlayFlashback(Flashback);
+	// This arrives in the same frame as OnMissionComplete, while the end card is still up, so
+	// the definition is only cached here; the flow plays it when it reaches the Flashback beat.
+	PendingFlashback = Flashback;
 }
 
 UFlashbackWidget* ACastlePlayerController::PlayFlashback(UFlashbackDefinition* Flashback)
@@ -343,13 +364,187 @@ void ACastlePlayerController::HandleFlashbackFinished(UFlashbackDefinition* /*Fl
 	}
 
 	bFlashbackActive = false;
+	PendingFlashback = nullptr;
 
 	SetHudVisible(true);
+
+	// A flashback played outside a mission end (a debug key, a scripted beat) just ends.
+	if (MissionFlow && MissionFlow->GetStep() == EMissionFlowStep::Flashback)
+	{
+		MissionFlow->Advance();
+		PerformCurrentFlowStep();
+		return;
+	}
 
 	if (bOpenNextLevelAfterFlashback)
 	{
 		TryOpenNextLevel();
 	}
+}
+
+void ACastlePlayerController::HandleMissionComplete(UMissionDefinition* Mission)
+{
+	if (!MissionFlow)
+	{
+		return;
+	}
+
+	if (MissionFlow->IsRunning())
+	{
+		UE_LOG(LogCastle, Warning,
+			TEXT("%s: mission completed while an end sequence was already running; ignoring."), *GetName());
+		return;
+	}
+
+	CompletedMission = Mission;
+
+	// The end card owns the screen from here; the HUD comes back only if we stay in the level.
+	SetHudVisible(false);
+	SetPauseMenuOpen(false);
+
+	const bool bHasFlashback = Mission && !Mission->FlashbackToPlay.IsNull();
+	const bool bHasNextLevel = Mission && !Mission->NextLevel.IsNull();
+
+	MissionFlow->Begin(bHasFlashback, bHasNextLevel);
+	PerformCurrentFlowStep();
+}
+
+void ACastlePlayerController::PerformCurrentFlowStep()
+{
+	if (!MissionFlow)
+	{
+		return;
+	}
+
+	switch (MissionFlow->GetStep())
+	{
+	case EMissionFlowStep::EndCard:
+		ShowEndCard(CompletedMission, /*bWaitForInput=*/false);
+		break;
+
+	case EMissionFlowStep::Flashback:
+	{
+		HideEndCard();
+
+		// PendingFlashback is what OnFlashbackRequested handed us; fall back to a synchronous
+		// load so a mission that completes without the delegate still shows its slideshow.
+		UFlashbackDefinition* Flashback = PendingFlashback;
+		if (!Flashback && CompletedMission)
+		{
+			Flashback = CompletedMission->FlashbackToPlay.LoadSynchronous();
+		}
+
+		if (!Flashback)
+		{
+			UE_LOG(LogCastle, Warning, TEXT("%s: the mission's flashback could not be loaded."), *GetName());
+			MissionFlow->Advance();
+			PerformCurrentFlowStep();
+			return;
+		}
+
+		PlayFlashback(Flashback);
+		break;
+	}
+
+	case EMissionFlowStep::FinalCard:
+		// No next level: the campaign is over, so hold the card until the player says go.
+		ShowEndCard(CompletedMission, /*bWaitForInput=*/true);
+		break;
+
+	case EMissionFlowStep::OpenNextLevel:
+		HideEndCard();
+		if (!TryOpenNextLevel())
+		{
+			UE_LOG(LogCastle, Warning, TEXT("%s: no next level to travel to after all."), *GetName());
+		}
+		MissionFlow->Advance();
+		break;
+
+	case EMissionFlowStep::OpenMenuLevel:
+		HideEndCard();
+		OpenMenuLevel();
+		MissionFlow->Advance();
+		break;
+
+	default:
+		break;
+	}
+}
+
+UMissionEndCardWidget* ACastlePlayerController::ShowEndCard(UMissionDefinition* Mission, bool bWaitForInput)
+{
+	if (!EndCardWidgetClass || !IsLocalController())
+	{
+		UE_LOG(LogCastle, Warning,
+			TEXT("%s has no EndCardWidgetClass set; skipping the end card."), *GetName());
+		HandleEndCardFinished(Mission);
+		return nullptr;
+	}
+
+	if (!EndCardWidget)
+	{
+		EndCardWidget = CreateWidget<UMissionEndCardWidget>(this, EndCardWidgetClass);
+		if (!EndCardWidget)
+		{
+			UE_LOG(LogCastle, Warning, TEXT("%s: could not create the end card widget."), *GetName());
+			HandleEndCardFinished(Mission);
+			return nullptr;
+		}
+
+		EndCardWidget->OnEndCardFinished.AddDynamic(this, &ACastlePlayerController::HandleEndCardFinished);
+	}
+
+	if (!EndCardWidget->IsInViewport())
+	{
+		EndCardWidget->AddToViewport(5);
+	}
+	EndCardWidget->SetVisibility(ESlateVisibility::Visible);
+
+	if (bWaitForInput)
+	{
+		EndCardWidget->PlayAndWaitForInput(Mission, FinalCardPrompt);
+	}
+	else
+	{
+		EndCardWidget->Play(Mission);
+	}
+
+	return EndCardWidget;
+}
+
+void ACastlePlayerController::HideEndCard()
+{
+	if (EndCardWidget)
+	{
+		EndCardWidget->RemoveFromParent();
+	}
+}
+
+void ACastlePlayerController::HandleEndCardFinished(UMissionDefinition* /*Mission*/)
+{
+	if (!MissionFlow)
+	{
+		return;
+	}
+
+	MissionFlow->Advance();
+	PerformCurrentFlowStep();
+}
+
+void ACastlePlayerController::OpenMenuLevel()
+{
+	// L_MainMenu is a stage-5 asset; until it exists, land somewhere that loads rather than
+	// throwing the player at a map name the engine cannot resolve.
+	FName Target = MenuLevelName;
+	if (Target.IsNone() || !FPackageName::DoesPackageExist(Target.ToString()))
+	{
+		UE_LOG(LogCastle, Log, TEXT("%s: %s does not exist; falling back to %s."),
+			*GetName(), *Target.ToString(), *FallbackMenuLevelName.ToString());
+		Target = FallbackMenuLevelName;
+	}
+
+	UE_LOG(LogCastle, Log, TEXT("Campaign over; returning to %s."), *Target.ToString());
+	UGameplayStatics::OpenLevel(this, Target);
 }
 
 bool ACastlePlayerController::TryOpenNextLevel()

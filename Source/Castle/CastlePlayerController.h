@@ -13,6 +13,8 @@ class UFlashbackWidget;
 class UInputAction;
 class UInputMappingContext;
 class UMissionDefinition;
+class UMissionEndCardWidget;
+class UMissionFlowController;
 struct FInputActionValue;
 
 /**
@@ -48,6 +50,31 @@ public:
 	/** Plays a flashback immediately (debug, or bespoke story beats). */
 	UFUNCTION(BlueprintCallable, Category = "Flashback")
 	UFlashbackWidget* PlayFlashback(UFlashbackDefinition* Flashback);
+
+	// --- End card -------------------------------------------------------------------------------
+
+	/** UMG widget (reparented to UMissionEndCardWidget) shown when a mission completes. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "End card")
+	TSubclassOf<UMissionEndCardWidget> EndCardWidgetClass;
+
+	/**
+	 * Level opened when a completed mission has no NextLevel, i.e. the campaign is over.
+	 * Falls back to FallbackMenuLevel when this one does not exist.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "End card")
+	FName MenuLevelName = FName(TEXT("/Game/Maps/L_MainMenu"));
+
+	/** Used when MenuLevelName has not been built yet, so the campaign end never dead-ends. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "End card")
+	FName FallbackMenuLevelName = FName(TEXT("/Game/Maps/L_Sandbox"));
+
+	/** Shown on the final card, which waits for a key instead of counting down. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "End card")
+	FText FinalCardPrompt;
+
+	/** The end-of-mission beat ordering. Created on BeginPlay and never null. */
+	UFUNCTION(BlueprintPure, Category = "End card")
+	UMissionFlowController* GetMissionFlow() const { return MissionFlow; }
 
 	// --- Pause ----------------------------------------------------------------------------------
 
@@ -135,8 +162,25 @@ protected:
 	UFUNCTION()
 	void HandleFlashbackFinished(UFlashbackDefinition* Flashback);
 
+	UFUNCTION()
+	void HandleMissionComplete(UMissionDefinition* Mission);
+
+	UFUNCTION()
+	void HandleEndCardFinished(UMissionDefinition* Mission);
+
+	/** Runs whichever beat the flow is on now. Called after every Begin and Advance. */
+	void PerformCurrentFlowStep();
+
+	/** Creates the end card (if needed) and plays it. bWaitForInput is the campaign-end card. */
+	UMissionEndCardWidget* ShowEndCard(UMissionDefinition* Mission, bool bWaitForInput);
+
+	void HideEndCard();
+
 	/** Opens the current mission's NextLevel if one is set. Returns true when travel started. */
 	bool TryOpenNextLevel();
+
+	/** Opens MenuLevelName, or FallbackMenuLevelName when that map does not exist. */
+	void OpenMenuLevel();
 
 	/** Creates the HUD from HudWidgetClass and adds it to the viewport. */
 	void CreateHud();
@@ -151,6 +195,20 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Pause")
 	TObjectPtr<UCastlePauseWidget> PauseWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
+	TObjectPtr<UMissionEndCardWidget> EndCardWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
+	TObjectPtr<UMissionFlowController> MissionFlow = nullptr;
+
+	/** The mission whose end sequence is running. Held because the world outlives the subsystem. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
+	TObjectPtr<UMissionDefinition> CompletedMission = nullptr;
+
+	/** The definition OnFlashbackRequested handed us, played once the end card is done. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Flashback")
+	TObjectPtr<UFlashbackDefinition> PendingFlashback = nullptr;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Pause")
 	bool bPauseMenuOpen = false;
