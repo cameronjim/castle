@@ -61,18 +61,28 @@ def set_component_mesh(bp, component_name, mesh_asset, scale, relative_location=
         )
         return False
 
-    values = [("relative_scale3d", scale)]
+    wanted = [("relative_scale3d", scale)]
     if relative_location is not None:
-        values.append(("relative_location", relative_location))
-    c.set_props(component, values, bp.get_name() + "." + component_name)
+        wanted.append(("relative_location", relative_location))
 
-    if mesh_asset is not None:
+    # Only write what differs, so a re-run leaves the .uasset byte-identical.
+    changed = []
+    for prop, value in wanted:
+        try:
+            if component.get_editor_property(prop) == value:
+                continue
+        except Exception:  # noqa: BLE001 - set_props reports a missing property
+            pass
+        changed.append((prop, value))
+    c.set_props(component, changed, bp.get_name() + "." + component_name)
+
+    if mesh_asset is not None and component.get_editor_property("static_mesh") != mesh_asset:
         try:
             component.set_static_mesh(mesh_asset)
+            changed.append(("static_mesh", mesh_asset))
         except Exception as exc:  # noqa: BLE001
             c.log_error("set_static_mesh " + bp.get_name(), exc)
-            return False
-    return True
+    return bool(changed)
 
 
 def make_hud():
@@ -93,10 +103,11 @@ def make_pickup(name, values, scale, mesh_asset):
     c.compile_blueprint(bp)
     c.save(bp, only_if_dirty=True)
 
-    cb.apply_defaults(bp, name, WORLD_PATH, values)
-    set_component_mesh(bp, "mesh", mesh_asset, scale)
-    c.compile_blueprint(bp)
-    c.save(bp)
+    changed = bool(cb.apply_defaults(bp, name, WORLD_PATH, values))
+    changed = set_component_mesh(bp, "mesh", mesh_asset, scale) or changed
+    if changed:
+        c.compile_blueprint(bp)
+        c.save(bp)
     return bp
 
 
@@ -123,10 +134,11 @@ def make_door():
 
     cube = mesh(CUBE_PATH)
     # Frame sits in the wall; the leaf fills the 100x220 opening and slides sideways.
-    set_component_mesh(bp, "frame_mesh", cube, DOOR_FRAME_SCALE, unreal.Vector(0.0, 0.0, 130.0))
-    set_component_mesh(bp, "door_mesh", cube, DOOR_LEAF_SCALE, unreal.Vector(0.0, 0.0, 110.0))
-    c.compile_blueprint(bp)
-    c.save(bp)
+    changed = set_component_mesh(bp, "frame_mesh", cube, DOOR_FRAME_SCALE, unreal.Vector(0.0, 0.0, 130.0))
+    changed = set_component_mesh(bp, "door_mesh", cube, DOOR_LEAF_SCALE, unreal.Vector(0.0, 0.0, 110.0)) or changed
+    if changed:
+        c.compile_blueprint(bp)
+        c.save(bp)
     return bp
 
 
@@ -139,16 +151,21 @@ def make_guard():
     c.compile_blueprint(bp)
     c.save(bp, only_if_dirty=True)
 
+    # apply_defaults compares with ==, which is false for two handles to the same UClass, so
+    # the controller class would be re-set (and the asset re-saved) on every run. Compare names.
     controller_class = c.find_class("GuardAIController", "/Script/Castle.GuardAIController")
-    cb.apply_defaults(
-        bp,
-        "BP_Guard",
-        AI_PATH,
-        [
-            ("ai_controller_class", controller_class),
-            ("auto_possess_ai", unreal.AutoPossessAI.PLACED_IN_WORLD_OR_SPAWNED),
-        ],
-    )
+    values = [("auto_possess_ai", unreal.AutoPossessAI.PLACED_IN_WORLD_OR_SPAWNED)]
+    cdo = c.blueprint_cdo(bp)
+    current = None
+    if cdo is not None:
+        try:
+            current = cdo.get_editor_property("ai_controller_class")
+        except Exception:  # noqa: BLE001
+            current = None
+    if c.class_name(current) != c.class_name(controller_class):
+        values.insert(0, ("ai_controller_class", controller_class))
+
+    changed = bool(cb.apply_defaults(bp, "BP_Guard", AI_PATH, values))
 
     cdo = c.blueprint_cdo(bp)
     if cdo is not None:
@@ -163,9 +180,10 @@ def make_guard():
         except Exception as exc:  # noqa: BLE001
             unreal.log_warning("[Castle] skipped   BP_Guard walk speed ({0})".format(exc))
 
-    add_guard_body(bp)
-    c.compile_blueprint(bp)
-    c.save(bp)
+    changed = add_guard_body(bp) or changed
+    if changed:
+        c.compile_blueprint(bp)
+        c.save(bp)
     return bp
 
 
