@@ -55,6 +55,14 @@ ACastleCharacter::ACastleCharacter()
 
 	// Lets the player crouch under and through geometry without the capsule popping.
 	GetCapsuleComponent()->SetCapsuleSize(34.f, 88.f);
+
+	// The Pawn profile ignores Visibility, so bullets need their own channel to land on
+	// Frank at all - without this the guards' shots went through him as well.
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
+	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
+	{
+		SkeletalMesh->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
+	}
 }
 
 void ACastleCharacter::BeginPlay()

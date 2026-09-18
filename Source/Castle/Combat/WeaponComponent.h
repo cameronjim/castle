@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Engine/EngineTypes.h"
 #include "Math/RandomStream.h"
 #include "WeaponComponent.generated.h"
 
@@ -13,6 +14,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChangedSignature, int32, Cur
 
 /** Fired instead of a shot when the trigger is pulled on an empty magazine. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEmptyClickSignature);
+
+/** Fired when a shot lands on something that can take damage. The HUD flashes a hit marker on it. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnWeaponHitSignature, AActor*, HitActor, float, DamageDealt);
 
 /**
  * Hitscan weapon attached to a pawn. Traces from the owner's view point, so it works for the
@@ -78,6 +82,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
 	TSubclassOf<UDamageType> DamageTypeClass;
 
+	/**
+	 * Channel the hitscan traces on. Defaults to the project's "Weapon" channel, because the
+	 * stock Pawn and CharacterMesh profiles ignore Visibility and a Visibility trace therefore
+	 * passes straight through every character.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_GameTraceChannel1;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon", meta = (ClampMin = "0.0"))
 	float TraceChannelDebugDuration = 1.f;
 
@@ -90,6 +102,10 @@ public:
 	/** Fired when Fire() is called with an empty magazine; play the dry-fire click from this. */
 	UPROPERTY(BlueprintAssignable, Category = "Weapon")
 	FOnEmptyClickSignature OnEmptyClick;
+
+	/** Fired once per shot that lands on a damageable actor, after the damage is applied. */
+	UPROPERTY(BlueprintAssignable, Category = "Weapon")
+	FOnWeaponHitSignature OnHit;
 
 	/** Arms the owner with Magazine rounds loaded and Reserve spare, and fires OnAmmoChanged. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
@@ -190,6 +206,15 @@ protected:
 
 	/** Runs the hitscan trace and applies damage. Skipped when the component has no world. */
 	void TraceAndApplyDamage();
+
+	/**
+	 * Bone the shot should be scored against.
+	 *
+	 * A capsule hit carries no bone name, and the capsule is what a bullet usually meets first,
+	 * so the hit is refined against the victim's skeletal mesh to find out whether the ray
+	 * really went through the head. Returns Hit.BoneName when there is nothing to refine.
+	 */
+	FName ResolveHitBone(const FHitResult& Hit, const FVector& TraceStart, const FVector& TraceEnd) const;
 
 private:
 	bool bIsReloading = false;

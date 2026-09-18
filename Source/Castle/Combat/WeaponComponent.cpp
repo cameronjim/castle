@@ -4,6 +4,8 @@
 
 #include "Castle.h"
 #include "CollisionQueryParams.h"
+#include "Combat/HealthComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
@@ -195,12 +197,14 @@ void UWeaponComponent::TraceAndApplyDamage()
 	const FVector ShotDirection = ApplyConeSpread(ViewRotation.Vector(), GetCurrentSpreadDegrees(), SpreadStream);
 	const FVector TraceEnd = ViewLocation + ShotDirection * Range;
 
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CastleWeaponFire), /*bTraceComplex=*/true, Owner);
+	// Simple collision, not complex: a skeletal mesh's physics-asset bodies are simple shapes,
+	// and a complex-only query would miss every character the bullet is aimed at.
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CastleWeaponFire), /*bTraceComplex=*/false, Owner);
 	QueryParams.AddIgnoredActor(Owner);
 	QueryParams.bReturnPhysicalMaterial = true;
 
 	FHitResult Hit;
-	const bool bHitSomething = World->LineTraceSingleByChannel(Hit, ViewLocation, TraceEnd, ECC_Visibility, QueryParams);
+	const bool bHitSomething = World->LineTraceSingleByChannel(Hit, ViewLocation, TraceEnd, TraceChannel, QueryParams);
 
 	if (bHitSomething && Hit.GetActor())
 	{
@@ -210,9 +214,28 @@ void UWeaponComponent::TraceAndApplyDamage()
 			InstigatorController = Pawn->GetController();
 		}
 
+		const FName HitBone = ResolveHitBone(Hit, ViewLocation, TraceEnd);
+		const float DamageDealt = ComputeDamageForHit(HitBone);
+
+		// Every playtest question about "why did that shot not count" is answerable from this line.
+		UE_LOG(LogCastle, Verbose,
+			TEXT("%s: shot hit %s (component %s, bone %s) for %.1f damage."),
+			*GetNameSafe(Owner), *GetNameSafe(Hit.GetActor()), *GetNameSafe(Hit.GetComponent()),
+			*HitBone.ToString(), DamageDealt);
+
 		UGameplayStatics::ApplyPointDamage(
-			Hit.GetActor(), ComputeDamageForHit(Hit.BoneName), ShotDirection, Hit,
+			Hit.GetActor(), DamageDealt, ShotDirection, Hit,
 			InstigatorController, Owner, DamageTypeClass);
+
+		if (Hit.GetActor()->FindComponentByClass<UHealthComponent>())
+		{
+			OnHit.Broadcast(Hit.GetActor(), DamageDealt);
+		}
+	}
+	else
+	{
+		UE_LOG(LogCastle, Verbose, TEXT("%s: shot hit nothing within %.0f units."),
+			*GetNameSafe(Owner), Range);
 	}
 
 #if ENABLE_DRAW_DEBUG
@@ -224,6 +247,32 @@ void UWeaponComponent::TraceAndApplyDamage()
 #endif
 
 	OnWeaponFired(Hit, bHitSomething);
+}
+
+FName UWeaponComponent::ResolveHitBone(const FHitResult& Hit, const FVector& TraceStart, const FVector& TraceEnd) const
+{
+	if (!Hit.BoneName.IsNone())
+	{
+		return Hit.BoneName;
+	}
+
+	const AActor* HitActor = Hit.GetActor();
+	USkeletalMeshComponent* SkeletalMesh = HitActor ? HitActor->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset() || !SkeletalMesh->GetPhysicsAsset())
+	{
+		return Hit.BoneName;
+	}
+
+	// The capsule is wider than the head, so the capsule hit alone can never be a headshot.
+	// Ask the body itself whether the ray passed through one of its bones.
+	FHitResult BoneHit;
+	FCollisionQueryParams BoneParams(SCENE_QUERY_STAT(CastleWeaponBone), /*bTraceComplex=*/false);
+	if (SkeletalMesh->LineTraceComponent(BoneHit, TraceStart, TraceEnd, BoneParams))
+	{
+		return BoneHit.BoneName;
+	}
+
+	return Hit.BoneName;
 }
 
 bool UWeaponComponent::Reload()

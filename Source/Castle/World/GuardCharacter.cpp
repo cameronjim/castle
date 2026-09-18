@@ -35,6 +35,15 @@ AGuardCharacter::AGuardCharacter()
 
 	GetCapsuleComponent()->SetCapsuleSize(34.f, 96.f);
 
+	// Both the capsule and the mesh block bullets. The capsule is the guarantee - a greybox
+	// guard with no skeletal mesh still has to be killable - and the mesh is what gives the
+	// hit a bone name, which is where the headshot multiplier comes from.
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
+	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
+	{
+		SkeletalMesh->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
+	}
+
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		Movement->MaxWalkSpeed = 300.f;
@@ -94,8 +103,13 @@ void AGuardCharacter::OnTakedown_Implementation(AActor* /*Attacker*/)
 	}
 }
 
-void AGuardCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* /*Killer*/)
+void AGuardCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 {
+	// Log-level, not Verbose: "did anything I shot actually die" is the first question of
+	// every playtest, and it has to be answerable from the default log.
+	UE_LOG(LogCastle, Log, TEXT("%s died (killed by %s, alert state %d)."),
+		*GetName(), *GetNameSafe(Killer), static_cast<int32>(AlertState));
+
 	GoLimp();
 	DropLoot();
 }
