@@ -33,11 +33,42 @@ namespace CastleMissionTest
 	{
 		UMissionTracker* Tracker = NewObject<UMissionTracker>();
 		OutListener = NewObject<UCastleTestListener>();
+		OutListener->WatchedTracker = Tracker;
+		Tracker->OnMissionStarted.AddDynamic(OutListener, &UCastleTestListener::HandleMissionStarted);
 		Tracker->OnObjectiveUpdated.AddDynamic(OutListener, &UCastleTestListener::HandleObjectiveUpdated);
 		Tracker->OnMissionComplete.AddDynamic(OutListener, &UCastleTestListener::HandleMissionComplete);
 		Tracker->OnFlashbackRequested.AddDynamic(OutListener, &UCastleTestListener::HandleFlashbackRequested);
 		return Tracker;
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleMissionStartFiresOnMissionStartedOnce, "Castle.Mission.StartFiresOnMissionStartedOnce",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleMissionStartFiresOnMissionStartedOnce::RunTest(const FString& Parameters)
+{
+	UCastleTestListener* Listener = nullptr;
+	UMissionTracker* Tracker = CastleMissionTest::MakeTracker(Listener);
+
+	TestEqual(TEXT("Nothing before StartMission"), Listener->MissionStartedCount, 0);
+
+	UMissionDefinition* Mission = CastleMissionTest::MakeMission();
+	TestTrue(TEXT("Mission starts"), Tracker->StartMission(Mission));
+
+	TestEqual(TEXT("OnMissionStarted fired once"), Listener->MissionStartedCount, 1);
+	TestTrue(TEXT("With the definition that started"), Listener->LastStartedMission == Mission);
+	TestEqual(TEXT("And nothing else fired"), Listener->ObjectiveUpdatedCount, 0);
+	TestEqual(TEXT("No completion either"), Listener->MissionCompleteCount, 0);
+
+	// The HUD reads the current objective inside the callback, so it must already exist.
+	TestTrue(TEXT("The objectives exist by then"), Listener->bCurrentObjectiveSetAtMissionStart);
+
+	// Completing objectives never re-fires it.
+	Tracker->CompleteObjective(FName(TEXT("find_weapon")));
+	Tracker->CompleteObjective(FName(TEXT("reach_stairwell")));
+	TestEqual(TEXT("Still once"), Listener->MissionStartedCount, 1);
+
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleMissionCompletesWhenRequiredDone, "Castle.Mission.CompletesWhenRequiredDone",
