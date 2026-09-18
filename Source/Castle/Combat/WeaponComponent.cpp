@@ -14,6 +14,9 @@
 UWeaponComponent::UWeaponComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
+
+	HeadBoneNames.Add(FName(TEXT("head")));
+	HeadBoneNames.Add(FName(TEXT("neck_01")));
 }
 
 void UWeaponComponent::BeginPlay()
@@ -34,15 +37,36 @@ void UWeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+double UWeaponComponent::GetNowSeconds() const
+{
+	if (bUseTestTime)
+	{
+		return TestTimeOverride;
+	}
+
+	const UWorld* World = GetWorld();
+	return World ? static_cast<double>(World->GetTimeSeconds()) : 0.0;
+}
+
+void UWeaponComponent::SetTestTimeSeconds(double InSeconds)
+{
+	bUseTestTime = true;
+	TestTimeOverride = InSeconds;
+}
+
 bool UWeaponComponent::CanFire() const
 {
-	const UWorld* World = GetWorld();
-	if (!World || bIsReloading || CurrentAmmo <= 0)
+	if (bIsReloading || CurrentAmmo <= 0)
 	{
 		return false;
 	}
 
-	return World->GetTimeSeconds() - LastFireTimeSeconds >= GetSecondsBetweenShots();
+	return GetNowSeconds() - LastFireTimeSeconds >= GetSecondsBetweenShots();
+}
+
+float UWeaponComponent::ComputeDamageForHit(FName BoneName) const
+{
+	return HeadBoneNames.Contains(BoneName) ? Damage * HeadshotMultiplier : Damage;
 }
 
 void UWeaponComponent::GetFireViewPoint(FVector& OutLocation, FRotator& OutRotation) const
@@ -71,16 +95,39 @@ void UWeaponComponent::GetFireViewPoint(FVector& OutLocation, FRotator& OutRotat
 
 bool UWeaponComponent::Fire()
 {
-	UWorld* World = GetWorld();
-	AActor* Owner = GetOwner();
-	if (!World || !Owner || !CanFire())
+	if (bIsReloading)
 	{
 		return false;
 	}
 
-	LastFireTimeSeconds = World->GetTimeSeconds();
+	if (CurrentAmmo <= 0)
+	{
+		OnEmptyClick.Broadcast();
+		return false;
+	}
+
+	if (GetNowSeconds() - LastFireTimeSeconds < GetSecondsBetweenShots())
+	{
+		return false;
+	}
+
+	LastFireTimeSeconds = GetNowSeconds();
 	--CurrentAmmo;
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
+
+	TraceAndApplyDamage();
+	return true;
+}
+
+void UWeaponComponent::TraceAndApplyDamage()
+{
+	UWorld* World = GetWorld();
+	AActor* Owner = GetOwner();
+	if (!World || !Owner)
+	{
+		// Ammo accounting still happened; there is simply nothing to trace against.
+		return;
+	}
 
 	FVector ViewLocation;
 	FRotator ViewRotation;
@@ -105,7 +152,8 @@ bool UWeaponComponent::Fire()
 		}
 
 		UGameplayStatics::ApplyPointDamage(
-			Hit.GetActor(), Damage, ShotDirection, Hit, InstigatorController, Owner, DamageTypeClass);
+			Hit.GetActor(), ComputeDamageForHit(Hit.BoneName), ShotDirection, Hit,
+			InstigatorController, Owner, DamageTypeClass);
 	}
 
 #if ENABLE_DRAW_DEBUG
@@ -117,13 +165,11 @@ bool UWeaponComponent::Fire()
 #endif
 
 	OnWeaponFired(Hit, bHitSomething);
-	return true;
 }
 
 bool UWeaponComponent::Reload()
 {
-	UWorld* World = GetWorld();
-	if (!World || bIsReloading || ReserveAmmo <= 0 || CurrentAmmo >= MagazineSize)
+	if (bIsReloading || ReserveAmmo <= 0 || CurrentAmmo >= MagazineSize)
 	{
 		return false;
 	}
@@ -131,31 +177,61 @@ bool UWeaponComponent::Reload()
 	bIsReloading = true;
 	OnReloadStarted(ReloadSeconds);
 
-	if (ReloadSeconds > 0.f)
+	if (ReloadSeconds <= 0.f)
+	{
+		CompleteReloadNow();
+		return true;
+	}
+
+	// Without a world there is no timer manager; the caller (an animation notify, or a test)
+	// finishes the reload with CompleteReloadNow().
+	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
-			ReloadTimerHandle, this, &UWeaponComponent::FinishReload, ReloadSeconds, false);
-	}
-	else
-	{
-		FinishReload();
+			ReloadTimerHandle, this, &UWeaponComponent::CompleteReloadNow, ReloadSeconds, false);
 	}
 
 	return true;
 }
 
-void UWeaponComponent::FinishReload()
+void UWeaponComponent::CompleteReloadNow()
 {
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ReloadTimerHandle);
+	}
+
 	bIsReloading = false;
 
 	const int32 Needed = MagazineSize - CurrentAmmo;
 	const int32 Loaded = FMath::Min(Needed, ReserveAmmo);
+	if (Loaded <= 0)
+	{
+		OnReloadFinished();
+		return;
+	}
 
 	CurrentAmmo += Loaded;
 	ReserveAmmo -= Loaded;
 
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 	OnReloadFinished();
+}
+
+void UWeaponComponent::CancelReload()
+{
+	if (!bIsReloading)
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ReloadTimerHandle);
+	}
+
+	bIsReloading = false;
+	UE_LOG(LogCastle, Verbose, TEXT("%s: reload cancelled."), *GetNameSafe(GetOwner()));
 }
 
 void UWeaponComponent::AddAmmo(int32 Rounds)

@@ -10,9 +10,15 @@ class UDamageType;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChangedSignature, int32, CurrentAmmo, int32, ReserveAmmo);
 
+/** Fired instead of a shot when the trigger is pulled on an empty magazine. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEmptyClickSignature);
+
 /**
  * Hitscan weapon attached to a pawn. Traces from the owner's view point, so it works for the
  * first-person camera on ACastleCharacter without any extra wiring.
+ *
+ * Default stats are the starter pistol: 34 damage, x3 on a headshot, so a 100 HP guard dies to
+ * three body shots or one headshot.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UWeaponComponent : public UActorComponent
@@ -23,16 +29,24 @@ public:
 	UWeaponComponent();
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Ammo", meta = (ClampMin = "1"))
-	int32 MagazineSize = 30;
+	int32 MagazineSize = 12;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Weapon|Ammo")
-	int32 CurrentAmmo = 30;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon|Ammo")
+	int32 CurrentAmmo = 12;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Ammo", meta = (ClampMin = "0"))
-	int32 ReserveAmmo = 120;
+	int32 ReserveAmmo = 24;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon", meta = (ClampMin = "0.0"))
-	float Damage = 20.f;
+	float Damage = 34.f;
+
+	/** Damage multiplier applied when the hit bone is in HeadBoneNames. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon", meta = (ClampMin = "1.0"))
+	float HeadshotMultiplier = 3.f;
+
+	/** Bones that count as a head. Matches the default UE5 skeleton naming. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+	TSet<FName> HeadBoneNames;
 
 	/** Hitscan range in centimetres. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon", meta = (ClampMin = "0.0"))
@@ -57,6 +71,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Weapon")
 	FOnAmmoChangedSignature OnAmmoChanged;
 
+	/** Fired when Fire() is called with an empty magazine; play the dry-fire click from this. */
+	UPROPERTY(BlueprintAssignable, Category = "Weapon")
+	FOnEmptyClickSignature OnEmptyClick;
+
 	/** Fires one round if allowed. Returns true when a shot went out. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	bool Fire();
@@ -64,6 +82,21 @@ public:
 	/** Starts the reload timer. Returns false if already full, already reloading or out of reserve. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	bool Reload();
+
+	/**
+	 * Moves min(MagazineSize - CurrentAmmo, ReserveAmmo) rounds into the magazine right now and
+	 * ends the reload. Called by the reload timer, by an animation notify, and by tests.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void CompleteReloadNow();
+
+	/** Aborts an in-progress reload without moving any ammo (sprinting does this). */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void CancelReload();
+
+	/** Damage this weapon deals to a hit on BoneName, including the headshot multiplier. */
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	float ComputeDamageForHit(FName BoneName) const;
 
 	/** Fire rate, ammo and reload state all satisfied. */
 	UFUNCTION(BlueprintPure, Category = "Weapon")
@@ -74,6 +107,12 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void AddAmmo(int32 Rounds);
+
+	/**
+	 * Overrides the clock used for the fire-rate check. Automation tests use this because a
+	 * component created with NewObject has no world to read GetTimeSeconds() from.
+	 */
+	void SetTestTimeSeconds(double InSeconds);
 
 	/** Muzzle flash, tracer, sound, recoil. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Weapon")
@@ -89,15 +128,23 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	void FinishReload();
+	/** Current time for the fire-rate check: the test clock if one is set, else the world clock. */
+	virtual double GetNowSeconds() const;
 
 	/** View point the shot originates from (player camera when the owner is player controlled). */
 	void GetFireViewPoint(FVector& OutLocation, FRotator& OutRotation) const;
 
-	float GetSecondsBetweenShots() const { return 60.f / FMath::Max(FireRate, 1.f); }
+	/** Double precision so a test clock advanced by exactly one interval is not rejected. */
+	double GetSecondsBetweenShots() const { return 60.0 / FMath::Max(static_cast<double>(FireRate), 1.0); }
+
+	/** Runs the hitscan trace and applies damage. Skipped when the component has no world. */
+	void TraceAndApplyDamage();
 
 private:
 	bool bIsReloading = false;
-	float LastFireTimeSeconds = TNumericLimits<float>::Lowest();
+	double LastFireTimeSeconds = TNumericLimits<double>::Lowest();
 	FTimerHandle ReloadTimerHandle;
+
+	bool bUseTestTime = false;
+	double TestTimeOverride = 0.0;
 };
