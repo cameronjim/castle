@@ -99,6 +99,13 @@ public:
 	UFUNCTION()
 	void HandleEmptyClick();
 
+	UPROPERTY() int32 WeaponHitCount = 0;
+	UPROPERTY() TObjectPtr<AActor> LastWeaponHitActor = nullptr;
+	UPROPERTY() float LastWeaponHitDamage = 0.f;
+
+	UFUNCTION()
+	void HandleWeaponHit(AActor* HitActor, float DamageDealt);
+
 	// --- Takedown -------------------------------------------------------------------------------
 	UPROPERTY() int32 TakedownCount = 0;
 	UPROPERTY() TObjectPtr<AActor> LastTakedownTarget = nullptr;

@@ -4,8 +4,11 @@
 
 #include "Combat/HealthComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/GameModeBase.h"
+#include "GameFramework/WorldSettings.h"
 #include "Mission/MissionTracker.h"
 
 FCastleTestWorld::FCastleTestWorld()
@@ -15,6 +18,16 @@ FCastleTestWorld::FCastleTestWorld()
 	{
 		FWorldContext& Context = GEngine->CreateNewWorldContext(EWorldType::Game);
 		Context.SetCurrentWorld(World);
+
+		// APawn::ShouldTakeDamage refuses every hit in a world with no authority game mode, so a
+		// test world without one silently swallows all weapon damage. A bare AGameModeBase is
+		// enough, and deliberately not the project's: tests never load Content.
+		World->SetGameInstance(NewObject<UGameInstance>(GEngine));
+		if (AWorldSettings* Settings = World->GetWorldSettings())
+		{
+			Settings->DefaultGameMode = AGameModeBase::StaticClass();
+		}
+		World->SetGameMode(FURL());
 
 		// Without this the world never marks its actors initialized, and AActor::PostActorConstruction
 		// then skips PostInitializeComponents and BeginPlay entirely - so anything an actor wires up
@@ -91,6 +104,13 @@ void UCastleTestListener::HandleAmmoChanged(int32 CurrentAmmo, int32 ReserveAmmo
 void UCastleTestListener::HandleEmptyClick()
 {
 	++EmptyClickCount;
+}
+
+void UCastleTestListener::HandleWeaponHit(AActor* HitActor, float DamageDealt)
+{
+	++WeaponHitCount;
+	LastWeaponHitActor = HitActor;
+	LastWeaponHitDamage = DamageDealt;
 }
 
 void UCastleTestListener::HandleTakedownPerformed(AActor* Target)
