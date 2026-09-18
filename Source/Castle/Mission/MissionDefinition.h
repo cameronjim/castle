@@ -43,6 +43,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
 	bool bShowObjectiveText = true;
 
+	/**
+	 * One line of Frank's, shown under the mission name on the end card. Optional: an empty
+	 * line leaves the card as just the mission name.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission", meta = (MultiLine = "true"))
+	FText EndCardLine;
+
 	/** Flashback slideshow played when this mission completes. Optional. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
 	TSoftObjectPtr<UFlashbackDefinition> FlashbackToPlay;
