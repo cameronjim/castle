@@ -56,6 +56,14 @@ Build time: about 80 seconds for a full rebuild of the Castle module, 20-40 seco
 If the editor is open, close it or use Live Coding (Ctrl+Alt+F11 in the editor) instead.
 Building with the editor open and Live Coding off produces a DLL the editor won't reload.
 
+## Config facts worth knowing
+- `DefaultEngine.ini` declares the `Weapon` trace channel (`ECC_GameTraceChannel1`).
+  Don't reorder or renumber custom channels; assets store the enum value.
+- `RuntimeGeneration=Dynamic` on `RecastNavMesh` is what lets headlessly generated maps
+  have a navmesh at all. Removing it silently freezes every guard.
+- The Python plugin is enabled for headless asset scripts. Its stub, when present, is at
+  `Intermediate/PythonStub/unreal.py` and is the fastest way to check property names.
+
 ## Running the editor
 
 Full editor (visual work only):

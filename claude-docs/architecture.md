@@ -109,7 +109,10 @@ UMissionSubsystem (world subsystem)
 ### Player and framework
 - `ACastleCharacter`: first-person camera on the capsule, health, takedown, interaction,
   weapon (starts with `bHasWeapon` false), noise emitter (1.0 sprinting, 0.4 walking, 0
-  crouched, every 0.5 s; 3.0 on fire), keycard set. Enhanced Input action properties
+  crouched, every 0.5 s; 3.0 on fire), keycard set, `LookSensitivity`. Viewmodel:
+  `ArmsMesh` (the mannequin with legs and head hidden, attached to the camera, owner-only)
+  and `WeaponMesh` (template pistol) with procedural recoil, reload dip, aim lerp, sway,
+  and a muzzle light. Enhanced Input action properties and all viewmodel assets are
   assigned in `BP_CastleCharacter`. Movement tuning lives on the Blueprint's
   CharacterMovement component, not in C++.
 - `ACastlePlayerController`: the glue for UI. Creates `HudWidgetClass` on BeginPlay,

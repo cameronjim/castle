@@ -26,7 +26,15 @@ Content/
                         IA_Crouch, IA_Fire, IA_Aim, IA_Reload, IA_Takedown, IA_Interact,
                         IA_Dodge, IA_Pause, IA_Skip
   Data/                 DT_Dialogue, DT_Settings, CU_DamageFalloff_Pistol (curves)
-  Kit/                  Grey-box modular meshes: SM_Kit_Wall400, SM_Kit_DoorFrame ...
+  Kit/                  Grey-box modular meshes and M_Greybox materials
+  Mannequin/            UE mannequin feature pack, copied verbatim (assets hard-reference
+                        /Game/Mannequin, so the path is fixed). Used for guards and the
+                        first-person arms fallback.
+  Weapons/Pistol/       UE template pistol (Meshes, Materials, Textures), copied verbatim
+                        for the same reason. Weapons/Rifle/Materials/M_Weapon is its parent.
+  Materials/            Procedural M_Concrete, M_ConcreteFloor, M_SteelPainted, M_Pistol,
+                        M_KeycardBody, M_Emissive and its MI_ instances, M_FluorescentFlicker
+  Characters/Guard/     M_GuardBody, M_GuardVisor
   Environment/          Final art, one subfolder per area: CellBlock, Infirmary, Yard ...
   Characters/           Frank/ (arms), Guards/, Bosses/
   Materials/            M_ master materials, MI_ instances, MF_ functions
@@ -77,6 +85,16 @@ numbered in slide order: `T_FB02_04` is the fourth slide of the second flashback
 - Dialogue: every spoken line is a row in `DT_Dialogue` with a stable row name
   `m05_doctor_03`, `vent_books_02`, `m07_warden_phase2_01`. Audio asset name matches
   the row name with the `S_VO_` prefix.
+
+## Level dressing
+- Every actor a room-art script places carries the `Art_` label prefix so it can be
+  found, verified, and removed without touching gameplay actors.
+- Dressing never sits on a patrol path: the scripts log any placed footprint within
+  60 cm of an `ATargetPoint`, and the smoke test fails if guards stop moving.
+- Rooms are built one at a time to a finished look before the next one starts. The
+  cell and corridor 1 of M01 are the reference; new rooms match their material and light
+  vocabulary (concrete, painted steel, fluorescent tubes, one red emergency light per
+  corridor, green exit signs over doors).
 
 ## Blueprint hygiene
 - Parent class is the C++ class when one exists. `BP_Guard` derives `AGuardCharacter`,
