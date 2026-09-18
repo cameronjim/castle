@@ -223,8 +223,47 @@ bool FCastleKillNearestGuard::Update()
 	}
 
 	Nearest->GetHealthComponent()->ApplyDamage(9999.f, Pawn);
+	// Killing him detaches the mesh, so where he ends up is not where he stood. The next
+	// command re-frames him once the body has finished falling.
 	Test->AddInfo(FString::Printf(TEXT("Killed %s; ragdolling=%d, collapsing=%d"),
 		*Nearest->GetName(), Nearest->IsRagdolling() ? 1 : 0, Nearest->IsCollapsing() ? 1 : 0));
+	return true;
+}
+
+/** Stand back from the body that just fell and look down at it. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
+	FCastleLookAtDeadGuard, FAutomationTestBase*, Test);
+
+bool FCastleLookAtDeadGuard::Update()
+{
+	UWorld* World = FindScreenshotWorld();
+	APawn* Pawn = FindScreenshotPawn();
+	if (!World || !Pawn)
+	{
+		return true;
+	}
+
+	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	{
+		if (!It->IsLimp() || !It->GetMesh())
+		{
+			continue;
+		}
+
+		// The mesh is where the body actually is; the actor stayed where he was shot.
+		const FVector Body = It->GetMesh()->GetComponentLocation();
+		const FVector Eye = Body - FVector(260.f, 0.f, 0.f) + FVector(0.f, 0.f, 160.f);
+		const FRotator Look = (Body - Eye).Rotation();
+		Pawn->TeleportTo(Eye, Look, false, true);
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			PC->SetControlRotation(Look);
+		}
+		Test->AddInfo(FString::Printf(TEXT("Framing %s at %s."), *It->GetName(), *Body.ToCompactString()));
+		return true;
+	}
+
+	Test->AddWarning(TEXT("No limp guard to frame for guard_dead.png."));
 	return true;
 }
 
@@ -308,7 +347,9 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	}
 
 	AutomationOpenMap(TEXT("/Game/Maps/L_M01_CellBlockD"));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(3.f));
+	// Longer than the room pass: the first second or so still renders the editor's own
+	// billboards and volume wireframes over the game view, which spoils a view model shot.
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(5.f));
 
 	// Down the corridor, pawn visible: the pistol is parented to the camera, so it only shows
 	// up in a shot where the actor is not hidden.
@@ -331,6 +372,8 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	// And the other half of the playtest: a guard who is supposed to end up on the floor.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKillNearestGuard(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleLookAtDeadGuard(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("guard_dead.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleReportGuardDeathPath(this));

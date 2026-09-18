@@ -325,7 +325,7 @@ protected:
 	 * frame, barrel down the camera's forward axis.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector WeaponRelativeLocation = FVector(28.f, 14.f, -14.f);
+	FVector WeaponRelativeLocation = FVector(42.f, 18.f, -14.f);
 
 	/**
 	 * SM_Pistol is modelled barrel-along-+Y (its bounds run y -5.3..20.9, x only -2.9..3.1),
@@ -334,9 +334,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	FRotator WeaponRelativeRotation = FRotator(0.f, -90.f, 0.f);
 
-	/** Where the pistol sits while aiming: centred, so the sights meet the crosshair. */
+	/**
+	 * Where the pistol sits while aiming: centred, and dropped far enough that the top of the
+	 * slide - the sights - lands on the crosshair rather than the middle of the slide.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector WeaponAimLocation = FVector(20.f, 0.f, -8.f);
+	FVector WeaponAimLocation = FVector(38.f, 0.f, -11.5f);
 
 	/** Empty-handed pose. Optional: with no animation asset the arms hold their reference pose. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
