@@ -273,6 +273,46 @@ def check_data_assets():
             fail("DA_FB01_Sunday has {0} slides, expected 6".format(len(slides)))
 
 
+LIGHT_ACTOR_CLASSES = (unreal.DirectionalLight, unreal.SkyLight, unreal.PointLight)
+
+
+def check_lighting_and_materials(map_path, actors):
+    """Every light must be Movable; every mesh actor must have a real material in slot 0."""
+    unbuilt_lights = []
+    for actor in actors:
+        if not isinstance(actor, LIGHT_ACTOR_CLASSES):
+            continue
+        mobility = c.actor_mobility(actor) if hasattr(c, "actor_mobility") else None
+        if mobility != unreal.ComponentMobility.MOVABLE:
+            unbuilt_lights.append(label_of(actor))
+    say("    lights not Movable: {0}".format(len(unbuilt_lights)))
+    if unbuilt_lights:
+        fail(
+            "{0}: {1} light(s) not Movable ({2})".format(
+                map_path, len(unbuilt_lights), ", ".join(unbuilt_lights)
+            )
+        )
+
+    unmaterialed_meshes = []
+    for actor in actors:
+        if not isinstance(actor, unreal.StaticMeshActor):
+            continue
+        try:
+            component = actor.get_editor_property("static_mesh_component")
+        except Exception:  # noqa: BLE001
+            continue
+        has_material = hasattr(c, "has_material_override") and c.has_material_override(component)
+        if not has_material:
+            unmaterialed_meshes.append(label_of(actor))
+    say("    mesh actors with no material: {0}".format(len(unmaterialed_meshes)))
+    if unmaterialed_meshes:
+        fail(
+            "{0}: {1} mesh actor(s) with no material ({2})".format(
+                map_path, len(unmaterialed_meshes), ", ".join(unmaterialed_meshes)
+            )
+        )
+
+
 def check_maps():
     say("---- maps ----")
     subsystem = c.level_editor_subsystem()
@@ -293,6 +333,8 @@ def check_maps():
         )
         if game_mode is None:
             fail(map_path + " has no GameMode override")
+
+        check_lighting_and_materials(map_path, actors)
 
         triggers = [
             a
