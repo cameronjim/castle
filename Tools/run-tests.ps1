@@ -19,9 +19,10 @@ $LogFile = Join-Path $Root "Saved\Logs\CastleTests.log"
 if (-not (Test-Path $LogFile)) { Write-Error "No log produced at $LogFile"; exit 2 }
 
 $Lines = Get-Content $LogFile
-$Passed = @($Lines | Select-String -Pattern "Test Completed\. Result=\{Passed\}").Count
-$Failed = @($Lines | Select-String -Pattern "Test Completed\. Result=\{Failed\}")
-$Skipped = @($Lines | Select-String -Pattern "Test Completed\. Result=\{Skipped\}").Count
+# UE 5.8 writes Result={Success} / Result={Fail} / Result={Skipped}, not Passed/Failed.
+$Passed = @($Lines | Select-String -Pattern "Test Completed\. Result=\{(Success|Passed)\}").Count
+$Failed = @($Lines | Select-String -Pattern "Test Completed\. Result=\{(Fail|Failed)\}")
+$Skipped = @($Lines | Select-String -Pattern "Test Completed\. Result=\{(Skipped|NotRun)\}").Count
 
 Write-Host ""
 Write-Host "Castle tests ($Filter): $Passed passed, $($Failed.Count) failed, $Skipped skipped"
