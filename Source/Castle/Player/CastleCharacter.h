@@ -67,6 +67,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	bool IsLockedOutByTakedown() const;
 
+	/**
+	 * Starts aiming down sights: the camera blends to AimFOV, the walk speed drops to
+	 * WalkSpeed * AimSpeedMultiplier, and the weapon tightens its spread cone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Aim")
+	void StartAim();
+
+	/** Ends aiming. Safe to call when not aiming; sprinting calls it. */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Aim")
+	void StopAim();
+
+	UFUNCTION(BlueprintPure, Category = "Castle|Aim")
+	bool IsAiming() const { return bIsAiming; }
+
+	/** Current camera field of view. Exposed so a test or a Blueprint can read the blend. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Aim")
+	float GetCurrentFOV() const;
+
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Castle|Character")
 	void OnInteractPressed();
@@ -75,6 +93,7 @@ protected:
 	//~ Begin APawn interface
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void PawnClientRestart() override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	//~ End APawn interface
@@ -92,6 +111,14 @@ protected:
 	void Input_Reload(const FInputActionValue& Value);
 	void Input_Takedown(const FInputActionValue& Value);
 	void Input_Interact(const FInputActionValue& Value);
+	void Input_AimStarted(const FInputActionValue& Value);
+	void Input_AimCompleted(const FInputActionValue& Value);
+
+	/** Walk speed for the current sprint/aim combination, written to CharacterMovement. */
+	void UpdateMaxWalkSpeed();
+
+	/** Moves the camera FOV one frame towards its target. */
+	void UpdateAimFOV(float DeltaSeconds);
 
 	// --- Components -----------------------------------------------------------------------------
 
@@ -143,6 +170,9 @@ protected:
 	TObjectPtr<UInputAction> FireAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> AimAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> ReloadAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
@@ -165,6 +195,27 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Castle|Movement")
 	bool bIsSprinting = false;
+
+	// --- Aim ------------------------------------------------------------------------------------
+
+	/** Field of view when hip-firing. The camera starts here and returns here. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "10.0", ClampMax = "170.0"))
+	float HipFOV = 90.f;
+
+	/** Field of view while aiming down sights. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "10.0", ClampMax = "170.0"))
+	float AimFOV = 70.f;
+
+	/** Seconds the camera takes to travel the whole way between HipFOV and AimFOV. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "0.0"))
+	float AimBlendSeconds = 0.15f;
+
+	/** WalkSpeed is multiplied by this while aiming. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AimSpeedMultiplier = 0.6f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Castle|Aim")
+	bool bIsAiming = false;
 
 	// --- Noise ----------------------------------------------------------------------------------
 

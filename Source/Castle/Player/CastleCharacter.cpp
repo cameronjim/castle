@@ -21,7 +21,8 @@
 
 ACastleCharacter::ACastleCharacter()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// Ticks only to blend the aim FOV; everything else is event driven.
+	PrimaryActorTick.bCanEverTick = true;
 
 	// First-person: the controller drives the camera, not the mesh.
 	bUseControllerRotationYaw = true;
@@ -32,6 +33,7 @@ ACastleCharacter::ACastleCharacter()
 	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
 	FirstPersonCamera->SetRelativeLocation(FVector(0.f, 0.f, EyeHeightOffset));
 	FirstPersonCamera->bUsePawnControlRotation = true;
+	FirstPersonCamera->SetFieldOfView(HipFOV);
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 	TakedownComponent = CreateDefaultSubobject<UTakedownComponent>(TEXT("TakedownComponent"));
@@ -59,9 +61,11 @@ void ACastleCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	UpdateMaxWalkSpeed();
+
+	if (FirstPersonCamera)
 	{
-		Movement->MaxWalkSpeed = WalkSpeed;
+		FirstPersonCamera->SetFieldOfView(HipFOV);
 	}
 
 	if (HealthComponent)
@@ -219,6 +223,11 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		// Triggered (not Started) so a Hold/Pulse trigger on the action gives automatic fire.
 		EnhancedInput->BindAction(FireAction, ETriggerEvent::Triggered, this, &ACastleCharacter::Input_Fire);
 	}
+	if (AimAction)
+	{
+		EnhancedInput->BindAction(AimAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_AimStarted);
+		EnhancedInput->BindAction(AimAction, ETriggerEvent::Completed, this, &ACastleCharacter::Input_AimCompleted);
+	}
 	if (ReloadAction)
 	{
 		EnhancedInput->BindAction(ReloadAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_Reload);
@@ -257,10 +266,10 @@ void ACastleCharacter::Input_Look(const FInputActionValue& Value)
 void ACastleCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 {
 	bIsSprinting = true;
-	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
-	{
-		Movement->MaxWalkSpeed = SprintSpeed;
-	}
+
+	// You cannot sprint down the sights; the aim drops before the speed goes up.
+	StopAim();
+	UpdateMaxWalkSpeed();
 
 	// Sprinting cancels a reload; the magazine keeps whatever it had.
 	if (UWeaponComponent* Weapon = GetWeaponComponent())
@@ -272,10 +281,108 @@ void ACastleCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 void ACastleCharacter::Input_SprintCompleted(const FInputActionValue& /*Value*/)
 {
 	bIsSprinting = false;
-	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	UpdateMaxWalkSpeed();
+}
+
+void ACastleCharacter::Input_AimStarted(const FInputActionValue& /*Value*/)
+{
+	StartAim();
+}
+
+void ACastleCharacter::Input_AimCompleted(const FInputActionValue& /*Value*/)
+{
+	StopAim();
+}
+
+void ACastleCharacter::StartAim()
+{
+	if (bIsAiming || bIsSprinting || IsLockedOutByTakedown())
 	{
-		Movement->MaxWalkSpeed = WalkSpeed;
+		return;
 	}
+
+	bIsAiming = true;
+	UpdateMaxWalkSpeed();
+
+	if (UWeaponComponent* Weapon = GetWeaponComponent())
+	{
+		Weapon->SetAiming(true);
+	}
+}
+
+void ACastleCharacter::StopAim()
+{
+	if (!bIsAiming)
+	{
+		// Still clear the weapon: a pickup mid-aim could otherwise leave the flags disagreeing.
+		if (UWeaponComponent* Weapon = GetWeaponComponent())
+		{
+			Weapon->SetAiming(false);
+		}
+		return;
+	}
+
+	bIsAiming = false;
+	UpdateMaxWalkSpeed();
+
+	if (UWeaponComponent* Weapon = GetWeaponComponent())
+	{
+		Weapon->SetAiming(false);
+	}
+}
+
+void ACastleCharacter::UpdateMaxWalkSpeed()
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement)
+	{
+		return;
+	}
+
+	if (bIsSprinting)
+	{
+		Movement->MaxWalkSpeed = SprintSpeed;
+		return;
+	}
+
+	Movement->MaxWalkSpeed = bIsAiming ? WalkSpeed * AimSpeedMultiplier : WalkSpeed;
+}
+
+float ACastleCharacter::GetCurrentFOV() const
+{
+	return FirstPersonCamera ? FirstPersonCamera->FieldOfView : HipFOV;
+}
+
+void ACastleCharacter::UpdateAimFOV(float DeltaSeconds)
+{
+	if (!FirstPersonCamera)
+	{
+		return;
+	}
+
+	const float TargetFOV = bIsAiming ? AimFOV : HipFOV;
+	const float Current = FirstPersonCamera->FieldOfView;
+	if (FMath::IsNearlyEqual(Current, TargetFOV, 0.01f))
+	{
+		return;
+	}
+
+	if (AimBlendSeconds <= 0.f)
+	{
+		FirstPersonCamera->SetFieldOfView(TargetFOV);
+		return;
+	}
+
+	// Constant rate rather than an exponential ease, so the blend really takes AimBlendSeconds.
+	const float Step = FMath::Abs(HipFOV - AimFOV) / AimBlendSeconds * DeltaSeconds;
+	FirstPersonCamera->SetFieldOfView(FMath::FInterpConstantTo(Current, TargetFOV, 1.f, Step));
+}
+
+void ACastleCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	UpdateAimFOV(DeltaSeconds);
 }
 
 void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
