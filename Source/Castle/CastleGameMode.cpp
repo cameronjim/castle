@@ -5,6 +5,7 @@
 #include "Castle.h"
 #include "CastlePlayerController.h"
 #include "Mission/MissionDefinition.h"
+#include "NavigationSystem.h"
 #include "Mission/MissionSubsystem.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
@@ -20,6 +21,8 @@ ACastleGameMode::ACastleGameMode()
 void ACastleGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+
+	BuildNavigationIfEmpty();
 
 	UMissionSubsystem* MissionSubsystem = UMissionSubsystem::Get(this);
 	if (!MissionSubsystem)
@@ -37,6 +40,25 @@ void ACastleGameMode::BeginPlay()
 	{
 		UE_LOG(LogCastle, Log, TEXT("%s has no StartingMission set."), *GetName());
 	}
+}
+
+void ACastleGameMode::BuildNavigationIfEmpty()
+{
+	if (!bBuildNavigationAtStart)
+	{
+		return;
+	}
+
+	UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
+	if (!NavSystem)
+	{
+		UE_LOG(LogCastle, Warning,
+			TEXT("%s: no navigation system; nothing will patrol in this level."), *GetName());
+		return;
+	}
+
+	UE_LOG(LogCastle, Log, TEXT("%s: building navigation."), *GetName());
+	NavSystem->Build();
 }
 
 void ACastleGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)

@@ -42,11 +42,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Mission")
 	bool IsRestartPending() const { return bRestartPending; }
 
+	/**
+	 * Builds the navmesh once at BeginPlay.
+	 *
+	 * The maps are generated headlessly and nobody ever pressed Build Paths, so the navmesh
+	 * they ship with is empty: nav data spawns, every MoveTo fails with "off the navmesh" and
+	 * the guards stand still. Rebuilding at start costs a fraction of a second on maps this
+	 * size. TODO(stage3): build and save navigation with the level instead.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Navigation")
+	bool bBuildNavigationAtStart = true;
+
 protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/** Timer body: actually reopens the level. */
 	void ReopenCurrentLevel();
+
+	/** Rebuilds navigation when the level shipped without any. See bBuildNavigationAtStart. */
+	void BuildNavigationIfEmpty();
 	virtual void BeginPlay() override;
 
 	UFUNCTION()

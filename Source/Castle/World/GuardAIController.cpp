@@ -7,6 +7,7 @@
 #include "Combat/WeaponComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
+#include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISense_Hearing.h"
@@ -296,7 +297,37 @@ void AGuardAIController::AdvancePatrol()
 		return;
 	}
 
-	MoveToActor(Point, /*AcceptanceRadius=*/60.f);
+	RequestMoveToActor(Point, /*AcceptanceRadius=*/60.f);
+}
+
+void AGuardAIController::RequestMoveToActor(AActor* Goal, float AcceptanceRadius)
+{
+	ReportMoveResult(MoveToActor(Goal, AcceptanceRadius), GetNameSafe(Goal));
+}
+
+void AGuardAIController::RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius)
+{
+	ReportMoveResult(MoveToLocation(Goal, AcceptanceRadius), Goal.ToCompactString());
+}
+
+void AGuardAIController::ReportMoveResult(EPathFollowingRequestResult::Type Result, const FString& GoalDescription)
+{
+	if (Result != EPathFollowingRequestResult::Failed || bLoggedMoveFailure)
+	{
+		return;
+	}
+	bLoggedMoveFailure = true;
+
+	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
+	const FString Reason = !NavSystem
+		? TEXT("there is no navigation system in this world")
+		: (NavSystem->GetDefaultNavDataInstance() == nullptr
+			? TEXT("no navigation data exists - the level needs a NavMeshBoundsVolume and "
+				"RuntimeGeneration=Dynamic in DefaultEngine.ini")
+			: TEXT("the goal is off the navmesh or unreachable"));
+
+	UE_LOG(LogCastle, Warning, TEXT("%s: cannot move to %s: %s."),
+		*GetName(), *GoalDescription, *Reason);
 }
 
 void AGuardAIController::TickSuspicious(float DeltaSeconds)
@@ -313,7 +344,7 @@ void AGuardAIController::TickSuspicious(float DeltaSeconds)
 
 	if (DistanceSq > FMath::Square(120.f))
 	{
-		MoveToLocation(LastStimulusLocation, /*AcceptanceRadius=*/60.f);
+		RequestMoveToLocation(LastStimulusLocation, /*AcceptanceRadius=*/60.f);
 		return;
 	}
 
@@ -356,7 +387,7 @@ void AGuardAIController::TickAlerted(float DeltaSeconds)
 
 	if (ToTarget.Size2D() > EngageRange)
 	{
-		MoveToActor(TargetActor, /*AcceptanceRadius=*/EngageRange * 0.8f);
+		RequestMoveToActor(TargetActor, /*AcceptanceRadius=*/EngageRange * 0.8f);
 		return;
 	}
 

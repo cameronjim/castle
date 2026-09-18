@@ -135,6 +135,15 @@ protected:
 	/** Moves to the current patrol point, advancing the index once it is reached. */
 	void AdvancePatrol();
 
+	/**
+	 * MoveToActor / MoveToLocation with the failure reported. A guard that cannot move is
+	 * almost always a missing navmesh rather than a broken state machine, and that used to be
+	 * invisible in the log; this says so once per controller instead of every think tick.
+	 */
+	void RequestMoveToActor(AActor* Goal, float AcceptanceRadius);
+	void RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius);
+	void ReportMoveResult(EPathFollowingRequestResult::Type Result, const FString& GoalDescription);
+
 	/** One shot at TargetActor through the guard's weapon, scattered by AimSpreadDegrees. */
 	void FireAtTarget();
 
@@ -166,6 +175,9 @@ private:
 	float PatrolWaitElapsed = 0.f;
 	float TimeSinceLastShot = 0.f;
 	bool bPatrolWaiting = false;
+
+	/** Latches after the first failed move so a broken navmesh logs once, not four times a second. */
+	bool bLoggedMoveFailure = false;
 
 	FTimerHandle ThinkTimerHandle;
 };
