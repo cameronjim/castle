@@ -1,0 +1,45 @@
+# Epic coding standard, approximately. Run on files you change, not on files you don't.
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+UseTab: Always
+TabWidth: 4
+IndentWidth: 4
+ColumnLimit: 120
+BreakBeforeBraces: Allman
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AccessModifierOffset: -4
+NamespaceIndentation: All
+PointerAlignment: Left
+SpaceAfterTemplateKeyword: true
+SpacesInParentheses: false
+SortIncludes: Never
+FixNamespaceComments: false
+IndentCaseLabels: true
+BinPackArguments: true
+BinPackParameters: true
+AlignAfterOpenBracket: DontAlign
+AlignOperands: false
+AlwaysBreakTemplateDeclarations: Yes
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+StatementMacros:
+  - UPROPERTY
+  - UFUNCTION
+  - UCLASS
+  - USTRUCT
+  - UENUM
+  - UINTERFACE
+  - GENERATED_BODY
+  - GENERATED_UCLASS_BODY
+  - GENERATED_USTRUCT_BODY
+  - DECLARE_DYNAMIC_MULTICAST_DELEGATE
+  - DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam
+  - DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams
+  - DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams
+  - DECLARE_LOG_CATEGORY_EXTERN
+  - DEFINE_LOG_CATEGORY
+  - IMPLEMENT_SIMPLE_AUTOMATION_TEST
