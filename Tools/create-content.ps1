@@ -1,0 +1,79 @@
+# Creates the stage 1-2 starter content (input assets, blueprints, placeholder textures,
+# mission/flashback data assets, sandbox + Cell Block D maps) by running
+# Tools\Editor\create_all.py inside a headless editor.
+#
+# Idempotent: every script checks for the asset before creating it, so re-running is safe.
+# Do not run this while another editor instance is open - they collide on the module DLL.
+#
+#   .\Tools\create-content.ps1
+
+[CmdletBinding()]
+param(
+    [string]$Engine = "C:\Program Files\Epic Games\UE_5.8",
+    [string]$Project = "$PSScriptRoot\..\Castle.uproject"
+)
+
+$ErrorActionPreference = "Stop"
+
+$ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$Project = (Resolve-Path $Project).Path
+$EditorCmd = Join-Path $Engine "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+$Script = Join-Path $ProjectRoot "Tools\Editor\create_all.py"
+$LogDir = Join-Path $ProjectRoot "Saved\Logs"
+$LogFile = Join-Path $LogDir "CastleContent.log"
+
+if (-not (Test-Path $EditorCmd)) { throw "Headless editor not found: $EditorCmd" }
+if (-not (Test-Path $Script))    { throw "Python entry point not found: $Script" }
+if (-not (Test-Path $LogDir))    { New-Item -ItemType Directory -Path $LogDir | Out-Null }
+if (Test-Path $LogFile)          { Remove-Item $LogFile -Force }
+
+Write-Host "Running $Script through $EditorCmd ..."
+
+& $EditorCmd $Project `
+    -run=pythonscript `
+    "-script=$Script" `
+    -unattended `
+    -nullrhi `
+    -nosplash `
+    -nop4 `
+    -stdout `
+    -FullStdOutLogOutput `
+    -NoLogTimes `
+    "-abslog=$LogFile"
+
+$editorExit = $LASTEXITCODE
+
+if (-not (Test-Path $LogFile)) {
+    Write-Host "No log at $LogFile - the editor produced nothing to inspect." -ForegroundColor Red
+    exit 1
+}
+
+$pythonLines = Select-String -Path $LogFile -Pattern "LogPython" | ForEach-Object { $_.Line }
+
+Write-Host ""
+Write-Host "---- LogPython ----"
+if ($pythonLines) {
+    $pythonLines | ForEach-Object { Write-Host $_ }
+} else {
+    Write-Host "(no LogPython output)"
+}
+Write-Host "-------------------"
+
+$bad = $pythonLines | Where-Object { $_ -match "Error|Traceback" }
+
+if ($bad) {
+    Write-Host ""
+    Write-Host "Content creation reported errors:" -ForegroundColor Red
+    $bad | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    Write-Host "Full log: $LogFile"
+    exit 1
+}
+
+if ($editorExit -ne 0) {
+    Write-Host "Editor exited with code $editorExit. Full log: $LogFile" -ForegroundColor Red
+    exit $editorExit
+}
+
+Write-Host ""
+Write-Host "Content creation finished clean. Full log: $LogFile" -ForegroundColor Green
+exit 0
