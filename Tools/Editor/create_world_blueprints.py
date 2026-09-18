@@ -4,7 +4,7 @@
     /Game/Blueprints/World/BP_Pickup_Pistol    parent APickupActor, Weapon
     /Game/Blueprints/World/BP_Pickup_Keycard   parent APickupActor, Keycard "cellblock"
     /Game/Blueprints/World/BP_Door_Keycard     parent ADoorActor, locked on "cellblock"
-    /Game/Blueprints/AI/BP_Guard               parent AGuardCharacter
+    /Game/Blueprints/AI/BP_Guard               parent AGuardCharacter, mannequin mesh
 
 Then:
 
@@ -29,7 +29,17 @@ UI_PATH = "/Game/Blueprints/UI"
 PLAYER_PATH = "/Game/Blueprints/Player"
 
 CUBE_PATH = "/Engine/BasicShapes/Cube.Cube"
-CYLINDER_PATH = "/Engine/BasicShapes/Cylinder.Cylinder"
+
+# The UE4 mannequin, copied out of the engine's Standard/Mannequin feature pack. Its assets
+# hard-reference /Game/Mannequin/..., so the folder keeps that name rather than moving under
+# Content/Characters. The AnimBP is a plain Blueprint over the same skeleton: idle, walk, run
+# and jump, with no template C++ behind it.
+MANNEQUIN_MESH_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
+MANNEQUIN_ANIM_BP_PATH = "/Game/Mannequin/Animations/ThirdPerson_AnimBP"
+
+# The template's own offsets: the mesh hangs from the capsule centre and faces +X.
+GUARD_MESH_LOCATION = unreal.Vector(0.0, 0.0, -96.0)
+GUARD_MESH_ROTATION = unreal.Rotator(0.0, 0.0, -90.0)
 
 # Doors are 100 wide x 220 tall (claude-docs/asset-conventions.md); the cube is 100 cm.
 DOOR_LEAF_SCALE = unreal.Vector(0.1, 1.0, 2.2)
@@ -180,7 +190,8 @@ def make_guard():
         except Exception as exc:  # noqa: BLE001
             unreal.log_warning("[Castle] skipped   BP_Guard walk speed ({0})".format(exc))
 
-    changed = add_guard_body(bp) or changed
+    changed = set_guard_mesh(bp) or changed
+    changed = remove_guard_body(bp) or changed
     if changed:
         c.compile_blueprint(bp)
         c.save(bp)
@@ -208,65 +219,109 @@ def subobject_object(sds, handle, bp):
     return None
 
 
-def add_guard_body(bp):
-    """Give the guard a visible grey cylinder, since there is no skeletal mesh yet.
+def find_subobject_handle(sds, bp, name):
+    """Handle of the Blueprint component called ``name``, or None."""
+    handles = sds.k2_gather_subobject_data_for_blueprint(bp)
+    for handle in handles or []:
+        found = subobject_object(sds, handle, bp)
+        if found is not None and name in found.get_name():
+            return handle, found
+    return None, None
 
-    Added as a real Blueprint component (not just on the CDO) so it shows up in the editor and
-    can be deleted by hand once BP_Guard gets a real character mesh.
+
+def set_guard_mesh(bp):
+    """Point BP_Guard's inherited SkeletalMeshComponent at the mannequin.
+
+    Written on the Blueprint CDO's component template, which is what every spawned guard
+    copies - the same thing a designer does in the Components panel.
     """
+    mesh_asset = c.load_or_none(MANNEQUIN_MESH_PATH)
+    if mesh_asset is None:
+        c.log("skipped", "BP_Guard.Mesh", MANNEQUIN_MESH_PATH + " not found")
+        return False
+
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property("mesh")
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        c.log("skipped", "BP_Guard.Mesh", "no inherited mesh component")
+        return False
+
+    changed = []
+
+    try:
+        if component.get_editor_property("skeletal_mesh_asset") != mesh_asset:
+            component.set_skeletal_mesh_asset(mesh_asset)
+            changed.append("skeletal_mesh_asset")
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("BP_Guard.Mesh skeletal_mesh_asset", exc)
+
+    for prop, value in (
+        ("relative_location", GUARD_MESH_LOCATION),
+        ("relative_rotation", GUARD_MESH_ROTATION),
+    ):
+        try:
+            if component.get_editor_property(prop) == value:
+                continue
+        except Exception:  # noqa: BLE001 - set_props reports a missing property
+            pass
+        if c.set_props(component, [(prop, value)], "BP_Guard.Mesh"):
+            changed.append(prop)
+
+    # The AnimBP is optional: a guard with none is a T-pose that still ragdolls correctly.
+    anim_bp_class = None
+    try:
+        anim_bp_class = unreal.load_class(None, MANNEQUIN_ANIM_BP_PATH + "_C")
+    except Exception:  # noqa: BLE001 - a missing AnimBP is not an error, just a T-pose
+        anim_bp_class = None
+    if anim_bp_class is None:
+        c.log("skipped", "BP_Guard.Mesh", "ThirdPerson_AnimBP_C not found; guard stays in T-pose")
+    else:
+        current = None
+        try:
+            current = component.get_editor_property("anim_class")
+        except Exception:  # noqa: BLE001
+            current = None
+        if c.class_name(current) != c.class_name(anim_bp_class):
+            if c.set_props(
+                component,
+                [
+                    ("animation_mode", unreal.AnimationMode.ANIMATION_BLUEPRINT),
+                    ("anim_class", anim_bp_class),
+                ],
+                "BP_Guard.Mesh",
+            ):
+                changed.append("anim_class")
+
+    if changed:
+        c.log("updated", "BP_Guard.Mesh", ", ".join(changed))
+        return True
+
+    c.log("exists", "BP_Guard.Mesh", "mannequin already assigned")
+    return False
+
+
+def remove_guard_body(bp):
+    """Delete the grey cylinder stand-in now that BP_Guard has a real skeletal mesh."""
     getter = getattr(unreal, "get_engine_subsystem", None)
     if getter is None or not hasattr(unreal, "SubobjectDataSubsystem"):
-        c.log("skipped", "BP_Guard.GuardBody", "SubobjectDataSubsystem unavailable")
         return False
 
     try:
         sds = getter(unreal.SubobjectDataSubsystem)
-        handles = sds.k2_gather_subobject_data_for_blueprint(bp)
-        if not handles:
-            c.log("skipped", "BP_Guard.GuardBody", "no subobject data for the Blueprint")
+        handle, found = find_subobject_handle(sds, bp, "GuardBody")
+        if handle is None or found is None:
             return False
 
-        for handle in handles:
-            found = subobject_object(sds, handle, bp)
-            if found is not None and "GuardBody" in found.get_name():
-                c.log("exists", "BP_Guard.GuardBody")
-                return False
-
-        params = unreal.AddNewSubobjectParams(
-            parent_handle=handles[0],
-            new_class=unreal.StaticMeshComponent,
-            blueprint_context=bp,
-        )
-        handle, fail = sds.add_new_subobject(params)
-        if fail and str(fail):
-            c.log("skipped", "BP_Guard.GuardBody", str(fail))
-            return False
-
-        sds.rename_subobject(handle, unreal.Text("GuardBody"))
-
-        component = subobject_object(sds, handle, bp)
-        if component is None:
-            c.log("skipped", "BP_Guard.GuardBody", "component added but not resolvable")
-            return True
-
-        cylinder = mesh(CYLINDER_PATH)
-        values = [
-            # 34 radius, 192 tall: the cylinder primitive is 100 across and 100 tall.
-            ("relative_scale3d", unreal.Vector(0.68, 0.68, 1.92)),
-            ("relative_location", unreal.Vector(0.0, 0.0, -96.0)),
-        ]
-        if cylinder is not None:
-            values.append(("static_mesh", cylinder))
-        c.set_props(component, values, "BP_Guard.GuardBody")
-        try:
-            component.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)
-        except Exception:  # noqa: BLE001 - cosmetic; the capsule owns collision
-            pass
-
-        c.log("created", "BP_Guard.GuardBody", "grey cylinder stand-in")
+        sds.delete_subobject(handle, handle, bp)
+        c.log("updated", "BP_Guard.GuardBody", "removed; the mannequin replaces it")
         return True
     except Exception as exc:  # noqa: BLE001
-        c.log_error("BP_Guard.GuardBody", exc)
+        c.log_error("BP_Guard.GuardBody removal", exc)
         return False
 
 
