@@ -3,18 +3,22 @@
 #include "World/GuardCharacter.h"
 
 #include "AIController.h"
+#include "Animation/AnimSequence.h"
 #include "Castle.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/SpotLightComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "World/PickupActor.h"
 
 AGuardCharacter::AGuardCharacter()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// Ticks to swap between the idle and walk sequences; the mannequin pack's AnimBP does not
+	// compile headless, so the guards drove no animation at all and stood in a T-pose.
+	PrimaryActorTick.bCanEverTick = true;
 
 	// UTakedownComponent finds candidates by tag, so it has to be set before BeginPlay.
 	Tags.Add(FName(TEXT("Guard")));
@@ -52,6 +56,19 @@ AGuardCharacter::AGuardCharacter()
 		Movement->RotationRate = FRotator(0.f, 360.f, 0.f);
 	}
 
+	Flashlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("Flashlight"));
+	Flashlight->SetupAttachment(GetMesh() ? static_cast<USceneComponent*>(GetMesh()) : GetCapsuleComponent());
+	Flashlight->SetRelativeLocation(FVector(20.f, 0.f, 60.f));
+	Flashlight->SetIntensity(3000.f);
+	Flashlight->SetIntensityUnits(ELightUnits::Candelas);
+	Flashlight->SetInnerConeAngle(25.f);
+	Flashlight->SetOuterConeAngle(35.f);
+	Flashlight->SetAttenuationRadius(2500.f);
+	Flashlight->SetLightColor(FLinearColor(0.85f, 0.92f, 1.f));
+	Flashlight->SetCastShadows(true);
+	Flashlight->SetMobility(EComponentMobility::Movable);
+	Flashlight->SetVisibility(true);
+
 	bUseControllerRotationYaw = false;
 
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
@@ -67,6 +84,72 @@ void AGuardCharacter::PostInitializeComponents()
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &AGuardCharacter::HandleDeath);
 	}
+}
+
+void AGuardCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	AttachFlashlight();
+	UpdateLocomotionAnimation();
+}
+
+void AGuardCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	UpdateLocomotionAnimation();
+}
+
+void AGuardCharacter::AttachFlashlight()
+{
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	if (!Flashlight || !SkeletalMesh)
+	{
+		return;
+	}
+
+	// The head socket points the cone where the guard is looking. Without one the light stays
+	// on the mesh root, which still faces forward because the capsule does.
+	if (SkeletalMesh->DoesSocketExist(FlashlightSocketName))
+	{
+		Flashlight->AttachToComponent(
+			SkeletalMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, FlashlightSocketName);
+		Flashlight->SetRelativeLocationAndRotation(FVector(10.f, 0.f, 0.f), FRotator(0.f, 90.f, -90.f));
+	}
+}
+
+UAnimSequence* AGuardCharacter::SelectLocomotionAnim() const
+{
+	return GetVelocity().Size2D() > WalkAnimSpeedThreshold ? WalkAnim : IdleAnim;
+}
+
+void AGuardCharacter::UpdateLocomotionAnimation()
+{
+	if (bLimp)
+	{
+		return;
+	}
+
+	UAnimSequence* Wanted = SelectLocomotionAnim();
+	if (!Wanted || Wanted == CurrentLocomotionAnim)
+	{
+		// Re-playing the same sequence every frame would hold it on its first pose forever.
+		return;
+	}
+
+	CurrentLocomotionAnim = Wanted;
+
+	// A greybox guard with no mesh still tracks which animation it would be playing, which is
+	// what the test asserts on; there is simply nothing to play it through.
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset())
+	{
+		return;
+	}
+
+	SkeletalMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	SkeletalMesh->PlayAnimation(Wanted, /*bLooping=*/true);
 }
 
 void AGuardCharacter::SetAlertState(EGuardAlertState NewState)
@@ -142,6 +225,12 @@ void AGuardCharacter::GoLimp()
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
+	// A body on the floor is not still sweeping the corridor with a torch.
+	if (Flashlight)
+	{
+		Flashlight->SetVisibility(false);
+	}
+
 	// A greybox guard may have no skeletal mesh at all; ragdoll only when there is something to
 	// sim, and only when the mesh has a physics asset to sim it with.
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
@@ -152,6 +241,15 @@ void AGuardCharacter::GoLimp()
 
 	if (!SkeletalMesh->GetPhysicsAsset())
 	{
+		// No bodies to simulate: fall back to the death sequence if the data provides one.
+		if (DeathAnim)
+		{
+			CurrentLocomotionAnim = DeathAnim;
+			SkeletalMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+			SkeletalMesh->PlayAnimation(DeathAnim, /*bLooping=*/false);
+			return;
+		}
+
 		UE_LOG(LogCastle, Warning,
 			TEXT("%s: the mesh %s has no physics asset, so the body cannot ragdoll."),
 			*GetName(), *GetNameSafe(SkeletalMesh->GetSkeletalMeshAsset()));
@@ -194,8 +292,12 @@ void AGuardCharacter::DropLoot()
 			continue;
 		}
 
-		// Fan the drops out sideways so the player can pick each one up separately.
-		const FVector Offset = GetActorRightVector() * (DropSpacing * Index) + FVector(0.f, 0.f, -60.f);
+		// Fan the drops around the body so two of them never land inside each other, and drop
+		// them to floor level: the pickups hover back up to their own height from there.
+		const float FanDegrees = 360.f / FMath::Max(DropOnDeath.Num(), 1) * Index;
+		const FVector Fan = FVector(DropSpacing, 0.f, 0.f).RotateAngleAxis(FanDegrees, FVector::UpVector);
+		const FVector Offset = GetActorRotation().RotateVector(Fan)
+			+ FVector(0.f, 0.f, -GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
 
 		FActorSpawnParameters SpawnParams;
 		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;

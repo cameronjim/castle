@@ -21,6 +21,7 @@ import unreal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
+import _materials as m  # noqa: E402
 import create_blueprints as cb  # noqa: E402
 
 WORLD_PATH = "/Game/Blueprints/World"
@@ -32,11 +33,16 @@ CUBE_PATH = "/Engine/BasicShapes/Cube.Cube"
 
 # The UE4 mannequin, copied out of the engine's Standard/Mannequin feature pack. Its assets
 # hard-reference /Game/Mannequin/..., so the folder keeps that name rather than moving under
-# Content/Characters. The AnimBP is a plain Blueprint over the same skeleton: idle, walk, run
-# and jump, with no template C++ behind it.
+# Content/Characters. Only the sequences are used: the pack's AnimBP does not compile in a
+# headless editor, so guards drive ThirdPersonIdle / ThirdPersonWalk directly.
 MANNEQUIN_MESH_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
 MANNEQUIN_PHYSICS_ASSET_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin_PhysicsAsset"
-MANNEQUIN_ANIM_BP_PATH = "/Game/Mannequin/Animations/ThirdPerson_AnimBP"
+MANNEQUIN_IDLE_PATH = "/Game/Mannequin/Animations/ThirdPersonIdle"
+MANNEQUIN_WALK_PATH = "/Game/Mannequin/Animations/ThirdPersonWalk"
+
+GUARD_MATERIAL_PATH = "/Game/Characters/Guard"
+M_GUARD_BODY = GUARD_MATERIAL_PATH + "/M_GuardBody"
+M_GUARD_VISOR = GUARD_MATERIAL_PATH + "/M_GuardVisor"
 
 # The template's own offsets: the mesh hangs from the capsule centre and faces +X.
 GUARD_MESH_LOCATION = unreal.Vector(0.0, 0.0, -96.0)
@@ -94,6 +100,74 @@ def set_component_mesh(bp, component_name, mesh_asset, scale, relative_location=
         except Exception as exc:  # noqa: BLE001
             c.log_error("set_static_mesh " + bp.get_name(), exc)
     return bool(changed)
+
+
+def _build_guard_body(material):
+    """Riot kit: near-black, half rough, a touch of metal so the light catches the shoulders."""
+    color = m.constant3(material, (0.02, 0.02, 0.02), -400, -200)
+    m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
+    m.set_scalar_property(material, 0.6, unreal.MaterialProperty.MP_ROUGHNESS, -400, 0)
+    m.set_scalar_property(material, 0.2, unreal.MaterialProperty.MP_METALLIC, -400, 150)
+
+
+def _build_guard_visor(material):
+    """Black with a red glowing strip, so a guard's face reads as a visor line in the dark."""
+    color = m.constant3(material, (0.01, 0.01, 0.01), -700, -200)
+    m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
+    m.set_scalar_property(material, 0.25, unreal.MaterialProperty.MP_ROUGHNESS, -700, 0)
+
+    glow = m.constant3(material, (0.9, 0.05, 0.02), -700, 200)
+    bright = m.multiply(material, glow, None, -400, 200, const_b=20.0)
+    m.connect_property(bright, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+
+def ensure_guard_materials():
+    """M_GuardBody and M_GuardVisor at /Game/Characters/Guard. Idempotent."""
+    c.ensure_directory(GUARD_MATERIAL_PATH)
+    return {
+        "body": m.ensure_material(M_GUARD_BODY, _build_guard_body),
+        "visor": m.ensure_material(M_GUARD_VISOR, _build_guard_visor),
+    }
+
+
+def set_component_material(component, slot, material, context):
+    """component.set_material(slot, material) when it is not already that. Returns True if set."""
+    if component is None or material is None:
+        return False
+    try:
+        if component.get_material(slot) == material:
+            return False
+    except Exception:  # noqa: BLE001 - an empty slot reads back as None
+        pass
+    try:
+        component.set_material(slot, material)
+        c.log("updated", context, "slot {0} = {1}".format(slot, material.get_name()))
+        return True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error(context, exc)
+        return False
+
+
+def set_guard_materials(bp, materials):
+    """Body on slot 0, visor on slot 1.
+
+    The UE4 mannequin has two slots and the head shares the body slot, so the emissive goes on
+    slot 1 (the chest logo patch) rather than on a face that does not exist as its own slot.
+    """
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property("mesh")
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        c.log("skipped", "BP_Guard.Mesh materials", "no inherited mesh component")
+        return False
+
+    changed = set_component_material(component, 0, materials.get("body"), "BP_Guard.Mesh")
+    changed = set_component_material(component, 1, materials.get("visor"), "BP_Guard.Mesh") or changed
+    return changed
 
 
 def make_hud():
@@ -191,7 +265,17 @@ def make_guard():
         except Exception as exc:  # noqa: BLE001
             unreal.log_warning("[Castle] skipped   BP_Guard walk speed ({0})".format(exc))
 
+    # Idle and walk as plain sequences: AGuardCharacter swaps between them in Tick, because
+    # the pack's AnimBP does not compile headless and left every guard in a T-pose.
+    changed = bool(cb.apply_defaults(
+        bp, "BP_Guard", AI_PATH,
+        [
+            ("idle_anim", c.load_or_none(MANNEQUIN_IDLE_PATH)),
+            ("walk_anim", c.load_or_none(MANNEQUIN_WALK_PATH)),
+        ])) or changed
+
     changed = set_guard_mesh(bp) or changed
+    changed = set_guard_materials(bp, ensure_guard_materials()) or changed
     changed = remove_guard_body(bp) or changed
     if changed:
         c.compile_blueprint(bp)
@@ -300,30 +384,19 @@ def set_guard_mesh(bp):
         if c.set_props(component, [(prop, value)], "BP_Guard.Mesh"):
             changed.append(prop)
 
-    # The AnimBP is optional: a guard with none is a T-pose that still ragdolls correctly.
-    anim_bp_class = None
+    # No AnimBP: the mannequin pack's ThirdPerson_AnimBP does not compile in a headless editor,
+    # so every guard drove nothing and stood in a T-pose. AGuardCharacter plays IdleAnim and
+    # WalkAnim on the single-node slot instead, which needs this mode set on the template.
     try:
-        anim_bp_class = unreal.load_class(None, MANNEQUIN_ANIM_BP_PATH + "_C")
-    except Exception:  # noqa: BLE001 - a missing AnimBP is not an error, just a T-pose
-        anim_bp_class = None
-    if anim_bp_class is None:
-        c.log("skipped", "BP_Guard.Mesh", "ThirdPerson_AnimBP_C not found; guard stays in T-pose")
-    else:
-        current = None
-        try:
-            current = component.get_editor_property("anim_class")
-        except Exception:  # noqa: BLE001
-            current = None
-        if c.class_name(current) != c.class_name(anim_bp_class):
+        if component.get_editor_property("animation_mode") != unreal.AnimationMode.ANIMATION_SINGLE_NODE:
             if c.set_props(
                 component,
-                [
-                    ("animation_mode", unreal.AnimationMode.ANIMATION_BLUEPRINT),
-                    ("anim_class", anim_bp_class),
-                ],
+                [("animation_mode", unreal.AnimationMode.ANIMATION_SINGLE_NODE)],
                 "BP_Guard.Mesh",
             ):
-                changed.append("anim_class")
+                changed.append("animation_mode")
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("BP_Guard.Mesh animation_mode", exc)
 
     if changed:
         c.log("updated", "BP_Guard.Mesh", ", ".join(changed))
