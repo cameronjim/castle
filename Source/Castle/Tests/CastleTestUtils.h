@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Combat/BossPhaseComponent.h"
+#include "CastlePlayerController.h"
 #include "Combat/Takedownable.h"
 #include "Player/CastleCharacter.h"
 #include "World/GuardCharacter.h"
@@ -175,6 +176,19 @@ public:
 	float TestAimBlendSeconds() const { return AimBlendSeconds; }
 
 	float MaxWalkSpeed() const;
+};
+
+/**
+ * ACastlePlayerController with the flashback flag opened up, so a test can assert that Escape
+ * is ignored while the slideshow owns the pause without building a UFlashbackWidget.
+ */
+UCLASS()
+class CASTLE_API ACastlePauseTestController : public ACastlePlayerController
+{
+	GENERATED_BODY()
+
+public:
+	void TestSetFlashbackActive(bool bActive) { bFlashbackActive = bActive; }
 };
 
 /** Minimal ITakedownable actor for takedown tests. */
