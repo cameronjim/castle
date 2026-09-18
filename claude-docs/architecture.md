@@ -77,15 +77,48 @@ UMissionSubsystem (world subsystem)
 - `ITakedownable`: one BlueprintNativeEvent, `OnTakedown(AActor* Attacker)`. Guards
   implement it in Blueprint (ragdoll, drop pickup, notify AI).
 
+### World (`Source/Castle/World`)
+- `IInteractable`: `Interact(Interactor)`, `GetInteractPrompt()`, `CanInteract(Interactor)`.
+  Anything the player presses E on implements it.
+- `UInteractionComponent`: on the player. Sphere-sweeps from the camera every 0.1 s out
+  to `InteractRange` (250), tracks the focused interactable, pushes its prompt to the HUD,
+  `TryInteract()` is bound to IA_Interact. Falls back to a takedown prompt when the
+  takedown component has a valid target.
+- `APickupActor`: `EPickupType {Weapon, Keycard, Ammo}`. Weapon calls `GiveWeapon()` on
+  the player's weapon component and sets ammo; Keycard adds `KeycardId` to the player's
+  keycard set; Ammo adds reserve. Optional `CompletesObjectiveId`. Destroys itself.
+- `ADoorActor`: frame and door meshes, `bLocked`, `RequiredKeycardId`, lerps open over
+  `OpenSeconds` in Tick, completes `CompletesObjectiveId` the first time it opens.
+- `AGuardCharacter`: 100 HP, tag `Guard`, its own `UWeaponComponent` at 12 damage,
+  `EGuardAlertState {Calm, Suspicious, Alerted}` with `OnAlertStateChanged`. Implements
+  `ITakedownable`: `CanBeTakenDown` is false when Alerted. On takedown or death, drops
+  the `DropOnDeath` pickups once and goes limp.
+- `AGuardAIController`: perception (sight 1500 / lose 1800 / half angle 35, hearing
+  1200) feeding a C++ state machine on a 0.25 s think timer. Calm patrols
+  `PatrolPoints`, Suspicious investigates the stimulus, Alerted faces and shoots with a
+  `AimSpreadDegrees` cone and loses the target after `LoseTargetSeconds`.
+  `ReportStimulus(Kind, Location, bSuccessful)` is the single entry point both perception
+  and tests use. No behavior tree yet; stage 3 decides whether one is needed.
+
+### UI (`Source/Castle/UI`)
+- `UCastleHudWidget`: objective title, ammo (`12 / 24`, blank when unarmed), interaction
+  prompt, crosshair. Builds its own layout in `RebuildWidget` when the Blueprint has none.
+  Subscribes to the mission subsystem, the pawn's weapon, and the takedown component.
+  Hidden during flashbacks by the controller. Honours `UMissionDefinition::bShowObjectiveText`.
+
 ### Player and framework
-- `ACastleCharacter`: first-person camera on the capsule, health, takedown, optional
-  weapon component. Enhanced Input action properties assigned in `BP_CastleCharacter`.
-  Movement tuning lives on the Blueprint's CharacterMovement component, not in C++.
-- `ACastlePlayerController`: the glue for UI. Subscribes to the mission subsystem, owns
-  the flashback widget class property, opens the next level when a flashback finishes.
-  Stage 3 adds HUD creation, end cards, subtitles, and pause menu here.
-- `ACastleGameMode`: sets default pawn and controller classes. Stage 3 adds checkpoint
-  and respawn logic.
+- `ACastleCharacter`: first-person camera on the capsule, health, takedown, interaction,
+  weapon (starts with `bHasWeapon` false), noise emitter (1.0 sprinting, 0.4 walking, 0
+  crouched, every 0.5 s; 3.0 on fire), keycard set. Enhanced Input action properties
+  assigned in `BP_CastleCharacter`. Movement tuning lives on the Blueprint's
+  CharacterMovement component, not in C++.
+- `ACastlePlayerController`: the glue for UI. Creates `HudWidgetClass` on BeginPlay,
+  subscribes to the mission subsystem, owns `FlashbackWidgetClass`, hides the HUD during a
+  flashback, opens the next level when it finishes. Stage 3 adds end cards, subtitles,
+  and the pause menu here.
+- `ACastleGameMode`: default pawn and controller classes, `StartingMission` which it
+  starts at BeginPlay, `RestartMission()` which reopens the level 2 s after player death.
+  Stage 3 replaces the restart with checkpoints.
 
 ## Boundaries
 - C++ never references a specific mission, boss, or level by name. If you find
