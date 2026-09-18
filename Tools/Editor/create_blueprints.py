@@ -4,13 +4,16 @@
     /Game/Blueprints/Player/BP_CastlePlayerController parent ACastlePlayerController
     /Game/Blueprints/Player/BP_CastleGameMode         parent ACastleGameMode
     /Game/Blueprints/UI/WBP_Flashback                 parent UFlashbackWidget
+    /Game/Blueprints/UI/WBP_Pause                     parent UCastlePauseWidget
 
 Then, on the class default objects:
 
     BP_CastleCharacter       DefaultMappingContext = IMC_Default, every IA_* property
                              that exists on ACastleCharacter
     BP_CastleGameMode        DefaultPawnClass, PlayerControllerClass
-    BP_CastlePlayerController FlashbackWidgetClass = WBP_Flashback_C
+    BP_CastlePlayerController FlashbackWidgetClass = WBP_Flashback_C,
+                             PauseWidgetClass = WBP_Pause_C, PauseAction = IA_Pause,
+                             PauseMappingContext = IMC_Default
 
 Property names come from Source/Castle/Player/CastleCharacter.h and
 Source/Castle/CastlePlayerController.h. Anything not found on the class is reported and
@@ -30,8 +33,9 @@ UI_PATH = "/Game/Blueprints/UI"
 INPUT_PATH = "/Game/Input"
 
 # ACastleCharacter input property name -> IA asset name.
-# ACastleCharacter (as of stage 1) has no Aim/Pause/Skip properties; those IA assets are
-# created by create_input_assets.py and stay unassigned until the C++ grows the fields.
+# Pause lives on ACastlePlayerController, not the pawn, so that Escape still works when the
+# pawn is locked out or dead; IA_Skip is consumed by the flashback widget's key handler and
+# has no property to bind to. Both are reported as skipped here, which is expected.
 CHARACTER_INPUT_PROPERTIES = [
     ("move_action", "IA_Move"),
     ("look_action", "IA_Look"),
@@ -43,7 +47,6 @@ CHARACTER_INPUT_PROPERTIES = [
     ("reload_action", "IA_Reload"),
     ("takedown_action", "IA_Takedown"),
     ("interact_action", "IA_Interact"),
-    ("pause_action", "IA_Pause"),
     ("skip_action", "IA_Skip"),
 ]
 
@@ -143,7 +146,10 @@ def run():
     bp_factories = ("BlueprintFactory",)
     wbp_factories = ("WidgetBlueprintFactory",)
 
+    pause_parent = c.find_class("CastlePauseWidget", "/Script/Castle.CastlePauseWidget")
+
     wbp_flashback, _ = make_blueprint("WBP_Flashback", UI_PATH, widget_parent, wbp_factories)
+    wbp_pause, _ = make_blueprint("WBP_Pause", UI_PATH, pause_parent, wbp_factories)
     bp_character, _ = make_blueprint(
         "BP_CastleCharacter", PLAYER_PATH, character_parent, bp_factories
     )
@@ -155,7 +161,7 @@ def run():
     )
 
     # Newly created Blueprints need to exist on disk before load_class can find the _C.
-    for bp in (wbp_flashback, bp_character, bp_controller, bp_game_mode):
+    for bp in (wbp_flashback, wbp_pause, bp_character, bp_controller, bp_game_mode):
         if bp is not None:
             c.compile_blueprint(bp)
             c.save(bp, only_if_dirty=True)
@@ -169,12 +175,19 @@ def run():
 
     # --- BP_CastlePlayerController ------------------------------------------------------
     if bp_controller is not None:
-        widget_class = c.load_generated_class(UI_PATH, "WBP_Flashback")
         apply_defaults(
             bp_controller,
             "BP_CastlePlayerController",
             PLAYER_PATH,
-            [("flashback_widget_class", widget_class)],
+            [
+                ("flashback_widget_class", c.load_generated_class(UI_PATH, "WBP_Flashback")),
+                ("pause_widget_class", c.load_generated_class(UI_PATH, "WBP_Pause")),
+                ("pause_action", c.load_or_none(c.asset_path(INPUT_PATH, "IA_Pause"))),
+                (
+                    "pause_mapping_context",
+                    c.load_or_none(c.asset_path(INPUT_PATH, "IMC_Default")),
+                ),
+            ],
         )
 
     # --- BP_CastleGameMode --------------------------------------------------------------
@@ -197,6 +210,7 @@ def run():
         "controller": bp_controller,
         "game_mode": bp_game_mode,
         "flashback_widget": wbp_flashback,
+        "pause_widget": wbp_pause,
     }
 
 

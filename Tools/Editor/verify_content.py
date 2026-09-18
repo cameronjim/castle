@@ -29,7 +29,14 @@ IA_NAMES = [
 
 CHARACTER_INPUT_PROPS = [
     "default_mapping_context", "move_action", "look_action", "jump_action", "sprint_action",
-    "crouch_action", "fire_action", "reload_action", "takedown_action", "interact_action",
+    "crouch_action", "fire_action", "aim_action", "reload_action", "takedown_action",
+    "interact_action",
+]
+
+# Pause is bound on the controller so it survives the pawn being locked out or dead.
+CONTROLLER_PROPS = [
+    "flashback_widget_class", "hud_widget_class", "pause_widget_class", "pause_action",
+    "pause_mapping_context",
 ]
 
 EXPECTED = (
@@ -41,6 +48,7 @@ EXPECTED = (
         c.asset_path(PLAYER_PATH, "BP_CastleGameMode"),
         c.asset_path(UI_PATH, "WBP_Flashback"),
         c.asset_path(UI_PATH, "WBP_Hud"),
+        c.asset_path(UI_PATH, "WBP_Pause"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Pistol"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Keycard"),
         c.asset_path(WORLD_PATH, "BP_Door_Keycard"),
@@ -145,7 +153,7 @@ def check_blueprints():
         fail("BP_CastlePlayerController_C")
     else:
         cdo = unreal.get_default_object(pc_class)
-        for name in ("flashback_widget_class", "hud_widget_class"):
+        for name in CONTROLLER_PROPS:
             value = prop(cdo, name)
             say("  BP_CastlePlayerController.{0:<24} = {1}".format(name, name_of(value)))
             if value is None:
@@ -204,10 +212,11 @@ def check_world_blueprints():
             fail("BP_Guard.ai_controller_class is not AGuardAIController")
         say("  BP_Guard.auto_possess_ai          = {0}".format(prop(cdo, "auto_possess_ai")))
 
-    if c.load_generated_class(UI_PATH, "WBP_Hud") is None:
-        fail("WBP_Hud_C")
-    else:
-        say("  WBP_Hud_C loads")
+    for name in ("WBP_Hud", "WBP_Pause"):
+        if c.load_generated_class(UI_PATH, name) is None:
+            fail(name + "_C")
+        else:
+            say("  {0}_C loads".format(name))
 
 
 def check_data_assets():
