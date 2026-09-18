@@ -3,6 +3,7 @@
     1. create_input_assets        IA_* and IMC_Default
     2. create_placeholder_textures T_FB01_01..06   (before the data assets that point at them)
     3. create_blueprints           BP_Castle* and WBP_Flashback (before the maps that use them)
+    3b. create_world_blueprints    WBP_Hud, BP_Pickup_*, BP_Door_Keycard, BP_Guard
     4. create_mission_data         DA_M01_CellBlockD, DA_FB01_Sunday
     5. create_sandbox_map          L_Sandbox, L_M01_CellBlockD
 
@@ -27,6 +28,7 @@ STEPS = [
     ("input assets", "create_input_assets"),
     ("placeholder textures", "create_placeholder_textures"),
     ("blueprints", "create_blueprints"),
+    ("world blueprints", "create_world_blueprints"),
     ("mission data", "create_mission_data"),
     ("maps", "create_sandbox_map"),
 ]
