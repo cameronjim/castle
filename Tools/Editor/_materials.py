@@ -307,8 +307,62 @@ def ensure_material(full_path, build_fn, rebuild=False):
         return material
 
 
+_COMPONENT_SETS = (("x", "y", "z", "w"), ("r", "g", "b", "a"), ("x", "y", "z"))
+
+
+def _components(value):
+    """Numeric components of a Vector / Vector4 / LinearColor / Color, or None."""
+    for attrs in _COMPONENT_SETS:
+        if all(hasattr(value, attr) for attr in attrs):
+            try:
+                return [float(getattr(value, attr)) for attr in attrs]
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def same_value(current, wanted, tolerance=1e-4):
+    """True when a property already holds ``wanted``.
+
+    Everything numeric compares with a tolerance, because a float the editor stored as
+    float32 never reads back exactly equal to the Python literal that wrote it - and an
+    exact comparison would rewrite (and dirty) the asset on every run.
+    """
+    if current is None:
+        return False
+    if isinstance(wanted, bool) or isinstance(current, bool):
+        return bool(current) == bool(wanted)
+    if isinstance(wanted, (int, float)) and isinstance(current, (int, float)):
+        return abs(float(current) - float(wanted)) <= tolerance
+
+    mine, theirs = _components(current), _components(wanted)
+    if mine is not None and theirs is not None and len(mine) == len(theirs):
+        return all(abs(a - b) <= tolerance for a, b in zip(mine, theirs))
+
+    try:
+        return bool(current == wanted)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def instance_vector(instance, param):
+    try:
+        return unreal.MaterialEditingLibrary.get_material_instance_vector_parameter_value(
+            instance, param)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def instance_scalar(instance, param):
+    try:
+        return unreal.MaterialEditingLibrary.get_material_instance_scalar_parameter_value(
+            instance, param)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def ensure_material_instance(full_path, parent, vectors=None, scalars=None):
-    """Idempotent MaterialInstanceConstant with parameter overrides applied every run."""
+    """Idempotent MaterialInstanceConstant. Parameters are only written when they differ."""
     package_path, name = _split(full_path)
     if parent is None:
         c.log("FAILED", full_path, "parent material is None")
@@ -342,14 +396,19 @@ def ensure_material_instance(full_path, parent, vectors=None, scalars=None):
         c.log_error("set parent on " + full_path, exc)
 
     for param, rgb in (vectors or []):
+        wanted = unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0)
+        if same_value(instance_vector(instance, param), wanted):
+            continue
         try:
             unreal.MaterialEditingLibrary.set_material_instance_vector_parameter_value(
-                instance, param, unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
+                instance, param, wanted)
             changed = True
         except Exception as exc:  # noqa: BLE001
             c.log_error("set vector param {0} on {1}".format(param, full_path), exc)
 
     for param, value in (scalars or []):
+        if same_value(instance_scalar(instance, param), float(value)):
+            continue
         try:
             unreal.MaterialEditingLibrary.set_material_instance_scalar_parameter_value(
                 instance, param, float(value))

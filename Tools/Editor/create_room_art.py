@@ -190,6 +190,46 @@ def material(key):
     return _STATE["materials"].get(key)
 
 
+def set_props_if_changed(obj, values, context=""):
+    """set_editor_property only where the value actually differs. Returns names written.
+
+    This is what keeps a second run silent: the lighting, fog and post-process steps all
+    write the same numbers every time, and writing them dirties the map.
+    """
+    applied = []
+    for prop, value in values:
+        try:
+            current = obj.get_editor_property(prop)
+        except Exception:  # noqa: BLE001 - property may not exist in this build
+            current = None
+        if m.same_value(current, value):
+            continue
+        try:
+            obj.set_editor_property(prop, value)
+            applied.append(prop)
+        except Exception as exc:  # noqa: BLE001
+            unreal.log_warning("[Castle] skipped   {0}.{1}  ({2}: {3})".format(
+                context or c.safe_name(obj), prop, type(exc).__name__, exc))
+    return applied
+
+
+def set_first_prop_if_changed(obj, names, value, context=""):
+    """First spelling of a property that exists, written only when it differs."""
+    for prop in names:
+        try:
+            current = obj.get_editor_property(prop)
+        except Exception:  # noqa: BLE001
+            continue
+        if m.same_value(current, value):
+            return None
+        try:
+            obj.set_editor_property(prop, value)
+            return prop
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
 def apply_material(actor, mat):
     """Assign slot 0 if it isn't already that material. Returns True when it changed."""
     if mat is None:
@@ -408,7 +448,7 @@ def step_kill_daylight():
         try:
             if isinstance(actor, unreal.DirectionalLight):
                 component = actor.get_editor_property("directional_light_component")
-                applied = c.set_props(
+                applied = set_props_if_changed(
                     component,
                     [
                         ("intensity", 0.2),
@@ -420,12 +460,17 @@ def step_kill_daylight():
                 if applied:
                     touched()
                     c.log("updated", label_of(actor), "sun -> 0.2 lux, cold tint")
+                else:
+                    c.log("exists", label_of(actor), "sun already dimmed")
             elif isinstance(actor, unreal.SkyLight):
                 component = actor.get_editor_property("light_component")
-                applied = c.set_props(component, [("intensity", 0.15)], label_of(actor))
+                applied = set_props_if_changed(
+                    component, [("intensity", 0.15)], label_of(actor))
                 if applied:
                     touched()
                     c.log("updated", label_of(actor), "sky light -> 0.15")
+                else:
+                    c.log("exists", label_of(actor), "sky light already dimmed")
         except Exception as exc:  # noqa: BLE001
             c.log_error("step_kill_daylight " + label_of(actor), exc)
 
@@ -446,7 +491,7 @@ def step_fog():
             if component is None:
                 c.log("skipped", label_of(actor), "no fog component property")
                 continue
-            c.set_props(
+            applied = set_props_if_changed(
                 component,
                 [
                     ("fog_density", 0.05),
@@ -455,14 +500,17 @@ def step_fog():
                 ],
                 label_of(actor),
             )
-            c.set_first_prop(
+            tint = set_first_prop_if_changed(
                 component,
                 ["fog_inscattering_luminance", "fog_inscattering_color"],
                 unreal.LinearColor(0.10, 0.13, 0.18, 1.0),
                 label_of(actor),
             )
-            touched()
-            c.log("updated", label_of(actor), "density 0.05, cool inscatter")
+            if applied or tint:
+                touched()
+                c.log("updated", label_of(actor), "density 0.05, cool inscatter")
+            else:
+                c.log("exists", label_of(actor), "fog already set")
         except Exception as exc:  # noqa: BLE001
             c.log_error("step_fog " + label_of(actor), exc)
 
@@ -474,7 +522,7 @@ def step_post_process():
             continue
         try:
             settings = actor.get_editor_property("settings")
-            c.set_props(
+            applied = set_props_if_changed(
                 settings,
                 [
                     ("override_color_saturation", True),
@@ -492,18 +540,21 @@ def step_post_process():
                 ],
                 label_of(actor),
             )
-            c.set_first_prop(
+            grain_override = set_first_prop_if_changed(
                 settings,
                 ["override_film_grain_intensity", "override_grain_intensity"],
                 True,
                 label_of(actor),
             )
-            c.set_first_prop(
+            grain = set_first_prop_if_changed(
                 settings,
                 ["film_grain_intensity", "grain_intensity"],
                 0.2,
                 label_of(actor),
             )
+            if not (applied or grain_override or grain):
+                c.log("exists", label_of(actor), "post process already graded")
+                continue
             actor.set_editor_property("settings", settings)
             touched()
             c.log("updated", label_of(actor), "saturation 0.85, vignette 0.4, exposure 0.6-1.2")

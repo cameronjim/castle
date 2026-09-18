@@ -98,6 +98,36 @@ def material_name(actor):
         return None
 
 
+GRAPH_EXPECTATIONS = (
+    (m.M_CONCRETE, ("MaterialExpressionNoise", "MaterialExpressionWorldPosition")),
+    (m.M_CONCRETE_FLOOR, ("MaterialExpressionFrac", "MaterialExpressionMax")),
+    (m.M_STEEL_PAINTED, ("MaterialExpressionNoise",)),
+    (m.M_EMISSIVE, ("MaterialExpressionVectorParameter", "MaterialExpressionScalarParameter")),
+    (m.M_FLUORESCENT_FLICKER, ("MaterialExpressionTime", "MaterialExpressionSine")),
+)
+
+
+def expression_class_names(material):
+    """Class names of a material's expressions, or None when the list isn't readable."""
+    for prop in ("expression_collection", "expressions"):
+        try:
+            value = material.get_editor_property(prop)
+        except Exception:  # noqa: BLE001
+            continue
+        if value is None:
+            continue
+        if prop == "expression_collection":
+            try:
+                value = value.get_editor_property("expressions")
+            except Exception:  # noqa: BLE001
+                continue
+        try:
+            return [c.class_name(type(node)) for node in value if node is not None]
+        except Exception:  # noqa: BLE001
+            continue
+    return None
+
+
 def check_materials():
     say("---- materials ----")
     for path in EXPECTED_MATERIALS:
@@ -105,6 +135,20 @@ def check_materials():
             say("  ok      " + path)
         else:
             fail("missing material " + path)
+
+    say("---- material graphs ----")
+    for path, wanted in GRAPH_EXPECTATIONS:
+        material = c.load_or_none(path)
+        if material is None:
+            continue
+        names = expression_class_names(material)
+        if names is None:
+            say("  {0}: expression list not readable from Python, skipped".format(path))
+            continue
+        say("  {0}: {1} expression(s)".format(path, len(names)))
+        for node in wanted:
+            if node not in names:
+                fail("{0} has no {1}; the procedural graph did not build".format(path, node))
 
 
 def check_actors(by_label):
