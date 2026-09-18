@@ -4,11 +4,14 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Castle.h"
+#include "Engine/Engine.h"
+#include "Engine/World.h"
 #include "Flashback/FlashbackDefinition.h"
 #include "Flashback/FlashbackWidget.h"
 #include "Kismet/GameplayStatics.h"
 #include "Mission/MissionDefinition.h"
 #include "Mission/MissionSubsystem.h"
+#include "UI/CastleHudWidget.h"
 
 void ACastlePlayerController::BeginPlay()
 {
@@ -18,6 +21,40 @@ void ACastlePlayerController::BeginPlay()
 	{
 		MissionSubsystem->OnFlashbackRequested.AddDynamic(this, &ACastlePlayerController::HandleFlashbackRequested);
 	}
+
+	CreateHud();
+}
+
+void ACastlePlayerController::CreateHud()
+{
+	if (HudWidget || !HudWidgetClass || !IsLocalController())
+	{
+		return;
+	}
+
+	HudWidget = CreateWidget<UCastleHudWidget>(this, HudWidgetClass);
+	if (!HudWidget)
+	{
+		UE_LOG(LogCastle, Warning, TEXT("%s: could not create the HUD widget."), *GetName());
+		return;
+	}
+
+	HudWidget->AddToViewport(0);
+}
+
+void ACastlePlayerController::SetHudVisible(bool bVisible)
+{
+	if (HudWidget)
+	{
+		HudWidget->SetVisibility(bVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+}
+
+UCastleHudWidget* ACastlePlayerController::GetCastleHudFor(const UObject* WorldContextObject)
+{
+	const UWorld* World = GEngine ? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull) : nullptr;
+	const ACastlePlayerController* PC = World ? Cast<ACastlePlayerController>(World->GetFirstPlayerController()) : nullptr;
+	return PC ? PC->GetCastleHud() : nullptr;
 }
 
 void ACastlePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -31,6 +68,12 @@ void ACastlePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		ActiveFlashbackWidget->OnFlashbackFinished.RemoveDynamic(this, &ACastlePlayerController::HandleFlashbackFinished);
 		ActiveFlashbackWidget = nullptr;
+	}
+
+	if (HudWidget)
+	{
+		HudWidget->RemoveFromParent();
+		HudWidget = nullptr;
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -68,6 +111,9 @@ UFlashbackWidget* ACastlePlayerController::PlayFlashback(UFlashbackDefinition* F
 		return nullptr;
 	}
 
+	// The slideshow owns the screen while it plays.
+	SetHudVisible(false);
+
 	ActiveFlashbackWidget->OnFlashbackFinished.AddDynamic(this, &ACastlePlayerController::HandleFlashbackFinished);
 	ActiveFlashbackWidget->Play(Flashback);
 
@@ -81,6 +127,8 @@ void ACastlePlayerController::HandleFlashbackFinished(UFlashbackDefinition* /*Fl
 		ActiveFlashbackWidget->OnFlashbackFinished.RemoveDynamic(this, &ACastlePlayerController::HandleFlashbackFinished);
 		ActiveFlashbackWidget = nullptr;
 	}
+
+	SetHudVisible(true);
 
 	if (bOpenNextLevelAfterFlashback)
 	{
