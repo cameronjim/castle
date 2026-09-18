@@ -251,6 +251,118 @@ def set_props(obj, values, context=""):
 
 
 # --------------------------------------------------------------------------------------
+# materials
+# --------------------------------------------------------------------------------------
+
+
+def ensure_constant_color_material(name, path, base_color_rgb, roughness):
+    """Idempotent opaque material: a Constant3Vector base colour + a Constant roughness.
+
+    ``base_color_rgb`` is (r, g, b) in 0..1. Returns the material, or None on failure.
+    Existing materials are left untouched (their graph is not re-checked or re-wired).
+    """
+    full = asset_path(path, name)
+    existing = load_or_none(full)
+    if existing is not None:
+        log("exists", full)
+        return existing
+
+    try:
+        ensure_directory(path)
+        factory = new_factory("MaterialFactoryNew")
+        if factory is None:
+            log("FAILED", full, "MaterialFactoryNew unavailable")
+            return None
+        material = asset_tools().create_asset(name, path, unreal.Material, factory)
+        if material is None:
+            log("FAILED", full, "create_asset returned None")
+            return None
+
+        color_expr = unreal.MaterialEditingLibrary.create_material_expression(
+            material, unreal.MaterialExpressionConstant3Vector
+        )
+        color_expr.set_editor_property(
+            "constant",
+            unreal.LinearColor(base_color_rgb[0], base_color_rgb[1], base_color_rgb[2], 1.0),
+        )
+        unreal.MaterialEditingLibrary.connect_material_property(
+            color_expr, "", unreal.MaterialProperty.MP_BASE_COLOR
+        )
+
+        rough_expr = unreal.MaterialEditingLibrary.create_material_expression(
+            material, unreal.MaterialExpressionConstant
+        )
+        rough_expr.set_editor_property("r", roughness)
+        unreal.MaterialEditingLibrary.connect_material_property(
+            rough_expr, "", unreal.MaterialProperty.MP_ROUGHNESS
+        )
+
+        unreal.MaterialEditingLibrary.recompile_material(material)
+        save(material)
+        log("created", full)
+        return material
+    except Exception as exc:  # noqa: BLE001
+        log_error("ensure_constant_color_material " + full, exc)
+        return None
+
+
+def has_material_override(static_mesh_component):
+    """True when slot 0 already has a material assigned (not falling back to the mesh default)."""
+    try:
+        overrides = static_mesh_component.get_editor_property("override_materials")
+        return len(overrides) > 0 and overrides[0] is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def assign_mesh_material(actor, material, slot=0):
+    """set_material(slot, material) on a StaticMeshActor's mesh component."""
+    if material is None:
+        return False
+    try:
+        component = actor.get_editor_property("static_mesh_component")
+        component.set_material(slot, material)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log_error("assign_mesh_material " + safe_name(actor), exc)
+        return False
+
+
+# --------------------------------------------------------------------------------------
+# lights
+# --------------------------------------------------------------------------------------
+
+
+def set_actor_mobility_movable(actor):
+    """Movable mobility on an actor's root component.
+
+    Works for lights: DirectionalLightComponent / SkyLightComponent / PointLightComponent
+    are each their actor's root component, so setting mobility there is enough.
+    """
+    try:
+        root = actor.get_editor_property("root_component")
+    except Exception as exc:  # noqa: BLE001
+        log_error("get root_component " + safe_name(actor), exc)
+        return False
+    if root is None:
+        return False
+    try:
+        root.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log_error("set mobility movable " + safe_name(actor), exc)
+        return False
+
+
+def actor_mobility(actor):
+    try:
+        root = actor.get_editor_property("root_component")
+        return root.get_editor_property("mobility") if root is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+# --------------------------------------------------------------------------------------
 # blueprints
 # --------------------------------------------------------------------------------------
 

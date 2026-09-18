@@ -23,8 +23,20 @@ MAPS_PATH = "/Game/Maps"
 PLAYER_PATH = "/Game/Blueprints/Player"
 CUBE_PATH = "/Engine/BasicShapes/Cube.Cube"
 
+MATERIALS_PATH = "/Game/Kit/Materials"
+
 WALL_HEIGHT = 400.0
 WALL_THICK = 20.0
+
+# Label prefixes the mesh-material fixup recognises, in priority order. "Floor" is more
+# specific than "Wall_" would ever collide with, but keep the order anyway.
+MESH_LABEL_MATERIAL_KIND = (
+    ("Floor", "floor"),
+    ("Wall_", "greybox"),
+)
+
+# Filled in by ensure_greybox_materials(); read by add_box() and fix_existing_materials().
+_GREYBOX_MATERIALS = {}
 
 # --- L_M01_CellBlockD layout (all in cm, +X is "forward, towards the exit") ------------
 #   cell          x    0..300    y -150..150
@@ -100,6 +112,24 @@ def cube_mesh():
     return c.load_or_none(CUBE_PATH) or unreal.load_object(None, CUBE_PATH)
 
 
+def ensure_greybox_materials():
+    """Create (once) the two simple greybox materials and cache them for this run."""
+    _GREYBOX_MATERIALS["greybox"] = c.ensure_constant_color_material(
+        "M_Greybox", MATERIALS_PATH, (0.5, 0.5, 0.5), 0.9
+    )
+    _GREYBOX_MATERIALS["floor"] = c.ensure_constant_color_material(
+        "M_Greybox_Floor", MATERIALS_PATH, (0.35, 0.35, 0.35), 0.9
+    )
+    return _GREYBOX_MATERIALS
+
+
+def material_kind_for_label(label):
+    for prefix, kind in MESH_LABEL_MATERIAL_KIND:
+        if label.startswith(prefix):
+            return kind
+    return None
+
+
 def add_box(mesh, label, center, size):
     """Cube StaticMeshActor. ``center`` and ``size`` are (x, y, z) in cm."""
     actor = c.spawn_actor(unreal.StaticMeshActor, unreal.Vector(*center), label=label)
@@ -113,6 +143,11 @@ def add_box(mesh, label, center, size):
         actor.set_mobility(unreal.ComponentMobility.STATIC)
     except Exception as exc:  # noqa: BLE001
         c.log_error("add_box " + label, exc)
+
+    kind = material_kind_for_label(label) or "greybox"
+    material = _GREYBOX_MATERIALS.get(kind)
+    if material is not None:
+        c.assign_mesh_material(actor, material)
     return actor
 
 
@@ -120,24 +155,82 @@ def add_wall(mesh, label, cx, cy, sx, sy):
     return add_box(mesh, label, (cx, cy, WALL_HEIGHT / 2.0), (sx, sy, WALL_HEIGHT))
 
 
-def add_lighting():
-    c.spawn_actor(
-        unreal.DirectionalLight,
-        unreal.Vector(0.0, 0.0, 2000.0),
-        unreal.Rotator(0.0, -45.0, 0.0),
-        label="Sun",
-    )
-    c.spawn_actor(unreal.SkyLight, unreal.Vector(0.0, 0.0, 1000.0), label="SkyLight")
-    c.spawn_actor(
-        unreal.ExponentialHeightFog, unreal.Vector(0.0, 0.0, 0.0), label="HeightFog"
-    )
+def configure_directional_light(actor):
+    c.set_actor_mobility_movable(actor)
+    try:
+        light_component = actor.get_editor_property("directional_light_component")
+        c.set_props(
+            light_component,
+            [("intensity", 5.0), ("atmosphere_sun_light", True)],
+            "Sun",
+        )
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("configure_directional_light " + c.safe_name(actor), exc)
+
+
+def configure_sky_light(actor):
+    c.set_actor_mobility_movable(actor)
+    try:
+        light_component = actor.get_editor_property("light_component")
+        c.set_props(
+            light_component,
+            [
+                ("real_time_capture", True),
+                ("source_type", unreal.SkyLightSourceType.SLS_CAPTURED_SCENE),
+            ],
+            "SkyLight",
+        )
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("configure_sky_light " + c.safe_name(actor), exc)
+
+
+def configure_post_process_volume(actor):
+    try:
+        actor.set_editor_property("unbound", True)
+        settings = actor.get_editor_property("settings")
+        settings.set_editor_property("override_auto_exposure_min_brightness", True)
+        settings.set_editor_property("override_auto_exposure_max_brightness", True)
+        settings.set_editor_property("auto_exposure_min_brightness", 1.0)
+        settings.set_editor_property("auto_exposure_max_brightness", 1.0)
+        actor.set_editor_property("settings", settings)
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("configure_post_process_volume " + c.safe_name(actor), exc)
+
+
+def atmosphere_class():
     atmosphere = c.find_class("SkyAtmosphere", "/Script/Engine.SkyAtmosphere")
     if atmosphere is None:
         atmosphere = c.find_class("AtmosphericFog", "/Script/Engine.AtmosphericFog")
+    return atmosphere
+
+
+def add_lighting():
+    sun = c.spawn_actor(
+        unreal.DirectionalLight,
+        unreal.Vector(0.0, 0.0, 2000.0),
+        unreal.Rotator(0.0, -50.0, 0.0),
+        label="Sun",
+    )
+    if sun is not None:
+        configure_directional_light(sun)
+
+    sky = c.spawn_actor(unreal.SkyLight, unreal.Vector(0.0, 0.0, 1000.0), label="SkyLight")
+    if sky is not None:
+        configure_sky_light(sky)
+
+    c.spawn_actor(
+        unreal.ExponentialHeightFog, unreal.Vector(0.0, 0.0, 0.0), label="HeightFog"
+    )
+
+    atmosphere = atmosphere_class()
     if atmosphere is not None:
         c.spawn_actor(atmosphere, unreal.Vector(0.0, 0.0, 0.0), label="SkyAtmosphere")
     else:
         unreal.log_warning("[Castle] neither SkyAtmosphere nor AtmosphericFog is available")
+
+    pp = c.spawn_actor(unreal.PostProcessVolume, unreal.Vector(0.0, 0.0, 0.0), label="PP_Global")
+    if pp is not None:
+        configure_post_process_volume(pp)
 
 
 def apply_game_mode(level_label):
@@ -157,34 +250,120 @@ def load_level(package_path):
     return False
 
 
-def ensure_game_mode(package_path):
-    """For a map that already exists: set the GameMode override if it isn't set yet.
+LIGHT_ACTOR_CLASSES = (unreal.DirectionalLight, unreal.SkyLight, unreal.PointLight)
 
-    The first run creates the maps before the Blueprints exist, so the override has to be
-    fixable on a later pass instead of only at creation time.
+
+def fix_existing_lights():
+    """Movable mobility + tuning for every light actor already in the open level."""
+    changed = 0
+    for actor in c.all_level_actors():
+        if not isinstance(actor, LIGHT_ACTOR_CLASSES):
+            continue
+        try:
+            was_movable = c.actor_mobility(actor) == unreal.ComponentMobility.MOVABLE
+        except Exception:  # noqa: BLE001
+            was_movable = False
+        if isinstance(actor, unreal.DirectionalLight):
+            configure_directional_light(actor)
+        elif isinstance(actor, unreal.SkyLight):
+            configure_sky_light(actor)
+        else:
+            c.set_actor_mobility_movable(actor)
+        if not was_movable:
+            changed += 1
+            c.log("updated", actor.get_actor_label(), "mobility -> Movable")
+    return changed
+
+
+def ensure_scene_actor(actor_class, label, location):
+    """Spawn one instance of ``actor_class`` if the level has none of that type yet."""
+    if actor_class is None:
+        return 0
+    for actor in c.all_level_actors():
+        if isinstance(actor, actor_class):
+            return 0
+    actor = c.spawn_actor(actor_class, location, label=label)
+    if actor is None:
+        return 0
+    c.log("created", label, "was missing from an existing map")
+    return 1
+
+
+def fix_missing_scene_actors():
+    """Add SkyAtmosphere / fog / post-process if an already-existing map lacks them."""
+    added = 0
+    added += ensure_scene_actor(atmosphere_class(), "SkyAtmosphere", unreal.Vector(0.0, 0.0, 0.0))
+    added += ensure_scene_actor(
+        unreal.ExponentialHeightFog, "HeightFog", unreal.Vector(0.0, 0.0, 0.0)
+    )
+    pp_before = [a for a in c.all_level_actors() if isinstance(a, unreal.PostProcessVolume)]
+    added += ensure_scene_actor(
+        unreal.PostProcessVolume, "PP_Global", unreal.Vector(0.0, 0.0, 0.0)
+    )
+    if not pp_before:
+        for actor in c.all_level_actors():
+            if isinstance(actor, unreal.PostProcessVolume):
+                configure_post_process_volume(actor)
+                break
+    return added
+
+
+def fix_existing_materials():
+    """Assign the greybox materials to already-placed meshes still on the mesh default."""
+    changed = 0
+    for actor in c.all_level_actors():
+        if not isinstance(actor, unreal.StaticMeshActor):
+            continue
+        label = actor.get_actor_label()
+        kind = material_kind_for_label(label)
+        if kind is None:
+            continue
+        try:
+            component = actor.get_editor_property("static_mesh_component")
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("fix_existing_materials " + label, exc)
+            continue
+        if c.has_material_override(component):
+            continue
+        material = _GREYBOX_MATERIALS.get(kind)
+        if material is not None and c.assign_mesh_material(actor, material):
+            changed += 1
+            c.log("updated", label, "material -> " + material.get_name())
+    return changed
+
+
+def ensure_game_mode(package_path):
+    """For a map that already exists: fix up lighting, materials and the GameMode override.
+
+    The first run creates the maps before the Blueprints and greybox materials exist, so
+    all of this has to be fixable on a later pass instead of only at creation time.
     """
+    if not load_level(package_path):
+        c.log("exists", package_path, "could not open level to check for fixups")
+        return False
+
+    changed = fix_existing_lights() + fix_missing_scene_actors() + fix_existing_materials()
+
     game_mode = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
     if game_mode is None:
         c.log("exists", package_path, "BP_CastleGameMode_C not found; override left unset")
-        return False
-    if not load_level(package_path):
-        c.log("exists", package_path, "could not open level to check GameMode override")
-        return False
+    else:
+        settings = c.world_settings()
+        already_set = False
+        if settings is not None:
+            try:
+                already_set = settings.get_editor_property("default_game_mode") == game_mode
+            except Exception:  # noqa: BLE001
+                pass
+        if not already_set and c.set_level_game_mode(game_mode, package_path):
+            changed += 1
+            c.log("updated", package_path, "GameMode override = BP_CastleGameMode_C")
 
-    settings = c.world_settings()
-    if settings is not None:
-        try:
-            if settings.get_editor_property("default_game_mode") == game_mode:
-                c.log("exists", package_path, "GameMode override already set")
-                return False
-        except Exception:  # noqa: BLE001
-            pass
-
-    if c.set_level_game_mode(game_mode, package_path):
+    if changed:
         save_level()
-        c.log("updated", package_path, "GameMode override = BP_CastleGameMode_C")
+        c.log("updated", package_path, "{0} fixup(s) applied".format(changed))
         return True
-    c.log("exists", package_path, "GameMode override could not be set")
+    c.log("exists", package_path, "lighting, materials and GameMode override already correct")
     return False
 
 
@@ -420,6 +599,7 @@ def ensure_m01_gameplay(package_path):
 
 def run():
     c.ensure_directory(MAPS_PATH)
+    ensure_greybox_materials()
     build_sandbox()
     build_cell_block_d()
     ensure_m01_gameplay(c.asset_path(MAPS_PATH, "L_M01_CellBlockD"))
