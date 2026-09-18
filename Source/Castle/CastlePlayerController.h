@@ -7,9 +7,13 @@
 #include "CastlePlayerController.generated.h"
 
 class UCastleHudWidget;
+class UCastlePauseWidget;
 class UFlashbackDefinition;
 class UFlashbackWidget;
+class UInputAction;
+class UInputMappingContext;
 class UMissionDefinition;
+struct FInputActionValue;
 
 /**
  * Owns the HUD and the flashback presentation: listens to the mission subsystem, plays the slideshow and
@@ -45,9 +49,85 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Flashback")
 	UFlashbackWidget* PlayFlashback(UFlashbackDefinition* Flashback);
 
+	// --- Pause ----------------------------------------------------------------------------------
+
+	/** UMG widget (reparented to UCastlePauseWidget) shown while the game is paused. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Pause")
+	TSubclassOf<UCastlePauseWidget> PauseWidgetClass;
+
+	/**
+	 * Enhanced Input action for the Escape key. Bound on the controller rather than the pawn so
+	 * pausing still works while the pawn is locked out, dead or not yet possessed.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
+	TObjectPtr<UInputAction> PauseAction;
+
+	/**
+	 * Mapping context added by the controller itself. Normally IMC_Default, so the Escape key
+	 * still reaches us when there is no pawn to add it.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
+	TObjectPtr<UInputMappingContext> PauseMappingContext;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause", meta = (ClampMin = "0"))
+	int32 PauseMappingPriority = 0;
+
+	/** Opens the pause menu, or closes it when it is already open. Ignored when CanTogglePause is false. */
+	UFUNCTION(BlueprintCallable, Category = "Pause")
+	void TogglePause();
+
+	/** Opens or closes the pause menu explicitly. */
+	UFUNCTION(BlueprintCallable, Category = "Pause")
+	void SetPauseMenuOpen(bool bOpen);
+
+	UFUNCTION(BlueprintPure, Category = "Pause")
+	bool IsPauseMenuOpen() const { return bPauseMenuOpen; }
+
+	/**
+	 * False while a flashback is playing (the slideshow owns the pause) and while a mission
+	 * restart is already under way, which is what dying starts.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Pause")
+	bool CanTogglePause() const;
+
+	/** True between PlayFlashback and OnFlashbackFinished. */
+	UFUNCTION(BlueprintPure, Category = "Flashback")
+	bool IsFlashbackActive() const { return bFlashbackActive; }
+
+	/** Pause menu "Restart mission": reloads the level now, without the death delay. */
+	UFUNCTION(BlueprintCallable, Category = "Pause")
+	void RestartMissionFromPause();
+
+	/** Pause menu "Quit to desktop". */
+	UFUNCTION(BlueprintCallable, Category = "Pause")
+	void QuitToDesktop();
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void SetupInputComponent() override;
+
+	void Input_Pause(const FInputActionValue& Value);
+
+	/** Adds PauseMappingContext to the local player's Enhanced Input subsystem. */
+	void AddPauseMappingContext();
+
+	UFUNCTION()
+	void HandlePauseResumeClicked();
+
+	UFUNCTION()
+	void HandlePauseRestartClicked();
+
+	UFUNCTION()
+	void HandlePauseQuitClicked();
+
+	/** Creates PauseWidget (if needed) and adds it to the viewport. Returns the widget or null. */
+	UCastlePauseWidget* ShowPauseWidget();
+
+	void HidePauseWidget();
+
+	/** UI+Game input with a cursor while paused, game-only input while playing. */
+	void ApplyPauseInputMode(bool bPaused);
 
 	UFUNCTION()
 	void HandleFlashbackRequested(UFlashbackDefinition* Flashback);
@@ -68,4 +148,17 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Flashback")
 	TObjectPtr<UFlashbackWidget> ActiveFlashbackWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Pause")
+	TObjectPtr<UCastlePauseWidget> PauseWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Pause")
+	bool bPauseMenuOpen = false;
+
+	/**
+	 * Set for the whole of a flashback, including the frames where the widget exists but has
+	 * not started ticking, so Escape can never steal the pause from the slideshow.
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Flashback")
+	bool bFlashbackActive = false;
 };
