@@ -66,6 +66,17 @@ void UMissionSubsystem::StartMission(UMissionDefinition* MissionDefinition)
 	}
 }
 
+TArray<UMissionObjective*> UMissionSubsystem::GetActiveObjectives() const
+{
+	TArray<UMissionObjective*> Result;
+	Result.Reserve(ActiveObjectives.Num());
+	for (const TObjectPtr<UMissionObjective>& Objective : ActiveObjectives)
+	{
+		Result.Add(Objective);
+	}
+	return Result;
+}
+
 UMissionObjective* UMissionSubsystem::GetObjectiveAt(int32 ObjectiveIndex) const
 {
 	return ActiveObjectives.IsValidIndex(ObjectiveIndex) ? ActiveObjectives[ObjectiveIndex] : nullptr;

@@ -53,7 +53,7 @@ public:
 	UMissionDefinition* GetCurrentMission() const { return CurrentMission; }
 
 	UFUNCTION(BlueprintPure, Category = "Mission")
-	const TArray<TObjectPtr<UMissionObjective>>& GetActiveObjectives() const { return ActiveObjectives; }
+	TArray<UMissionObjective*> GetActiveObjectives() const;
 
 	UFUNCTION(BlueprintPure, Category = "Mission")
 	UMissionObjective* GetObjectiveAt(int32 ObjectiveIndex) const;

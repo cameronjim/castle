@@ -16,7 +16,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnObjectiveCompletedSignature, UMis
  * Authored inline on a UMissionDefinition and duplicated per-playthrough by the UMissionSubsystem,
  * so runtime state never dirties the source data asset.
  */
-UCLASS(Blueprintable, BlueprintType, EditInlineNew, DefaultToInstanced, Abstract = false)
+UCLASS(Blueprintable, BlueprintType, EditInlineNew, DefaultToInstanced)
 class CASTLE_API UMissionObjective : public UObject
 {
 	GENERATED_BODY()

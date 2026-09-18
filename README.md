@@ -7,7 +7,7 @@ Design notes live in `docs/DESIGN.md`.
 
 ## Requirements
 
-- Unreal Engine 5.4 or newer
+- Unreal Engine 5.8 (installed at `C:\Program Files\Epic Games\UE_5.8`)
 - Visual Studio 2022 with the **Game development with C++** workload (include the "Unreal Engine installer" component)
 - Git LFS (`git lfs install`) before adding any binary content
 
@@ -16,6 +16,13 @@ Design notes live in `docs/DESIGN.md`.
 1. Right-click `Castle.uproject` → **Generate Visual Studio project files**.
 2. Open the generated `Castle.sln`.
 3. Set the configuration to **Development Editor**, platform **Win64**, and build.
+
+   Command line equivalent (generate project files, then build the editor target):
+
+   ```
+   "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" -projectfiles -project="<repo>\Castle.uproject" -game -rocket -progress
+   "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" CastleEditor Win64 Development -project="<repo>\Castle.uproject" -waitmutex
+   ```
 4. Launch from Visual Studio, or double-click `Castle.uproject` once the editor module is built.
 
 First build also creates `Content/` — add a `Content/Missions` and `Content/Flashbacks` folder,
