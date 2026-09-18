@@ -35,6 +35,7 @@ CUBE_PATH = "/Engine/BasicShapes/Cube.Cube"
 # Content/Characters. The AnimBP is a plain Blueprint over the same skeleton: idle, walk, run
 # and jump, with no template C++ behind it.
 MANNEQUIN_MESH_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
+MANNEQUIN_PHYSICS_ASSET_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin_PhysicsAsset"
 MANNEQUIN_ANIM_BP_PATH = "/Game/Mannequin/Animations/ThirdPerson_AnimBP"
 
 # The template's own offsets: the mesh hangs from the capsule centre and faces +X.
@@ -229,6 +230,33 @@ def find_subobject_handle(sds, bp, name):
     return None, None
 
 
+def set_mannequin_physics_asset():
+    """Re-point SK_Mannequin at its physics asset.
+
+    The mesh's PhysicsAsset reference does not survive the file copy out of the feature pack,
+    and without it AGuardCharacter::GoLimp refuses to ragdoll and only logs a warning.
+    """
+    mesh_asset = c.load_or_none(MANNEQUIN_MESH_PATH)
+    physics_asset = c.load_or_none(MANNEQUIN_PHYSICS_ASSET_PATH)
+    if mesh_asset is None or physics_asset is None:
+        c.log("skipped", "SK_Mannequin.physics_asset", "mesh or physics asset not found")
+        return False
+
+    try:
+        if mesh_asset.get_editor_property("physics_asset") == physics_asset:
+            c.log("exists", "SK_Mannequin.physics_asset", "already SK_Mannequin_PhysicsAsset")
+            return False
+    except Exception:  # noqa: BLE001 - set_props reports a missing property
+        pass
+
+    if not c.set_props(mesh_asset, [("physics_asset", physics_asset)], "SK_Mannequin"):
+        return False
+
+    c.save(mesh_asset)
+    c.log("updated", "SK_Mannequin.physics_asset", "SK_Mannequin_PhysicsAsset")
+    return True
+
+
 def set_guard_mesh(bp):
     """Point BP_Guard's inherited SkeletalMeshComponent at the mannequin.
 
@@ -367,6 +395,7 @@ def run():
     )
 
     make_door()
+    set_mannequin_physics_asset()
     make_guard()
     wire_hud_into_controller()
 
