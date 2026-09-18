@@ -8,7 +8,7 @@
 
 class UHealthComponent;
 
-/** One stage of a boss fight. Author these in descending HealthThresholdPercent order. */
+/** One stage of a boss fight. Authoring order does not matter; BeginPlay sorts by threshold. */
 USTRUCT(BlueprintType)
 struct CASTLE_API FBossPhase
 {
@@ -18,7 +18,7 @@ struct CASTLE_API FBossPhase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Phase")
 	FName PhaseName;
 
-	/** Phase begins once health drops to or below this fraction of MaxHealth (1.0 = full health). */
+	/** Phase begins once health drops strictly below this fraction of MaxHealth (1.0 = full health). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Phase", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float HealthThresholdPercent = 1.f;
 
@@ -43,8 +43,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnBossPhaseChangedSignature, int
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBossPhaseTransitionFinishedSignature, int32, PhaseIndex);
 
 /**
- * Drives multi-phase boss fights off the owner's UHealthComponent.
- * Requires a UHealthComponent on the same actor.
+ * Drives multi-phase boss fights off a UHealthComponent.
+ *
+ * BeginPlay binds to the owner's health component; tests (and anything without a world) call
+ * Bind() directly. A boss with N phases has N-1 transitions: phase 0 is active from the start and
+ * is not broadcast.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UBossPhaseComponent : public UActorComponent
@@ -54,7 +57,7 @@ class CASTLE_API UBossPhaseComponent : public UActorComponent
 public:
 	UBossPhaseComponent();
 
-	/** Ordered phases, highest threshold first. Index 0 is entered on BeginPlay. */
+	/** Phases, highest threshold first. Sorted into that order by Bind(). Index 0 is active at start. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Boss")
 	TArray<FBossPhase> Phases;
 
@@ -62,12 +65,27 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Boss")
 	FOnBossPhaseChangedSignature OnPhaseChanged;
 
-	/** Broadcast when the transition window ends and invulnerability is lifted. */
+	/** Broadcast when the transition window ends and invulnerability is restored. */
 	UPROPERTY(BlueprintAssignable, Category = "Boss")
 	FOnBossPhaseTransitionFinishedSignature OnPhaseTransitionFinished;
 
+	/**
+	 * Sorts the phases, listens to InHealthComponent and makes phase 0 active without broadcasting.
+	 * BeginPlay calls this with the owner's health component; call it directly in tests.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Boss")
+	void Bind(UHealthComponent* InHealthComponent);
+
+	/** Sorts Phases by descending HealthThresholdPercent. Bind() calls this. */
+	UFUNCTION(BlueprintCallable, Category = "Boss")
+	void SortPhases();
+
 	UFUNCTION(BlueprintPure, Category = "Boss")
 	int32 GetCurrentPhaseIndex() const { return CurrentPhaseIndex; }
+
+	/** The active phase, or a default-constructed phase when none is active. */
+	UFUNCTION(BlueprintPure, Category = "Boss")
+	FBossPhase GetCurrentPhase() const;
 
 	UFUNCTION(BlueprintPure, Category = "Boss")
 	FName GetCurrentBehaviorTag() const;
@@ -75,7 +93,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Boss")
 	bool IsTransitioning() const { return bTransitioning; }
 
-	/** Forces a phase regardless of health (debug / scripted beats). */
+	/** Forces a phase regardless of health (debug / scripted beats). Broadcasts OnPhaseChanged once. */
 	UFUNCTION(BlueprintCallable, Category = "Boss")
 	void EnterPhase(int32 PhaseIndex);
 
@@ -86,15 +104,25 @@ protected:
 	UFUNCTION()
 	void HandleHealthChanged(UHealthComponent* InHealthComponent, float NewHealth, float Delta, AActor* DamageInstigator);
 
+	/** Raises the transition flag and, if the phase asks for it, invulnerability. */
+	void BeginTransition(const FBossPhase& Phase);
+
+	/** Starts the transition timer, or ends the transition immediately when there is no world. */
+	void ScheduleTransitionEnd(const FBossPhase& Phase);
+
 	void FinishTransition();
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Boss")
 	TObjectPtr<UHealthComponent> HealthComponent = nullptr;
 
-	UPROPERTY(BlueprintReadOnly, Category = "Boss")
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Boss")
 	int32 CurrentPhaseIndex = INDEX_NONE;
 
 private:
 	bool bTransitioning = false;
+
+	/** Invulnerability state captured when a transition starts, restored when it ends. */
+	bool bInvulnerableBeforeTransition = false;
+
 	FTimerHandle TransitionTimerHandle;
 };
