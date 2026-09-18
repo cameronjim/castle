@@ -6,6 +6,8 @@
     3b. create_world_blueprints    WBP_Hud, BP_Pickup_*, BP_Door_Keycard, BP_Guard
     4. create_mission_data         DA_M01_CellBlockD, DA_FB01_Sunday
     5. create_sandbox_map          L_Sandbox, L_M01_CellBlockD
+    6. create_room_art             procedural materials + the M01 cell/corridor art pass
+                                   (last: it dresses the map the previous step builds)
 
 Run headless:
 
@@ -31,6 +33,7 @@ STEPS = [
     ("world blueprints", "create_world_blueprints"),
     ("mission data", "create_mission_data"),
     ("maps", "create_sandbox_map"),
+    ("room art", "create_room_art"),
 ]
 
 
