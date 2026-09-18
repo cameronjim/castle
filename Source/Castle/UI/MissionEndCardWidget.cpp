@@ -39,7 +39,7 @@ TSharedRef<SWidget> UMissionEndCardWidget::RebuildWidget()
 		}
 
 		auto AddText = [this, Stack](TObjectPtr<UTextBlock>& TextSlot, const TCHAR* Name,
-			int32 FontSize, const FMargin& Padding)
+			int32 FontSize, const FMargin& SlotPadding)
 		{
 			if (!TextSlot)
 			{
@@ -54,7 +54,7 @@ TSharedRef<SWidget> UMissionEndCardWidget::RebuildWidget()
 			if (UVerticalBoxSlot* Entry = Cast<UVerticalBoxSlot>(Stack->AddChild(TextSlot)))
 			{
 				Entry->SetHorizontalAlignment(HAlign_Center);
-				Entry->SetPadding(Padding);
+				Entry->SetPadding(SlotPadding);
 			}
 		};
 
