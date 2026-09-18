@@ -10,12 +10,15 @@
 [CmdletBinding()]
 param(
     [string]$Engine = "C:\Program Files\Epic Games\UE_5.8",
-    [string]$Project = "$PSScriptRoot\..\Castle.uproject"
+    [string]$Project = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+# $PSScriptRoot is empty inside a param() default when invoked via -File, so resolve here.
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
+if (-not $Project) { $Project = Join-Path $ProjectRoot "Castle.uproject" }
 $Project = (Resolve-Path $Project).Path
 $EditorCmd = Join-Path $Engine "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 $Script = Join-Path $ProjectRoot "Tools\Editor\create_all.py"
