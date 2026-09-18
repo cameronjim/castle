@@ -58,8 +58,10 @@ Exact commands are in `claude-docs/infrastructure.md`. The two you'll use consta
    Don't reformat files you aren't otherwise changing.
 6. **Binary assets go through Git LFS.** `.gitattributes` handles it. If `git status`
    shows a `.uasset` as a normal file, stop and fix tracking before committing.
-7. **One commit per coherent change**, message says what and why. End every commit
-   message with the co-author line the session provides.
+7. **Commit small and often, then push.** One commit per logical step, not one per
+   task: a new class, a fixed test, a new script each get their own. Messages are all
+   lowercase, imperative, under 70 characters on the first line. No co-author or
+   generated-by trailers of any kind. Push to `origin main` after every commit or two.
 8. **The editor is heavy.** Prefer headless commands (`UnrealEditor-Cmd.exe` with
    `-nullrhi`) for builds, tests, and Python asset scripts. Only launch the full editor
    when something visual has to be checked, and close it after.

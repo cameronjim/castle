@@ -22,8 +22,11 @@ How to work in this repo, whether you're Cameron, Claude, or a subagent.
 4. **Build after every C++ change.** Fix warnings you introduced.
 5. **Run the tests** (`Tools\run-tests.ps1`) after touching any system that has them.
 6. **Human checklist** (`testing.md`, section 3) after anything that affects feel.
-7. **Commit.** One coherent change. Message: imperative summary line under 70 chars,
-   blank line, why and anything surprising, blank line, the co-author line.
+7. **Commit and push.** Small commits, often: each class, each test file, each script,
+   each doc is its own commit. Message: lowercase imperative summary under 70 chars,
+   optional blank line and a short why. No co-author, no generated-by trailer, nothing
+   after the body. `git push origin main` after every commit or two. Remote:
+   https://github.com/cameronjim/castle.git
 
 ## Agent work
 - **Read the relevant `claude-docs` file first, every time.** Context from a previous
