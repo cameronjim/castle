@@ -49,7 +49,18 @@ CHARACTER_INPUT_PROPERTIES = [
 
 
 def make_blueprint(name, path, parent_class, factory_names, quiet=False):
-    """Create a Blueprint with the given parent, or return the existing one."""
+    """Create a Blueprint with the given parent, or return the existing one.
+
+    Never raises: a failure here must not stop the other Blueprints being made.
+    """
+    try:
+        return _make_blueprint(name, path, parent_class, factory_names, quiet)
+    except Exception as exc:  # noqa: BLE001
+        c.log_error(c.asset_path(path, name), exc)
+        return None, False
+
+
+def _make_blueprint(name, path, parent_class, factory_names, quiet=False):
     full = c.asset_path(path, name)
     if parent_class is None:
         c.log("FAILED", full, "parent class not found")
@@ -74,7 +85,8 @@ def make_blueprint(name, path, parent_class, factory_names, quiet=False):
     bp, created = c.create_asset(name, path, asset_class, factory, quiet=True)
     if bp is None:
         return None, False
-    c.log("created", full, parent_class.get_name())
+    # parent_class is a Python type object, so get_name() on it is unbound - use class_name.
+    c.log("created", full, "parent " + c.class_name(parent_class))
     return bp, created
 
 
@@ -88,15 +100,30 @@ def apply_defaults(bp, name, path, values):
         c.log("FAILED", full, "no class default object")
         return []
 
-    wanted = [(prop, value) for prop, value in values if value is not None]
+    wanted = []
+    already = []
+    for prop, value in values:
+        if value is None:
+            continue
+        try:
+            if cdo.get_editor_property(prop) == value:
+                already.append(prop)
+                continue
+        except Exception:  # noqa: BLE001 - property missing; set_props will report it
+            pass
+        wanted.append((prop, value))
+
     missing_values = [prop for prop, value in values if value is None]
     applied = c.set_props(cdo, wanted, name)
     skipped = [prop for prop, _v in wanted if prop not in applied] + missing_values
 
+    # Only compile and save when something actually changed, so a re-run is a true no-op.
     if applied:
         c.compile_blueprint(bp)
         c.save(bp)
         c.log("updated", full, "set " + ", ".join(applied))
+    elif already and not skipped:
+        c.log("exists", full, "{0} defaults already set".format(len(already)))
     if skipped:
         c.log("skipped", full, "no such property / missing asset: " + ", ".join(skipped))
     return applied

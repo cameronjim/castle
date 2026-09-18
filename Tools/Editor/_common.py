@@ -211,6 +211,26 @@ def find_class(*paths_or_names):
     return None
 
 
+def class_name(cls):
+    """Readable name for a UClass. ``cls.get_name()`` is unbound on Python type objects."""
+    if cls is None:
+        return "None"
+    name = getattr(cls, "__name__", None)
+    if name:
+        return name
+    try:
+        return cls.get_name()
+    except Exception:  # noqa: BLE001
+        return str(cls)
+
+
+def safe_name(obj):
+    try:
+        return obj.get_name()
+    except Exception:  # noqa: BLE001 - UClasses and structs have no bound get_name
+        return class_name(type(obj))
+
+
 def set_props(obj, values, context=""):
     """set_editor_property for each name->value. Missing properties are reported, not fatal.
 
@@ -224,7 +244,7 @@ def set_props(obj, values, context=""):
         except Exception as exc:  # noqa: BLE001
             unreal.log_warning(
                 "[Castle] skipped   {0}.{1}  ({2}: {3})".format(
-                    context or obj.get_name(), prop, type(exc).__name__, exc
+                    context or safe_name(obj), prop, type(exc).__name__, exc
                 )
             )
     return applied
@@ -248,7 +268,7 @@ def set_first_prop(obj, names, value, context=""):
             continue
     unreal.log_warning(
         "[Castle] skipped   {0}: none of {1} exist".format(
-            context or obj.get_name(), ", ".join(names)
+            context or safe_name(obj), ", ".join(names)
         )
     )
     return None
