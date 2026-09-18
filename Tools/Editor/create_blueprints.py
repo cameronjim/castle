@@ -34,6 +34,16 @@ PLAYER_PATH = "/Game/Blueprints/Player"
 UI_PATH = "/Game/Blueprints/UI"
 INPUT_PATH = "/Game/Input"
 
+# UE 5.8 ships no first-person arms mesh: its FirstPerson template renders the full body
+# mannequin. So Frank's arms are the same UE4 mannequin the guards use, hidden down to the
+# arms by ACastleCharacter::HiddenViewModelBones and pushed under the camera.
+MANNEQUIN_MESH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
+MANNEQUIN_IDLE = "/Game/Mannequin/Animations/ThirdPersonIdle"
+
+# Copied out of Templates/TemplateResources/Standard/Weapons. Its internal references are
+# absolute (/Game/Weapons/...), so Content/Weapons is where these have to live.
+PISTOL_MESH = "/Game/Weapons/Pistol/Meshes/SM_Pistol"
+
 # ACastleCharacter input property name -> IA asset name.
 # Pause lives on ACastlePlayerController, not the pawn, so that Escape still works when the
 # pawn is locked out or dead; IA_Skip is consumed by the flashback widget's key handler and
@@ -134,6 +144,72 @@ def apply_defaults(bp, name, path, values):
     return applied
 
 
+def set_component_asset(bp, component_name, setter_name, prop_name, asset, context):
+    """Assign a mesh on an inherited component through the Blueprint CDO. Returns True if changed.
+
+    The CDO's component instance is the template every spawned actor copies, which is what a
+    designer edits in the Components panel.
+    """
+    if asset is None:
+        c.log("skipped", context, "asset not found")
+        return False
+
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property(component_name)
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        c.log("skipped", context, "no component called " + component_name)
+        return False
+
+    try:
+        if component.get_editor_property(prop_name) == asset:
+            return False
+    except Exception:  # noqa: BLE001 - set_props reports a missing property
+        pass
+
+    try:
+        getattr(component, setter_name)(asset)
+        c.log("updated", context, asset.get_name())
+        return True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error(context, exc)
+        return False
+
+
+def configure_view_model(bp):
+    """Give BP_CastleCharacter its first-person arms, pistol and idle poses.
+
+    The C++ holds only the properties; which meshes and animations fill them is content.
+    """
+    if bp is None:
+        return
+
+    arms = c.load_or_none(MANNEQUIN_MESH)
+    pistol = c.load_or_none(PISTOL_MESH)
+    idle = c.load_or_none(MANNEQUIN_IDLE)
+
+    changed = set_component_asset(
+        bp, "arms_mesh", "set_skeletal_mesh_asset", "skeletal_mesh_asset", arms,
+        "BP_CastleCharacter.ArmsMesh")
+    changed = set_component_asset(
+        bp, "weapon_mesh", "set_static_mesh", "static_mesh", pistol,
+        "BP_CastleCharacter.WeaponMesh") or changed
+
+    # The UE4 mannequin pack has no separate pistol idle, so both poses are the same clip; the
+    # difference the player sees is the pistol appearing in frame.
+    applied = apply_defaults(
+        bp, "BP_CastleCharacter", PLAYER_PATH,
+        [("arms_idle_anim", idle), ("arms_pistol_idle_anim", idle)])
+
+    if changed and not applied:
+        c.compile_blueprint(bp)
+        c.save(bp)
+
+
 def run():
     c.ensure_directory(PLAYER_PATH)
     c.ensure_directory(UI_PATH)
@@ -178,6 +254,7 @@ def run():
         for prop, asset_name in CHARACTER_INPUT_PROPERTIES:
             values.append((prop, c.load_or_none(c.asset_path(INPUT_PATH, asset_name))))
         apply_defaults(bp_character, "BP_CastleCharacter", PLAYER_PATH, values)
+        configure_view_model(bp_character)
 
     # --- BP_CastlePlayerController ------------------------------------------------------
     if bp_controller is not None:

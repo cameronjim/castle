@@ -6,8 +6,12 @@
 #include "GameFramework/Character.h"
 #include "CastleCharacter.generated.h"
 
+class UAnimSequence;
 class UCameraComponent;
 class UInputAction;
+class UPointLightComponent;
+class USkeletalMeshComponent;
+class UStaticMeshComponent;
 class UInputMappingContext;
 class UHealthComponent;
 class UInteractionComponent;
@@ -81,13 +85,42 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Aim")
 	bool IsAiming() const { return bIsAiming; }
 
+	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
+	bool IsSprinting() const { return bIsSprinting; }
+
 	/** Current camera field of view. Exposed so a test or a Blueprint can read the blend. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Aim")
 	float GetCurrentFOV() const;
 
+	/** LookSensitivity, reduced by AimLookMultiplier while aiming. */
+	UFUNCTION(BlueprintPure, Category = "Input")
+	float GetEffectiveLookSensitivity() const;
+
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Castle|Character")
 	void OnInteractPressed();
+
+	// --- View model -----------------------------------------------------------------------------
+
+	/** Arms rendered in front of the camera. Owner-only, no shadow. */
+	UFUNCTION(BlueprintPure, Category = "Castle|ViewModel")
+	USkeletalMeshComponent* GetArmsMesh() const { return ArmsMesh; }
+
+	/** The pistol in the arms' right hand. Hidden until bHasWeapon. */
+	UFUNCTION(BlueprintPure, Category = "Castle|ViewModel")
+	UStaticMeshComponent* GetWeaponMesh() const { return WeaponMesh; }
+
+	/** Kicks the arms back and up, then settles them. Called for every shot that goes out. */
+	UFUNCTION(BlueprintCallable, Category = "Castle|ViewModel")
+	void PlayFireFeedback();
+
+	/** Plays the pistol idle pose and shows the weapon, or the empty-handed pose and hides it. */
+	UFUNCTION(BlueprintCallable, Category = "Castle|ViewModel")
+	void RefreshViewModelForWeapon();
+
+	/** Offset the arms are currently drawn at, relative to their rest pose. Exposed for tests. */
+	UFUNCTION(BlueprintPure, Category = "Castle|ViewModel")
+	FVector GetViewModelOffset() const;
 
 protected:
 	//~ Begin APawn interface
@@ -120,6 +153,20 @@ protected:
 	/** Moves the camera FOV one frame towards its target. */
 	void UpdateAimFOV(float DeltaSeconds);
 
+	// --- View model -----------------------------------------------------------------------------
+
+	/** Hides the bones that are not arms and plays the resting pose. Runs once at BeginPlay. */
+	void InitialiseViewModel();
+
+	/** Advances the recoil, reload dip and sway clocks and writes the arms' relative transform. */
+	void UpdateViewModel(float DeltaSeconds);
+
+	/** Where the recoil curve is this frame: 0 at rest, 1 fully kicked back. */
+	float GetRecoilAlpha() const;
+
+	/** Turns the muzzle flash light off again. Timer body. */
+	void EndMuzzleFlash();
+
 	// --- Components -----------------------------------------------------------------------------
 
 	/** Eye-height camera attached to the capsule and driven by control rotation. */
@@ -142,6 +189,22 @@ protected:
 	/** What AISense_Hearing listens to. MakeNoise routes through this. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UPawnNoiseEmitterComponent> NoiseEmitter;
+
+	/**
+	 * First-person arms, attached to the camera. UE 5.8 ships no arms-only skeletal mesh, so
+	 * this is the full body mannequin with the bones in HiddenViewModelBones hidden and the
+	 * whole thing pushed down and forward until only the hands are in frame.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
+	TObjectPtr<USkeletalMeshComponent> ArmsMesh;
+
+	/** The weapon the arms are holding. Attached to WeaponSocketName on ArmsMesh when it exists. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
+	TObjectPtr<UStaticMeshComponent> WeaponMesh;
+
+	/** Flashed for MuzzleFlashSeconds on every shot. There is no Niagara system yet. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
+	TObjectPtr<UPointLightComponent> MuzzleFlash;
 
 	// --- Input assets ---------------------------------------------------------------------------
 
@@ -196,6 +259,19 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Castle|Movement")
 	bool bIsSprinting = false;
 
+	// --- Look -----------------------------------------------------------------------------------
+
+	/**
+	 * Multiplier on the raw Look input. The mouse mapping is 1 degree per unit, which is far
+	 * too fast to hold an aim; this is the one number to change when the mouse feels wrong.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.05"))
+	float LookSensitivity = 0.45f;
+
+	/** LookSensitivity is multiplied by this again while aiming down sights. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float AimLookMultiplier = 0.7f;
+
 	// --- Aim ------------------------------------------------------------------------------------
 
 	/** Field of view when hip-firing. The camera starts here and returns here. */
@@ -216,6 +292,79 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Castle|Aim")
 	bool bIsAiming = false;
+
+	// --- View model -----------------------------------------------------------------------------
+
+	/** Rest pose of the arms relative to the camera: down and forward so only the hands show. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FVector ArmsRelativeLocation = FVector(12.f, 0.f, -152.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FRotator ArmsRelativeRotation = FRotator(0.f, -90.f, 0.f);
+
+	/**
+	 * Bones hidden so the full-body mannequin reads as a pair of arms. Hiding a bone hides its
+	 * children, so the legs go with the thighs and the head goes with the neck.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	TArray<FName> HiddenViewModelBones;
+
+	/** Socket or bone on ArmsMesh the weapon hangs off. Falls back to a plain relative offset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FName WeaponSocketName = FName(TEXT("hand_r"));
+
+	/** Used when ArmsMesh has no WeaponSocketName; also the muzzle offset from the weapon. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FVector WeaponRelativeLocation = FVector(0.f, 0.f, 0.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FRotator WeaponRelativeRotation = FRotator(0.f, 0.f, 0.f);
+
+	/** Arms slide this far towards the screen centre while aiming, so the sights line up. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FVector AimArmsOffset = FVector(6.f, -8.f, 2.f);
+
+	/** Empty-handed pose. Optional: with no animation asset the arms hold their reference pose. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
+	TObjectPtr<UAnimSequence> ArmsIdleAnim;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
+	TObjectPtr<UAnimSequence> ArmsPistolIdleAnim;
+
+	/** Played once per shot. With none set, the procedural recoil kick carries the feedback. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
+	TObjectPtr<UAnimSequence> ArmsFireAnim;
+
+	/** Played on reload. With none set, the arms dip out of frame and back over ReloadSeconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
+	TObjectPtr<UAnimSequence> ArmsReloadAnim;
+
+	/** How far back the arms travel at the peak of the recoil, in centimetres. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Recoil", meta = (ClampMin = "0.0"))
+	float RecoilKickDistance = 3.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Recoil", meta = (ClampMin = "0.0"))
+	float RecoilKickPitchDegrees = 2.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Recoil", meta = (ClampMin = "0.0"))
+	float RecoilKickSeconds = 0.05f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Recoil", meta = (ClampMin = "0.0"))
+	float RecoilReturnSeconds = 0.15f;
+
+	/** How far the arms drop out of frame during a reload with no reload animation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel", meta = (ClampMin = "0.0"))
+	float ReloadDipDistance = 22.f;
+
+	/** Centimetres of bob at full sprint speed. Scaled by the pawn's actual speed. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Sway", meta = (ClampMin = "0.0"))
+	float SwayAmplitude = 1.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Sway", meta = (ClampMin = "0.0"))
+	float SwayCyclesPerSecond = 1.6f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel", meta = (ClampMin = "0.0"))
+	float MuzzleFlashSeconds = 0.05f;
 
 	// --- Noise ----------------------------------------------------------------------------------
 
@@ -244,4 +393,17 @@ protected:
 
 private:
 	FTimerHandle NoiseTimerHandle;
+	FTimerHandle MuzzleFlashTimerHandle;
+
+	/** Seconds since the last shot, for the recoil curve. Negative means "no shot yet". */
+	float RecoilElapsed = -1.f;
+
+	/** Sway phase, advanced by speed rather than by time so standing still is still. */
+	float SwayPhase = 0.f;
+
+	/** 0 hip, 1 fully aimed. Follows the same clock as the FOV blend. */
+	float AimOffsetAlpha = 0.f;
+
+	/** What bHasWeapon was last frame, so the arms only re-pose when it actually changes. */
+	bool bViewModelArmed = false;
 };

@@ -132,4 +132,38 @@ bool FCastleCharacterAimFOVBlend::RunTest(const FString& Parameters)
 	return true;
 }
 
+/**
+ * Mouse feel. The raw Look value is one degree per mouse unit, which was unusably fast in the
+ * first playtest; LookSensitivity scales it and aiming scales it again.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleCharacterLookSensitivity, "Castle.Character.LookSensitivity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleCharacterLookSensitivity::RunTest(const FString& Parameters)
+{
+	FCastleTestWorld TestWorld;
+
+	ACastleAimTestCharacter* Frank = Cast<ACastleAimTestCharacter>(TestWorld.SpawnActor(
+		ACastleAimTestCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
+	if (!TestNotNull(TEXT("Frank spawned"), Frank))
+	{
+		return false;
+	}
+
+	TestEqual(TEXT("Hip look sensitivity is the tuned default"),
+		Frank->GetEffectiveLookSensitivity(), 0.45f);
+
+	Frank->GetWeaponComponent()->GiveWeapon(12, 24);
+	Frank->StartAim();
+
+	TestEqual(TEXT("Aiming slows the look by AimLookMultiplier"),
+		Frank->GetEffectiveLookSensitivity(), 0.45f * 0.7f);
+
+	Frank->StopAim();
+	TestEqual(TEXT("Lowering the sights restores it"),
+		Frank->GetEffectiveLookSensitivity(), 0.45f);
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

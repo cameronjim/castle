@@ -9,6 +9,9 @@
 #include "Combat/TakedownComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PointLightComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -43,6 +46,38 @@ ACastleCharacter::ACastleCharacter()
 	// Frank starts the mission empty-handed; the pistol pickup calls GiveWeapon.
 	WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
 	WeaponComponent->bHasWeapon = false;
+
+	// --- view model ---------------------------------------------------------------------------
+	ArmsMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("ArmsMesh"));
+	ArmsMesh->SetupAttachment(FirstPersonCamera);
+	ArmsMesh->SetRelativeLocationAndRotation(ArmsRelativeLocation, ArmsRelativeRotation);
+	ArmsMesh->SetOnlyOwnerSee(true);
+	ArmsMesh->SetCastShadow(false);
+	ArmsMesh->bCastDynamicShadow = false;
+	ArmsMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	// The arms are a prop: they never need bounds updates from an invisible skeleton.
+	ArmsMesh->SetComponentTickEnabled(true);
+
+	WeaponMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMesh"));
+	WeaponMesh->SetupAttachment(ArmsMesh);
+	WeaponMesh->SetOnlyOwnerSee(true);
+	WeaponMesh->SetCastShadow(false);
+	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WeaponMesh->SetHiddenInGame(true);
+
+	MuzzleFlash = CreateDefaultSubobject<UPointLightComponent>(TEXT("MuzzleFlash"));
+	MuzzleFlash->SetupAttachment(WeaponMesh);
+	MuzzleFlash->SetRelativeLocation(FVector(18.f, 0.f, 2.f));
+	MuzzleFlash->SetIntensity(6000.f);
+	MuzzleFlash->SetAttenuationRadius(600.f);
+	MuzzleFlash->SetLightColor(FLinearColor(1.f, 0.78f, 0.42f));
+	MuzzleFlash->SetCastShadows(false);
+	MuzzleFlash->SetMobility(EComponentMobility::Movable);
+	MuzzleFlash->SetVisibility(false);
+
+	// The UE4 mannequin is a whole body; hiding a bone hides its children, so these three
+	// hide the legs and the head and leave the arms.
+	HiddenViewModelBones = { FName(TEXT("thigh_l")), FName(TEXT("thigh_r")), FName(TEXT("neck_01")) };
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
@@ -81,6 +116,8 @@ void ACastleCharacter::BeginPlay()
 		HealthComponent->OnDeath.AddDynamic(this, &ACastleCharacter::HandleDeath);
 	}
 
+	InitialiseViewModel();
+
 	// Guards hear the player through AISense_Hearing; MakeNoise on a fixed beat is enough
 	// resolution for a stealth game and costs nothing per frame.
 	if (UWorld* World = GetWorld())
@@ -95,6 +132,7 @@ void ACastleCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(NoiseTimerHandle);
+		World->GetTimerManager().ClearTimer(MuzzleFlashTimerHandle);
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -263,9 +301,14 @@ void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), MoveInput.X);
 }
 
+float ACastleCharacter::GetEffectiveLookSensitivity() const
+{
+	return bIsAiming ? LookSensitivity * AimLookMultiplier : LookSensitivity;
+}
+
 void ACastleCharacter::Input_Look(const FInputActionValue& Value)
 {
-	const FVector2D LookInput = Value.Get<FVector2D>();
+	const FVector2D LookInput = Value.Get<FVector2D>() * GetEffectiveLookSensitivity();
 
 	AddControllerYawInput(LookInput.X);
 	AddControllerPitchInput(LookInput.Y);
@@ -391,6 +434,178 @@ void ACastleCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	UpdateAimFOV(DeltaSeconds);
+	UpdateViewModel(DeltaSeconds);
+}
+
+void ACastleCharacter::InitialiseViewModel()
+{
+	if (!ArmsMesh)
+	{
+		return;
+	}
+
+	if (ArmsMesh->GetSkeletalMeshAsset())
+	{
+		for (const FName& BoneName : HiddenViewModelBones)
+		{
+			if (ArmsMesh->GetBoneIndex(BoneName) != INDEX_NONE)
+			{
+				ArmsMesh->HideBoneByName(BoneName, EPhysBodyOp::PBO_None);
+			}
+		}
+	}
+
+	if (WeaponMesh)
+	{
+		// A socket is the right answer when the mesh has one; the UE4 mannequin has no weapon
+		// socket, so hand_r is used as a bone attachment and the offset does the aiming.
+		const FName Socket = (ArmsMesh->DoesSocketExist(WeaponSocketName) ? WeaponSocketName : NAME_None);
+		WeaponMesh->AttachToComponent(
+			ArmsMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
+		WeaponMesh->SetRelativeLocationAndRotation(WeaponRelativeLocation, WeaponRelativeRotation);
+	}
+
+	RefreshViewModelForWeapon();
+}
+
+void ACastleCharacter::RefreshViewModelForWeapon()
+{
+	const UWeaponComponent* Weapon = GetWeaponComponent();
+	const bool bArmed = Weapon && Weapon->HasWeapon();
+	bViewModelArmed = bArmed;
+
+	if (WeaponMesh)
+	{
+		WeaponMesh->SetHiddenInGame(!bArmed);
+	}
+
+	if (!ArmsMesh || !ArmsMesh->GetSkeletalMeshAsset())
+	{
+		return;
+	}
+
+	UAnimSequence* Pose = bArmed ? ArmsPistolIdleAnim : ArmsIdleAnim;
+	if (!Pose)
+	{
+		return;
+	}
+
+	ArmsMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	ArmsMesh->PlayAnimation(Pose, /*bLooping=*/true);
+}
+
+float ACastleCharacter::GetRecoilAlpha() const
+{
+	if (RecoilElapsed < 0.f)
+	{
+		return 0.f;
+	}
+
+	if (RecoilElapsed < RecoilKickSeconds)
+	{
+		return RecoilKickSeconds > 0.f ? RecoilElapsed / RecoilKickSeconds : 1.f;
+	}
+
+	const float ReturnElapsed = RecoilElapsed - RecoilKickSeconds;
+	if (RecoilReturnSeconds <= 0.f || ReturnElapsed >= RecoilReturnSeconds)
+	{
+		return 0.f;
+	}
+
+	return 1.f - ReturnElapsed / RecoilReturnSeconds;
+}
+
+FVector ACastleCharacter::GetViewModelOffset() const
+{
+	const float RecoilAlpha = GetRecoilAlpha();
+	FVector Offset = AimArmsOffset * AimOffsetAlpha;
+	Offset.X -= RecoilKickDistance * RecoilAlpha;
+
+	const UWeaponComponent* Weapon = GetWeaponComponent();
+	// No reload animation yet, so the arms drop out of frame and come back instead.
+	if (Weapon && Weapon->IsReloading() && !ArmsReloadAnim)
+	{
+		Offset.Z -= ReloadDipDistance;
+	}
+
+	// Bob is a sine on the phase, scaled by how fast the pawn is actually moving.
+	const float SpeedAlpha = SprintSpeed > 0.f
+		? FMath::Clamp(GetVelocity().Size2D() / SprintSpeed, 0.f, 1.f) : 0.f;
+	Offset.Z += FMath::Sin(SwayPhase) * SwayAmplitude * SpeedAlpha;
+	Offset.Y += FMath::Sin(SwayPhase * 0.5f) * SwayAmplitude * 0.5f * SpeedAlpha;
+
+	return Offset;
+}
+
+void ACastleCharacter::UpdateViewModel(float DeltaSeconds)
+{
+	if (!ArmsMesh)
+	{
+		return;
+	}
+
+	const UWeaponComponent* Weapon = GetWeaponComponent();
+	if (Weapon && Weapon->HasWeapon() != bViewModelArmed)
+	{
+		RefreshViewModelForWeapon();
+	}
+
+	if (RecoilElapsed >= 0.f)
+	{
+		RecoilElapsed += DeltaSeconds;
+		if (RecoilElapsed > RecoilKickSeconds + RecoilReturnSeconds)
+		{
+			RecoilElapsed = -1.f;
+		}
+	}
+
+	const float SpeedAlpha = SprintSpeed > 0.f
+		? FMath::Clamp(GetVelocity().Size2D() / SprintSpeed, 0.f, 1.f) : 0.f;
+	SwayPhase = FMath::Fmod(SwayPhase + DeltaSeconds * SwayCyclesPerSecond * 2.f * PI * SpeedAlpha, 2.f * PI);
+
+	const float AimStep = AimBlendSeconds > 0.f ? DeltaSeconds / AimBlendSeconds : 1.f;
+	AimOffsetAlpha = FMath::Clamp(AimOffsetAlpha + (bIsAiming ? AimStep : -AimStep), 0.f, 1.f);
+
+	FRotator Rotation = ArmsRelativeRotation;
+	Rotation.Pitch += RecoilKickPitchDegrees * GetRecoilAlpha();
+	ArmsMesh->SetRelativeLocationAndRotation(ArmsRelativeLocation + GetViewModelOffset(), Rotation);
+}
+
+void ACastleCharacter::PlayFireFeedback()
+{
+	RecoilElapsed = 0.f;
+
+	if (ArmsMesh && ArmsFireAnim && ArmsMesh->GetSkeletalMeshAsset())
+	{
+		ArmsMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+		ArmsMesh->PlayAnimation(ArmsFireAnim, /*bLooping=*/false);
+	}
+
+	if (!MuzzleFlash)
+	{
+		return;
+	}
+
+	MuzzleFlash->SetVisibility(true);
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			MuzzleFlashTimerHandle, this, &ACastleCharacter::EndMuzzleFlash, MuzzleFlashSeconds, false);
+	}
+}
+
+void ACastleCharacter::EndMuzzleFlash()
+{
+	if (MuzzleFlash)
+	{
+		MuzzleFlash->SetVisibility(false);
+	}
+
+	// A fire animation is one-shot; drop back to the idle pose it interrupted.
+	if (ArmsFireAnim)
+	{
+		RefreshViewModelForWeapon();
+	}
 }
 
 void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
@@ -422,6 +637,7 @@ void ACastleCharacter::Input_Fire(const FInputActionValue& /*Value*/)
 	{
 		// A gunshot is the loudest thing in the level; every guard in range goes Alerted.
 		MakeNoise(GunshotNoiseLoudness, this, GetActorLocation());
+		PlayFireFeedback();
 	}
 }
 
