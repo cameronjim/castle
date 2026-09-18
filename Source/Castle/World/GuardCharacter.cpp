@@ -106,8 +106,10 @@ void AGuardCharacter::GoLimp()
 	}
 	bLimp = true;
 
+	// Stop the AI first: a behaviour tree still issuing move orders fights the ragdoll.
 	if (AController* MyController = GetController())
 	{
+		MyController->StopMovement();
 		MyController->UnPossess();
 	}
 
@@ -115,6 +117,8 @@ void AGuardCharacter::GoLimp()
 	{
 		Movement->StopMovementImmediately();
 		Movement->DisableMovement();
+		// The capsule stops driving the mesh; the bodies do.
+		Movement->SetComponentTickEnabled(false);
 	}
 
 	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
@@ -122,16 +126,34 @@ void AGuardCharacter::GoLimp()
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
-	// A greybox guard may have no skeletal mesh at all; ragdoll only when there is something to sim.
+	// A greybox guard may have no skeletal mesh at all; ragdoll only when there is something to
+	// sim, and only when the mesh has a physics asset to sim it with.
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
-	if (SkeletalMesh && SkeletalMesh->GetSkeletalMeshAsset())
+	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset())
 	{
-		SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-		SkeletalMesh->SetCollisionProfileName(TEXT("Ragdoll"));
-		SkeletalMesh->SetAllBodiesSimulatePhysics(true);
-		SkeletalMesh->SetSimulatePhysics(true);
-		SkeletalMesh->WakeAllRigidBodies();
+		return;
 	}
+
+	if (!SkeletalMesh->GetPhysicsAsset())
+	{
+		UE_LOG(LogCastle, Warning,
+			TEXT("%s: the mesh %s has no physics asset, so the body cannot ragdoll."),
+			*GetName(), *GetNameSafe(SkeletalMesh->GetSkeletalMeshAsset()));
+		return;
+	}
+
+	// The mesh is attached to the capsule in the character's default layout, and a simulating
+	// body that is still welded to its parent will not fall.
+	SkeletalMesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+
+	SkeletalMesh->SetCollisionProfileName(TEXT("Ragdoll"));
+	SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	SkeletalMesh->SetAllBodiesSimulatePhysics(true);
+	SkeletalMesh->SetSimulatePhysics(true);
+	SkeletalMesh->WakeAllRigidBodies();
+
+	// The corpse stays where it lands; nothing should ever try to move the actor again.
+	SetActorTickEnabled(false);
 }
 
 void AGuardCharacter::DropLoot()
