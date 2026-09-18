@@ -55,19 +55,27 @@ ACastleCharacter::ACastleCharacter()
 	ArmsMesh->SetCastShadow(false);
 	ArmsMesh->bCastDynamicShadow = false;
 	ArmsMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	// The arms are a prop: they never need bounds updates from an invisible skeleton.
-	ArmsMesh->SetComponentTickEnabled(true);
+	// Off unless bUseArmsMesh: the full-body mannequin wraps the camera in its own torso.
+	ArmsMesh->SetVisibility(false);
+	ArmsMesh->SetHiddenInGame(true);
+	ArmsMesh->SetComponentTickEnabled(false);
 
+	// The pistol is the whole view model. It hangs off the camera, not off the arms, so its
+	// offsets are read directly in camera space: X forward, Y right, Z up.
 	WeaponMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMesh"));
-	WeaponMesh->SetupAttachment(ArmsMesh);
+	WeaponMesh->SetupAttachment(FirstPersonCamera);
+	WeaponMesh->SetRelativeLocationAndRotation(WeaponRelativeLocation, WeaponRelativeRotation);
 	WeaponMesh->SetOnlyOwnerSee(true);
 	WeaponMesh->SetCastShadow(false);
+	WeaponMesh->bCastDynamicShadow = false;
 	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	WeaponMesh->SetHiddenInGame(true);
 
 	MuzzleFlash = CreateDefaultSubobject<UPointLightComponent>(TEXT("MuzzleFlash"));
 	MuzzleFlash->SetupAttachment(WeaponMesh);
-	MuzzleFlash->SetRelativeLocation(FVector(18.f, 0.f, 2.f));
+	// In the pistol's own space the barrel runs along +Y and ends at y = 20.9, so the flash
+	// sits just past the muzzle rather than inside the slide.
+	MuzzleFlash->SetRelativeLocation(FVector(0.f, 23.f, 3.f));
 	MuzzleFlash->SetIntensity(6000.f);
 	MuzzleFlash->SetAttenuationRadius(600.f);
 	MuzzleFlash->SetLightColor(FLinearColor(1.f, 0.78f, 0.42f));
@@ -444,7 +452,13 @@ void ACastleCharacter::InitialiseViewModel()
 		return;
 	}
 
-	if (ArmsMesh->GetSkeletalMeshAsset())
+	const bool bArmsActive = bUseArmsMesh && ArmsMesh->GetSkeletalMeshAsset() != nullptr;
+
+	ArmsMesh->SetVisibility(bArmsActive);
+	ArmsMesh->SetHiddenInGame(!bArmsActive);
+	ArmsMesh->SetComponentTickEnabled(bArmsActive);
+
+	if (bArmsActive)
 	{
 		for (const FName& BoneName : HiddenViewModelBones)
 		{
@@ -457,11 +471,19 @@ void ACastleCharacter::InitialiseViewModel()
 
 	if (WeaponMesh)
 	{
-		// A socket is the right answer when the mesh has one; the UE4 mannequin has no weapon
-		// socket, so hand_r is used as a bone attachment and the offset does the aiming.
-		const FName Socket = (ArmsMesh->DoesSocketExist(WeaponSocketName) ? WeaponSocketName : NAME_None);
-		WeaponMesh->AttachToComponent(
-			ArmsMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
+		// With no arms the pistol is parented straight to the camera, so WeaponRelativeLocation
+		// is read in camera space. With arms on, hand_r carries it instead.
+		if (bArmsActive)
+		{
+			const FName Socket = (ArmsMesh->DoesSocketExist(WeaponSocketName) ? WeaponSocketName : NAME_None);
+			WeaponMesh->AttachToComponent(
+				ArmsMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
+		}
+		else if (FirstPersonCamera)
+		{
+			WeaponMesh->AttachToComponent(
+				FirstPersonCamera, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		}
 		WeaponMesh->SetRelativeLocationAndRotation(WeaponRelativeLocation, WeaponRelativeRotation);
 	}
 
@@ -479,7 +501,7 @@ void ACastleCharacter::RefreshViewModelForWeapon()
 		WeaponMesh->SetHiddenInGame(!bArmed);
 	}
 
-	if (!ArmsMesh || !ArmsMesh->GetSkeletalMeshAsset())
+	if (!bUseArmsMesh || !ArmsMesh || !ArmsMesh->GetSkeletalMeshAsset())
 	{
 		return;
 	}
@@ -518,7 +540,9 @@ float ACastleCharacter::GetRecoilAlpha() const
 FVector ACastleCharacter::GetViewModelOffset() const
 {
 	const float RecoilAlpha = GetRecoilAlpha();
-	FVector Offset = AimArmsOffset * AimOffsetAlpha;
+	// Aiming slides the pistol from its hip pose to the centred one, so the sights rise to the
+	// crosshair. Everything else is added on top of wherever that lands.
+	FVector Offset = (WeaponAimLocation - WeaponRelativeLocation) * AimOffsetAlpha;
 	Offset.X -= RecoilKickDistance * RecoilAlpha;
 
 	const UWeaponComponent* Weapon = GetWeaponComponent();
@@ -539,11 +563,6 @@ FVector ACastleCharacter::GetViewModelOffset() const
 
 void ACastleCharacter::UpdateViewModel(float DeltaSeconds)
 {
-	if (!ArmsMesh)
-	{
-		return;
-	}
-
 	const UWeaponComponent* Weapon = GetWeaponComponent();
 	if (Weapon && Weapon->HasWeapon() != bViewModelArmed)
 	{
@@ -566,16 +585,31 @@ void ACastleCharacter::UpdateViewModel(float DeltaSeconds)
 	const float AimStep = AimBlendSeconds > 0.f ? DeltaSeconds / AimBlendSeconds : 1.f;
 	AimOffsetAlpha = FMath::Clamp(AimOffsetAlpha + (bIsAiming ? AimStep : -AimStep), 0.f, 1.f);
 
-	FRotator Rotation = ArmsRelativeRotation;
-	Rotation.Pitch += RecoilKickPitchDegrees * GetRecoilAlpha();
-	ArmsMesh->SetRelativeLocationAndRotation(ArmsRelativeLocation + GetViewModelOffset(), Rotation);
+	const FVector Offset = GetViewModelOffset();
+	const float RecoilPitch = RecoilKickPitchDegrees * GetRecoilAlpha();
+
+	// The pistol is the view model, so recoil, dip and sway are written onto it. The arms, when
+	// they exist at all, ride along behind it.
+	if (WeaponMesh && WeaponMesh->GetAttachParent() == FirstPersonCamera)
+	{
+		FRotator Rotation = WeaponRelativeRotation;
+		Rotation.Pitch += RecoilPitch;
+		WeaponMesh->SetRelativeLocationAndRotation(WeaponRelativeLocation + Offset, Rotation);
+	}
+
+	if (bUseArmsMesh && ArmsMesh)
+	{
+		FRotator Rotation = ArmsRelativeRotation;
+		Rotation.Pitch += RecoilPitch;
+		ArmsMesh->SetRelativeLocationAndRotation(ArmsRelativeLocation + Offset, Rotation);
+	}
 }
 
 void ACastleCharacter::PlayFireFeedback()
 {
 	RecoilElapsed = 0.f;
 
-	if (ArmsMesh && ArmsFireAnim && ArmsMesh->GetSkeletalMeshAsset())
+	if (bUseArmsMesh && ArmsMesh && ArmsFireAnim && ArmsMesh->GetSkeletalMeshAsset())
 	{
 		ArmsMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
 		ArmsMesh->PlayAnimation(ArmsFireAnim, /*bLooping=*/false);

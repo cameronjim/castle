@@ -118,7 +118,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Castle|ViewModel")
 	void RefreshViewModelForWeapon();
 
-	/** Offset the arms are currently drawn at, relative to their rest pose. Exposed for tests. */
+	/** Offset the view model is currently drawn at, relative to its rest pose. Exposed for tests. */
 	UFUNCTION(BlueprintPure, Category = "Castle|ViewModel")
 	FVector GetViewModelOffset() const;
 
@@ -191,14 +191,14 @@ protected:
 	TObjectPtr<UPawnNoiseEmitterComponent> NoiseEmitter;
 
 	/**
-	 * First-person arms, attached to the camera. UE 5.8 ships no arms-only skeletal mesh, so
-	 * this is the full body mannequin with the bones in HiddenViewModelBones hidden and the
-	 * whole thing pushed down and forward until only the hands are in frame.
+	 * Optional first-person arms. UE 5.8 ships no arms-only skeletal mesh, and the full body
+	 * mannequin wraps its torso and shoulders around the camera, so this is off by default
+	 * (bUseArmsMesh false) and the pistol alone is the view model.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<USkeletalMeshComponent> ArmsMesh;
 
-	/** The weapon the arms are holding. Attached to WeaponSocketName on ArmsMesh when it exists. */
+	/** The view model pistol. Attached to the camera, or to WeaponSocketName when arms are on. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UStaticMeshComponent> WeaponMesh;
 
@@ -295,6 +295,13 @@ protected:
 
 	// --- View model -----------------------------------------------------------------------------
 
+	/**
+	 * Off by default. The only arms mesh available is the full body mannequin, whose torso and
+	 * shoulders surround the camera; turn this on only once a real arms-only mesh exists.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|ViewModel")
+	bool bUseArmsMesh = false;
+
 	/** Rest pose of the arms relative to the camera: down and forward so only the hands show. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	FVector ArmsRelativeLocation = FVector(12.f, 0.f, -152.f);
@@ -309,20 +316,27 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	TArray<FName> HiddenViewModelBones;
 
-	/** Socket or bone on ArmsMesh the weapon hangs off. Falls back to a plain relative offset. */
+	/** Socket or bone on ArmsMesh the weapon hangs off. Only used while bUseArmsMesh. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	FName WeaponSocketName = FName(TEXT("hand_r"));
 
-	/** Used when ArmsMesh has no WeaponSocketName; also the muzzle offset from the weapon. */
+	/**
+	 * Hip rest pose of the pistol in camera space: X forward, Y right, Z up. Lower right of
+	 * frame, barrel down the camera's forward axis.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector WeaponRelativeLocation = FVector(0.f, 0.f, 0.f);
+	FVector WeaponRelativeLocation = FVector(28.f, 14.f, -14.f);
 
+	/**
+	 * SM_Pistol is modelled barrel-along-+Y (its bounds run y -5.3..20.9, x only -2.9..3.1),
+	 * so a -90 degree yaw is what puts the muzzle down the camera's forward axis.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FRotator WeaponRelativeRotation = FRotator(0.f, 0.f, 0.f);
+	FRotator WeaponRelativeRotation = FRotator(0.f, -90.f, 0.f);
 
-	/** Arms slide this far towards the screen centre while aiming, so the sights line up. */
+	/** Where the pistol sits while aiming: centred, so the sights meet the crosshair. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector AimArmsOffset = FVector(6.f, -8.f, 2.f);
+	FVector WeaponAimLocation = FVector(20.f, 0.f, -8.f);
 
 	/** Empty-handed pose. Optional: with no animation asset the arms hold their reference pose. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
