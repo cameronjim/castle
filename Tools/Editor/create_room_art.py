@@ -1,0 +1,638 @@
+"""Art pass over the first room and first corridor of L_M01_CellBlockD.
+
+Turns Frank's cell and corridor 1 from lit grey boxes into a dark black-site prison:
+procedural concrete, a steel cell door left open, fluorescent tubes (one with a bad
+ballast), a red emergency lamp at the far end, pipes and panels to break up the walls,
+a ceiling over the whole map so the sun stops flooding the interior, and a post process
+that lets the dark stay dark.
+
+Everything is cubes and cylinders from /Engine/BasicShapes plus the procedural materials
+in _materials.py. No imported art, nothing downloaded.
+
+Rules this script obeys:
+
+  * every actor it creates is labelled ``Art_...`` so the pass can be found and undone
+  * no gameplay actor is moved, retyped or deleted - guards, patrol points, triggers,
+    the door, pickups, PlayerStart and the nav volume are read-only here
+  * idempotent: a re-run fills gaps and leaves everything else alone
+  * anything it places whose footprint comes within CLEARANCE cm of a patrol TargetPoint
+    is logged, because that is a guard walking into the scenery
+
+Run headless (after the other content scripts):
+
+    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+        -script="Tools\\Editor\\create_room_art.py" -unattended -nullrhi -nosplash -nop4 -stdout
+"""
+
+import math
+import os
+import sys
+
+import unreal
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _common as c  # noqa: E402
+import _materials as m  # noqa: E402
+
+MAP_PATH = "/Game/Maps/L_M01_CellBlockD"
+CUBE_PATH = "/Engine/BasicShapes/Cube.Cube"
+CYLINDER_PATH = "/Engine/BasicShapes/Cylinder.Cylinder"
+GREYBOX_PATH = "/Game/Kit/Materials/M_Greybox"
+
+ART_PREFIX = "Art_"
+
+# Any art actor whose footprint passes within this many cm of a patrol point is logged.
+CLEARANCE = 60.0
+
+# --- bounds -----------------------------------------------------------------------------
+# Mirrors create_sandbox_map.M01_WALLS. Interior extents, in cm:
+#   cell        x    0..300   y -150..150   (doorway in the x = 300 wall is y -40..40)
+#   corridor 1  x  300..2300  y -150..150   (station opening in the x = 2300 wall)
+# Walls are 20 thick and 400 tall, so the ceiling sits at z = 400.
+WALL_HEIGHT = 400.0
+CEILING_THICK = 20.0
+CEILING_Z = WALL_HEIGHT + CEILING_THICK / 2.0
+
+CELL_X = (0.0, 300.0)
+CORR1_X = (300.0, 2300.0)
+ROOM_Y = (-150.0, 150.0)
+DOORWAY_Y = (-40.0, 40.0)
+
+# Wall actors create_sandbox_map placed that belong to the cell or corridor 1.
+ART_WALL_LABELS = (
+    "Wall_Cell_Back",
+    "Wall_Cell_South",
+    "Wall_Cell_North",
+    "Wall_CellDoor_S",
+    "Wall_CellDoor_N",
+    "Wall_Corr1_South",
+    "Wall_Corr1_North",
+    "Wall_StationIn_S",
+    "Wall_StationIn_N",
+)
+
+# (label, cx, cy, sx, sy, material key). The first two are the art rooms; the rest just
+# stop the sun, so they stay on the greybox material.
+CEILINGS = (
+    ("Art_Ceiling_Cell", 150.0, 0.0, 340.0, 340.0, "concrete"),
+    ("Art_Ceiling_Corr1", 1300.0, 0.0, 2000.0, 340.0, "concrete"),
+    ("Art_Ceiling_Station", 2600.0, 0.0, 640.0, 640.0, "greybox"),
+    ("Art_Ceiling_Corr2", 3900.0, 0.0, 2000.0, 340.0, "greybox"),
+    ("Art_Ceiling_Exit", 5200.0, 0.0, 640.0, 640.0, "greybox"),
+)
+
+# A 4 cm skim of finished floor over the art rooms only - the map's single Floor slab
+# runs the whole level and the other rooms stay grey. Top face lands at z = +2.
+FLOOR_SKIMS = (
+    ("Art_Floor_Cell", 150.0, 0.0, 340.0, 320.0),
+    ("Art_Floor_Corr1", 1300.0, 0.0, 2000.0, 320.0),
+)
+
+TUBE_SIZE = (120.0, 10.0, 5.0)
+TUBE_Z = 392.0
+TUBE_LIGHT_Z = 380.0
+
+# (suffix, x, y, material key, light intensity in candelas)
+FLUORESCENTS = (
+    ("Cell", 150.0, 0.0, "tube", 25.0),
+    ("Corr1_A", 800.0, 0.0, "tube", 25.0),
+    ("Corr1_B", 1800.0, 0.0, "flicker", 15.0),
+)
+
+# (label, center, size, material key, yaw)
+CELL_DRESSING = (
+    ("Art_Bunk", (140.0, -100.0, 45.0), (200.0, 80.0, 20.0), "steel", 0.0),
+    ("Art_Toilet", (45.0, 115.0, 20.0), (40.0, 40.0, 40.0), "keycard", 0.0),
+    ("Art_Drain", (150.0, 40.0, 3.0), (60.0, 60.0, 4.0), "steel", 0.0),
+    ("Art_CellDoor_Jamb_S", (300.0, -45.0, 110.0), (30.0, 10.0, 220.0), "steel", 0.0),
+    ("Art_CellDoor_Jamb_N", (300.0, 45.0, 110.0), (30.0, 10.0, 220.0), "steel", 0.0),
+    ("Art_CellDoor_Lintel", (300.0, 0.0, 225.0), (30.0, 100.0, 10.0), "steel", 0.0),
+    # Hinged on the north jamb at (300, 40) and swung 70 degrees into the corridor, so the
+    # doorway and the leave_cell trigger stay clear.
+    ("Art_CellDoor_Slab", (337.6, 26.3, 110.0), (8.0, 80.0, 210.0), "steel", 70.0),
+)
+
+CORRIDOR_DRESSING = (
+    ("Art_Panel_A", (700.0, -134.0, 200.0), (60.0, 12.0, 80.0), "steel", 0.0),
+    ("Art_Panel_B", (1600.0, -134.0, 210.0), (50.0, 12.0, 60.0), "steel", 0.0),
+    ("Art_Camera_Body", (2250.0, -128.0, 340.0), (24.0, 16.0, 16.0), "steel", 0.0),
+)
+
+# (label, center, radius, length, material key) - laid along X against the north wall.
+CORRIDOR_PIPES = (
+    ("Art_Pipe_A", (1300.0, 130.0, 356.0), 7.0, 2000.0, "steel"),
+    ("Art_Pipe_B", (1300.0, 130.0, 338.0), 7.0, 2000.0, "steel"),
+    ("Art_Pipe_C", (1300.0, 131.0, 320.0), 8.0, 2000.0, "steel"),
+)
+
+RED_LAMP = ("Art_RedEmergency", (2240.0, 130.0, 300.0), (16.0, 20.0, 26.0))
+RED_LIGHT = ("Art_Light_RedEmergency", (2225.0, 118.0, 295.0))
+EXIT_SIGN = ("Art_ExitSign_Station", (2290.0, 0.0, 330.0), (10.0, 60.0, 16.0))
+
+COOL_WHITE = (200, 220, 255)
+EMERGENCY_RED = (255, 25, 10)
+DARK_BLUE = (40, 60, 110)
+
+_STATE = {"changed": 0, "materials": {}}
+
+
+# --------------------------------------------------------------------------------------
+# level / actor plumbing
+# --------------------------------------------------------------------------------------
+
+
+def load_level(package_path):
+    subsystem = c.level_editor_subsystem()
+    if subsystem is not None:
+        return bool(subsystem.load_level(package_path))
+    if hasattr(unreal, "EditorLevelLibrary"):
+        return bool(unreal.EditorLevelLibrary.load_level(package_path))
+    return False
+
+
+def save_level():
+    subsystem = c.level_editor_subsystem()
+    if subsystem is not None:
+        return bool(subsystem.save_current_level())
+    if hasattr(unreal, "EditorLevelLibrary"):
+        return bool(unreal.EditorLevelLibrary.save_current_level())
+    return False
+
+
+def label_of(actor):
+    try:
+        return actor.get_actor_label()
+    except Exception:  # noqa: BLE001
+        return "<unlabelled>"
+
+
+def find_actor_by_label(label):
+    for actor in c.all_level_actors():
+        if label_of(actor) == label:
+            return actor
+    return None
+
+
+def touched(count=1):
+    _STATE["changed"] += count
+
+
+def color(rgb):
+    """FColor from a 0-255 (r, g, b) tuple."""
+    return unreal.Color(r=int(rgb[0]), g=int(rgb[1]), b=int(rgb[2]), a=255)
+
+
+def mesh(path):
+    return c.load_or_none(path) or unreal.load_object(None, path)
+
+
+def material(key):
+    return _STATE["materials"].get(key)
+
+
+def apply_material(actor, mat):
+    """Assign slot 0 if it isn't already that material. Returns True when it changed."""
+    if mat is None:
+        return False
+    try:
+        component = actor.get_editor_property("static_mesh_component")
+        overrides = list(component.get_editor_property("override_materials") or [])
+        if overrides and overrides[0] == mat:
+            return False
+        component.set_material(0, mat)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("apply_material " + label_of(actor), exc)
+        return False
+
+
+# --------------------------------------------------------------------------------------
+# patrol clearance
+# --------------------------------------------------------------------------------------
+
+
+def patrol_points():
+    points = []
+    for actor in c.all_level_actors():
+        if isinstance(actor, unreal.TargetPoint):
+            try:
+                loc = actor.get_actor_location()
+                points.append((label_of(actor), loc.x, loc.y))
+            except Exception:  # noqa: BLE001
+                continue
+    return points
+
+
+def check_clearance(label, center, size, yaw=0.0):
+    """Log any patrol TargetPoint within CLEARANCE cm of this actor's XY footprint.
+
+    A rotated box is approximated by its bounding circle, which is the pessimistic read -
+    it will warn slightly early rather than let a guard walk into a prop.
+    """
+    try:
+        half_x, half_y = size[0] / 2.0, size[1] / 2.0
+        if yaw:
+            radius = math.hypot(half_x, half_y)
+            half_x = half_y = radius
+        for name, px, py in _STATE.get("patrol", []):
+            dx = max(abs(px - center[0]) - half_x, 0.0)
+            dy = max(abs(py - center[1]) - half_y, 0.0)
+            distance = math.hypot(dx, dy)
+            if distance < CLEARANCE:
+                c.log(
+                    "warn",
+                    label,
+                    "{0:.0f} cm from patrol point {1}".format(distance, name),
+                )
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("check_clearance " + label, exc)
+
+
+# --------------------------------------------------------------------------------------
+# primitives
+# --------------------------------------------------------------------------------------
+
+
+def ensure_box(label, center, size, material_key, yaw=0.0, static=True):
+    """Idempotent cube StaticMeshActor. Returns (actor, created)."""
+    try:
+        existing = find_actor_by_label(label)
+        if existing is not None:
+            if apply_material(existing, material(material_key)):
+                touched()
+                c.log("updated", label, "material -> " + material_key)
+            else:
+                c.log("exists", label)
+            return existing, False
+
+        rotation = unreal.Rotator(0.0, 0.0, yaw)
+        actor = c.spawn_actor(
+            unreal.StaticMeshActor, unreal.Vector(*center), rotation, label=label)
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return None, False
+
+        component = actor.get_editor_property("static_mesh_component")
+        cube = mesh(CUBE_PATH)
+        if cube is not None:
+            component.set_static_mesh(cube)
+        actor.set_actor_scale3d(
+            unreal.Vector(size[0] / 100.0, size[1] / 100.0, size[2] / 100.0))
+        actor.set_mobility(
+            unreal.ComponentMobility.STATIC if static else unreal.ComponentMobility.MOVABLE)
+        apply_material(actor, material(material_key))
+        touched()
+        c.log("created", label, "{0:.0f}x{1:.0f}x{2:.0f} {3}".format(
+            size[0], size[1], size[2], material_key))
+        check_clearance(label, center, size, yaw)
+        return actor, True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("ensure_box " + label, exc)
+        return None, False
+
+
+def ensure_pipe(label, center, radius, length, material_key):
+    """Idempotent cylinder laid along X. /Engine/BasicShapes/Cylinder is r50 x h100."""
+    try:
+        existing = find_actor_by_label(label)
+        if existing is not None:
+            if apply_material(existing, material(material_key)):
+                touched()
+                c.log("updated", label, "material -> " + material_key)
+            else:
+                c.log("exists", label)
+            return existing, False
+
+        actor = c.spawn_actor(
+            unreal.StaticMeshActor,
+            unreal.Vector(*center),
+            unreal.Rotator(0.0, 90.0, 0.0),
+            label=label,
+        )
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return None, False
+
+        component = actor.get_editor_property("static_mesh_component")
+        cylinder = mesh(CYLINDER_PATH)
+        if cylinder is not None:
+            component.set_static_mesh(cylinder)
+        actor.set_actor_scale3d(
+            unreal.Vector(radius / 50.0, radius / 50.0, length / 100.0))
+        actor.set_mobility(unreal.ComponentMobility.STATIC)
+        apply_material(actor, material(material_key))
+        touched()
+        c.log("created", label, "pipe r{0:.0f} x {1:.0f}".format(radius, length))
+        check_clearance(label, center, (length, radius * 2.0))
+        return actor, True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("ensure_pipe " + label, exc)
+        return None, False
+
+
+def ensure_light(actor_class, label, location, rotation=None, props=None, component_prop=None):
+    """Idempotent light actor, Movable, with ``props`` applied to its light component."""
+    try:
+        existing = find_actor_by_label(label)
+        if existing is not None:
+            c.log("exists", label)
+            return existing, False
+        if actor_class is None:
+            c.log("skipped", label, "light class unavailable")
+            return None, False
+
+        actor = c.spawn_actor(actor_class, unreal.Vector(*location), rotation, label=label)
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return None, False
+
+        c.set_actor_mobility_movable(actor)
+        component = None
+        if component_prop:
+            try:
+                component = actor.get_editor_property(component_prop)
+            except Exception:  # noqa: BLE001
+                component = None
+        if component is None:
+            component = actor.get_editor_property("root_component")
+        if component is not None and props:
+            c.set_props(component, props, label)
+        touched()
+        c.log("created", label, c.class_name(actor_class))
+        return actor, True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("ensure_light " + label, exc)
+        return None, False
+
+
+# --------------------------------------------------------------------------------------
+# steps
+# --------------------------------------------------------------------------------------
+
+
+def step_wall_materials():
+    """Concrete on the cell and corridor-1 walls. Other rooms keep M_Greybox."""
+    concrete = material("concrete")
+    if concrete is None:
+        c.log("skipped", "wall materials", "M_Concrete unavailable")
+        return
+    for actor in c.all_level_actors():
+        if not isinstance(actor, unreal.StaticMeshActor):
+            continue
+        label = label_of(actor)
+        if label not in ART_WALL_LABELS:
+            continue
+        try:
+            if apply_material(actor, concrete):
+                touched()
+                c.log("updated", label, "material -> M_Concrete")
+            else:
+                c.log("exists", label, "already M_Concrete")
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("step_wall_materials " + label, exc)
+
+
+def step_floor_skim():
+    for label, cx, cy, sx, sy in FLOOR_SKIMS:
+        ensure_box(label, (cx, cy, 0.0), (sx, sy, 4.0), "concrete_floor")
+
+
+def step_ceilings():
+    for label, cx, cy, sx, sy, key in CEILINGS:
+        ensure_box(label, (cx, cy, CEILING_Z), (sx, sy, CEILING_THICK), key)
+
+
+def step_kill_daylight():
+    """The map is indoors. The sun goes to a cold sliver and the sky light nearly off."""
+    for actor in c.all_level_actors():
+        try:
+            if isinstance(actor, unreal.DirectionalLight):
+                component = actor.get_editor_property("directional_light_component")
+                applied = c.set_props(
+                    component,
+                    [
+                        ("intensity", 0.2),
+                        ("light_color", color(DARK_BLUE)),
+                        ("atmosphere_sun_light", False),
+                    ],
+                    label_of(actor),
+                )
+                if applied:
+                    touched()
+                    c.log("updated", label_of(actor), "sun -> 0.2 lux, cold tint")
+            elif isinstance(actor, unreal.SkyLight):
+                component = actor.get_editor_property("light_component")
+                applied = c.set_props(component, [("intensity", 0.15)], label_of(actor))
+                if applied:
+                    touched()
+                    c.log("updated", label_of(actor), "sky light -> 0.15")
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("step_kill_daylight " + label_of(actor), exc)
+
+
+def step_fog():
+    for actor in c.all_level_actors():
+        if not isinstance(actor, unreal.ExponentialHeightFog):
+            continue
+        try:
+            component = None
+            for prop in ("component", "exponential_height_fog_component"):
+                try:
+                    component = actor.get_editor_property(prop)
+                    if component is not None:
+                        break
+                except Exception:  # noqa: BLE001
+                    continue
+            if component is None:
+                c.log("skipped", label_of(actor), "no fog component property")
+                continue
+            c.set_props(
+                component,
+                [
+                    ("fog_density", 0.05),
+                    ("fog_height_falloff", 0.12),
+                    ("start_distance", 0.0),
+                ],
+                label_of(actor),
+            )
+            c.set_first_prop(
+                component,
+                ["fog_inscattering_luminance", "fog_inscattering_color"],
+                unreal.LinearColor(0.10, 0.13, 0.18, 1.0),
+                label_of(actor),
+            )
+            touched()
+            c.log("updated", label_of(actor), "density 0.05, cool inscatter")
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("step_fog " + label_of(actor), exc)
+
+
+def step_post_process():
+    """Desaturate a touch, add contrast and vignette, and let dark rooms stay dark."""
+    for actor in c.all_level_actors():
+        if not isinstance(actor, unreal.PostProcessVolume):
+            continue
+        try:
+            settings = actor.get_editor_property("settings")
+            c.set_props(
+                settings,
+                [
+                    ("override_color_saturation", True),
+                    ("color_saturation", unreal.Vector4(0.85, 0.85, 0.85, 1.0)),
+                    ("override_color_contrast", True),
+                    ("color_contrast", unreal.Vector4(1.12, 1.12, 1.12, 1.0)),
+                    ("override_vignette_intensity", True),
+                    ("vignette_intensity", 0.4),
+                    ("override_bloom_intensity", True),
+                    ("bloom_intensity", 0.6),
+                    ("override_auto_exposure_min_brightness", True),
+                    ("auto_exposure_min_brightness", 0.6),
+                    ("override_auto_exposure_max_brightness", True),
+                    ("auto_exposure_max_brightness", 1.2),
+                ],
+                label_of(actor),
+            )
+            c.set_first_prop(
+                settings,
+                ["override_film_grain_intensity", "override_grain_intensity"],
+                True,
+                label_of(actor),
+            )
+            c.set_first_prop(
+                settings,
+                ["film_grain_intensity", "grain_intensity"],
+                0.2,
+                label_of(actor),
+            )
+            actor.set_editor_property("settings", settings)
+            touched()
+            c.log("updated", label_of(actor), "saturation 0.85, vignette 0.4, exposure 0.6-1.2")
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("step_post_process " + label_of(actor), exc)
+
+
+def step_fluorescents():
+    """A tube mesh at the ceiling plus a rect light under it, per fixture."""
+    rect_class = c.find_class("RectLight", "/Script/Engine.RectLight")
+    for suffix, x, y, key, intensity in FLUORESCENTS:
+        ensure_box("Art_Tube_" + suffix, (x, y, TUBE_Z), TUBE_SIZE, key)
+
+        props = [
+            ("intensity", intensity),
+            ("light_color", color(COOL_WHITE)),
+            ("source_width", TUBE_SIZE[0]),
+            ("source_height", TUBE_SIZE[1]),
+            ("attenuation_radius", 1400.0),
+            ("cast_shadows", True),
+        ]
+        units = getattr(unreal, "LightUnits", None)
+        if units is not None and getattr(units, "CANDELAS", None) is not None:
+            props.insert(0, ("intensity_units", units.CANDELAS))
+        ensure_light(
+            rect_class,
+            "Art_Light_" + suffix,
+            (x, y, TUBE_LIGHT_Z),
+            unreal.Rotator(0.0, -90.0, 0.0),
+            props,
+            "rect_light_component",
+        )
+    c.log(
+        "note",
+        "Art_Tube_Corr1_B",
+        "flicker is material-only (M_FluorescentFlicker); the rect light stays steady "
+        "until UFlickerLightComponent exists",
+    )
+
+
+def step_emergency_light():
+    label, center, size = RED_LAMP
+    ensure_box(label, center, size, "red")
+
+    light_label, light_center = RED_LIGHT
+    ensure_light(
+        unreal.PointLight,
+        light_label,
+        light_center,
+        None,
+        [
+            ("intensity", 800.0),
+            ("light_color", color(EMERGENCY_RED)),
+            ("attenuation_radius", 600.0),
+            ("cast_shadows", True),
+        ],
+        "point_light_component",
+    )
+
+    sign_label, sign_center, sign_size = EXIT_SIGN
+    ensure_box(sign_label, sign_center, sign_size, "stripe")
+
+
+def step_cell_dressing():
+    for label, center, size, key, yaw in CELL_DRESSING:
+        ensure_box(label, center, size, key, yaw)
+
+
+def step_corridor_dressing():
+    for label, center, size, key, yaw in CORRIDOR_DRESSING:
+        ensure_box(label, center, size, key, yaw)
+    for label, center, radius, length, key in CORRIDOR_PIPES:
+        ensure_pipe(label, center, radius, length, key)
+    # Short stub holding the camera body off the wall.
+    ensure_pipe("Art_Camera_Mount", (2250.0, -136.0, 348.0), 3.0, 22.0, "steel")
+
+
+STEPS = (
+    ("wall materials", step_wall_materials),
+    ("floor skim", step_floor_skim),
+    ("ceilings", step_ceilings),
+    ("daylight", step_kill_daylight),
+    ("fog", step_fog),
+    ("post process", step_post_process),
+    ("fluorescents", step_fluorescents),
+    ("emergency light", step_emergency_light),
+    ("cell dressing", step_cell_dressing),
+    ("corridor dressing", step_corridor_dressing),
+)
+
+
+def run():
+    _STATE["changed"] = 0
+    materials = m.run()
+    greybox = c.load_or_none(GREYBOX_PATH)
+    if greybox is None:
+        unreal.log_warning("[Castle] M_Greybox missing; the spare ceilings stay untextured")
+    materials["greybox"] = greybox
+    _STATE["materials"] = materials
+
+    if not load_level(MAP_PATH):
+        c.log("FAILED", MAP_PATH, "could not open the level for the art pass")
+        return False
+
+    _STATE["patrol"] = patrol_points()
+    c.log(
+        "note",
+        MAP_PATH,
+        "cell x {0:.0f}..{1:.0f}, corridor 1 x {2:.0f}..{3:.0f}, y {4:.0f}..{5:.0f}".format(
+            CELL_X[0], CELL_X[1], CORR1_X[0], CORR1_X[1], ROOM_Y[0], ROOM_Y[1]),
+    )
+    c.log("note", MAP_PATH, "{0} patrol point(s) checked for clearance".format(
+        len(_STATE["patrol"])))
+
+    for title, fn in STEPS:
+        unreal.log("[Castle] ---- {0} ----".format(title))
+        try:
+            fn()
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("room art step '" + title + "'", exc)
+
+    if _STATE["changed"]:
+        save_level()
+        c.log("updated", MAP_PATH, "{0} art change(s)".format(_STATE["changed"]))
+        return True
+    c.log("exists", MAP_PATH, "room art already in place")
+    return False
+
+
+if __name__ == "__main__":
+    run()
+    c.print_summary("room art")
