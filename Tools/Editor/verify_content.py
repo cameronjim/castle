@@ -36,7 +36,7 @@ CHARACTER_INPUT_PROPS = [
 # Pause is bound on the controller so it survives the pawn being locked out or dead.
 CONTROLLER_PROPS = [
     "flashback_widget_class", "hud_widget_class", "pause_widget_class", "pause_action",
-    "pause_mapping_context",
+    "pause_mapping_context", "end_card_widget_class",
 ]
 
 EXPECTED = (
@@ -49,6 +49,7 @@ EXPECTED = (
         c.asset_path(UI_PATH, "WBP_Flashback"),
         c.asset_path(UI_PATH, "WBP_Hud"),
         c.asset_path(UI_PATH, "WBP_Pause"),
+        c.asset_path(UI_PATH, "WBP_EndCard"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Pistol"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Keycard"),
         c.asset_path(WORLD_PATH, "BP_Door_Keycard"),
@@ -212,7 +213,7 @@ def check_world_blueprints():
             fail("BP_Guard.ai_controller_class is not AGuardAIController")
         say("  BP_Guard.auto_possess_ai          = {0}".format(prop(cdo, "auto_possess_ai")))
 
-    for name in ("WBP_Hud", "WBP_Pause"):
+    for name in ("WBP_Hud", "WBP_Pause", "WBP_EndCard"):
         if c.load_generated_class(UI_PATH, name) is None:
             fail(name + "_C")
         else:
@@ -243,6 +244,10 @@ def check_data_assets():
         if len(objectives) != 4:
             fail("DA_M01_CellBlockD has {0} objectives, expected 4".format(len(objectives)))
         say("  DA_M01_CellBlockD.flashback_to_play = {0}".format(prop(mission, "flashback_to_play")))
+        end_card_line = prop(mission, "end_card_line")
+        say("  DA_M01_CellBlockD.end_card_line     = '{0}'".format(end_card_line))
+        if not str(end_card_line or ""):
+            fail("DA_M01_CellBlockD.end_card_line is empty")
 
     flashback = c.load_or_none("/Game/Flashbacks/Definitions/DA_FB01_Sunday")
     if flashback is None:

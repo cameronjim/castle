@@ -51,6 +51,9 @@ SLIDES = [
 HOLD_SECONDS = 4.0
 CROSSFADE_SECONDS = 1.0
 
+# Shown under the mission name on the end card.
+END_CARD_LINE = "They kept me alive for a reason. I'm going to find out what."
+
 
 def data_asset_factory(data_asset_class):
     factory = c.new_factory("DataAssetFactory")
@@ -123,12 +126,18 @@ def create_mission(flashback):
     if asset is None:
         return None
     if not created:
-        c.log("exists", full)
+        # The asset predates EndCardLine, so fill that one field in on an existing mission
+        # rather than leaving the end card blank. Everything else is left alone.
+        update_end_card_line(asset, full)
         return asset
 
     c.set_props(
         asset,
-        [("mission_name", "Cell Block D"), ("mission_number", 1)],
+        [
+            ("mission_name", "Cell Block D"),
+            ("mission_number", 1),
+            ("end_card_line", END_CARD_LINE),
+        ],
         MISSION_NAME,
     )
 
@@ -165,6 +174,27 @@ def create_mission(flashback):
     c.log("created", full, "{0} objectives".format(len(OBJECTIVES)))
     c.save(asset)
     return asset
+
+
+def update_end_card_line(asset, full):
+    """Set EndCardLine on an existing mission when it is missing or different."""
+    try:
+        current = asset.get_editor_property("end_card_line")
+    except Exception:  # noqa: BLE001 - older build without the property
+        c.log("exists", full, "no end_card_line property on this build")
+        return False
+
+    if str(current) == END_CARD_LINE:
+        c.log("exists", full)
+        return False
+
+    if c.set_props(asset, [("end_card_line", END_CARD_LINE)], MISSION_NAME):
+        c.save(asset)
+        c.log("updated", full, "end_card_line")
+        return True
+
+    c.log("exists", full, "end_card_line not settable")
+    return False
 
 
 def assign_to_game_mode(mission):
