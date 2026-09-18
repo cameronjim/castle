@@ -5,6 +5,7 @@
 #include "Combat/HealthComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "Mission/MissionTracker.h"
 
 FCastleTestWorld::FCastleTestWorld()
 {
@@ -89,6 +90,24 @@ void UCastleTestListener::HandleTakedownPerformed(AActor* Target)
 {
 	++TakedownCount;
 	LastTakedownTarget = Target;
+}
+
+void UCastleTestListener::HandleAlertStateChanged(EGuardAlertState OldState, EGuardAlertState NewState)
+{
+	++AlertStateChangedCount;
+	LastOldAlertState = OldState;
+	LastNewAlertState = NewState;
+}
+
+void UCastleTestListener::HandleMissionStarted(UMissionDefinition* Mission)
+{
+	++MissionStartedCount;
+	LastStartedMission = Mission;
+
+	if (WatchedTracker)
+	{
+		bCurrentObjectiveSetAtMissionStart = WatchedTracker->GetCurrentObjective() != nullptr;
+	}
 }
 
 void UCastleTestListener::HandleObjectiveUpdated(UMissionObjective* Objective, int32 ObjectiveIndex)

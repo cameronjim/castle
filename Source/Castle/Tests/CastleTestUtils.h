@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Combat/BossPhaseComponent.h"
 #include "Combat/Takedownable.h"
+#include "World/GuardCharacter.h"
 #include "GameFramework/Actor.h"
 #include "UObject/Object.h"
 #include "UObject/Script.h"
@@ -14,6 +15,7 @@ class UFlashbackDefinition;
 class UHealthComponent;
 class UMissionDefinition;
 class UMissionObjective;
+class UMissionTracker;
 
 /**
  * RAII test world. Automation tests only need one when a component requires a real actor owner;
@@ -102,7 +104,24 @@ public:
 	UFUNCTION()
 	void HandleTakedownPerformed(AActor* Target);
 
+	// --- Guard ---------------------------------------------------------------------------------
+	UPROPERTY() int32 AlertStateChangedCount = 0;
+	UPROPERTY() EGuardAlertState LastOldAlertState = EGuardAlertState::Calm;
+	UPROPERTY() EGuardAlertState LastNewAlertState = EGuardAlertState::Calm;
+
+	UFUNCTION()
+	void HandleAlertStateChanged(EGuardAlertState OldState, EGuardAlertState NewState);
+
 	// --- Mission --------------------------------------------------------------------------------
+	/** Set by the test so HandleMissionStarted can assert the objectives already exist. */
+	UPROPERTY() TObjectPtr<UMissionTracker> WatchedTracker = nullptr;
+
+	UPROPERTY() int32 MissionStartedCount = 0;
+	UPROPERTY() TObjectPtr<UMissionDefinition> LastStartedMission = nullptr;
+
+	/** True when GetCurrentObjective() already returned an objective inside OnMissionStarted. */
+	UPROPERTY() bool bCurrentObjectiveSetAtMissionStart = false;
+
 	UPROPERTY() int32 ObjectiveUpdatedCount = 0;
 	UPROPERTY() int32 LastObjectiveIndex = INDEX_NONE;
 	UPROPERTY() TObjectPtr<UMissionObjective> LastObjective = nullptr;
@@ -111,6 +130,9 @@ public:
 
 	/** Set when OnFlashbackRequested arrives while MissionCompleteCount is already 1. */
 	UPROPERTY() bool bFlashbackFollowedMissionComplete = false;
+
+	UFUNCTION()
+	void HandleMissionStarted(UMissionDefinition* Mission);
 
 	UFUNCTION()
 	void HandleObjectiveUpdated(UMissionObjective* Objective, int32 ObjectiveIndex);
