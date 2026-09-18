@@ -1,4 +1,4 @@
-"""Art pass over the first room and first corridor of L_M01_CellBlockD.
+﻿"""Art pass over the first room and first corridor of L_M01_CellBlockD.
 
 Turns Frank's cell and corridor 1 from lit grey boxes into a dark black-site prison:
 procedural concrete, a steel cell door left open, fluorescent tubes (one with a bad
@@ -41,8 +41,10 @@ GREYBOX_PATH = "/Game/Kit/Materials/M_Greybox"
 
 ART_PREFIX = "Art_"
 
-# Any art actor whose footprint passes within this many cm of a patrol point is logged.
+# Any art actor whose footprint passes within this many cm of a patrol point is logged,
+# unless it hangs entirely above a guard's head.
 CLEARANCE = 60.0
+HEAD_HEIGHT = 200.0
 
 # --- bounds -----------------------------------------------------------------------------
 # Mirrors create_sandbox_map.M01_WALLS. Interior extents, in cm:
@@ -92,11 +94,16 @@ TUBE_SIZE = (120.0, 10.0, 5.0)
 TUBE_Z = 392.0
 TUBE_LIGHT_Z = 380.0
 
-# (suffix, x, y, material key, light intensity in candelas)
+# (suffix, x, y, material key, light intensity in candelas). A 2500 lm tube is roughly
+# 200 cd; these run a little under that. Corridor 1 is 20 m long, so it needs five of them -
+# two lamps left 15 m of corridor in the dark.
 FLUORESCENTS = (
-    ("Cell", 150.0, 0.0, "tube", 25.0),
-    ("Corr1_A", 800.0, 0.0, "tube", 25.0),
-    ("Corr1_B", 1800.0, 0.0, "flicker", 15.0),
+    ("Cell", 150.0, 0.0, "tube", 250.0),
+    ("Corr1_A", 800.0, 0.0, "tube", 100.0),
+    ("Corr1_B", 1800.0, 0.0, "flicker", 60.0),
+    ("Corr1_C", 400.0, 0.0, "tube", 100.0),
+    ("Corr1_D", 1200.0, 0.0, "tube", 100.0),
+    ("Corr1_E", 2200.0, 0.0, "tube", 100.0),
 )
 
 # (label, center, size, material key, yaw)
@@ -128,6 +135,10 @@ CORRIDOR_PIPES = (
 RED_LAMP = ("Art_RedEmergency", (2240.0, 130.0, 300.0), (16.0, 20.0, 26.0))
 RED_LIGHT = ("Art_Light_RedEmergency", (2225.0, 118.0, 295.0))
 EXIT_SIGN = ("Art_ExitSign_Station", (2290.0, 0.0, 330.0), (10.0, 60.0, 16.0))
+
+# Config/DefaultEngine.ini turns auto exposure off project-wide, so the scene renders at a
+# fixed exposure that blows a fluorescent-lit interior out to white. This is the stop-down.
+EXPOSURE_BIAS = -4.5
 
 COOL_WHITE = (200, 220, 255)
 EMERGENCY_RED = (255, 25, 10)
@@ -267,9 +278,12 @@ def check_clearance(label, center, size, yaw=0.0):
     """Log any patrol TargetPoint within CLEARANCE cm of this actor's XY footprint.
 
     A rotated box is approximated by its bounding circle, which is the pessimistic read -
-    it will warn slightly early rather than let a guard walk into a prop.
+    it will warn slightly early rather than let a guard walk into a prop. Anything whose
+    underside clears head height is skipped: a ceiling lamp over a patrol point is fine.
     """
     try:
+        if center[2] - size[2] / 2.0 >= HEAD_HEIGHT:
+            return
         half_x, half_y = size[0] / 2.0, size[1] / 2.0
         if yaw:
             radius = math.hypot(half_x, half_y)
@@ -370,12 +384,34 @@ def ensure_pipe(label, center, radius, length, material_key):
         return None, False
 
 
+def light_component(actor, component_prop):
+    """A light actor's light component, falling back to its root component."""
+    if component_prop:
+        try:
+            component = actor.get_editor_property(component_prop)
+            if component is not None:
+                return component
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        return actor.get_editor_property("root_component")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def ensure_light(actor_class, label, location, rotation=None, props=None, component_prop=None):
     """Idempotent light actor, Movable, with ``props`` applied to its light component."""
     try:
         existing = find_actor_by_label(label)
         if existing is not None:
-            c.log("exists", label)
+            # Re-apply the tuning: intensity and colour are values we iterate on.
+            component = light_component(existing, component_prop)
+            applied = set_props_if_changed(component, props or [], label) if component else []
+            if applied:
+                touched()
+                c.log("updated", label, ", ".join(applied))
+            else:
+                c.log("exists", label)
             return existing, False
         if actor_class is None:
             c.log("skipped", label, "light class unavailable")
@@ -387,14 +423,7 @@ def ensure_light(actor_class, label, location, rotation=None, props=None, compon
             return None, False
 
         c.set_actor_mobility_movable(actor)
-        component = None
-        if component_prop:
-            try:
-                component = actor.get_editor_property(component_prop)
-            except Exception:  # noqa: BLE001
-                component = None
-        if component is None:
-            component = actor.get_editor_property("root_component")
+        component = light_component(actor, component_prop)
         if component is not None and props:
             c.set_props(component, props, label)
         touched()
@@ -530,9 +559,11 @@ def step_post_process():
                     ("override_color_contrast", True),
                     ("color_contrast", unreal.Vector4(1.12, 1.12, 1.12, 1.0)),
                     ("override_vignette_intensity", True),
-                    ("vignette_intensity", 0.4),
+                    ("vignette_intensity", 0.25),
                     ("override_bloom_intensity", True),
                     ("bloom_intensity", 0.6),
+                    ("override_auto_exposure_bias", True),
+                    ("auto_exposure_bias", EXPOSURE_BIAS),
                     ("override_auto_exposure_min_brightness", True),
                     ("auto_exposure_min_brightness", 0.6),
                     ("override_auto_exposure_max_brightness", True),
@@ -557,7 +588,7 @@ def step_post_process():
                 continue
             actor.set_editor_property("settings", settings)
             touched()
-            c.log("updated", label_of(actor), "saturation 0.85, vignette 0.4, exposure 0.6-1.2")
+            c.log("updated", label_of(actor), "saturation 0.85, vignette, stopped down")
         except Exception as exc:  # noqa: BLE001
             c.log_error("step_post_process " + label_of(actor), exc)
 

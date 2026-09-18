@@ -593,9 +593,11 @@ def ensure_light_materials():
         out["flicker"] = None
 
     instances = (
-        ("tube", MI_FLUORESCENT_TUBE, (0.85, 0.90, 1.00), 8.0),
-        ("red", MI_RED_EMERGENCY, (1.00, 0.05, 0.02), 15.0),
-        ("stripe", MI_KEYCARD_STRIPE, (0.10, 0.90, 0.30), 6.0),
+        # Emissive strength is in the same ballpark as the lights themselves, because the
+        # scene is graded several stops down - a tube at 8 would read as dark plastic.
+        ("tube", MI_FLUORESCENT_TUBE, (0.85, 0.90, 1.00), 150.0),
+        ("red", MI_RED_EMERGENCY, (1.00, 0.05, 0.02), 250.0),
+        ("stripe", MI_KEYCARD_STRIPE, (0.10, 0.90, 0.30), 60.0),
     )
     for key, path, rgb, strength in instances:
         try:

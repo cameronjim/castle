@@ -43,9 +43,15 @@ EXPECTED_ACTORS = (
     "Art_Tube_Cell",
     "Art_Tube_Corr1_A",
     "Art_Tube_Corr1_B",
+    "Art_Tube_Corr1_C",
+    "Art_Tube_Corr1_D",
+    "Art_Tube_Corr1_E",
     "Art_Light_Cell",
     "Art_Light_Corr1_A",
     "Art_Light_Corr1_B",
+    "Art_Light_Corr1_C",
+    "Art_Light_Corr1_D",
+    "Art_Light_Corr1_E",
     "Art_RedEmergency",
     "Art_Light_RedEmergency",
     "Art_ExitSign_Station",
@@ -252,8 +258,8 @@ def check_lighting(actors):
     rects = [a for a in actors if rect_class is not None and isinstance(a, rect_class)]
     points = [a for a in actors if isinstance(a, unreal.PointLight)]
     say("  rect lights: {0}, point lights: {1}".format(len(rects), len(points)))
-    if len(rects) < 3:
-        fail("{0} rect light(s), expected 3 fluorescents".format(len(rects)))
+    if len(rects) < 6:
+        fail("{0} rect light(s), expected 6 fluorescents".format(len(rects)))
     if not points:
         fail("no PointLight; the red emergency lamp is missing")
 
