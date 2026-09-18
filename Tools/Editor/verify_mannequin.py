@@ -23,6 +23,14 @@ PHYSICS_PATH = MANNEQUIN_PATH + "/Character/Mesh/SK_Mannequin_PhysicsAsset"
 ANIM_BP_PATH = MANNEQUIN_PATH + "/Animations/ThirdPerson_AnimBP"
 
 GUARD_PATH = "/Game/Blueprints/AI"
+PLAYER_PATH = "/Game/Blueprints/Player"
+
+# The same mannequin does double duty as Frank's first-person arms: UE 5.8 ships no arms-only
+# mesh, so the full body is hidden down to the arms and pushed under the camera.
+ARMS_ANIM_PATHS = [
+    MANNEQUIN_PATH + "/Animations/ThirdPersonIdle",
+    MANNEQUIN_PATH + "/Animations/ThirdPersonWalk",
+]
 
 EXPECTED = [MESH_PATH, SKELETON_PATH, PHYSICS_PATH, ANIM_BP_PATH]
 
@@ -85,6 +93,76 @@ def check_mesh():
             fail("SK_Mannequin material slot {0} is empty".format(index))
 
 
+def check_locomotion_anims():
+    say("---- locomotion sequences ----")
+    for path in ARMS_ANIM_PATHS:
+        if c.exists(path):
+            say("  {0} loads".format(path))
+        else:
+            fail(path + " is missing; guards and arms would have nothing to play")
+
+
+def check_view_model():
+    say("---- first-person arms ----")
+    player_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    if player_class is None:
+        fail("BP_CastleCharacter_C would not load")
+        return
+
+    cdo = unreal.get_default_object(player_class)
+
+    arms = prop(cdo, "arms_mesh")
+    if arms is None:
+        fail("BP_CastleCharacter has no ArmsMesh component")
+    else:
+        assigned = prop(arms, "skeletal_mesh_asset")
+        say("  ArmsMesh.skeletal_mesh_asset = {0}".format(name_of(assigned)))
+        say("  ArmsMesh.relative_location   = {0}".format(prop(arms, "relative_location")))
+        if assigned is None:
+            fail("BP_CastleCharacter.ArmsMesh has no mesh; run create_blueprints.py")
+
+    weapon = prop(cdo, "weapon_mesh")
+    if weapon is None:
+        fail("BP_CastleCharacter has no WeaponMesh component")
+    else:
+        assigned = prop(weapon, "static_mesh")
+        say("  WeaponMesh.static_mesh       = {0}".format(name_of(assigned)))
+        if assigned is None:
+            fail("BP_CastleCharacter.WeaponMesh has no pistol; run create_blueprints.py")
+
+    say("  hidden bones                 = {0}".format(list(prop(cdo, "hidden_view_model_bones") or [])))
+
+
+def check_guard_look():
+    say("---- guard look ----")
+    guard_class = c.load_generated_class(GUARD_PATH, "BP_Guard")
+    if guard_class is None:
+        return
+
+    cdo = unreal.get_default_object(guard_class)
+    for field in ("idle_anim", "walk_anim"):
+        value = prop(cdo, field)
+        say("  BP_Guard.{0:<10} = {1}".format(field, name_of(value)))
+        if value is None:
+            fail("BP_Guard." + field + " is unset; the guard stands in a T-pose")
+
+    if prop(cdo, "flashlight") is None:
+        fail("BP_Guard has no flashlight component")
+    else:
+        say("  BP_Guard.flashlight  = present")
+
+    component = prop(cdo, "mesh")
+    for slot in (0, 1):
+        material = None
+        try:
+            material = component.get_material(slot) if component is not None else None
+        except Exception:  # noqa: BLE001
+            material = None
+        say("  BP_Guard.Mesh slot {0} = {1}".format(slot, name_of(material)))
+        if material is None:
+            fail("BP_Guard.Mesh slot {0} has no material".format(slot))
+
+
 def check_anim_bp():
     say("---- anim blueprint ----")
     try:
@@ -93,7 +171,7 @@ def check_anim_bp():
         anim_class = None
 
     if anim_class is None:
-        say("  ThirdPerson_AnimBP_C did not load; guards will stand in a T-pose")
+        say("  ThirdPerson_AnimBP_C did not load; unused, guards drive sequences directly")
         return
 
     say("  ThirdPerson_AnimBP_C loads ({0})".format(c.class_name(anim_class)))
@@ -125,8 +203,11 @@ def check_guard():
 def main():
     say("==== verifying the copied mannequin ====")
     check_mesh()
+    check_locomotion_anims()
     check_anim_bp()
     check_guard()
+    check_guard_look()
+    check_view_model()
     if PROBLEMS:
         unreal.log_error("[Mannequin] FAIL: {0} problem(s)".format(len(PROBLEMS)))
         for problem in PROBLEMS:

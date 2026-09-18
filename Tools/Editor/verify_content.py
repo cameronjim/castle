@@ -21,6 +21,8 @@ UI_PATH = "/Game/Blueprints/UI"
 WORLD_PATH = "/Game/Blueprints/World"
 AI_PATH = "/Game/Blueprints/AI"
 IMAGE_PATH = "/Game/Flashbacks/Images"
+PISTOL_PATH = "/Game/Weapons/Pistol"
+GUARD_MATERIAL_PATH = "/Game/Characters/Guard"
 
 IA_NAMES = [
     "IA_Move", "IA_Look", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
@@ -56,6 +58,14 @@ EXPECTED = (
         c.asset_path(AI_PATH, "BP_Guard"),
     ]
     + [c.asset_path(IMAGE_PATH, "T_FB01_0{0}".format(i)) for i in range(1, 7)]
+    + [
+        # First-person weapon art, copied out of the engine's template resources.
+        c.asset_path(PISTOL_PATH + "/Meshes", "SM_Pistol"),
+        c.asset_path(PISTOL_PATH + "/Materials", "MI_Weapon_Pistol"),
+        "/Game/Weapons/Rifle/Materials/M_Weapon",
+        c.asset_path(GUARD_MATERIAL_PATH, "M_GuardBody"),
+        c.asset_path(GUARD_MATERIAL_PATH, "M_GuardVisor"),
+    ]
     + [
         "/Game/Missions/DA_M01_CellBlockD",
         "/Game/Flashbacks/Definitions/DA_FB01_Sunday",
@@ -218,6 +228,109 @@ def check_world_blueprints():
             fail(name + "_C")
         else:
             say("  {0}_C loads".format(name))
+
+
+def check_pickup_parts():
+    """Both pickups are built from Part components with real materials, not one grey cube."""
+    say("---- pickup parts ----")
+
+    for name, minimum in (("BP_Pickup_Pistol", 4), ("BP_Pickup_Keycard", 2)):
+        cls = c.load_generated_class(WORLD_PATH, name)
+        if cls is None:
+            fail(name + "_C")
+            continue
+
+        cdo = unreal.get_default_object(cls)
+        shaped = 0
+        for index in range(1, 5):
+            part = prop(cdo, "part{0}".format(index))
+            if part is None:
+                continue
+            mesh_asset = prop(part, "static_mesh")
+            material = None
+            try:
+                material = part.get_material(0)
+            except Exception:  # noqa: BLE001 - an empty slot reads back as None
+                material = None
+            if mesh_asset is None:
+                continue
+            say("  {0}.Part{1} = {2} / {3}".format(
+                name, index, name_of(mesh_asset), name_of(material)))
+            if material is not None:
+                shaped += 1
+
+        if shaped < minimum:
+            fail("{0} has {1} shaped part(s) with a material, expected {2}".format(
+                name, shaped, minimum))
+
+
+def check_guard_presentation():
+    """Riot-cop materials, a flashlight and the two locomotion sequences."""
+    say("---- guard look ----")
+
+    cls = c.load_generated_class(AI_PATH, "BP_Guard")
+    if cls is None:
+        fail("BP_Guard_C")
+        return
+
+    cdo = unreal.get_default_object(cls)
+
+    for field in ("idle_anim", "walk_anim"):
+        value = prop(cdo, field)
+        say("  BP_Guard.{0:<10} = {1}".format(field, name_of(value)))
+        if value is None:
+            fail("BP_Guard." + field + " is unset; the guard would T-pose")
+
+    flashlight = prop(cdo, "flashlight")
+    say("  BP_Guard.flashlight  = {0}".format(name_of(flashlight)))
+    if flashlight is None:
+        fail("BP_Guard has no flashlight component")
+
+    component = prop(cdo, "mesh")
+    if component is None:
+        fail("BP_Guard has no mesh component")
+        return
+
+    say("  BP_Guard.Mesh.animation_mode = {0}".format(prop(component, "animation_mode")))
+    for slot in (0, 1):
+        material = None
+        try:
+            material = component.get_material(slot)
+        except Exception:  # noqa: BLE001
+            material = None
+        say("  BP_Guard.Mesh slot {0} = {1}".format(slot, name_of(material)))
+        if material is None:
+            fail("BP_Guard.Mesh slot {0} has no material".format(slot))
+
+
+def check_view_model():
+    """Frank's arms and pistol, assigned on BP_CastleCharacter."""
+    say("---- first-person view model ----")
+
+    cls = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    if cls is None:
+        fail("BP_CastleCharacter_C")
+        return
+
+    cdo = unreal.get_default_object(cls)
+
+    arms = prop(cdo, "arms_mesh")
+    arms_asset = prop(arms, "skeletal_mesh_asset") if arms is not None else None
+    say("  ArmsMesh.skeletal_mesh_asset = {0}".format(name_of(arms_asset)))
+    if arms_asset is None:
+        fail("BP_CastleCharacter.ArmsMesh has no skeletal mesh")
+
+    weapon = prop(cdo, "weapon_mesh")
+    weapon_asset = prop(weapon, "static_mesh") if weapon is not None else None
+    say("  WeaponMesh.static_mesh       = {0}".format(name_of(weapon_asset)))
+    if weapon_asset is None:
+        fail("BP_CastleCharacter.WeaponMesh has no pistol mesh")
+
+    for field in ("arms_idle_anim", "arms_pistol_idle_anim"):
+        value = prop(cdo, field)
+        say("  {0:<28} = {1}".format(field, name_of(value)))
+        if value is None:
+            fail("BP_CastleCharacter." + field + " is unset")
 
 
 def check_data_assets():
@@ -404,6 +517,9 @@ def main():
     check_input()
     check_blueprints()
     check_world_blueprints()
+    check_pickup_parts()
+    check_guard_presentation()
+    check_view_model()
     check_data_assets()
     check_maps()
     if PROBLEMS:
