@@ -56,6 +56,9 @@ public:
 	bool IsMissionComplete() const;
 
 	UPROPERTY(BlueprintAssignable, Category = "Mission")
+	FOnMissionStartedSignature OnMissionStarted;
+
+	UPROPERTY(BlueprintAssignable, Category = "Mission")
 	FOnObjectiveUpdatedSignature OnObjectiveUpdated;
 
 	UPROPERTY(BlueprintAssignable, Category = "Mission")
@@ -70,6 +73,9 @@ public:
 	//~ End USubsystem interface
 
 protected:
+	UFUNCTION()
+	void HandleMissionStarted(UMissionDefinition* Mission);
+
 	UFUNCTION()
 	void HandleObjectiveUpdated(UMissionObjective* Objective, int32 ObjectiveIndex);
 

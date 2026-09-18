@@ -22,6 +22,7 @@ void UMissionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	Super::Initialize(Collection);
 
 	Tracker = NewObject<UMissionTracker>(this, TEXT("MissionTracker"));
+	Tracker->OnMissionStarted.AddDynamic(this, &UMissionSubsystem::HandleMissionStarted);
 	Tracker->OnObjectiveUpdated.AddDynamic(this, &UMissionSubsystem::HandleObjectiveUpdated);
 	Tracker->OnMissionComplete.AddDynamic(this, &UMissionSubsystem::HandleMissionComplete);
 	Tracker->OnFlashbackRequested.AddDynamic(this, &UMissionSubsystem::HandleFlashbackRequested);
@@ -29,6 +30,7 @@ void UMissionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UMissionSubsystem::Deinitialize()
 {
+	OnMissionStarted.Clear();
 	OnObjectiveUpdated.Clear();
 	OnMissionComplete.Clear();
 	OnFlashbackRequested.Clear();
@@ -40,6 +42,11 @@ void UMissionSubsystem::Deinitialize()
 	}
 
 	Super::Deinitialize();
+}
+
+void UMissionSubsystem::HandleMissionStarted(UMissionDefinition* Mission)
+{
+	OnMissionStarted.Broadcast(Mission);
 }
 
 void UMissionSubsystem::HandleObjectiveUpdated(UMissionObjective* Objective, int32 ObjectiveIndex)

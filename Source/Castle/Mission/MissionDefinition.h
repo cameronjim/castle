@@ -39,6 +39,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
 	bool bEnforceOrder = false;
 
+	/** When false the HUD hides the objective line for this mission (a silent opening, a boss room). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
+	bool bShowObjectiveText = true;
+
 	/** Flashback slideshow played when this mission completes. Optional. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
 	TSoftObjectPtr<UFlashbackDefinition> FlashbackToPlay;

@@ -10,6 +10,9 @@ class UMissionDefinition;
 class UMissionObjective;
 class UFlashbackDefinition;
 
+/** Fired once by StartMission, after the objectives are instanced and before anything else. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMissionStartedSignature, UMissionDefinition*, Mission);
+
 /** Fired whenever an objective changes state. Index is the objective's slot in the active list. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnObjectiveUpdatedSignature, UMissionObjective*, Objective, int32, ObjectiveIndex);
 
@@ -31,6 +34,9 @@ class CASTLE_API UMissionTracker : public UObject
 	GENERATED_BODY()
 
 public:
+	UPROPERTY(BlueprintAssignable, Category = "Mission")
+	FOnMissionStartedSignature OnMissionStarted;
+
 	UPROPERTY(BlueprintAssignable, Category = "Mission")
 	FOnObjectiveUpdatedSignature OnObjectiveUpdated;
 

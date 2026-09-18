@@ -59,6 +59,9 @@ bool UMissionTracker::StartMission(UMissionDefinition* MissionDefinition)
 	UE_LOG(LogCastle, Log, TEXT("Started mission %d '%s' with %d objective(s)."),
 		MissionDefinition->MissionNumber, *MissionDefinition->MissionName.ToString(), ActiveObjectives.Num());
 
+	// After the objectives exist, so a listener can read GetCurrentObjective() straight away.
+	OnMissionStarted.Broadcast(CurrentMission);
+
 	return true;
 }
 
@@ -192,6 +195,7 @@ bool UMissionTracker::AreRequiredObjectivesComplete() const
 
 void UMissionTracker::Reset()
 {
+	OnMissionStarted.Clear();
 	OnObjectiveUpdated.Clear();
 	OnMissionComplete.Clear();
 	OnFlashbackRequested.Clear();
