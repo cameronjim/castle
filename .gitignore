@@ -40,3 +40,6 @@ FileOpenOrder/
 Thumbs.db
 desktop.ini
 .DS_Store
+
+# Python bytecode from the Tools/Editor scripts
+__pycache__/
