@@ -4,7 +4,10 @@
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
+#include "Misc/App.h"
 #include "Misc/AutomationTest.h"
+#include "NavMesh/RecastNavMesh.h"
+#include "NavigationSystem.h"
 #include "Mission/MissionDefinition.h"
 #include "Mission/MissionSubsystem.h"
 #include "Player/CastleCharacter.h"
@@ -27,17 +30,103 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleSmokeLoadM01, "Castle.Smoke.LoadM01",
 
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FCastleAssertM01Playable, FCastleSmokeLoadM01*, Test);
 
-bool FCastleAssertM01Playable::Update()
+/** The game world the map was opened into, or null. */
+static UWorld* FindCastleGameWorld()
 {
-	UWorld* World = nullptr;
 	for (const FWorldContext& Context : GEngine->GetWorldContexts())
 	{
 		if (Context.World() && (Context.WorldType == EWorldType::Game || Context.WorldType == EWorldType::PIE))
 		{
-			World = Context.World();
-			break;
+			return Context.World();
 		}
 	}
+	return nullptr;
+}
+
+/**
+ * Navigation. Every map logged "LogCrowdFollowing: Warning: Unable to find RecastNavMesh
+ * instance" and no guard ever moved: the NavMeshBoundsVolume was placed but nav data was never
+ * generated, because runtime generation defaults to Static. Generation is asynchronous, so this
+ * polls rather than asserting on one frame.
+ */
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
+	FCastleAssertM01Navigation, FCastleSmokeLoadM01*, Test, float, SecondsLeft);
+
+bool FCastleAssertM01Navigation::Update()
+{
+	UWorld* World = FindCastleGameWorld();
+	if (!World)
+	{
+		Test->AddError(TEXT("No game world while waiting for navigation data."));
+		return true;
+	}
+
+	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(World);
+	const bool bHasNavData = NavSystem && NavSystem->GetDefaultNavDataInstance() != nullptr;
+
+	bool bHasRecastNavMesh = false;
+	for (TActorIterator<ARecastNavMesh> It(World); It; ++It)
+	{
+		bHasRecastNavMesh = true;
+		break;
+	}
+
+	if (bHasNavData && bHasRecastNavMesh)
+	{
+		Test->TestTrue(TEXT("The level has navigation data"), true);
+		return true;
+	}
+
+	SecondsLeft -= FApp::GetDeltaTime();
+	if (SecondsLeft > 0.f)
+	{
+		return false;
+	}
+
+	Test->TestNotNull(TEXT("A navigation system exists"), NavSystem);
+	Test->TestTrue(TEXT("GetDefaultNavDataInstance() is not null"), bHasNavData);
+	Test->TestTrue(TEXT("An ARecastNavMesh was generated for L_M01"), bHasRecastNavMesh);
+	return true;
+}
+
+/**
+ * And the payoff: with a navmesh the guards patrol. Passes as soon as any guard is moving,
+ * because a guard standing at a patrol point for PatrolWaitSeconds is not a failure.
+ */
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
+	FCastleAssertGuardsPatrol, FCastleSmokeLoadM01*, Test, float, SecondsLeft);
+
+bool FCastleAssertGuardsPatrol::Update()
+{
+	UWorld* World = FindCastleGameWorld();
+	if (!World)
+	{
+		Test->AddError(TEXT("No game world while waiting for the guards to move."));
+		return true;
+	}
+
+	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	{
+		if (It->GetVelocity().Size2D() > 1.f)
+		{
+			Test->TestTrue(TEXT("At least one guard is patrolling"), true);
+			return true;
+		}
+	}
+
+	SecondsLeft -= FApp::GetDeltaTime();
+	if (SecondsLeft > 0.f)
+	{
+		return false;
+	}
+
+	Test->AddError(TEXT("No guard moved: they are placed but nothing is patrolling."));
+	return true;
+}
+
+bool FCastleAssertM01Playable::Update()
+{
+	UWorld* World = FindCastleGameWorld();
 
 	if (!World)
 	{
@@ -110,6 +199,10 @@ bool FCastleSmokeLoadM01::RunTest(const FString& Parameters)
 	// Long enough for BeginPlay, the game mode's StartMission and the guards' first think.
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(5.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertM01Playable(this));
+
+	// Navigation is built asynchronously and the patrol only starts once it is there.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertM01Navigation(this, 10.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertGuardsPatrol(this, 10.f));
 
 	return true;
 }
