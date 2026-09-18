@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Mission/MissionTracker.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "MissionSubsystem.generated.h"
 
@@ -10,17 +11,9 @@ class UMissionDefinition;
 class UMissionObjective;
 class UFlashbackDefinition;
 
-/** Fired whenever an objective changes state. Index is the objective's slot in the active list. */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnObjectiveUpdatedSignature, UMissionObjective*, Objective, int32, ObjectiveIndex);
-
-/** Fired once every required objective of the active mission is complete. */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMissionCompleteSignature, UMissionDefinition*, Mission);
-
-/** Fired after mission completion when the definition supplies a flashback to play. */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFlashbackRequestedSignature, UFlashbackDefinition*, Flashback);
-
 /**
- * Per-world owner of the active mission and its objective state.
+ * Per-world owner of the active mission. All of the rules live in UMissionTracker; this is the
+ * Blueprint-facing wrapper that gives it a lifetime tied to the world.
  * Get it from Blueprints with "Get World Subsystem" -> MissionSubsystem.
  */
 UCLASS()
@@ -33,40 +26,34 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Mission", meta = (WorldContext = "WorldContextObject"))
 	static UMissionSubsystem* Get(const UObject* WorldContextObject);
 
+	/** The object that holds the mission rules. Tests drive this directly. */
+	UFUNCTION(BlueprintPure, Category = "Mission")
+	UMissionTracker* GetTracker() const { return Tracker; }
+
 	/** Instances the definition's objectives and begins tracking them. */
 	UFUNCTION(BlueprintCallable, Category = "Mission")
-	void StartMission(UMissionDefinition* MissionDefinition);
+	bool StartMission(UMissionDefinition* MissionDefinition);
 
-	/** Completes the objective at the given index. Returns false if already complete or out of range. */
+	/** Completes the objective carrying ObjectiveId. */
 	UFUNCTION(BlueprintCallable, Category = "Mission")
-	bool CompleteObjective(int32 ObjectiveIndex);
-
-	/** Completes the first incomplete objective whose ObjectiveTag matches. */
-	UFUNCTION(BlueprintCallable, Category = "Mission")
-	bool CompleteObjectiveByTag(FName ObjectiveTag);
+	bool CompleteObjective(FName ObjectiveId);
 
 	/** Clears the active mission without broadcasting completion. */
 	UFUNCTION(BlueprintCallable, Category = "Mission")
 	void AbortMission();
 
 	UFUNCTION(BlueprintPure, Category = "Mission")
-	UMissionDefinition* GetCurrentMission() const { return CurrentMission; }
+	UMissionDefinition* GetCurrentMission() const;
 
 	UFUNCTION(BlueprintPure, Category = "Mission")
 	TArray<UMissionObjective*> GetActiveObjectives() const;
 
+	/** First incomplete non-optional objective; this is the one the HUD shows. */
 	UFUNCTION(BlueprintPure, Category = "Mission")
-	UMissionObjective* GetObjectiveAt(int32 ObjectiveIndex) const;
+	UMissionObjective* GetCurrentObjective() const;
 
 	UFUNCTION(BlueprintPure, Category = "Mission")
-	int32 FindObjectiveIndexByTag(FName ObjectiveTag) const;
-
-	/** True once every non-optional objective is complete. */
-	UFUNCTION(BlueprintPure, Category = "Mission")
-	bool AreRequiredObjectivesComplete() const;
-
-	UFUNCTION(BlueprintPure, Category = "Mission")
-	bool IsMissionComplete() const { return bMissionComplete; }
+	bool IsMissionComplete() const;
 
 	UPROPERTY(BlueprintAssignable, Category = "Mission")
 	FOnObjectiveUpdatedSignature OnObjectiveUpdated;
@@ -78,19 +65,20 @@ public:
 	FOnFlashbackRequestedSignature OnFlashbackRequested;
 
 	//~ Begin USubsystem interface
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 	//~ End USubsystem interface
 
 protected:
-	/** Evaluates completion and broadcasts mission/flashback events when finished. */
-	void HandleObjectiveChanged(int32 ObjectiveIndex);
+	UFUNCTION()
+	void HandleObjectiveUpdated(UMissionObjective* Objective, int32 ObjectiveIndex);
+
+	UFUNCTION()
+	void HandleMissionComplete(UMissionDefinition* Mission);
+
+	UFUNCTION()
+	void HandleFlashbackRequested(UFlashbackDefinition* Flashback);
 
 	UPROPERTY(Transient)
-	TObjectPtr<UMissionDefinition> CurrentMission = nullptr;
-
-	/** Runtime copies of the definition's objectives (the source asset is never mutated). */
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "Mission")
-	TArray<TObjectPtr<UMissionObjective>> ActiveObjectives;
-
-	bool bMissionComplete = false;
+	TObjectPtr<UMissionTracker> Tracker = nullptr;
 };

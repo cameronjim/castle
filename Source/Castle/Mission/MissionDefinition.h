@@ -32,6 +32,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, Instanced, BlueprintReadOnly, Category = "Mission")
 	TArray<TObjectPtr<UMissionObjective>> Objectives;
 
+	/**
+	 * When true, non-optional objectives must be completed in array order: completing one out of
+	 * turn logs a warning and does nothing. Optional objectives are never ordered.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
+	bool bEnforceOrder = false;
+
 	/** Flashback slideshow played when this mission completes. Optional. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
 	TSoftObjectPtr<UFlashbackDefinition> FlashbackToPlay;

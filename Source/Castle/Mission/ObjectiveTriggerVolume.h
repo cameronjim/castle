@@ -7,7 +7,7 @@
 #include "ObjectiveTriggerVolume.generated.h"
 
 /**
- * Drop in a level, set ObjectiveTag, and the matching mission objective completes
+ * Drop in a level, set ObjectiveId, and the matching mission objective completes
  * when the player pawn walks in.
  */
 UCLASS(Blueprintable, BlueprintType)
@@ -20,7 +20,7 @@ public:
 
 	/** Tag of the UMissionObjective to complete. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Objective")
-	FName ObjectiveTag;
+	FName ObjectiveId;
 
 	/** When true the volume disables itself after the first successful trigger. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Objective")

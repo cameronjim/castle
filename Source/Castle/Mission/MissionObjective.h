@@ -22,9 +22,9 @@ class CASTLE_API UMissionObjective : public UObject
 	GENERATED_BODY()
 
 public:
-	/** Stable id used to complete this objective by name (e.g. from a trigger volume). */
+	/** Stable id used to complete this objective by name. Lowercase snake_case: find_weapon. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective")
-	FName ObjectiveTag;
+	FName ObjectiveId;
 
 	/** Short player-facing line shown in the HUD. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective")

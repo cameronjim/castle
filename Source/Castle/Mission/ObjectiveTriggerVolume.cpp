@@ -39,12 +39,12 @@ void AObjectiveTriggerVolume::HandleActorBeginOverlap(AActor* /*OverlappedActor*
 		return;
 	}
 
-	if (MissionSubsystem->CompleteObjectiveByTag(ObjectiveTag))
+	if (MissionSubsystem->CompleteObjective(ObjectiveId))
 	{
 		bHasTriggered = true;
 		OnObjectiveTriggered(OtherActor);
 
 		UE_LOG(LogCastle, Verbose, TEXT("Objective '%s' completed by overlap with %s."),
-			*ObjectiveTag.ToString(), *OtherActor->GetName());
+			*ObjectiveId.ToString(), *OtherActor->GetName());
 	}
 }
