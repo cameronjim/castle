@@ -4,6 +4,7 @@
 
 #include "Camera/CameraComponent.h"
 #include "Castle.h"
+#include "CastleGameMode.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/TakedownComponent.h"
 #include "Combat/WeaponComponent.h"
@@ -14,6 +15,9 @@
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
+#include "Components/PawnNoiseEmitterComponent.h"
+#include "TimerManager.h"
+#include "World/InteractionComponent.h"
 
 ACastleCharacter::ACastleCharacter()
 {
@@ -31,6 +35,12 @@ ACastleCharacter::ACastleCharacter()
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 	TakedownComponent = CreateDefaultSubobject<UTakedownComponent>(TEXT("TakedownComponent"));
+	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
+	NoiseEmitter = CreateDefaultSubobject<UPawnNoiseEmitterComponent>(TEXT("NoiseEmitter"));
+
+	// Frank starts the mission empty-handed; the pistol pickup calls GiveWeapon.
+	WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
+	WeaponComponent->bHasWeapon = false;
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
@@ -53,6 +63,89 @@ void ACastleCharacter::BeginPlay()
 	{
 		Movement->MaxWalkSpeed = WalkSpeed;
 	}
+
+	if (HealthComponent)
+	{
+		HealthComponent->OnDeath.AddDynamic(this, &ACastleCharacter::HandleDeath);
+	}
+
+	// Guards hear the player through AISense_Hearing; MakeNoise on a fixed beat is enough
+	// resolution for a stealth game and costs nothing per frame.
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			NoiseTimerHandle, this, &ACastleCharacter::EmitMovementNoise, NoiseIntervalSeconds, true);
+	}
+}
+
+void ACastleCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(NoiseTimerHandle);
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+float ACastleCharacter::GetMovementNoiseLoudness() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement || !Movement->IsMovingOnGround())
+	{
+		return 0.f;
+	}
+
+	if (bIsCrouched)
+	{
+		return 0.f;
+	}
+
+	if (GetVelocity().SizeSquared2D() < FMath::Square(10.f))
+	{
+		return 0.f;
+	}
+
+	return bIsSprinting ? SprintNoiseLoudness : WalkNoiseLoudness;
+}
+
+void ACastleCharacter::EmitMovementNoise()
+{
+	const float Loudness = GetMovementNoiseLoudness();
+	if (Loudness <= 0.f)
+	{
+		return;
+	}
+
+	MakeNoise(Loudness, this, GetActorLocation());
+}
+
+void ACastleCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
+{
+	UE_LOG(LogCastle, Log, TEXT("%s died (killer: %s); restarting the mission."),
+		*GetName(), *GetNameSafe(Killer));
+
+	if (ACastleGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<ACastleGameMode>() : nullptr)
+	{
+		GameMode->RestartMission();
+	}
+}
+
+bool ACastleCharacter::HasKeycard(FName KeycardId) const
+{
+	return !KeycardId.IsNone() && Keycards.Contains(KeycardId);
+}
+
+bool ACastleCharacter::GiveKeycard(FName KeycardId)
+{
+	if (KeycardId.IsNone() || Keycards.Contains(KeycardId))
+	{
+		return false;
+	}
+
+	Keycards.Add(KeycardId);
+	UE_LOG(LogCastle, Log, TEXT("%s picked up keycard '%s'."), *GetName(), *KeycardId.ToString());
+	return true;
 }
 
 void ACastleCharacter::PawnClientRestart()
@@ -84,7 +177,7 @@ void ACastleCharacter::AddDefaultMappingContext()
 
 UWeaponComponent* ACastleCharacter::GetWeaponComponent() const
 {
-	return FindComponentByClass<UWeaponComponent>();
+	return WeaponComponent ? WeaponComponent.Get() : FindComponentByClass<UWeaponComponent>();
 }
 
 void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -209,9 +302,11 @@ void ACastleCharacter::Input_Fire(const FInputActionValue& /*Value*/)
 		return;
 	}
 
-	if (UWeaponComponent* Weapon = GetWeaponComponent())
+	UWeaponComponent* Weapon = GetWeaponComponent();
+	if (Weapon && Weapon->Fire())
 	{
-		Weapon->Fire();
+		// A gunshot is the loudest thing in the level; every guard in range goes Alerted.
+		MakeNoise(GunshotNoiseLoudness, this, GetActorLocation());
 	}
 }
 
@@ -233,5 +328,10 @@ void ACastleCharacter::Input_Takedown(const FInputActionValue& /*Value*/)
 
 void ACastleCharacter::Input_Interact(const FInputActionValue& /*Value*/)
 {
+	if (InteractionComponent)
+	{
+		InteractionComponent->TryInteract();
+	}
+
 	OnInteractPressed();
 }
