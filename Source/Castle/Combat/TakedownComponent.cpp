@@ -8,44 +8,76 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "TimerManager.h"
 
 UTakedownComponent::UTakedownComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
-bool UTakedownComponent::IsValidTarget(const AActor* Candidate) const
+void UTakedownComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(TakedownTimerHandle);
+	}
+
+	Super::EndPlay(EndPlayReason);
+}
+
+bool UTakedownComponent::IsBehindTarget(const FVector& AttackerLocation, const FVector& TargetLocation, const FVector& TargetForward, float MaxAngleDegrees)
+{
+	const FVector TargetToAttacker = (AttackerLocation - TargetLocation).GetSafeNormal2D();
+	const FVector Forward = TargetForward.GetSafeNormal2D();
+	if (TargetToAttacker.IsNearlyZero() || Forward.IsNearlyZero())
+	{
+		return false;
+	}
+
+	// Angle between the target's BACKWARD direction and the direction to the attacker.
+	const float Dot = FVector::DotProduct(-Forward, TargetToAttacker);
+	const float AngleDegrees = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.f, 1.f)));
+
+	// KINDA_SMALL_NUMBER of slack so a target placed exactly at MaxAngleDegrees counts as behind.
+	return AngleDegrees <= MaxAngleDegrees + KINDA_SMALL_NUMBER;
+}
+
+bool UTakedownComponent::IsValidTakedownTarget(const AActor* Target, const FVector& AttackerLocation) const
 {
 	const AActor* Owner = GetOwner();
-	if (!Candidate || !Owner || Candidate == Owner)
+	if (!IsValid(Target) || Target == Owner)
 	{
 		return false;
 	}
 
-	if (!TargetTag.IsNone() && !Candidate->ActorHasTag(TargetTag))
+	if (!TargetTag.IsNone() && !Target->ActorHasTag(TargetTag))
 	{
 		return false;
 	}
 
-	if (!Candidate->GetClass()->ImplementsInterface(UTakedownable::StaticClass()))
+	if (!Target->GetClass()->ImplementsInterface(UTakedownable::StaticClass()))
 	{
 		return false;
 	}
 
-	// Dot of the target's forward against the direction from the target to the attacker:
-	// negative means the attacker stands behind the target.
-	const FVector TargetToAttacker = (Owner->GetActorLocation() - Candidate->GetActorLocation()).GetSafeNormal2D();
-	const FVector TargetForward = Candidate->GetActorForwardVector().GetSafeNormal2D();
-	const float Dot = FVector::DotProduct(TargetForward, TargetToAttacker);
-
-	// cos(180 - MaxBehindAngle) is the largest dot still counted as "behind".
-	const float MaxDot = FMath::Cos(FMath::DegreesToRadians(180.f - MaxBehindAngleDegrees));
-	if (Dot > MaxDot)
+	if (FVector::DistSquared(AttackerLocation, Target->GetActorLocation()) > FMath::Square(Range))
 	{
 		return false;
 	}
 
-	return ITakedownable::Execute_CanBeTakenDown(const_cast<AActor*>(Candidate), const_cast<AActor*>(Owner));
+	if (!IsBehindTarget(AttackerLocation, Target->GetActorLocation(), Target->GetActorForwardVector(), MaxAngleDegrees))
+	{
+		return false;
+	}
+
+	// Guards veto this while Alerted; bAlertedGuardsAreValid ignores the veto.
+	if (!bAlertedGuardsAreValid &&
+		!ITakedownable::Execute_CanBeTakenDown(const_cast<AActor*>(Target), const_cast<AActor*>(Owner)))
+	{
+		return false;
+	}
+
+	return true;
 }
 
 AActor* UTakedownComponent::FindTakedownTarget() const
@@ -58,7 +90,7 @@ AActor* UTakedownComponent::FindTakedownTarget() const
 	}
 
 	const FVector Start = Owner->GetActorLocation();
-	const FVector End = Start + Owner->GetActorForwardVector() * TakedownRange;
+	const FVector End = Start + Owner->GetActorForwardVector() * Range;
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CastleTakedown), /*bTraceComplex=*/false, Owner);
 	QueryParams.AddIgnoredActor(Owner);
@@ -81,13 +113,13 @@ AActor* UTakedownComponent::FindTakedownTarget() const
 	for (const FHitResult& Hit : Hits)
 	{
 		AActor* Candidate = Hit.GetActor();
-		if (!IsValidTarget(Candidate))
+		if (!IsValidTakedownTarget(Candidate, Start))
 		{
 			continue;
 		}
 
 		const float DistanceSq = FVector::DistSquared(Start, Candidate->GetActorLocation());
-		if (DistanceSq <= FMath::Square(TakedownRange) && DistanceSq < BestDistanceSq)
+		if (DistanceSq < BestDistanceSq)
 		{
 			BestDistanceSq = DistanceSq;
 			BestTarget = Candidate;
@@ -99,15 +131,44 @@ AActor* UTakedownComponent::FindTakedownTarget() const
 
 bool UTakedownComponent::TryTakedown()
 {
+	if (bIsPerformingTakedown)
+	{
+		return false;
+	}
+
 	AActor* Target = FindTakedownTarget();
 	if (!Target)
 	{
 		return false;
 	}
 
+	bIsPerformingTakedown = true;
+
 	ITakedownable::Execute_OnTakedown(Target, GetOwner());
 	OnTakedownPerformed.Broadcast(Target);
 
 	UE_LOG(LogCastle, Verbose, TEXT("Takedown performed on %s."), *Target->GetName());
+
+	UWorld* World = GetWorld();
+	if (World && TakedownSeconds > 0.f)
+	{
+		World->GetTimerManager().SetTimer(
+			TakedownTimerHandle, this, &UTakedownComponent::EndTakedown, TakedownSeconds, false);
+	}
+	else
+	{
+		EndTakedown();
+	}
+
 	return true;
+}
+
+void UTakedownComponent::EndTakedown()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(TakedownTimerHandle);
+	}
+
+	bIsPerformingTakedown = false;
 }

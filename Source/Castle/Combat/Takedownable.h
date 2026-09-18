@@ -26,8 +26,11 @@ public:
 	void OnTakedown(AActor* Attacker);
 	virtual void OnTakedown_Implementation(AActor* Attacker) {}
 
-	/** Lets a target veto a takedown (already alerted, already dead, scripted, ...). */
+	/**
+	 * Lets a target veto a takedown (already alerted, already dead, scripted, ...).
+	 * Guards return false while Alerted.
+	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Takedown")
-	bool CanBeTakenDown(AActor* Attacker) const;
-	virtual bool CanBeTakenDown_Implementation(AActor* Attacker) const { return true; }
+	bool CanBeTakenDown(AActor* Attacker);
+	virtual bool CanBeTakenDown_Implementation(AActor* Attacker) { return true; }
 };

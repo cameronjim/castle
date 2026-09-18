@@ -11,6 +11,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTakedownPerformedSignature, AActo
 /**
  * Player-side stealth takedowns: finds a nearby actor tagged "Guard" that the player is standing
  * behind, and fires ITakedownable::OnTakedown on it.
+ *
+ * While a takedown plays the owner is locked out of firing and moving; ACastleCharacter asks
+ * IsPerformingTakedown() before handling those inputs.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UTakedownComponent : public UActorComponent
@@ -22,7 +25,7 @@ public:
 
 	/** Maximum distance from the owner to a valid target. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown", meta = (ClampMin = "0.0"))
-	float TakedownRange = 200.f;
+	float Range = 150.f;
 
 	/** Radius of the sweep used to gather candidates. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown", meta = (ClampMin = "0.0"))
@@ -33,11 +36,22 @@ public:
 	 * 60 means the attacker must be within 60 degrees of directly behind the guard.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown", meta = (ClampMin = "0.0", ClampMax = "180.0"))
-	float MaxBehindAngleDegrees = 60.f;
+	float MaxAngleDegrees = 60.f;
+
+	/** Seconds the takedown animation locks the player out of moving and firing. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown", meta = (ClampMin = "0.0"))
+	float TakedownSeconds = 1.2f;
 
 	/** Actor tag a candidate must carry. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown")
 	FName TargetTag = FName(TEXT("Guard"));
+
+	/**
+	 * When false (the default) a guard that vetoes via ITakedownable::CanBeTakenDown - which the
+	 * guard does while Alerted - cannot be taken down. Turn on for a forgiving difficulty mode.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown")
+	bool bAlertedGuardsAreValid = false;
 
 	/** Object channel swept for candidates. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown")
@@ -58,7 +72,37 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Takedown")
 	AActor* FindTakedownTarget() const;
 
+	/**
+	 * True when Target is tagged, implements ITakedownable, allows the takedown, is within Range
+	 * of AttackerLocation and is within MaxAngleDegrees of directly behind. Pure, so the geometry
+	 * can be tested without a world or a sweep.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Takedown")
+	bool IsValidTakedownTarget(const AActor* Target, const FVector& AttackerLocation) const;
+
+	/**
+	 * The angle half of the check: is AttackerLocation inside the cone of MaxAngleDegrees around
+	 * the target's backward direction? Ground-projected, so height never matters.
+	 *
+	 * Plain static rather than a UFUNCTION: UHT rejects a parameter that shares a name with a
+	 * property on the class, and MaxAngleDegrees is both.
+	 */
+	static bool IsBehindTarget(const FVector& AttackerLocation, const FVector& TargetLocation, const FVector& TargetForward, float MaxAngleDegrees);
+
+	/** True while the takedown animation is locking movement and firing out. */
+	UFUNCTION(BlueprintPure, Category = "Takedown")
+	bool IsPerformingTakedown() const { return bIsPerformingTakedown; }
+
+	/** Ends the lockout early (animation notify, or the takedown being interrupted). */
+	UFUNCTION(BlueprintCallable, Category = "Takedown")
+	void EndTakedown();
+
 protected:
-	/** True when Candidate is tagged, implements ITakedownable, allows it, and the owner is behind it. */
-	bool IsValidTarget(const AActor* Candidate) const;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Takedown")
+	bool bIsPerformingTakedown = false;
+
+private:
+	FTimerHandle TakedownTimerHandle;
 };
