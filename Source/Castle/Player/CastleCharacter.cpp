@@ -143,7 +143,7 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 {
 	const FVector2D MoveInput = Value.Get<FVector2D>();
-	if (MoveInput.IsNearlyZero() || !Controller)
+	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown())
 	{
 		return;
 	}
@@ -168,6 +168,12 @@ void ACastleCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 	{
 		Movement->MaxWalkSpeed = SprintSpeed;
 	}
+
+	// Sprinting cancels a reload; the magazine keeps whatever it had.
+	if (UWeaponComponent* Weapon = GetWeaponComponent())
+	{
+		Weapon->CancelReload();
+	}
 }
 
 void ACastleCharacter::Input_SprintCompleted(const FInputActionValue& /*Value*/)
@@ -191,8 +197,18 @@ void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 	}
 }
 
+bool ACastleCharacter::IsLockedOutByTakedown() const
+{
+	return TakedownComponent && TakedownComponent->IsPerformingTakedown();
+}
+
 void ACastleCharacter::Input_Fire(const FInputActionValue& /*Value*/)
 {
+	if (IsLockedOutByTakedown())
+	{
+		return;
+	}
+
 	if (UWeaponComponent* Weapon = GetWeaponComponent())
 	{
 		Weapon->Fire();

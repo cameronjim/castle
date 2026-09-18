@@ -39,6 +39,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UWeaponComponent* GetWeaponComponent() const;
 
+	/** True while a takedown animation is playing; movement and firing are ignored. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Character")
+	bool IsLockedOutByTakedown() const;
+
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Castle|Character")
 	void OnInteractPressed();
