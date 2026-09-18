@@ -29,11 +29,15 @@ public:
 	float RestartDelaySeconds = 2.f;
 
 	/**
-	 * Reopens the current level after RestartDelaySeconds, which restarts the mission from the
-	 * top (there are no checkpoints until stage 3). Repeat calls are ignored.
+	 * Reopens the current level, which restarts the mission from the top (there are no
+	 * checkpoints until stage 3). Repeat calls are ignored.
+	 *
+	 * Delay is the wait in seconds before the level reloads. A negative Delay (the default)
+	 * uses RestartDelaySeconds, which is what dying does so the death screen has time to read;
+	 * the pause menu passes 0 because the player already chose to start over.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Mission")
-	void RestartMission();
+	void RestartMission(float Delay = -1.f);
 
 	UFUNCTION(BlueprintPure, Category = "Mission")
 	bool IsRestartPending() const { return bRestartPending; }

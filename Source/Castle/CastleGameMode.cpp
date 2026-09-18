@@ -49,7 +49,7 @@ void ACastleGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-void ACastleGameMode::RestartMission()
+void ACastleGameMode::RestartMission(float Delay)
 {
 	if (bRestartPending)
 	{
@@ -62,19 +62,21 @@ void ACastleGameMode::RestartMission()
 		return;
 	}
 
+	const float WaitSeconds = Delay < 0.f ? RestartDelaySeconds : Delay;
+
 	bRestartPending = true;
 	OnMissionRestarting();
 
-	UE_LOG(LogCastle, Log, TEXT("%s: restarting the mission in %.1f s."), *GetName(), RestartDelaySeconds);
+	UE_LOG(LogCastle, Log, TEXT("%s: restarting the mission in %.1f s."), *GetName(), WaitSeconds);
 
-	if (RestartDelaySeconds <= 0.f)
+	if (WaitSeconds <= 0.f)
 	{
 		ReopenCurrentLevel();
 		return;
 	}
 
 	World->GetTimerManager().SetTimer(
-		RestartTimerHandle, this, &ACastleGameMode::ReopenCurrentLevel, RestartDelaySeconds, false);
+		RestartTimerHandle, this, &ACastleGameMode::ReopenCurrentLevel, WaitSeconds, false);
 }
 
 void ACastleGameMode::ReopenCurrentLevel()
