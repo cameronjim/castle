@@ -333,9 +333,15 @@ void AGuardAIController::TickAlerted(float DeltaSeconds)
 		return;
 	}
 
-	if (!IsValid(TargetActor) || UnseenSeconds >= LoseTargetSeconds)
+	if (UnseenSeconds >= LoseTargetSeconds)
 	{
 		SetState(EGuardAlertState::Suspicious);
+		return;
+	}
+
+	// Alerted by a noise he has not yet put a body to: stay alerted, but nothing to shoot at.
+	if (!IsValid(TargetActor))
+	{
 		return;
 	}
 
