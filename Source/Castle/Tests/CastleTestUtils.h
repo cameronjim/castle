@@ -64,6 +64,9 @@ public:
 	UPROPERTY() float LastHealthDelta = 0.f;
 	UPROPERTY() int32 DeathCount = 0;
 
+	/** Who OnDeath said did it. A takedown that reports None is the bug this catches. */
+	UPROPERTY() TObjectPtr<AActor> LastKiller = nullptr;
+
 	UFUNCTION()
 	void HandleHealthChanged(UHealthComponent* HealthComponent, float NewHealth, float Delta, AActor* DamageInstigator);
 

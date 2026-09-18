@@ -40,7 +40,7 @@ bool FCastleGuardHasFlashlight::RunTest(const FString& Parameters)
 		Flashlight->Mobility == EComponentMobility::Movable);
 
 	// A body on the floor does not keep sweeping the corridor.
-	Guard->GoLimp();
+	Guard->GoLimp(nullptr);
 	TestFalse(TEXT("A downed guard's flashlight is off"), Flashlight->GetVisibleFlag());
 
 	return true;

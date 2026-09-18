@@ -12,6 +12,7 @@
 #include "Components/SpotLightComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "PhysicsEngine/PhysicsAsset.h"
 #include "World/PickupActor.h"
 
 AGuardCharacter::AGuardCharacter()
@@ -98,6 +99,18 @@ void AGuardCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
+	if (bCollapsing)
+	{
+		// A dead guard has no locomotion to update; he only has a floor to reach.
+		UpdateProceduralCollapse(DeltaSeconds);
+		return;
+	}
+
+	if (bLimp)
+	{
+		return;
+	}
+
 	UpdateLocomotionAnimation();
 }
 
@@ -174,15 +187,16 @@ bool AGuardCharacter::CanBeTakenDown_Implementation(AActor* /*Attacker*/)
 	return AlertState != EGuardAlertState::Alerted && HealthComponent && HealthComponent->IsAlive();
 }
 
-void AGuardCharacter::OnTakedown_Implementation(AActor* /*Attacker*/)
+void AGuardCharacter::OnTakedown_Implementation(AActor* Attacker)
 {
-	GoLimp();
+	GoLimp(Attacker);
 	DropLoot();
 
 	if (HealthComponent)
 	{
-		// Routed through health so OnDeath listeners (and the drop) behave identically to a bullet.
-		HealthComponent->ApplyDamage(9999.f, nullptr);
+		// Routed through health so OnDeath listeners (and the drop) behave identically to a
+		// bullet. The attacker goes with it, so the death line names who did it instead of None.
+		HealthComponent->ApplyDamage(9999.f, Attacker);
 	}
 }
 
@@ -193,11 +207,11 @@ void AGuardCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 	UE_LOG(LogCastle, Log, TEXT("%s died (killed by %s, alert state %d)."),
 		*GetName(), *GetNameSafe(Killer), static_cast<int32>(AlertState));
 
-	GoLimp();
+	GoLimp(Killer);
 	DropLoot();
 }
 
-void AGuardCharacter::GoLimp()
+void AGuardCharacter::GoLimp(AActor* Killer)
 {
 	if (bLimp)
 	{
@@ -236,23 +250,8 @@ void AGuardCharacter::GoLimp()
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset())
 	{
-		return;
-	}
-
-	if (!SkeletalMesh->GetPhysicsAsset())
-	{
-		// No bodies to simulate: fall back to the death sequence if the data provides one.
-		if (DeathAnim)
-		{
-			CurrentLocomotionAnim = DeathAnim;
-			SkeletalMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-			SkeletalMesh->PlayAnimation(DeathAnim, /*bLooping=*/false);
-			return;
-		}
-
-		UE_LOG(LogCastle, Warning,
-			TEXT("%s: the mesh %s has no physics asset, so the body cannot ragdoll."),
-			*GetName(), *GetNameSafe(SkeletalMesh->GetSkeletalMeshAsset()));
+		UE_LOG(LogCastle, Warning, TEXT("%s: died with no skeletal mesh; nothing to drop."), *GetName());
+		SetActorTickEnabled(false);
 		return;
 	}
 
@@ -260,14 +259,139 @@ void AGuardCharacter::GoLimp()
 	// body that is still welded to its parent will not fall.
 	SkeletalMesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 
-	SkeletalMesh->SetCollisionProfileName(TEXT("Ragdoll"));
-	SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	SkeletalMesh->SetAllBodiesSimulatePhysics(true);
-	SkeletalMesh->SetSimulatePhysics(true);
-	SkeletalMesh->WakeAllRigidBodies();
+	if (SkeletalMesh->GetPhysicsAsset())
+	{
+		SkeletalMesh->SetCollisionProfileName(TEXT("Ragdoll"));
+		SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		SkeletalMesh->SetAllBodiesSimulatePhysics(true);
+		SkeletalMesh->SetSimulatePhysics(true);
+		SkeletalMesh->WakeAllRigidBodies();
 
-	// The corpse stays where it lands; nothing should ever try to move the actor again.
-	SetActorTickEnabled(false);
+		if (SkeletalMesh->IsSimulatingPhysics())
+		{
+			UE_LOG(LogCastle, Warning, TEXT("%s: went down by ragdoll (physics asset %s)."),
+				*GetName(), *GetNameSafe(SkeletalMesh->GetPhysicsAsset()));
+
+			// The corpse stays where it lands; nothing should ever try to move the actor again.
+			SetActorTickEnabled(false);
+			return;
+		}
+
+		// A physics asset whose bodies are named for a different skeleton leaves
+		// InitArticulated with no root body, and SetSimulatePhysics silently does nothing.
+		// That is the bug that had guards freezing upright, so never trust it: check.
+		UE_LOG(LogCastle, Warning,
+			TEXT("%s: physics asset %s did not start simulating (no matching root body); "
+				 "falling back to the procedural collapse."),
+			*GetName(), *GetNameSafe(SkeletalMesh->GetPhysicsAsset()));
+		SkeletalMesh->SetSimulatePhysics(false);
+	}
+	else
+	{
+		UE_LOG(LogCastle, Warning,
+			TEXT("%s: the mesh %s has no physics asset; falling back to the procedural collapse."),
+			*GetName(), *GetNameSafe(SkeletalMesh->GetSkeletalMeshAsset()));
+	}
+
+	BeginProceduralCollapse(Killer);
+}
+
+bool AGuardCharacter::IsRagdolling() const
+{
+	const USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	return SkeletalMesh != nullptr && SkeletalMesh->IsSimulatingPhysics();
+}
+
+float AGuardCharacter::GetCollapseAlpha() const
+{
+	if (!bLimp || CollapseSeconds <= 0.f)
+	{
+		return bCollapsing ? 0.f : (bLimp ? 1.f : 0.f);
+	}
+	return FMath::Clamp(CollapseElapsed / CollapseSeconds, 0.f, 1.f);
+}
+
+void AGuardCharacter::BeginProceduralCollapse(AActor* Killer)
+{
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	if (!SkeletalMesh)
+	{
+		return;
+	}
+
+	// A body that is still mid-walk-cycle while it tips over reads as a bug, so freeze the pose.
+	SkeletalMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	if (DeathAnim)
+	{
+		CurrentLocomotionAnim = DeathAnim;
+		SkeletalMesh->PlayAnimation(DeathAnim, /*bLooping=*/false);
+	}
+	else
+	{
+		CurrentLocomotionAnim = nullptr;
+		SkeletalMesh->Stop();
+	}
+
+	// Nothing should collide with the corpse; it is a prop from here on.
+	SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// He falls away from whoever put him down, or straight forward when that is not known.
+	FVector Away = GetActorForwardVector().GetSafeNormal2D();
+	if (Killer)
+	{
+		const FVector Delta = (GetActorLocation() - Killer->GetActorLocation()).GetSafeNormal2D();
+		if (!Delta.IsNearlyZero())
+		{
+			Away = Delta;
+		}
+	}
+	if (Away.IsNearlyZero())
+	{
+		Away = FVector::ForwardVector;
+	}
+
+	// Rotating about Up x Away carries the body's up vector towards Away: he pitches over
+	// that way whatever direction the mesh itself happens to be facing.
+	CollapseAxis = FVector::CrossProduct(FVector::UpVector, Away).GetSafeNormal();
+	if (CollapseAxis.IsNearlyZero())
+	{
+		CollapseAxis = FVector::RightVector;
+	}
+
+	CollapseStartLocation = SkeletalMesh->GetComponentLocation();
+	CollapseStartRotation = SkeletalMesh->GetComponentQuat();
+	CollapseElapsed = 0.f;
+	bCollapsing = true;
+
+	// The collapse is driven from Tick, so the actor has to keep ticking through it.
+	SetActorTickEnabled(true);
+}
+
+void AGuardCharacter::UpdateProceduralCollapse(float DeltaSeconds)
+{
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	if (!SkeletalMesh)
+	{
+		bCollapsing = false;
+		return;
+	}
+
+	CollapseElapsed += DeltaSeconds;
+	const float Alpha = CollapseSeconds > 0.f
+		? FMath::Clamp(CollapseElapsed / CollapseSeconds, 0.f, 1.f) : 1.f;
+	// Accelerating, not linear: a body does not tip over at a constant rate.
+	const float Eased = Alpha * Alpha;
+
+	const FQuat Tip(CollapseAxis, FMath::DegreesToRadians(CollapsePitchDegrees * Eased));
+	SkeletalMesh->SetWorldLocationAndRotation(
+		CollapseStartLocation - FVector(0.f, 0.f, CollapseDropDistance * Eased),
+		Tip * CollapseStartRotation);
+
+	if (Alpha >= 1.f)
+	{
+		bCollapsing = false;
+		SetActorTickEnabled(false);
+	}
 }
 
 void AGuardCharacter::DropLoot()

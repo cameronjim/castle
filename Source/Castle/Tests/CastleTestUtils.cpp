@@ -72,9 +72,10 @@ void UCastleTestListener::HandleHealthChanged(UHealthComponent* /*HealthComponen
 	LastHealthDelta = Delta;
 }
 
-void UCastleTestListener::HandleDeath(UHealthComponent* /*HealthComponent*/, AActor* /*Killer*/)
+void UCastleTestListener::HandleDeath(UHealthComponent* /*HealthComponent*/, AActor* Killer)
 {
 	++DeathCount;
+	LastKiller = Killer;
 }
 
 void UCastleTestListener::HandlePhaseChanged(int32 OldPhaseIndex, int32 NewPhaseIndex, FBossPhase /*Phase*/)

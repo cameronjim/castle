@@ -79,9 +79,31 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Guard|Loot")
 	void DropLoot();
 
-	/** Ragdolls the mesh, disables the capsule and stops the AI. Safe to call twice. */
+	/**
+	 * Ragdolls the mesh, disables the capsule and stops the AI. Safe to call twice.
+	 *
+	 * When the mesh cannot ragdoll - no physics asset, or one whose bodies do not match the
+	 * skeleton, which makes InitArticulated find no root body and SetSimulatePhysics a no-op -
+	 * the guard falls over procedurally instead. Killer only steers which way he goes down.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Guard")
-	void GoLimp();
+	void GoLimp(AActor* Killer);
+
+	/** True once GoLimp has run, whichever way the body went down. */
+	UFUNCTION(BlueprintPure, Category = "Guard")
+	bool IsLimp() const { return bLimp; }
+
+	/** True when the mesh is actually simulating physics, i.e. the real ragdoll path took. */
+	UFUNCTION(BlueprintPure, Category = "Guard")
+	bool IsRagdolling() const;
+
+	/** True while the procedural fallback is tipping the body over. */
+	UFUNCTION(BlueprintPure, Category = "Guard")
+	bool IsCollapsing() const { return bCollapsing; }
+
+	/** 0 upright, 1 flat on the floor. Stays 1 once the collapse has finished. */
+	UFUNCTION(BlueprintPure, Category = "Guard")
+	float GetCollapseAlpha() const;
 
 	// --- Animation ------------------------------------------------------------------------------
 
@@ -137,6 +159,24 @@ protected:
 	/** Snaps the flashlight to the head socket when the mesh has one. Runs once at BeginPlay. */
 	void AttachFlashlight();
 
+	/** Starts the no-physics fallback: tip the mesh over and drop it, away from the killer. */
+	void BeginProceduralCollapse(AActor* Killer);
+
+	/** Writes one frame of the collapse onto the mesh. Called from Tick while bCollapsing. */
+	void UpdateProceduralCollapse(float DeltaSeconds);
+
+	/** Seconds the procedural collapse takes from upright to flat. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Guard|Death", meta = (ClampMin = "0.01"))
+	float CollapseSeconds = 0.6f;
+
+	/** How far the body tips. 90 would be exactly flat; 85 leaves it looking dropped, not laid out. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Guard|Death", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float CollapsePitchDegrees = 85.f;
+
+	/** How far the mesh sinks over the collapse, so the body ends up on the floor not above it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Guard|Death", meta = (ClampMin = "0.0"))
+	float CollapseDropDistance = 20.f;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Guard|Components")
 	TObjectPtr<UHealthComponent> HealthComponent;
 
@@ -168,4 +208,15 @@ protected:
 private:
 	bool bLootDropped = false;
 	bool bLimp = false;
+
+	/** Procedural collapse state. Only used when the mesh refused to simulate. */
+	bool bCollapsing = false;
+	float CollapseElapsed = 0.f;
+
+	/** Where the mesh was standing when the collapse started; every frame is built off this. */
+	FVector CollapseStartLocation = FVector::ZeroVector;
+	FQuat CollapseStartRotation = FQuat::Identity;
+
+	/** World axis the body rotates about, so his head goes down away from whoever killed him. */
+	FVector CollapseAxis = FVector::RightVector;
 };
