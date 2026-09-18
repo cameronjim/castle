@@ -24,6 +24,10 @@ void UWeaponComponent::BeginPlay()
 	Super::BeginPlay();
 
 	CurrentAmmo = FMath::Clamp(CurrentAmmo, 0, MagazineSize);
+
+	// Per-owner seed: two guards firing on the same frame should miss in different directions.
+	SpreadStream.Initialize(*GetNameSafe(GetOwner()));
+
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 }
 
@@ -54,6 +58,39 @@ void UWeaponComponent::SetTestTimeSeconds(double InSeconds)
 	TestTimeOverride = InSeconds;
 }
 
+void UWeaponComponent::SetTestRandomStream(const FRandomStream& InStream)
+{
+	SpreadStream = InStream;
+}
+
+void UWeaponComponent::SetAiming(bool bInAiming)
+{
+	// Aiming an empty hand is meaningless, and it would leave the flag set when a pickup arms us.
+	bIsAiming = bInAiming && bHasWeapon;
+}
+
+FVector UWeaponComponent::ApplyConeSpread(const FVector& Direction, float SpreadDegrees, const FRandomStream& Stream)
+{
+	const FVector Forward = Direction.GetSafeNormal();
+	if (SpreadDegrees <= 0.f || Forward.IsNearlyZero())
+	{
+		return Forward;
+	}
+
+	// Uniform over the spherical cap, not over the angle, so the middle of the cone isn't favoured.
+	const float CosHalfAngle = FMath::Cos(FMath::DegreesToRadians(SpreadDegrees));
+	const float CosTheta = FMath::Lerp(CosHalfAngle, 1.f, Stream.FRand());
+	const float SinTheta = FMath::Sqrt(FMath::Max(0.f, 1.f - CosTheta * CosTheta));
+	const float Phi = Stream.FRand() * 2.f * PI;
+
+	const FVector Seed = FMath::Abs(Forward.Z) < 0.99f ? FVector::UpVector : FVector::ForwardVector;
+	const FVector Right = FVector::CrossProduct(Seed, Forward).GetSafeNormal();
+	const FVector Up = FVector::CrossProduct(Forward, Right).GetSafeNormal();
+
+	const FVector Offset = (Right * FMath::Cos(Phi) + Up * FMath::Sin(Phi)) * SinTheta;
+	return (Forward * CosTheta + Offset).GetSafeNormal();
+}
+
 void UWeaponComponent::GiveWeapon(int32 Magazine, int32 Reserve)
 {
 	bHasWeapon = true;
@@ -66,6 +103,7 @@ void UWeaponComponent::RemoveWeapon()
 {
 	CancelReload();
 	bHasWeapon = false;
+	bIsAiming = false;
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 }
 
@@ -154,7 +192,7 @@ void UWeaponComponent::TraceAndApplyDamage()
 	FRotator ViewRotation;
 	GetFireViewPoint(ViewLocation, ViewRotation);
 
-	const FVector ShotDirection = ViewRotation.Vector();
+	const FVector ShotDirection = ApplyConeSpread(ViewRotation.Vector(), GetCurrentSpreadDegrees(), SpreadStream);
 	const FVector TraceEnd = ViewLocation + ShotDirection * Range;
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CastleWeaponFire), /*bTraceComplex=*/true, Owner);

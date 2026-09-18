@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Math/RandomStream.h"
 #include "WeaponComponent.generated.h"
 
 class UDamageType;
@@ -66,6 +67,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon", meta = (ClampMin = "0.0"))
 	float ReloadSeconds = 2.f;
 
+	/** Cone half-angle applied to the shot direction while firing from the hip. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Spread", meta = (ClampMin = "0.0"))
+	float HipSpreadDegrees = 2.5f;
+
+	/** Cone half-angle applied while aiming down sights. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Spread", meta = (ClampMin = "0.0"))
+	float AimSpreadDegrees = 0.5f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
 	TSubclassOf<UDamageType> DamageTypeClass;
 
@@ -111,6 +120,30 @@ public:
 	/** Aborts an in-progress reload without moving any ammo (sprinting does this). */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void CancelReload();
+
+	/**
+	 * Tightens the shot cone while the owner is aiming down sights. Does nothing while
+	 * bHasWeapon is false, so aiming empty-handed never leaves the component in an aimed state.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Weapon|Spread")
+	void SetAiming(bool bInAiming);
+
+	UFUNCTION(BlueprintPure, Category = "Weapon|Spread")
+	bool IsAiming() const { return bIsAiming; }
+
+	/** AimSpreadDegrees while aiming, HipSpreadDegrees otherwise. */
+	UFUNCTION(BlueprintPure, Category = "Weapon|Spread")
+	float GetCurrentSpreadDegrees() const { return bIsAiming ? AimSpreadDegrees : HipSpreadDegrees; }
+
+	/**
+	 * Direction rotated by a random offset inside a cone of SpreadDegrees half-angle. Pure and
+	 * stream-driven so the spread maths is testable without firing a shot.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Weapon|Spread")
+	static FVector ApplyConeSpread(const FVector& Direction, float SpreadDegrees, const FRandomStream& Stream);
+
+	/** Replaces the spread stream so a test gets the same cone offsets every run. */
+	void SetTestRandomStream(const FRandomStream& InStream);
 
 	/** Damage this weapon deals to a hit on BoneName, including the headshot multiplier. */
 	UFUNCTION(BlueprintPure, Category = "Weapon")
@@ -160,6 +193,15 @@ protected:
 
 private:
 	bool bIsReloading = false;
+
+	/** Runtime only: ACastleCharacter drives this from the Aim input action. */
+	UPROPERTY(Transient)
+	bool bIsAiming = false;
+
+	/** Seeded from the owner's name at BeginPlay so two guards do not fire identical patterns. */
+	UPROPERTY(Transient)
+	FRandomStream SpreadStream;
+
 	double LastFireTimeSeconds = TNumericLimits<double>::Lowest();
 	FTimerHandle ReloadTimerHandle;
 
