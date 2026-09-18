@@ -179,7 +179,103 @@ def make_hud():
     return bp
 
 
-def make_pickup(name, values, scale, mesh_asset):
+def clear_component_mesh(bp, component_name, context):
+    """Empty a component's static mesh. Used to retire the placeholder cube on the root."""
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property(component_name)
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        return False
+
+    try:
+        if component.get_editor_property("static_mesh") is None:
+            return False
+        component.set_static_mesh(None)
+        c.log("updated", context, "placeholder cube removed")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error(context, exc)
+        return False
+
+
+def set_pickup_part(bp, part_name, cube, size_cm, location, material, rotation=None):
+    """Shape one Part component: the engine cube scaled to size_cm and moved into place.
+
+    The cube is 100 cm on a side, so a scale of size/100 gives centimetres directly.
+    """
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property(part_name)
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        c.log("skipped", bp.get_name() + "." + part_name, "no such component")
+        return False
+
+    context = bp.get_name() + "." + part_name
+    scale = unreal.Vector(size_cm[0] / 100.0, size_cm[1] / 100.0, size_cm[2] / 100.0)
+
+    changed = []
+    wanted = [
+        ("relative_scale3d", scale),
+        ("relative_location", unreal.Vector(location[0], location[1], location[2])),
+    ]
+    if rotation is not None:
+        wanted.append(("relative_rotation", unreal.Rotator(rotation[0], rotation[1], rotation[2])))
+
+    for prop, value in wanted:
+        try:
+            if component.get_editor_property(prop) == value:
+                continue
+        except Exception:  # noqa: BLE001 - set_props reports a missing property
+            pass
+        if c.set_props(component, [(prop, value)], context):
+            changed.append(prop)
+
+    try:
+        if cube is not None and component.get_editor_property("static_mesh") != cube:
+            component.set_static_mesh(cube)
+            changed.append("static_mesh")
+    except Exception as exc:  # noqa: BLE001
+        c.log_error(context + " static_mesh", exc)
+
+    if set_component_material(component, 0, material, context):
+        changed.append("material")
+
+    return bool(changed)
+
+
+def shape_pistol(bp, cube, materials):
+    """Slide, frame, grip and trigger guard, all in gun-metal. Sizes are centimetres."""
+    pistol = materials.get("pistol")
+    parts = [
+        ("part1", (18.0, 3.0, 3.0), (0.0, 0.0, 4.0), None),
+        ("part2", (12.0, 3.0, 4.0), (-1.0, 0.0, 0.5), None),
+        ("part3", (3.0, 3.0, 9.0), (-5.0, 0.0, -4.0), (15.0, 0.0, 0.0)),
+        ("part4", (4.0, 2.5, 1.0), (-2.0, 0.0, -2.0), None),
+    ]
+    changed = False
+    for part_name, size, location, rotation in parts:
+        changed = set_pickup_part(bp, part_name, cube, size, location, pistol, rotation) or changed
+    return changed
+
+
+def shape_keycard(bp, cube, materials):
+    """A white card with a coloured stripe along one edge."""
+    changed = set_pickup_part(
+        bp, "part1", cube, (8.6, 5.4, 0.2), (0.0, 0.0, 0.0), materials.get("keycard"))
+    changed = set_pickup_part(
+        bp, "part2", cube, (8.6, 1.0, 0.05), (0.0, 1.8, 0.13), materials.get("stripe")) or changed
+    return changed
+
+
+def make_pickup(name, values, shape_fn):
     parent = c.find_class("PickupActor", "/Script/Castle.PickupActor")
     bp, _ = cb.make_blueprint(name, WORLD_PATH, parent, ("BlueprintFactory",))
     if bp is None:
@@ -189,7 +285,9 @@ def make_pickup(name, values, scale, mesh_asset):
     c.save(bp, only_if_dirty=True)
 
     changed = bool(cb.apply_defaults(bp, name, WORLD_PATH, values))
-    changed = set_component_mesh(bp, "mesh", mesh_asset, scale) or changed
+    # The silhouette now comes from the Part components, so the root cube goes.
+    changed = clear_component_mesh(bp, "mesh", name + ".Mesh") or changed
+    changed = shape_fn(bp) or changed
     if changed:
         c.compile_blueprint(bp)
         c.save(bp)
@@ -445,6 +543,11 @@ def run():
 
     make_hud()
 
+    # The keycard's glowing stripe is an instance of the room-art pass's M_Emissive, and this
+    # script runs first, so make sure the lamp materials exist before asking for the props.
+    m.ensure_light_materials()
+    prop_materials = m.ensure_prop_materials()
+
     make_pickup(
         "BP_Pickup_Pistol",
         [
@@ -453,8 +556,7 @@ def run():
             ("ammo_amount", 24),
             ("completes_objective_id", "find_weapon"),
         ],
-        unreal.Vector(0.3, 0.1, 0.2),
-        cube,
+        lambda bp: shape_pistol(bp, cube, prop_materials),
     )
 
     make_pickup(
@@ -463,8 +565,7 @@ def run():
             ("pickup_type", unreal.PickupType.KEYCARD),
             ("keycard_id", "cellblock"),
         ],
-        unreal.Vector(0.12, 0.08, 0.02),
-        cube,
+        lambda bp: shape_keycard(bp, cube, prop_materials),
     )
 
     make_door()

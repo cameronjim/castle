@@ -10,7 +10,8 @@
 
 APickupActor::APickupActor()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// Ticks for the hover, bob and spin that make a pickup look like one.
+	PrimaryActorTick.bCanEverTick = true;
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	SetRootComponent(Mesh);
@@ -20,6 +21,47 @@ APickupActor::APickupActor()
 	Mesh->SetCollisionResponseToAllChannels(ECR_Ignore);
 	Mesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	Mesh->SetMobility(EComponentMobility::Movable);
+
+	// The parts carry the silhouette and, with the root mesh cleared, the interaction sweep.
+	const TCHAR* PartNames[] = { TEXT("Part1"), TEXT("Part2"), TEXT("Part3"), TEXT("Part4") };
+	TObjectPtr<UStaticMeshComponent>* PartSlots[] = { &Part1, &Part2, &Part3, &Part4 };
+	for (int32 Index = 0; Index < 4; ++Index)
+	{
+		UStaticMeshComponent* Part = CreateDefaultSubobject<UStaticMeshComponent>(PartNames[Index]);
+		Part->SetupAttachment(Mesh);
+		Part->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		Part->SetCollisionResponseToAllChannels(ECR_Ignore);
+		Part->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+		Part->SetMobility(EComponentMobility::Movable);
+		Part->SetCastShadow(false);
+		*PartSlots[Index] = Part;
+	}
+}
+
+TArray<UStaticMeshComponent*> APickupActor::GetParts() const
+{
+	return { Part1, Part2, Part3, Part4 };
+}
+
+void APickupActor::BeginPlay()
+{
+	Super::BeginPlay();
+
+	RestLocation = GetActorLocation();
+
+	// A stable per-actor seed: two pickups dropped by the same guard must not bob together.
+	BobPhase = FMath::Fmod(static_cast<float>(GetUniqueID()) * 0.37f, 2.f * PI);
+}
+
+void APickupActor::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	BobElapsed += DeltaSeconds;
+
+	const float Bob = FMath::Sin(BobElapsed * BobHz * 2.f * PI + BobPhase) * BobAmplitude;
+	SetActorLocation(RestLocation + FVector(0.f, 0.f, HoverHeight + Bob));
+	AddActorWorldRotation(FRotator(0.f, SpinDegreesPerSecond * DeltaSeconds, 0.f));
 }
 
 bool APickupActor::CanInteract_Implementation(AActor* Interactor) const
