@@ -7,6 +7,11 @@ rule here, change the test and the code in the same commit.
 - A mission has 1 or more objectives. At least one must be non-optional.
 - `StartMission` on a subsystem that already has an active mission ends the old one
   without firing `OnMissionComplete`, then starts the new one. Logs a warning.
+- `StartMission` fires `OnMissionStarted(Definition)` once and nothing else. It does not
+  fire `OnObjectiveUpdated` for the initial objectives; the HUD reads
+  `GetActiveObjectives()` and `GetCurrentObjective()` on `OnMissionStarted`.
+- `StartMission` with a definition that has no non-optional objectives logs an error and
+  does nothing.
 - `CompleteObjective(Id)` on an unknown id logs a warning and does nothing. On an
   already-completed objective it does nothing and fires no delegate.
 - Completing an objective fires `OnObjectiveUpdated` exactly once for that objective.
@@ -25,8 +30,10 @@ rule here, change the test and the code in the same commit.
 ## Flashback
 - `Play(Definition)` with a null definition or zero slides finishes immediately and
   fires `OnFlashbackFinished` once. It never leaves the game paused.
-- Each slide displays for `HoldSeconds`, then crossfades for `CrossfadeSeconds` into the
-  next. The last slide holds, then fades to black over its `CrossfadeSeconds`, then finishes.
+- Each slide occupies `HoldSeconds + CrossfadeSeconds`: it displays fully for
+  `HoldSeconds`, then crossfades for `CrossfadeSeconds` into the next. The last slide
+  crossfades to black instead. Total duration is the sum over all slides of
+  `HoldSeconds + CrossfadeSeconds`, and `OnFlashbackFinished` fires when that elapses.
 - Skip (any key, if `bSkippable`) finishes the whole flashback, not the current slide.
   Skip during the first 0.5 seconds is ignored so a held key from gameplay can't skip it.
 - Playback pauses the game (`SetGamePaused(true)`) and restores the previous pause state
@@ -42,8 +49,10 @@ rule here, change the test and the code in the same commit.
 - `CurrentHealth` is clamped to `[0, MaxHealth]`.
 - `ApplyDamage(Amount <= 0)` does nothing and fires nothing.
 - While `bInvulnerable`, damage is ignored entirely: no `OnHealthChanged`, no `OnDeath`.
-- `OnHealthChanged(Old, New, Instigator)` fires on every change, including heals.
-- `OnDeath` fires exactly once when health first reaches 0. Further damage after death
+- `OnHealthChanged(Old, New, Instigator)` fires on every change, including heals. The
+  dead flag is set before `OnHealthChanged` broadcasts on the killing blow, so a listener
+  that checks `IsAlive()` inside that callback already sees false.
+- `OnDeath` fires exactly once when health first reaches 0, after `OnHealthChanged`. Further damage after death
   does nothing. `Heal` after death does nothing; revive is a separate explicit call
   (`Revive(NewHealth)`) that resets the dead flag.
 - Damage types (stage 3): `DT_Bullet`, `DT_Melee`, `DT_Explosion`. Melee damage also
@@ -58,15 +67,19 @@ rule here, change the test and the code in the same commit.
 
 ## Boss phases
 - Phases are ordered by descending `HealthThresholdPercent`. Phase 0 is active from the
-  start (threshold 100). A boss with N phases has N-1 transitions.
+  start (threshold 100) and entering it is silent: no `OnPhaseChanged`. A boss with N
+  phases has exactly N-1 transitions.
 - A transition happens when health percent drops strictly below the next phase's
   threshold. Overkill that crosses two thresholds in one hit advances to the lowest
   matching phase and fires `OnPhaseChanged` once, with `NewPhase` being the final one.
-- During a transition with `bInvulnerableDuringTransition`, the health component is
-  invulnerable for `TransitionSeconds`, then restored to its previous invulnerability
-  state (so a boss that was already invulnerable for scripted reasons stays that way).
-- Death fires `OnDeath` from the health component; the phase component does nothing on
-  death. The boss Blueprint handles the kill.
+- The killing blow never advances a phase, even if it also crosses a threshold. Health
+  reaching 0 fires `OnDeath` from the health component; the phase component stays on
+  whatever phase it was in. The boss Blueprint handles the kill.
+- During a transition with `bInvulnerableDuringTransition`, invulnerability is raised
+  first, then `OnPhaseChanged` broadcasts (so listeners see the boss already protected),
+  then after `TransitionSeconds` invulnerability is restored to its previous state (so a
+  boss that was already invulnerable for scripted reasons stays that way). With no world
+  to run a timer, restore happens immediately after the broadcast.
 - `BehaviorTag` on each phase is an `FName` written to the boss's blackboard key
   `Phase` by the boss Blueprint on `OnPhaseChanged`. The behavior tree branches on it.
 - Boss health bars show one segment per phase, sized proportionally to the health range
