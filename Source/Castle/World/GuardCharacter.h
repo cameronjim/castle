@@ -87,7 +87,7 @@ public:
 	//~ End ITakedownable interface
 
 protected:
-	virtual void BeginPlay() override;
+	virtual void PostInitializeComponents() override;
 
 	UFUNCTION()
 	void HandleDeath(UHealthComponent* Health, AActor* Killer);

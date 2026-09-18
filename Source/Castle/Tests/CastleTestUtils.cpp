@@ -15,6 +15,12 @@ FCastleTestWorld::FCastleTestWorld()
 	{
 		FWorldContext& Context = GEngine->CreateNewWorldContext(EWorldType::Game);
 		Context.SetCurrentWorld(World);
+
+		// Without this the world never marks its actors initialized, and AActor::PostActorConstruction
+		// then skips PostInitializeComponents and BeginPlay entirely - so anything an actor wires up
+		// there (a guard binding OnDeath, for one) is silently missing in tests but present in game.
+		World->InitializeActorsForPlay(FURL());
+		World->SetBegunPlay(true);
 	}
 }
 

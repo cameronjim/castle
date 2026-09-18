@@ -48,10 +48,12 @@ AGuardCharacter::AGuardCharacter()
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 }
 
-void AGuardCharacter::BeginPlay()
+void AGuardCharacter::PostInitializeComponents()
 {
-	Super::BeginPlay();
+	Super::PostInitializeComponents();
 
+	// Bound here rather than in BeginPlay: a guard killed the same frame he spawns still has to
+	// drop and go limp, and a world that never begins play (tests) still wires the death path.
 	if (HealthComponent)
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &AGuardCharacter::HandleDeath);
