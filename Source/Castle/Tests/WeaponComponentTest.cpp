@@ -197,4 +197,91 @@ bool FCastleWeaponCancelReloadKeepsAmmo::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponSpreadByAimState, "Castle.Weapon.SpreadByAimState",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleWeaponSpreadByAimState::RunTest(const FString& Parameters)
+{
+	UWeaponComponent* Weapon = CastleWeaponTest::MakeWeapon();
+
+	TestEqual(TEXT("Hip spread default"), Weapon->HipSpreadDegrees, 2.5f);
+	TestEqual(TEXT("Aim spread default"), Weapon->AimSpreadDegrees, 0.5f);
+
+	TestFalse(TEXT("Starts hip-firing"), Weapon->IsAiming());
+	TestEqual(TEXT("Hip-firing uses the wide cone"), Weapon->GetCurrentSpreadDegrees(), Weapon->HipSpreadDegrees);
+
+	Weapon->SetAiming(true);
+	TestTrue(TEXT("Aiming with a weapon takes"), Weapon->IsAiming());
+	TestEqual(TEXT("Aiming uses the tight cone"), Weapon->GetCurrentSpreadDegrees(), Weapon->AimSpreadDegrees);
+
+	Weapon->SetAiming(false);
+	TestFalse(TEXT("Lowering the sights clears the flag"), Weapon->IsAiming());
+	TestEqual(TEXT("And the wide cone is back"), Weapon->GetCurrentSpreadDegrees(), Weapon->HipSpreadDegrees);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponUnarmedAimIsNoOp, "Castle.Weapon.UnarmedAimIsNoOp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleWeaponUnarmedAimIsNoOp::RunTest(const FString& Parameters)
+{
+	UWeaponComponent* Weapon = CastleWeaponTest::MakeWeapon();
+	Weapon->bHasWeapon = false;
+
+	Weapon->SetAiming(true);
+	TestFalse(TEXT("Aiming empty-handed does nothing"), Weapon->IsAiming());
+	TestEqual(TEXT("Spread stays at the hip value"), Weapon->GetCurrentSpreadDegrees(), Weapon->HipSpreadDegrees);
+
+	// Picking a pistol up mid-aim must not inherit a stale aimed state.
+	Weapon->GiveWeapon(12, 24);
+	TestFalse(TEXT("Still not aiming after being armed"), Weapon->IsAiming());
+
+	Weapon->SetAiming(true);
+	TestTrue(TEXT("Aiming works once armed"), Weapon->IsAiming());
+
+	Weapon->RemoveWeapon();
+	TestFalse(TEXT("Being disarmed drops the aim"), Weapon->IsAiming());
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponConeSpreadStaysInsideTheCone, "Castle.Weapon.ConeSpreadStaysInsideTheCone",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleWeaponConeSpreadStaysInsideTheCone::RunTest(const FString& Parameters)
+{
+	const FVector Forward(1.f, 0.f, 0.f);
+
+	// Zero spread is the identity, so a weapon tuned to be perfectly accurate traces dead ahead.
+	FRandomStream Stream(1234);
+	TestTrue(TEXT("Zero spread returns the direction untouched"),
+		UWeaponComponent::ApplyConeSpread(Forward, 0.f, Stream).Equals(Forward, KINDA_SMALL_NUMBER));
+
+	const float SpreadDegrees = 2.5f;
+	const float CosLimit = FMath::Cos(FMath::DegreesToRadians(SpreadDegrees)) - KINDA_SMALL_NUMBER;
+
+	float WidestAngle = 0.f;
+	for (int32 Shot = 0; Shot < 256; ++Shot)
+	{
+		const FVector Direction = UWeaponComponent::ApplyConeSpread(Forward, SpreadDegrees, Stream);
+		TestTrue(TEXT("The spread direction is normalised"), FMath::IsNearlyEqual(Direction.Size(), 1.f, KINDA_SMALL_NUMBER));
+
+		const float Dot = FVector::DotProduct(Direction, Forward);
+		TestTrue(TEXT("Every shot lands inside the cone"), Dot >= CosLimit);
+		WidestAngle = FMath::Max(WidestAngle, FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.f, 1.f))));
+	}
+
+	TestTrue(TEXT("And the cone is actually used, not collapsed to the centre"), WidestAngle > SpreadDegrees * 0.5f);
+
+	// Same seed, same shots: the trace is reproducible for a test that asserts on a hit.
+	FRandomStream First(99);
+	FRandomStream Second(99);
+	TestTrue(TEXT("The same seed gives the same shot"),
+		UWeaponComponent::ApplyConeSpread(Forward, SpreadDegrees, First)
+			.Equals(UWeaponComponent::ApplyConeSpread(Forward, SpreadDegrees, Second), KINDA_SMALL_NUMBER));
+
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS

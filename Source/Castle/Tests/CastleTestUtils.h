@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Combat/BossPhaseComponent.h"
 #include "Combat/Takedownable.h"
+#include "Player/CastleCharacter.h"
 #include "World/GuardCharacter.h"
 #include "GameFramework/Actor.h"
 #include "UObject/Object.h"
@@ -148,6 +149,32 @@ public:
 
 	UFUNCTION()
 	void HandleFlashbackFinished(UFlashbackDefinition* Flashback);
+};
+
+/**
+ * Frank with his protected aim state opened up. Sprinting and the FOV blend are driven by the
+ * input handlers and Tick in the real game, neither of which a headless test can run.
+ */
+UCLASS()
+class CASTLE_API ACastleAimTestCharacter : public ACastleCharacter
+{
+	GENERATED_BODY()
+
+public:
+	/** Stands in for Input_SprintStarted / Input_SprintCompleted. */
+	void TestSetSprinting(bool bInSprinting);
+
+	/** Stands in for one Tick of the aim FOV blend. */
+	void TestTickAim(float DeltaSeconds) { UpdateAimFOV(DeltaSeconds); }
+
+	float TestWalkSpeed() const { return WalkSpeed; }
+	float TestSprintSpeed() const { return SprintSpeed; }
+	float TestAimSpeedMultiplier() const { return AimSpeedMultiplier; }
+	float TestAimFOV() const { return AimFOV; }
+	float TestHipFOV() const { return HipFOV; }
+	float TestAimBlendSeconds() const { return AimBlendSeconds; }
+
+	float MaxWalkSpeed() const;
 };
 
 /** Minimal ITakedownable actor for takedown tests. */

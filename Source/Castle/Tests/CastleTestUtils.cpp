@@ -5,6 +5,7 @@
 #include "Combat/HealthComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Mission/MissionTracker.h"
 
 FCastleTestWorld::FCastleTestWorld()
@@ -131,4 +132,20 @@ void UCastleTestListener::HandleFlashbackRequested(UFlashbackDefinition* /*Flash
 void UCastleTestListener::HandleFlashbackFinished(UFlashbackDefinition* /*Flashback*/)
 {
 	++FlashbackFinishedCount;
+}
+
+void ACastleAimTestCharacter::TestSetSprinting(bool bInSprinting)
+{
+	bIsSprinting = bInSprinting;
+	if (bInSprinting)
+	{
+		StopAim();
+	}
+	UpdateMaxWalkSpeed();
+}
+
+float ACastleAimTestCharacter::MaxWalkSpeed() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	return Movement ? Movement->MaxWalkSpeed : 0.f;
 }
