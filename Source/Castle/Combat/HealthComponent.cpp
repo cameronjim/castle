@@ -15,6 +15,7 @@ void UHealthComponent::BeginPlay()
 	Super::BeginPlay();
 
 	CurrentHealth = MaxHealth;
+	bIsDead = false;
 
 	if (AActor* Owner = GetOwner())
 	{
@@ -30,7 +31,7 @@ void UHealthComponent::HandleTakeAnyDamage(AActor* /*DamagedActor*/, float Damag
 
 float UHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator)
 {
-	if (DamageAmount <= 0.f || bInvulnerable || IsDead())
+	if (DamageAmount <= 0.f || bInvulnerable || bIsDead)
 	{
 		return 0.f;
 	}
@@ -44,11 +45,15 @@ float UHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator
 		return 0.f;
 	}
 
+	// Death is latched before the change is broadcast so listeners (the boss phase component)
+	// already see IsDead() when they react to the hit that killed the actor.
+	const bool bJustDied = CurrentHealth <= 0.f;
+	bIsDead = bJustDied;
+
 	OnHealthChanged.Broadcast(this, CurrentHealth, ActualDelta, DamageInstigator);
 
-	if (IsDead() && !bDeathBroadcast)
+	if (bJustDied)
 	{
-		bDeathBroadcast = true;
 		OnDeath.Broadcast(this, DamageInstigator);
 	}
 
@@ -57,7 +62,7 @@ float UHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator
 
 float UHealthComponent::Heal(float HealAmount, AActor* Healer)
 {
-	if (HealAmount <= 0.f || IsDead())
+	if (HealAmount <= 0.f || bIsDead)
 	{
 		return 0.f;
 	}
@@ -73,4 +78,32 @@ float UHealthComponent::Heal(float HealAmount, AActor* Healer)
 
 	OnHealthChanged.Broadcast(this, CurrentHealth, ActualDelta, Healer);
 	return ActualDelta;
+}
+
+void UHealthComponent::Revive(float NewHealth)
+{
+	const float OldHealth = CurrentHealth;
+
+	bIsDead = false;
+	CurrentHealth = FMath::Clamp(NewHealth, KINDA_SMALL_NUMBER, MaxHealth);
+
+	OnHealthChanged.Broadcast(this, CurrentHealth, CurrentHealth - OldHealth, nullptr);
+}
+
+void UHealthComponent::SetMaxHealth(float NewMaxHealth, bool bResetCurrent)
+{
+	MaxHealth = FMath::Max(NewMaxHealth, KINDA_SMALL_NUMBER);
+
+	const float OldHealth = CurrentHealth;
+	CurrentHealth = bResetCurrent ? MaxHealth : FMath::Clamp(CurrentHealth, 0.f, MaxHealth);
+
+	if (bResetCurrent)
+	{
+		bIsDead = false;
+	}
+
+	if (!FMath::IsNearlyEqual(OldHealth, CurrentHealth))
+	{
+		OnHealthChanged.Broadcast(this, CurrentHealth, CurrentHealth - OldHealth, nullptr);
+	}
 }
