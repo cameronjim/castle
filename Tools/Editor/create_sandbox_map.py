@@ -50,8 +50,9 @@ M01_WALLS = [
     ("Wall_Cell_Back", 0.0, 0.0, WALL_THICK, 320.0),
     ("Wall_Cell_South", 150.0, -150.0, 300.0, WALL_THICK),
     ("Wall_Cell_North", 150.0, 150.0, 300.0, WALL_THICK),
-    ("Wall_CellDoor_S", 300.0, -100.0, WALL_THICK, 120.0),
-    ("Wall_CellDoor_N", 300.0, 100.0, WALL_THICK, 120.0),
+    # 100 cm doorway: these stop at y -50 / +50 and run out to the corridor walls at +-150.
+    ("Wall_CellDoor_S", 300.0, -100.0, WALL_THICK, 100.0),
+    ("Wall_CellDoor_N", 300.0, 100.0, WALL_THICK, 100.0),
     ("Wall_Corr1_South", 1300.0, -150.0, 2000.0, WALL_THICK),
     ("Wall_Corr1_North", 1300.0, 150.0, 2000.0, WALL_THICK),
     ("Wall_Station_South", 2600.0, -300.0, 600.0, WALL_THICK),

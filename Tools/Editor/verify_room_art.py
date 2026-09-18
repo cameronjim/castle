@@ -60,6 +60,7 @@ EXPECTED_ACTORS = (
     "Art_CellDoor_Jamb_S",
     "Art_CellDoor_Jamb_N",
     "Art_CellDoor_Lintel",
+    "Art_CellDoor_Header",
     "Art_CellDoor_Slab",
     "Art_Pipe_A",
     "Art_Pipe_B",

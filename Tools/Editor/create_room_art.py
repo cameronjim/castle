@@ -48,7 +48,7 @@ HEAD_HEIGHT = 200.0
 
 # --- bounds -----------------------------------------------------------------------------
 # Mirrors create_sandbox_map.M01_WALLS. Interior extents, in cm:
-#   cell        x    0..300   y -150..150   (doorway in the x = 300 wall is y -40..40)
+#   cell        x    0..300   y -150..150   (doorway in the x = 300 wall is y -50..50)
 #   corridor 1  x  300..2300  y -150..150   (station opening in the x = 2300 wall)
 # Walls are 20 thick and 400 tall, so the ceiling sits at z = 400.
 WALL_HEIGHT = 400.0
@@ -58,7 +58,15 @@ CEILING_Z = WALL_HEIGHT + CEILING_THICK / 2.0
 CELL_X = (0.0, 300.0)
 CORR1_X = (300.0, 2300.0)
 ROOM_Y = (-150.0, 150.0)
-DOORWAY_Y = (-40.0, 40.0)
+DOORWAY_Y = (-50.0, 50.0)
+
+# The two wall stubs either side of the cell doorway, as create_sandbox_map now places them.
+# A map built before the doorway was widened still has the old 120-wide stubs, so this is the
+# table the art pass moves them onto. (label, center, size)
+CELL_DOOR_WALLS = (
+    ("Wall_CellDoor_S", (300.0, -100.0, 200.0), (20.0, 100.0, 400.0)),
+    ("Wall_CellDoor_N", (300.0, 100.0, 200.0), (20.0, 100.0, 400.0)),
+)
 
 # Wall actors create_sandbox_map placed that belong to the cell or corridor 1.
 ART_WALL_LABELS = (
@@ -111,12 +119,16 @@ CELL_DRESSING = (
     ("Art_Bunk", (140.0, -100.0, 45.0), (200.0, 80.0, 20.0), "steel", 0.0),
     ("Art_Toilet", (45.0, 115.0, 20.0), (40.0, 40.0, 40.0), "keycard", 0.0),
     ("Art_Drain", (150.0, 40.0, 3.0), (60.0, 60.0, 4.0), "steel", 0.0),
-    ("Art_CellDoor_Jamb_S", (300.0, -45.0, 110.0), (30.0, 10.0, 220.0), "steel", 0.0),
-    ("Art_CellDoor_Jamb_N", (300.0, 45.0, 110.0), (30.0, 10.0, 220.0), "steel", 0.0),
-    ("Art_CellDoor_Lintel", (300.0, 0.0, 225.0), (30.0, 100.0, 10.0), "steel", 0.0),
-    # Hinged on the north jamb at (300, 40) and swung 70 degrees into the corridor, so the
-    # doorway and the leave_cell trigger stay clear.
-    ("Art_CellDoor_Slab", (337.6, 26.3, 110.0), (8.0, 80.0, 210.0), "steel", 70.0),
+    ("Art_CellDoor_Jamb_S", (300.0, -55.0, 110.0), (30.0, 10.0, 220.0), "steel", 0.0),
+    ("Art_CellDoor_Jamb_N", (300.0, 55.0, 110.0), (30.0, 10.0, 220.0), "steel", 0.0),
+    ("Art_CellDoor_Lintel", (300.0, 0.0, 225.0), (30.0, 120.0, 10.0), "steel", 0.0),
+    # Above the lintel the wall simply stopped, so from inside the cell the doorway read as a
+    # black slot running up to the ceiling. This fills z 230..400 across the 100 cm opening.
+    ("Art_CellDoor_Header", (300.0, 0.0, 315.0), (20.0, 100.0, 170.0), "concrete", 0.0),
+    # Hinged on the north jamb at (300, 50) and swung 70 degrees into the corridor, so the
+    # doorway and the leave_cell trigger stay clear. Half of the 100 cm leaf, 70 degrees off
+    # the closed line, puts its centre 47.0 forward of the hinge and 17.1 south of it.
+    ("Art_CellDoor_Slab", (347.0, 32.9, 110.0), (8.0, 100.0, 210.0), "steel", 70.0),
 )
 
 CORRIDOR_DRESSING = (
@@ -307,15 +319,55 @@ def check_clearance(label, center, size, yaw=0.0):
 # --------------------------------------------------------------------------------------
 
 
+def near(a, b, tol=0.05):
+    return abs(a - b) <= tol
+
+
+def ensure_transform(actor, label, center, size, yaw=0.0):
+    """Move an existing actor onto the placement its table now asks for. Returns True if moved.
+
+    The tables above are the source of truth, so a layout change (widening the doorway, say)
+    corrects what is already in the map instead of needing the level rebuilt. Every component
+    is compared before it is written, so a second run writes nothing and the map stays clean.
+    """
+    changed = []
+    try:
+        location = actor.get_actor_location()
+        if not all(near(getattr(location, axis), center[i]) for i, axis in enumerate("xyz")):
+            actor.set_actor_location(unreal.Vector(*center), False, False)
+            changed.append("location")
+
+        rotation = actor.get_actor_rotation()
+        if not (near(rotation.roll, 0.0) and near(rotation.pitch, 0.0) and near(rotation.yaw, yaw)):
+            actor.set_actor_rotation(unreal.Rotator(0.0, 0.0, yaw), False)
+            changed.append("rotation")
+
+        wanted_scale = [value / 100.0 for value in size]
+        scale = actor.get_actor_scale3d()
+        if not all(near(getattr(scale, axis), wanted_scale[i], 0.0005) for i, axis in enumerate("xyz")):
+            actor.set_actor_scale3d(unreal.Vector(*wanted_scale))
+            changed.append("scale")
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("ensure_transform " + label, exc)
+        return False
+
+    if not changed:
+        return False
+    touched()
+    c.log("updated", label, ", ".join(changed))
+    return True
+
+
 def ensure_box(label, center, size, material_key, yaw=0.0, static=True):
     """Idempotent cube StaticMeshActor. Returns (actor, created)."""
     try:
         existing = find_actor_by_label(label)
         if existing is not None:
+            moved = ensure_transform(existing, label, center, size, yaw)
             if apply_material(existing, material(material_key)):
                 touched()
                 c.log("updated", label, "material -> " + material_key)
-            else:
+            elif not moved:
                 c.log("exists", label)
             return existing, False
 
@@ -459,6 +511,17 @@ def step_wall_materials():
                 c.log("exists", label, "already M_Concrete")
         except Exception as exc:  # noqa: BLE001
             c.log_error("step_wall_materials " + label, exc)
+
+
+def step_doorway_walls():
+    """Widen the cell doorway to 100 cm on a map that was built with the old 80 cm one."""
+    for label, center, size in CELL_DOOR_WALLS:
+        actor = find_actor_by_label(label)
+        if actor is None:
+            c.log("skipped", label, "not in the map")
+            continue
+        if not ensure_transform(actor, label, center, size):
+            c.log("exists", label, "doorway already 100 cm")
 
 
 def step_floor_skim():
@@ -665,6 +728,7 @@ def step_corridor_dressing():
 
 STEPS = (
     ("wall materials", step_wall_materials),
+    ("doorway walls", step_doorway_walls),
     ("floor skim", step_floor_skim),
     ("ceilings", step_ceilings),
     ("daylight", step_kill_daylight),
