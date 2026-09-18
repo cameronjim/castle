@@ -1,0 +1,147 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Combat/BossPhaseComponent.h"
+#include "Combat/Takedownable.h"
+#include "GameFramework/Actor.h"
+#include "UObject/Object.h"
+#include "UObject/Script.h"
+#include "CastleTestUtils.generated.h"
+
+class UFlashbackDefinition;
+class UHealthComponent;
+class UMissionDefinition;
+class UMissionObjective;
+
+/**
+ * RAII test world. Automation tests only need one when a component requires a real actor owner;
+ * everything else is exercised with NewObject and no world at all.
+ */
+struct CASTLE_API FCastleTestWorld
+{
+	FCastleTestWorld();
+	~FCastleTestWorld();
+
+	FCastleTestWorld(const FCastleTestWorld&) = delete;
+	FCastleTestWorld& operator=(const FCastleTestWorld&) = delete;
+
+	UWorld* Get() const { return World; }
+
+	/** Spawns an actor of ActorClass at Location facing Forward's yaw. */
+	AActor* SpawnActor(TSubclassOf<AActor> ActorClass, const FVector& Location, const FRotator& Rotation) const;
+
+private:
+	/**
+	 * A world built by hand is not a standalone game world, so AActor::GetFunctionCallspace can
+	 * decide an event belongs on a remote machine and ProcessEvent silently does nothing - which
+	 * makes every ITakedownable BlueprintNativeEvent return its default. This guard forces local
+	 * execution for as long as the test world lives.
+	 */
+	FEditorScriptExecutionGuard ScriptExecutionGuard;
+
+	UWorld* World = nullptr;
+};
+
+/**
+ * Counting sink for the project's dynamic multicast delegates. Dynamic delegates cannot bind
+ * lambdas, so tests bind one of these and assert on the counters afterwards.
+ */
+UCLASS()
+class CASTLE_API UCastleTestListener : public UObject
+{
+	GENERATED_BODY()
+
+public:
+	// --- Health ---------------------------------------------------------------------------------
+	UPROPERTY() int32 HealthChangedCount = 0;
+	UPROPERTY() float LastNewHealth = 0.f;
+	UPROPERTY() float LastHealthDelta = 0.f;
+	UPROPERTY() int32 DeathCount = 0;
+
+	UFUNCTION()
+	void HandleHealthChanged(UHealthComponent* HealthComponent, float NewHealth, float Delta, AActor* DamageInstigator);
+
+	UFUNCTION()
+	void HandleDeath(UHealthComponent* HealthComponent, AActor* Killer);
+
+	// --- Boss phases ----------------------------------------------------------------------------
+	UPROPERTY() int32 PhaseChangedCount = 0;
+	UPROPERTY() int32 LastOldPhaseIndex = INDEX_NONE;
+	UPROPERTY() int32 LastNewPhaseIndex = INDEX_NONE;
+	UPROPERTY() int32 TransitionFinishedCount = 0;
+
+	/** Set this and the listener records that component's invulnerability at each phase change. */
+	UPROPERTY() TObjectPtr<UHealthComponent> WatchedHealth = nullptr;
+
+	UPROPERTY() bool bWatchedHealthInvulnerableAtPhaseChange = false;
+
+	UFUNCTION()
+	void HandlePhaseChanged(int32 OldPhaseIndex, int32 NewPhaseIndex, FBossPhase Phase);
+
+	UFUNCTION()
+	void HandleTransitionFinished(int32 PhaseIndex);
+
+	// --- Weapon ---------------------------------------------------------------------------------
+	UPROPERTY() int32 AmmoChangedCount = 0;
+	UPROPERTY() int32 LastMagazine = 0;
+	UPROPERTY() int32 LastReserve = 0;
+	UPROPERTY() int32 EmptyClickCount = 0;
+
+	UFUNCTION()
+	void HandleAmmoChanged(int32 CurrentAmmo, int32 ReserveAmmo);
+
+	UFUNCTION()
+	void HandleEmptyClick();
+
+	// --- Takedown -------------------------------------------------------------------------------
+	UPROPERTY() int32 TakedownCount = 0;
+	UPROPERTY() TObjectPtr<AActor> LastTakedownTarget = nullptr;
+
+	UFUNCTION()
+	void HandleTakedownPerformed(AActor* Target);
+
+	// --- Mission --------------------------------------------------------------------------------
+	UPROPERTY() int32 ObjectiveUpdatedCount = 0;
+	UPROPERTY() int32 LastObjectiveIndex = INDEX_NONE;
+	UPROPERTY() TObjectPtr<UMissionObjective> LastObjective = nullptr;
+	UPROPERTY() int32 MissionCompleteCount = 0;
+	UPROPERTY() int32 FlashbackRequestedCount = 0;
+
+	/** Set when OnFlashbackRequested arrives while MissionCompleteCount is already 1. */
+	UPROPERTY() bool bFlashbackFollowedMissionComplete = false;
+
+	UFUNCTION()
+	void HandleObjectiveUpdated(UMissionObjective* Objective, int32 ObjectiveIndex);
+
+	UFUNCTION()
+	void HandleMissionComplete(UMissionDefinition* Mission);
+
+	UFUNCTION()
+	void HandleFlashbackRequested(UFlashbackDefinition* Flashback);
+
+	// --- Flashback widget -----------------------------------------------------------------------
+	UPROPERTY() int32 FlashbackFinishedCount = 0;
+
+	UFUNCTION()
+	void HandleFlashbackFinished(UFlashbackDefinition* Flashback);
+};
+
+/** Minimal ITakedownable actor for takedown tests. */
+UCLASS()
+class CASTLE_API ACastleTestTakedownTarget : public AActor, public ITakedownable
+{
+	GENERATED_BODY()
+
+public:
+	/** Mirrors a guard's AI state: guards return false from CanBeTakenDown while Alerted. */
+	UPROPERTY()
+	bool bAlerted = false;
+
+	UPROPERTY()
+	int32 TakedownReceivedCount = 0;
+
+	virtual bool CanBeTakenDown_Implementation(AActor* Attacker) override { return !bAlerted; }
+	virtual void OnTakedown_Implementation(AActor* Attacker) override { ++TakedownReceivedCount; }
+};
