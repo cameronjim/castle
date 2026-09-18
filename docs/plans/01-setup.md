@@ -20,6 +20,13 @@ is in git. Nothing about the game yet.
    option is missing, run the engine's `UnrealVersionSelector.exe` once (it's under
    `Epic Games/Launcher/Engine/Binaries/Win64`) and try again.
 
+   Windows 11 note: the `.uproject` double-click association is unreliable (the selector
+   needs a `/editor` verb that "Open with" doesn't pass, and you get "invalid command
+   line"). Don't fight it. Use the "Castle Editor" desktop shortcut or
+   `Tools\open-editor.ps1`, both of which launch `UnrealEditor.exe` on the project
+   directly. Project files can be generated from the command line instead; see
+   `claude-docs/infrastructure.md`.
+
 5. **Build.** Open `Castle.sln`. Set the config to "Development Editor" and platform
    "Win64". Build (Ctrl+Shift+B). Expect errors on the first pass. The scaffold has never
    been compiled. Paste the errors into chat and I'll fix them. Typical culprits: interface
