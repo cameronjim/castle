@@ -25,8 +25,8 @@
  * opening the full editor.
  *
  *   Castle.Screenshot.M01Cell       cell.png, corridor.png, doorway.png - the room, pawn hidden
- *   Castle.Screenshot.M01Viewmodel  viewmodel_hip.png, viewmodel_aim.png, viewmodel_fire.png,
- *                                   guard_dead.png - the pawn visible and armed
+ *   Castle.Screenshot.M01Viewmodel  viewmodel_fists.png, viewmodel_hip.png, viewmodel_aim.png,
+ *                                   viewmodel_fire.png, guard_dead.png - the pawn visible
  *   Castle.Screenshot.Settings      UI/settings.png - the pause menu's Settings screen
  *
  * Both need a real RHI, so they are explicit no-ops in the normal -nullrhi suite:
@@ -401,9 +401,15 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	// billboards and volume wireframes over the game view, which spoils a view model shot.
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(5.f));
 
-	// Down the corridor, pawn visible: the pistol is parented to the camera, so it only shows
+	// Down the corridor, pawn visible: the view model hangs off the camera, so it only shows
 	// up in a shot where the actor is not hidden.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(600.f, 0.f, 170.f), FRotator(-3.f, 0.f, 0.f), false));
+
+	// Empty-handed first: this is the shot that says whether the fists read as fists.
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_fists.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleGiveWeapon(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_hip.png")));
