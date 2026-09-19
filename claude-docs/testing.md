@@ -102,6 +102,21 @@ without. A boss with a real behavior tree changes branches on phase change.
 Keep to under 10 of these. They are slow (each loads a map) and brittle when levels
 change. One per system that has world-dependent behaviour, not one per feature.
 
+## 2b. Standalone game check (required for any visual change)
+
+The screenshot tests run inside the editor process, where assets are already loaded and
+material usage flags compile on demand. The standalone game (`-game`, what Play Castle
+launches) is not that process. On 2026-09-19 the editor renders looked right while the
+real game showed default-material arms and guards, an invisible pistol, and unlit rooms.
+
+So every pass that touches materials, meshes, lighting, or the viewmodel must also:
+1. Run the screenshot tests from a `-game` process:
+   `UnrealEditor-Cmd.exe <proj> -game -windowed -ResX=1280 -ResY=720 -unattended -nosplash -log -ExecCmds="Automation RunTests Castle.Screenshot; Quit"`
+2. Read `Saved/Logs/Castle.log` from that run and require zero `LogMaterial: Warning`
+   lines and zero `LogCastle: Warning` lines other than the ragdoll path notice.
+3. Load soft references synchronously in game code paths that need them immediately
+   (viewmodel meshes, weapon definitions); never rely on an asset already being resident.
+
 ## 3. Playtest checklist (human)
 
 Before any commit that touches player feel, AI, or a level, play through this in
