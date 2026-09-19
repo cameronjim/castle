@@ -119,8 +119,20 @@ rule here, change the test and the code in the same commit.
 - `OnTakedownPerformed(Target)` fires once at the start of the takedown.
 
 ## Player look and viewmodel
-- Look input is multiplied by `LookSensitivity` (default 0.45) and, while aiming, by
-  `AimLookMultiplier` (0.7) as well.
+- Look input is multiplied by the sensitivity from `UCastleSettingsSubsystem` (default
+  0.2, clamped to [0.02, 1.0]) and, while aiming, by `AimLookMultiplier` (0.7) as well.
+  The character's own `LookSensitivity` property is only the fallback when no game
+  instance subsystem exists (tests). Changing the setting takes effect immediately.
+
+## Settings
+- `UCastleSettingsSubsystem` (game instance) owns `FCastleSettings` and persists it in the
+  save slot `CastleSettings` on every change. Missing or version-mismatched data yields
+  defaults, never a crash. Only mouse sensitivity exists today; every future option (volume,
+  subtitles, invert Y, key rebinds) goes in the same struct with a version bump.
+- The Settings screen is reached from the pause menu. The game stays paused while it's
+  open. Escape in Settings returns to the pause menu, not to the game. Back does the same.
+- Sliders apply live: the value changes the game before the player leaves the screen, so
+  they can feel it after resuming without a second trip.
 - Aiming blends FOV from `HipFOV` 90 to `AimFOV` 70 over 0.15 s, multiplies walk speed by
   0.6, and shrinks the crosshair gap from 8 px to 4 px. Sprinting cancels aim and reload
   and fades the crosshair to 40%.
