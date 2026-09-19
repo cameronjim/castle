@@ -8,6 +8,7 @@
 #include "PickupActor.generated.h"
 
 class UStaticMeshComponent;
+class UWeaponDefinition;
 
 /** What picking this up actually does. */
 UENUM(BlueprintType)
@@ -37,6 +38,14 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
 	EPickupType PickupType = EPickupType::Weapon;
+
+	/**
+	 * Weapon a Weapon pickup puts in the player's hotbar, and the slot an Ammo pickup tops up.
+	 * Soft so a level full of pickups does not pull every weapon definition into memory.
+	 * An Ammo pickup with none set refills whatever is in the player's hands.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
+	TSoftObjectPtr<UWeaponDefinition> Weapon;
 
 	/** Keycard id granted by a Keycard pickup. Doors match on this. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")

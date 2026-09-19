@@ -8,6 +8,7 @@
 
 class UMissionObjective;
 class UFlashbackDefinition;
+class UWeaponDefinition;
 class UWorld;
 
 /**
@@ -49,6 +50,13 @@ public:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission", meta = (MultiLine = "true"))
 	FText EndCardLine;
+
+	/**
+	 * Weapons Frank starts this mission carrying, on top of his fists. Empty (the default) is
+	 * Hands only, which is how the escape begins. Nothing carries between missions.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
+	TArray<TSoftObjectPtr<UWeaponDefinition>> StartingWeapons;
 
 	/** Flashback slideshow played when this mission completes. Optional. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")

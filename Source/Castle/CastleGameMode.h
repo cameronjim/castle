@@ -6,6 +6,7 @@
 #include "GameFramework/GameModeBase.h"
 #include "CastleGameMode.generated.h"
 
+class UInventoryComponent;
 class UMissionDefinition;
 
 /**
@@ -65,6 +66,12 @@ protected:
 
 	UFUNCTION()
 	void HandleMissionComplete(UMissionDefinition* Mission);
+
+	UFUNCTION()
+	void HandleMissionStarted(UMissionDefinition* Mission);
+
+	/** The local player's inventory, or null before a pawn exists. */
+	UInventoryComponent* FindPlayerInventory() const;
 
 	/** Blueprint hook for end-of-mission scoring, stats screens, achievements. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Mission")

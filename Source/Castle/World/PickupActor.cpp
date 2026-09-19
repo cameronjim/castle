@@ -4,9 +4,11 @@
 
 #include "Castle.h"
 #include "Combat/WeaponComponent.h"
+#include "Combat/WeaponDefinition.h"
 #include "Components/StaticMeshComponent.h"
 #include "Mission/MissionSubsystem.h"
 #include "Player/CastleCharacter.h"
+#include "Player/InventoryComponent.h"
 
 APickupActor::APickupActor()
 {
@@ -101,18 +103,40 @@ bool APickupActor::ApplyTo(AActor* Interactor)
 		return false;
 	}
 
+	UInventoryComponent* Inventory = Character->GetInventoryComponent();
+	UWeaponDefinition* Definition = Weapon.IsNull() ? nullptr : Weapon.LoadSynchronous();
+
 	switch (PickupType)
 	{
 	case EPickupType::Weapon:
 	{
-		UWeaponComponent* Weapon = Character->GetWeaponComponent();
-		if (!Weapon)
+		if (Inventory && Definition)
+		{
+			Inventory->AddWeapon(Definition);
+			// MagazineAmount and AmmoAmount are what this particular pickup carries, which can
+			// differ from the definition's defaults (a half-empty gun off a dead guard).
+			Inventory->SetSlotAmmo(Definition->Slot,
+				FMath::Clamp(MagazineAmount, 0, Definition->MagazineSize), FMath::Max(AmmoAmount, 0));
+			if (Inventory->GetActiveSlot() == Definition->Slot)
+			{
+				if (UWeaponComponent* Held = Character->GetWeaponComponent())
+				{
+					Held->SetActiveWeapon(Definition, MagazineAmount, AmmoAmount);
+				}
+			}
+			break;
+		}
+
+		// No definition set on the pickup (or a pawn with no inventory): fall back to arming
+		// the weapon component directly, which is what this did before the hotbar existed.
+		UWeaponComponent* Held = Character->GetWeaponComponent();
+		if (!Held)
 		{
 			UE_LOG(LogCastle, Warning, TEXT("%s: %s has no UWeaponComponent to arm."),
 				*GetName(), *Character->GetName());
 			return false;
 		}
-		Weapon->GiveWeapon(MagazineAmount, AmmoAmount);
+		Held->GiveWeapon(MagazineAmount, AmmoAmount);
 		break;
 	}
 	case EPickupType::Keycard:
@@ -120,12 +144,18 @@ bool APickupActor::ApplyTo(AActor* Interactor)
 		break;
 	case EPickupType::Ammo:
 	{
-		UWeaponComponent* Weapon = Character->GetWeaponComponent();
-		if (!Weapon)
+		if (Inventory)
+		{
+			Inventory->AddAmmo(Definition, AmmoAmount);
+			break;
+		}
+
+		UWeaponComponent* Held = Character->GetWeaponComponent();
+		if (!Held)
 		{
 			return false;
 		}
-		Weapon->AddAmmo(AmmoAmount);
+		Held->AddAmmo(AmmoAmount);
 		break;
 	}
 	}
