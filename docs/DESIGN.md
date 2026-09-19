@@ -42,6 +42,13 @@ player pieces the day together. Cheap to build, emotionally effective if paced w
 Infiltrate -> find the objective (key, file, person) -> complication -> fight out ->
 mission end card -> (optional) flashback.
 
+## Difficulty and weapon pacing (added 2026-09-18)
+Frank starts every early mission unarmed and stays that way for most of it. In Cell Block D
+the pistol arrives near the end, as a reward, not from the first guard. Hands are a real
+weapon slot: punches stagger, takedowns kill. The game is meant to be hard-ish through
+scarcity and stealth, not through guard health. Later missions widen the arsenal (pistol,
+then a rifle) and the hotbar and inventory exist from the start so that growth is visible.
+
 ## MVP scope (the first thing we actually build)
 Mission 1 only, greybox, no art:
 - First-person character with walk/sprint/crouch
