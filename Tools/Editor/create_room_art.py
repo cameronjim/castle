@@ -1,10 +1,12 @@
-"""Art pass over the first room and first corridor of L_M01_CellBlockD.
+"""Art pass over the cell, corridor 1 and the guard station of L_M01_CellBlockD.
 
 Turns Frank's cell and corridor 1 from lit grey boxes into a dark black-site prison:
 procedural concrete, a steel cell door left open, fluorescent tubes (one with a bad
 ballast), a red emergency lamp at the far end, pipes and panels to break up the walls,
 a ceiling over the whole map so the sun stops flooding the interior, and a post process
-that lets the dark stay dark.
+that lets the dark stay dark. The guard station - the room the keycard door is in - gets
+the same concrete and two steady fluorescents, because the player has to be able to see
+the lock they are meant to solve.
 
 Everything is cubes and cylinders from /Engine/BasicShapes plus the procedural materials
 in _materials.py. No imported art, nothing downloaded.
