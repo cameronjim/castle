@@ -3,6 +3,7 @@
 #include "UI/CastleSettingsWidget.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "Brushes/SlateColorBrush.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/ButtonSlot.h"
@@ -71,7 +72,12 @@ TSharedRef<SWidget> UCastleSettingsWidget::RebuildWidget()
 
 		// Darker than the pause menu's dimmer: the settings screen replaces it rather than
 		// sitting on top, so the frozen game should read as further away still.
+		//
+		// The brush is set explicitly because UBorder's default Background is an Image brush with
+		// no resource, which draws nothing however it is tinted - so SetBrushColor alone leaves the
+		// live game at full brightness behind the text.
 		UBorder* Dimmer = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Dimmer"));
+		Dimmer->SetBrush(FSlateColorBrush(FLinearColor::White));
 		Dimmer->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.75f));
 		if (UOverlaySlot* DimmerSlot = Cast<UOverlaySlot>(Root->AddChild(Dimmer)))
 		{
