@@ -43,14 +43,28 @@
  *   UnrealEditor-Cmd.exe Castle.uproject -ExecCmds="Automation RunTests Castle.Screenshot; Quit"
  *       -unattended -nosplash -nop4 -stdout
  */
+/**
+ * ClientContext as well as EditorContext, so the same pass can be run inside the standalone
+ * game. That is the gap this whole set of shots exists to close: an editor render told us the
+ * pistol was in Frank's hand while the game, which loads the definition rather than the
+ * Blueprint default, showed nothing at all.
+ *
+ *   UnrealEditor-Cmd.exe Castle.uproject /Game/Maps/L_M01_CellBlockD -game -windowed
+ *       -ResX=1280 -ResY=720 -unattended -nosplash
+ *       -ExecCmds="Automation RunTests Castle.Screenshot.M01Cell; Quit"
+ */
+static constexpr EAutomationTestFlags CastleScreenshotFlags =
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+	| EAutomationTestFlags::ProductFilter;
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotM01Cell, "Castle.Screenshot.M01Cell",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+	CastleScreenshotFlags)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotM01Viewmodel, "Castle.Screenshot.M01Viewmodel",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+	CastleScreenshotFlags)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotSettings, "Castle.Screenshot.Settings",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+	CastleScreenshotFlags)
 
 /** Where the PNGs land. Absolute, because FScreenshotRequest does not resolve /Game paths. */
 static FString RoomScreenshotPath(const FString& FileName)
