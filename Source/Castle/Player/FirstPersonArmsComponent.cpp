@@ -48,23 +48,24 @@ UFirstPersonArmsComponent::UFirstPersonArmsComponent()
 	};
 
 	// Component space on the mannequin: +Y is forward (down the camera), +X is the character's
-	// left, +Z is up. Measured from the reference pose, the shoulders sit at z 149.5 and the
-	// upper arm is 30 cm long, the forearm 27.
+	// left, +Z is up. Castle.ViewModel.FingerBonesExist prints the reference skeleton: the
+	// shoulders sit at (-+17.7, -9.7, 149.5), the upper arm is 30.3 cm and the forearm 27.0.
+	// The camera sits at component (5, 0, 154), which is where these targets are measured from.
 	//
 	// A boxer's guard, solved from where the fists should be rather than eyeballed: each fist
-	// 35 cm in front of the camera, 20 cm below the eye line and 12.5 cm off the centre line, so
-	// the pair sits 25 cm apart with the elbows pulled down and in. The two directions per arm
-	// are the triangle that reaches that point with a 30 cm upper arm and a 27 cm forearm; the
-	// forearms come out about 27 degrees above horizontal, which is as steep as a rig whose
-	// shoulders sit at eye height can manage without dragging the elbows out of the body.
+	// 35 cm in front of the camera, 12 cm below the eye line and 12.5 cm off the centre line, so
+	// the pair sits 25 cm apart with the elbows pulled down and in. Each pair of directions is
+	// the triangle that reaches that point. 12 cm and not the 20 the brief asked for: at 35 cm
+	// out, half the screen's height is 19.7 cm, so 20 cm below the eye line put the fists exactly
+	// on the bottom edge of the frame and cropped them in half.
 	PoseFists = {
-		MakeBonePose(TEXT("upperarm_r"), TEXT("lowerarm_r"), FVector(0.105f, 0.388f, -0.916f)),
-		MakeBonePose(TEXT("lowerarm_r"), TEXT("hand_r"), FVector(0.235f, 0.865f, 0.443f)),
+		MakeBonePose(TEXT("upperarm_r"), TEXT("lowerarm_r"), FVector(0.163f, 0.716f, -0.679f)),
+		MakeBonePose(TEXT("lowerarm_r"), TEXT("hand_r"), FVector(0.195f, 0.853f, 0.483f)),
 		// The hand flattens off the forearm so the knuckles face down the camera, not up at it.
-		MakeBonePose(TEXT("hand_r"), TEXT("middle_01_r"), FVector(0.200f, 0.930f, 0.310f)),
-		MakeBonePose(TEXT("upperarm_l"), TEXT("lowerarm_l"), FVector(0.005f, 0.367f, -0.930f)),
-		MakeBonePose(TEXT("lowerarm_l"), TEXT("hand_l"), FVector(0.013f, 0.888f, 0.459f)),
-		MakeBonePose(TEXT("hand_l"), TEXT("middle_01_l"), FVector(0.010f, 0.940f, 0.340f))
+		MakeBonePose(TEXT("hand_r"), TEXT("middle_01_r"), FVector(0.185f, 0.945f, 0.270f)),
+		MakeBonePose(TEXT("upperarm_l"), TEXT("lowerarm_l"), FVector(-0.003f, 0.710f, -0.704f)),
+		MakeBonePose(TEXT("lowerarm_l"), TEXT("hand_l"), FVector(-0.004f, 0.859f, 0.511f)),
+		MakeBonePose(TEXT("hand_l"), TEXT("middle_01_l"), FVector(-0.004f, 0.950f, 0.312f))
 	};
 
 	PosePistol = {
@@ -74,9 +75,9 @@ UFirstPersonArmsComponent::UFirstPersonArmsComponent()
 		// Two-hand hold: the left hand comes across the body and wraps the right from the
 		// outside, 5 cm to its left and 3 cm short of it, so it supports the grip instead of
 		// hanging in space. The directions lean towards -X, the character's right.
-		MakeBonePose(TEXT("upperarm_l"), TEXT("lowerarm_l"), FVector(-0.327f, 0.757f, -0.566f)),
-		MakeBonePose(TEXT("lowerarm_l"), TEXT("hand_l"), FVector(-0.396f, 0.918f, 0.018f)),
-		MakeBonePose(TEXT("hand_l"), TEXT("middle_01_l"), FVector(-0.396f, 0.918f, 0.018f))
+		MakeBonePose(TEXT("upperarm_l"), TEXT("lowerarm_l"), FVector(-0.350f, 0.767f, -0.539f)),
+		MakeBonePose(TEXT("lowerarm_l"), TEXT("hand_l"), FVector(-0.415f, 0.909f, -0.020f)),
+		MakeBonePose(TEXT("hand_l"), TEXT("middle_01_l"), FVector(-0.415f, 0.909f, -0.020f))
 	};
 
 	for (const TCHAR* Finger : FingerNames)
