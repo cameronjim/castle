@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Combat/BossPhaseComponent.h"
+#include "Combat/WeaponDefinition.h"
 #include "CastlePlayerController.h"
 #include "Combat/Takedownable.h"
 #include "Player/CastleCharacter.h"
@@ -16,6 +17,7 @@
 
 class UFlashbackDefinition;
 class UHealthComponent;
+class UInventoryComponent;
 class UMissionDefinition;
 class UMissionObjective;
 class UMissionTracker;
@@ -110,6 +112,24 @@ public:
 	UFUNCTION()
 	void HandleWeaponHit(AActor* HitActor, float DamageDealt);
 
+	// --- Inventory ------------------------------------------------------------------------------
+	UPROPERTY() int32 InventoryChangedCount = 0;
+	UPROPERTY() int32 ActiveSlotChangedCount = 0;
+	UPROPERTY() EHotbarSlot LastOldHotbarSlot = EHotbarSlot::Hands;
+	UPROPERTY() EHotbarSlot LastNewHotbarSlot = EHotbarSlot::Hands;
+
+	UFUNCTION()
+	void HandleInventoryChanged();
+
+	UFUNCTION()
+	void HandleActiveSlotChanged(EHotbarSlot OldSlot, EHotbarSlot NewSlot);
+
+	// --- Stagger --------------------------------------------------------------------------------
+	UPROPERTY() int32 StaggeredCount = 0;
+
+	UFUNCTION()
+	void HandleStaggered(UHealthComponent* HealthComponent, AActor* DamageInstigator);
+
 	// --- Takedown -------------------------------------------------------------------------------
 	UPROPERTY() int32 TakedownCount = 0;
 	UPROPERTY() TObjectPtr<AActor> LastTakedownTarget = nullptr;
@@ -139,6 +159,13 @@ public:
 	UPROPERTY() int32 LastObjectiveIndex = INDEX_NONE;
 	UPROPERTY() TObjectPtr<UMissionObjective> LastObjective = nullptr;
 	UPROPERTY() int32 MissionCompleteCount = 0;
+
+	/**
+	 * Set this and OnMissionComplete clears it, which is what ACastleGameMode does for real.
+	 * It lets the "nothing carries between missions" rule be tested without a game mode.
+	 */
+	UPROPERTY() TObjectPtr<UInventoryComponent> InventoryToClearOnMissionComplete = nullptr;
+
 	UPROPERTY() int32 FlashbackRequestedCount = 0;
 
 	/** Set when OnFlashbackRequested arrives while MissionCompleteCount is already 1. */

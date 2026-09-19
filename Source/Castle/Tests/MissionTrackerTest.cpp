@@ -5,6 +5,8 @@
 #include "Mission/MissionDefinition.h"
 #include "Mission/MissionObjective.h"
 #include "Mission/MissionTracker.h"
+#include "Combat/WeaponDefinition.h"
+#include "Player/InventoryComponent.h"
 #include "Tests/CastleTestUtils.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -297,6 +299,49 @@ bool FCastleMissionEnforcedOrder::RunTest(const FString& Parameters)
 	TestTrue(TEXT("The current objective completes"), Tracker->CompleteObjective(FName(TEXT("find_weapon"))));
 	TestTrue(TEXT("Then the next one does"), Tracker->CompleteObjective(FName(TEXT("reach_stairwell"))));
 	TestEqual(TEXT("Mission complete"), Listener->MissionCompleteCount, 1);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleMissionCompleteClearsTheInventory, "Castle.Mission.CompleteClearsTheInventory",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleMissionCompleteClearsTheInventory::RunTest(const FString& Parameters)
+{
+	UCastleTestListener* Listener = nullptr;
+	UMissionTracker* Tracker = CastleMissionTest::MakeTracker(Listener);
+
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	Inventory->SelectSlot(EHotbarSlot::Hands, /*bImmediate=*/true);
+
+	UWeaponDefinition* Pistol = NewObject<UWeaponDefinition>(Inventory);
+	Pistol->Slot = EHotbarSlot::Pistol;
+	Pistol->MagazineSize = 12;
+	Pistol->DefaultReserve = 24;
+
+	Inventory->AddWeapon(Pistol);
+	Inventory->GiveKeycard(FName(TEXT("cellblock")));
+
+	// ACastleGameMode does exactly this on OnMissionComplete, before the end card is shown.
+	Listener->InventoryToClearOnMissionComplete = Inventory;
+
+	UMissionDefinition* Mission = CastleMissionTest::MakeMission();
+	Tracker->StartMission(Mission);
+
+	TestFalse(TEXT("Frank is carrying the pistol mid-mission"),
+		Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+
+	Tracker->CompleteObjective(FName(TEXT("find_weapon")));
+	TestFalse(TEXT("Still carrying it with one objective left"),
+		Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+
+	Tracker->CompleteObjective(FName(TEXT("reach_stairwell")));
+
+	TestEqual(TEXT("The mission completed once"), Listener->MissionCompleteCount, 1);
+	TestTrue(TEXT("And nothing carries out of it"), Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+	TestFalse(TEXT("Keycards included"), Inventory->HasKeycard(FName(TEXT("cellblock"))));
+	TestEqual(TEXT("Hands are back in his hands"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
+	TestFalse(TEXT("Which are never empty"), Inventory->IsSlotEmpty(EHotbarSlot::Hands));
 
 	return true;
 }

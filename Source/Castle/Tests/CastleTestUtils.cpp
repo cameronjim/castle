@@ -2,6 +2,8 @@
 
 #include "Tests/CastleTestUtils.h"
 
+#include "Player/InventoryComponent.h"
+
 #include "Combat/HealthComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -114,6 +116,23 @@ void UCastleTestListener::HandleWeaponHit(AActor* HitActor, float DamageDealt)
 	LastWeaponHitDamage = DamageDealt;
 }
 
+void UCastleTestListener::HandleInventoryChanged()
+{
+	++InventoryChangedCount;
+}
+
+void UCastleTestListener::HandleActiveSlotChanged(EHotbarSlot OldSlot, EHotbarSlot NewSlot)
+{
+	++ActiveSlotChangedCount;
+	LastOldHotbarSlot = OldSlot;
+	LastNewHotbarSlot = NewSlot;
+}
+
+void UCastleTestListener::HandleStaggered(UHealthComponent* /*HealthComponent*/, AActor* /*DamageInstigator*/)
+{
+	++StaggeredCount;
+}
+
 void UCastleTestListener::HandleTakedownPerformed(AActor* Target)
 {
 	++TakedownCount;
@@ -148,6 +167,12 @@ void UCastleTestListener::HandleObjectiveUpdated(UMissionObjective* Objective, i
 void UCastleTestListener::HandleMissionComplete(UMissionDefinition* /*Mission*/)
 {
 	++MissionCompleteCount;
+
+	// The mission is over, so nothing is carried into the next one.
+	if (InventoryToClearOnMissionComplete)
+	{
+		InventoryToClearOnMissionComplete->Clear();
+	}
 }
 
 void UCastleTestListener::HandleFlashbackRequested(UFlashbackDefinition* /*Flashback*/)
