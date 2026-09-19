@@ -11,6 +11,7 @@
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "CastlePlayerController.h"
 #include "Player/CastleCharacter.h"
 #include "Tests/AutomationCommon.h"
 #include "UnrealClient.h"
@@ -26,6 +27,7 @@
  *   Castle.Screenshot.M01Cell       cell.png, corridor.png, doorway.png - the room, pawn hidden
  *   Castle.Screenshot.M01Viewmodel  viewmodel_hip.png, viewmodel_aim.png, viewmodel_fire.png,
  *                                   guard_dead.png - the pawn visible and armed
+ *   Castle.Screenshot.Settings      UI/settings.png - the pause menu's Settings screen
  *
  * Both need a real RHI, so they are explicit no-ops in the normal -nullrhi suite:
  *
@@ -38,11 +40,21 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotM01Cell, "Castle.Screenshot.M0
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotM01Viewmodel, "Castle.Screenshot.M01Viewmodel",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotSettings, "Castle.Screenshot.Settings",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
 /** Where the PNGs land. Absolute, because FScreenshotRequest does not resolve /Game paths. */
 static FString RoomScreenshotPath(const FString& FileName)
 {
 	return FPaths::ConvertRelativePathToFull(
 		FPaths::ProjectSavedDir() / TEXT("Screenshots") / TEXT("Room") / FileName);
+}
+
+/** Where the UI shots land, kept apart from the room reference shots. */
+static FString UiScreenshotPath(const FString& FileName)
+{
+	return FPaths::ConvertRelativePathToFull(
+		FPaths::ProjectSavedDir() / TEXT("Screenshots") / TEXT("UI") / FileName);
 }
 
 /** The game world the map was opened into, or null. */
@@ -293,6 +305,44 @@ bool FCastleReportGuardDeathPath::Update()
 	return true;
 }
 
+/** Open the pause menu and then the settings screen, the way the player would. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
+	FCastleOpenSettingsScreen, FAutomationTestBase*, Test);
+
+bool FCastleOpenSettingsScreen::Update()
+{
+	UWorld* World = FindScreenshotWorld();
+	ACastlePlayerController* PC = World ? Cast<ACastlePlayerController>(World->GetFirstPlayerController()) : nullptr;
+	if (!PC)
+	{
+		Test->AddError(TEXT("No ACastlePlayerController to open the settings screen with."));
+		return true;
+	}
+
+	PC->TogglePause();
+	PC->OpenSettings();
+
+	if (!PC->IsSettingsOpen())
+	{
+		Test->AddError(TEXT("OpenSettings did nothing; check SettingsWidgetClass on BP_CastlePlayerController."));
+	}
+	return true;
+}
+
+/** Ask for one screenshot under Saved/Screenshots/UI. */
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
+	FCastleTakeUiShot, FAutomationTestBase*, Test, FString, FileName);
+
+bool FCastleTakeUiShot::Update()
+{
+	const FString FullPath = UiScreenshotPath(FileName);
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	PlatformFile.CreateDirectoryTree(*FPaths::GetPath(FullPath));
+	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
+	Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+	return true;
+}
+
 /** True when this process cannot render, in which case the screenshot tests do nothing. */
 static bool SkipWithoutRHI(FAutomationTestBase& Test)
 {
@@ -377,6 +427,25 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("guard_dead.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleReportGuardDeathPath(this));
+
+	return true;
+}
+
+bool FCastleScreenshotSettings::RunTest(const FString& Parameters)
+{
+	if (SkipWithoutRHI(*this))
+	{
+		return true;
+	}
+
+	AutomationOpenMap(TEXT("/Game/Maps/L_M01_CellBlockD"));
+	// Long enough for the editor's own billboards to stop drawing over the game view.
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(5.f));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleOpenSettingsScreen(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeUiShot(this, TEXT("settings.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
 	return true;
 }

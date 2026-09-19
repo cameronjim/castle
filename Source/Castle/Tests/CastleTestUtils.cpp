@@ -176,3 +176,9 @@ float ACastleAimTestCharacter::MaxWalkSpeed() const
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
 	return Movement ? Movement->MaxWalkSpeed : 0.f;
 }
+
+void UCastleTestListener::HandleSettingsChanged(FCastleSettings Settings)
+{
+	++SettingsChangedCount;
+	LastLookSensitivity = Settings.LookSensitivity;
+}

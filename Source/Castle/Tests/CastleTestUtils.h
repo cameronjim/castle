@@ -7,6 +7,7 @@
 #include "CastlePlayerController.h"
 #include "Combat/Takedownable.h"
 #include "Player/CastleCharacter.h"
+#include "Settings/CastleSettings.h"
 #include "World/GuardCharacter.h"
 #include "GameFramework/Actor.h"
 #include "UObject/Object.h"
@@ -155,6 +156,13 @@ public:
 	UFUNCTION()
 	void HandleFlashbackRequested(UFlashbackDefinition* Flashback);
 
+	// --- Settings -------------------------------------------------------------------------------
+	UPROPERTY() int32 SettingsChangedCount = 0;
+	UPROPERTY() float LastLookSensitivity = 0.f;
+
+	UFUNCTION()
+	void HandleSettingsChanged(FCastleSettings Settings);
+
 	// --- Flashback widget -----------------------------------------------------------------------
 	UPROPERTY() int32 FlashbackFinishedCount = 0;
 
@@ -186,6 +194,13 @@ public:
 	float TestAimBlendSeconds() const { return AimBlendSeconds; }
 
 	float MaxWalkSpeed() const;
+
+	/** Stands in for UCastleSettingsSubsystem::OnSettingsChanged arriving. */
+	void TestApplySettings(const FCastleSettings& Settings) { HandleSettingsChanged(Settings); }
+
+	float TestLookSensitivity() const { return LookSensitivity; }
+	float TestAimLookMultiplier() const { return AimLookMultiplier; }
+	bool TestHasSettingsSensitivity() const { return bHasSettingsLookSensitivity; }
 };
 
 /**
