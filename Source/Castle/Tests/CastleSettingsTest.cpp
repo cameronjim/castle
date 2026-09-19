@@ -1,5 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/AutomationTest.h"
 #include "Settings/CastleSettings.h"
@@ -16,7 +18,9 @@ namespace CastleSettingsTest
 
 	static UCastleSettingsSubsystem* MakeSubsystem(bool bUseTestSlot = true)
 	{
-		UCastleSettingsSubsystem* Subsystem = NewObject<UCastleSettingsSubsystem>(GetTransientPackage());
+		// UGameInstanceSubsystem declares ClassWithin = UGameInstance, so a package outer ensures.
+		UGameInstance* Outer = NewObject<UGameInstance>(GEngine);
+		UCastleSettingsSubsystem* Subsystem = NewObject<UCastleSettingsSubsystem>(Outer);
 		if (Subsystem && bUseTestSlot)
 		{
 			Subsystem->SlotNameOverride = TestSlot;
@@ -182,7 +186,7 @@ bool FCastleSettingsDriveLookDelta::RunTest(const FString& Parameters)
 	const float Fallback = Frank->TestLookSensitivity();
 	TestEqual(TEXT("The C++ fallback default is 0.2"), Fallback, 0.2f);
 	TestEqual(TEXT("Hip look scales by the fallback"),
-		Frank->ComputeLookDelta(FVector2D(10.f, 0.f), false).X, 10.f * Fallback);
+		static_cast<float>(Frank->ComputeLookDelta(FVector2D(10.f, 0.f), false).X), 10.f * Fallback);
 
 	FCastleSettings Settings;
 	Settings.LookSensitivity = 0.5f;
@@ -190,17 +194,17 @@ bool FCastleSettingsDriveLookDelta::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("The subsystem value is now in use"), Frank->TestHasSettingsSensitivity());
 	TestEqual(TEXT("Hip look scales by the setting, not the property"),
-		Frank->ComputeLookDelta(FVector2D(10.f, 0.f), false).X, 5.f);
+		static_cast<float>(Frank->ComputeLookDelta(FVector2D(10.f, 0.f), false).X), 5.f);
 	TestEqual(TEXT("Pitch uses the same scale"),
-		Frank->ComputeLookDelta(FVector2D(0.f, -4.f), false).Y, -2.f);
+		static_cast<float>(Frank->ComputeLookDelta(FVector2D(0.f, -4.f), false).Y), -2.f);
 	TestEqual(TEXT("Aiming applies AimLookMultiplier on top"),
-		Frank->ComputeLookDelta(FVector2D(10.f, 0.f), true).X, 5.f * Frank->TestAimLookMultiplier());
+		static_cast<float>(Frank->ComputeLookDelta(FVector2D(10.f, 0.f), true).X), 5.f * Frank->TestAimLookMultiplier());
 
 	// A second broadcast wins: the slider is live while the pause menu is open.
 	Settings.LookSensitivity = 0.1f;
 	Frank->TestApplySettings(Settings);
 	TestEqual(TEXT("A later change takes effect immediately"),
-		Frank->ComputeLookDelta(FVector2D(10.f, 0.f), false).X, 1.f);
+		static_cast<float>(Frank->ComputeLookDelta(FVector2D(10.f, 0.f), false).X), 1.f);
 
 	return true;
 }
