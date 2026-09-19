@@ -136,7 +136,31 @@ rule here, change the test and the code in the same commit.
 - Aiming blends FOV from `HipFOV` 90 to `AimFOV` 70 over 0.15 s, multiplies walk speed by
   0.6, and shrinks the crosshair gap from 8 px to 4 px. Sprinting cancels aim and reload
   and fades the crosshair to 40%.
-- The crosshair is hidden while unarmed. Four green bars, 14 x 3 px, centred.
+- The crosshair is hidden while unarmed. Four green bars, 7 x 2 px, gap 3 px from centre
+  (2 px while aiming), centred.
+- True first person: Frank's body is the mannequin under the camera with the head hidden
+  for the owner. Arms are a poseable mesh with hand-authored poses (`PoseFists`,
+  `PosePistol`), blended over 0.2 s on weapon change. The pistol attaches to the right hand.
+  Hip position is low and close; aim brings the sights under the crosshair without pushing
+  the gun far forward.
+
+## Inventory and hotbar (planned next; semantics fixed now)
+- Three hotbar slots: 1 Hands, 2 Pistol, 3 Rifle (rifle unused until a later mission).
+  Number keys and mouse wheel switch slots. Switching takes `SwapSeconds` (0.4) during
+  which Fire is ignored; the HUD shows the active slot.
+- Hands are a weapon: left click punches (melee damage 15, stagger, 0.6 s cooldown, range
+  120). Takedown (F) is unchanged and available in any slot when the target is valid.
+- A slot is empty until its weapon is picked up. Selecting an empty slot does nothing.
+  Picking up a weapon fills its slot and auto-switches to it only if Hands was active.
+- Inventory (Tab) lists everything carried: weapons with ammo, keycards by id, spare
+  ammo. Read-only for now. Opening it pauses the game like the pause menu does.
+- Inventory clears at mission complete (before the end card) and on mission restart.
+  Nothing carries between missions; each mission's data asset defines starting items
+  (`StartingSlots`, default Hands only).
+- Weapon stats move to `UWeaponDefinition` data assets (`DA_Weapon_Pistol`,
+  `DA_Weapon_Rifle`): damage, magazine, reserve, fire rate, reload, spread, headshot
+  multiplier, viewmodel mesh and pose name. `UWeaponComponent` holds the active
+  definition and per-weapon ammo state keyed by definition.
 - Viewmodel is the pistol only, attached to the camera, owner-only, no shadow, never
   affecting gameplay. There is no arms mesh: UE 5.8 ships none, and the full-mannequin
   fallback put the torso in the camera. `bUseArmsMesh` stays false until a real arms asset
