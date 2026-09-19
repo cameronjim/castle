@@ -222,6 +222,19 @@ def check_world_blueprints():
             if value_text(got) != str(want):
                 fail("BP_Door_Keycard.{0} is {1}, expected {2}".format(field, got, want))
 
+    if door_class is not None:
+        cdo = unreal.get_default_object(door_class)
+        for component_name in ("frame_mesh", "door_mesh"):
+            component = prop(cdo, component_name)
+            material = None
+            try:
+                material = component.get_material(0) if component is not None else None
+            except Exception:  # noqa: BLE001
+                material = None
+            say("  BP_Door_Keycard.{0} material = {1}".format(component_name, name_of(material)))
+            if material is None or "M_SteelPainted" not in name_of(material):
+                fail("BP_Door_Keycard.{0} has no M_SteelPainted material".format(component_name))
+
     guard_class = c.load_generated_class(AI_PATH, "BP_Guard")
     if guard_class is None:
         fail("BP_Guard_C")

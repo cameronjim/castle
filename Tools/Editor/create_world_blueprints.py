@@ -297,7 +297,7 @@ def make_pickup(name, values, shape_fn):
     return bp
 
 
-def make_door():
+def make_door(door_material):
     parent = c.find_class("DoorActor", "/Script/Castle.DoorActor")
     bp, _ = cb.make_blueprint("BP_Door_Keycard", WORLD_PATH, parent, ("BlueprintFactory",))
     if bp is None:
@@ -322,6 +322,18 @@ def make_door():
     # Frame sits in the wall; the leaf fills the 100x220 opening and slides sideways.
     changed = set_component_mesh(bp, "frame_mesh", cube, DOOR_FRAME_SCALE, unreal.Vector(0.0, 0.0, 130.0))
     changed = set_component_mesh(bp, "door_mesh", cube, DOOR_LEAF_SCALE, unreal.Vector(0.0, 0.0, 110.0)) or changed
+
+    cdo = c.blueprint_cdo(bp)
+    if cdo is not None and door_material is not None:
+        for component_name in ("frame_mesh", "door_mesh"):
+            try:
+                component = cdo.get_editor_property(component_name)
+            except Exception:  # noqa: BLE001
+                component = None
+            changed = set_component_material(
+                component, 0, door_material, "BP_Door_Keycard." + component_name
+            ) or changed
+
     if changed:
         c.compile_blueprint(bp)
         c.save(bp)
@@ -550,6 +562,7 @@ def run():
     # script runs first, so make sure the lamp materials exist before asking for the props.
     m.ensure_light_materials()
     prop_materials = m.ensure_prop_materials()
+    surface_materials = m.ensure_surface_materials()
 
     make_pickup(
         "BP_Pickup_Pistol",
@@ -571,7 +584,7 @@ def run():
         lambda bp: shape_keycard(bp, cube, prop_materials),
     )
 
-    make_door()
+    make_door(surface_materials.get("steel"))
     set_mannequin_physics_asset()
     make_guard()
     wire_hud_into_controller()
