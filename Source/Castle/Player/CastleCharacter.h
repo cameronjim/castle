@@ -355,7 +355,7 @@ protected:
 	 * the arms rise into frame; ArmsHipOffset then places the hands.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector ArmsRelativeLocation = FVector(0.f, 0.f, -150.f);
+	FVector ArmsRelativeLocation = FVector(0.f, 0.f, -154.f);
 
 	/** SK_Mannequin faces +Y in its own space, so -90 yaw points it down the camera's forward. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
@@ -363,14 +363,14 @@ protected:
 
 	/** Hip pose of the arms, added to ArmsRelativeLocation: forward, right and low. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector ArmsHipOffset = FVector(24.f, 10.f, -16.f);
+	FVector ArmsHipOffset = FVector(0.f, 5.f, 0.f);
 
 	/**
 	 * Aim pose: centred and only slightly further forward. Cameron's note after the third play
 	 * was that aiming threw the pistol out in front of his face, so this is deliberately close.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector ArmsAimOffset = FVector(18.f, 0.f, -9.f);
+	FVector ArmsAimOffset = FVector(-4.f, -4.f, 10.f);
 
 	/**
 	 * Bones hidden on the body mesh for its owner: his own head would otherwise be inside the
@@ -385,10 +385,10 @@ protected:
 
 	/** Where the grip sits in the palm, relative to the hand_r bone. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector WeaponHandOffset = FVector(-2.f, 4.f, 0.f);
+	FVector WeaponHandOffset = FVector(4.f, 0.f, 0.f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FRotator WeaponHandRotation = FRotator(0.f, 0.f, -90.f);
+	FRotator WeaponHandRotation = FRotator(0.f, -90.f, 0.f);
 
 	/**
 	 * Hip rest pose of the pistol in camera space: X forward, Y right, Z up. Lower right of

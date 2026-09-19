@@ -4,12 +4,14 @@
 
 namespace
 {
-	/** FRotator(Pitch, Yaw, Roll), spelled out so the pose tables below read as poses. */
-	FCastleArmBonePose MakeBonePose(const TCHAR* BoneName, float Yaw, float Roll)
+	FCastleArmBonePose MakeBonePose(
+		const TCHAR* BoneName, const TCHAR* ChildBone, const FVector& Direction, float Twist = 0.f)
 	{
 		FCastleArmBonePose Pose;
 		Pose.BoneName = FName(BoneName);
-		Pose.Rotation = FRotator(0.f, Yaw, Roll);
+		Pose.ChildBone = FName(ChildBone);
+		Pose.Direction = Direction;
+		Pose.TwistDegrees = Twist;
 		return Pose;
 	}
 }
@@ -32,29 +34,28 @@ UFirstPersonArmsComponent::UFirstPersonArmsComponent()
 		FName(TEXT("thigh_l")), FName(TEXT("thigh_r"))
 	};
 
-	// Component space on the mannequin, after the -90 yaw that faces it down the camera:
-	// +Y is forward, +X is the character's left, +Z is up. So Roll raises an arm forwards out
-	// of the A-pose and Yaw swings it towards the centre line.
+	// Component space on the mannequin: +Y is forward (down the camera), +X is the character's
+	// left, +Z is up. Measured from the reference pose, the shoulders sit at z 149.5 and the
+	// upper arm is 30 cm long, the forearm 27; these directions put the hands roughly 40 cm in
+	// front of the shoulders and a little below them, which is where the camera is looking.
 	PoseFists = {
-		MakeBonePose(TEXT("clavicle_r"), 0.f, 5.f),
-		MakeBonePose(TEXT("upperarm_r"), -15.f, 30.f),
-		MakeBonePose(TEXT("lowerarm_r"), -25.f, 125.f),
-		MakeBonePose(TEXT("hand_r"), -35.f, 125.f),
-		MakeBonePose(TEXT("clavicle_l"), 0.f, 5.f),
-		MakeBonePose(TEXT("upperarm_l"), 15.f, 30.f),
-		MakeBonePose(TEXT("lowerarm_l"), 25.f, 125.f),
-		MakeBonePose(TEXT("hand_l"), 35.f, 125.f)
+		MakeBonePose(TEXT("upperarm_r"), TEXT("lowerarm_r"), FVector(0.02f, 0.62f, -0.78f)),
+		MakeBonePose(TEXT("lowerarm_r"), TEXT("hand_r"), FVector(0.06f, 0.88f, 0.47f)),
+		MakeBonePose(TEXT("hand_r"), TEXT("middle_01_r"), FVector(0.06f, 0.88f, 0.47f)),
+		MakeBonePose(TEXT("upperarm_l"), TEXT("lowerarm_l"), FVector(-0.02f, 0.62f, -0.78f)),
+		MakeBonePose(TEXT("lowerarm_l"), TEXT("hand_l"), FVector(-0.06f, 0.88f, 0.47f)),
+		MakeBonePose(TEXT("hand_l"), TEXT("middle_01_l"), FVector(-0.06f, 0.88f, 0.47f))
 	};
 
 	PosePistol = {
-		MakeBonePose(TEXT("clavicle_r"), 0.f, 5.f),
-		MakeBonePose(TEXT("upperarm_r"), -12.f, 70.f),
-		MakeBonePose(TEXT("lowerarm_r"), -14.f, 100.f),
-		MakeBonePose(TEXT("hand_r"), -14.f, 100.f),
-		MakeBonePose(TEXT("clavicle_l"), 0.f, 5.f),
-		MakeBonePose(TEXT("upperarm_l"), 25.f, 60.f),
-		MakeBonePose(TEXT("lowerarm_l"), 45.f, 110.f),
-		MakeBonePose(TEXT("hand_l"), 45.f, 105.f)
+		MakeBonePose(TEXT("upperarm_r"), TEXT("lowerarm_r"), FVector(0.15f, 0.80f, -0.58f)),
+		MakeBonePose(TEXT("lowerarm_r"), TEXT("hand_r"), FVector(0.15f, 0.98f, 0.10f)),
+		MakeBonePose(TEXT("hand_r"), TEXT("middle_01_r"), FVector(0.15f, 0.98f, 0.10f)),
+		// The left hand comes across the body to meet the right under the grip, so its
+		// direction leans towards -X, the character's right.
+		MakeBonePose(TEXT("upperarm_l"), TEXT("lowerarm_l"), FVector(-0.10f, 0.72f, -0.68f)),
+		MakeBonePose(TEXT("lowerarm_l"), TEXT("hand_l"), FVector(-0.45f, 0.88f, 0.15f)),
+		MakeBonePose(TEXT("hand_l"), TEXT("middle_01_l"), FVector(-0.45f, 0.88f, 0.15f))
 	};
 }
 
@@ -66,13 +67,13 @@ const TArray<FCastleArmBonePose>& UFirstPersonArmsComponent::GetPoseTable(ECastl
 TArray<FName> UFirstPersonArmsComponent::GetAllPoseBoneNames() const
 {
 	TArray<FName> Names;
-	for (const FCastleArmBonePose& Bone : PoseFists)
+	for (const TArray<FCastleArmBonePose>& Table : { PoseFists, PosePistol })
 	{
-		Names.AddUnique(Bone.BoneName);
-	}
-	for (const FCastleArmBonePose& Bone : PosePistol)
-	{
-		Names.AddUnique(Bone.BoneName);
+		for (const FCastleArmBonePose& Bone : Table)
+		{
+			Names.AddUnique(Bone.BoneName);
+			Names.AddUnique(Bone.ChildBone);
+		}
 	}
 	for (const FName& Bone : HiddenArmBones)
 	{
@@ -100,16 +101,31 @@ void UFirstPersonArmsComponent::InitialiseArms()
 
 	PosedBones.Reset();
 	ReferenceRotations.Reset();
-	for (const FName& BoneName : GetAllPoseBoneNames())
+	ReferenceDirections.Reset();
+
+	for (const TArray<FCastleArmBonePose>& Table : { PoseFists, PosePistol })
 	{
-		if (GetBoneIndex(BoneName) == INDEX_NONE || HiddenArmBones.Contains(BoneName))
+		for (const FCastleArmBonePose& Bone : Table)
 		{
-			continue;
+			if (PosedBones.Contains(Bone.BoneName) || GetBoneIndex(Bone.BoneName) == INDEX_NONE
+				|| GetBoneIndex(Bone.ChildBone) == INDEX_NONE)
+			{
+				continue;
+			}
+
+			// Read before anything is posed, so these really are the reference A-pose.
+			const FVector Start = GetBoneLocationByName(Bone.BoneName, EBoneSpaces::ComponentSpace);
+			const FVector End = GetBoneLocationByName(Bone.ChildBone, EBoneSpaces::ComponentSpace);
+			if ((End - Start).IsNearlyZero())
+			{
+				continue;
+			}
+
+			PosedBones.Add(Bone.BoneName);
+			ReferenceDirections.Add(Bone.BoneName, (End - Start).GetSafeNormal());
+			ReferenceRotations.Add(Bone.BoneName,
+				GetBoneRotationByName(Bone.BoneName, EBoneSpaces::ComponentSpace).Quaternion());
 		}
-		PosedBones.Add(BoneName);
-		// Read before anything is posed, so this really is the skeleton's reference A-pose.
-		ReferenceRotations.Add(BoneName,
-			GetBoneRotationByName(BoneName, EBoneSpaces::ComponentSpace).Quaternion());
 	}
 
 	bArmsInitialised = true;
@@ -146,13 +162,27 @@ void UFirstPersonArmsComponent::TickComponent(
 
 FQuat UFirstPersonArmsComponent::FindPoseDelta(ECastleArmsPose Pose, FName BoneName) const
 {
+	const FVector* Reference = ReferenceDirections.Find(BoneName);
+	if (!Reference)
+	{
+		return FQuat::Identity;
+	}
+
 	for (const FCastleArmBonePose& Bone : GetPoseTable(Pose))
 	{
-		if (Bone.BoneName == BoneName)
+		if (Bone.BoneName != BoneName || Bone.Direction.IsNearlyZero())
 		{
-			return Bone.Rotation.Quaternion();
+			continue;
 		}
+
+		// The shortest arc from where the limb points in the reference pose to where this pose
+		// wants it, plus any roll about the limb's own axis for the wrist.
+		const FVector Target = Bone.Direction.GetSafeNormal();
+		const FQuat Swing = FQuat::FindBetweenNormals(*Reference, Target);
+		const FQuat Twist(Target, FMath::DegreesToRadians(Bone.TwistDegrees));
+		return Twist * Swing;
 	}
+
 	// A bone one pose does not mention rests at its reference rotation rather than snapping.
 	return FQuat::Identity;
 }

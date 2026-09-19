@@ -17,9 +17,13 @@ enum class ECastleArmsPose : uint8
 };
 
 /**
- * One bone of a hand-authored pose. Rotation is a delta applied on top of the skeleton's
- * reference pose in component space, not an absolute orientation: the mannequin's A-pose is
- * the zero, so "raise the right upper arm 60 degrees" is a number a human can reason about.
+ * One bone of a hand-authored pose: point this bone at Direction.
+ *
+ * A limb is easier to author as "where does it point" than as an Euler triple, because the
+ * mannequin's reference pose is an A-pose with a different rotation on every bone. Direction
+ * is in component space, where +Y is forward (down the camera), +X is the character's left
+ * and +Z is up. ChildBone is the joint at the far end, which is what says where the bone
+ * currently points.
  */
 USTRUCT(BlueprintType)
 struct FCastleArmBonePose
@@ -29,8 +33,17 @@ struct FCastleArmBonePose
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arms")
 	FName BoneName;
 
+	/** The next joint down the limb. The bone "points" from itself to this. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arms")
-	FRotator Rotation = FRotator::ZeroRotator;
+	FName ChildBone;
+
+	/** Where that limb should point, in component space. Normalised on use. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arms")
+	FVector Direction = FVector(0.f, 1.f, 0.f);
+
+	/** Roll about the limb's own axis, for turning a palm or a wrist. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Arms")
+	float TwistDegrees = 0.f;
 };
 
 /**
@@ -118,6 +131,9 @@ protected:
 private:
 	/** Reference-pose component-space rotation of every posed bone, read once at init. */
 	TMap<FName, FQuat> ReferenceRotations;
+
+	/** Which way each posed bone points in the reference pose, from bone to child. */
+	TMap<FName, FVector> ReferenceDirections;
 
 	/** Union of both tables' bone names, so a bone dropped from one pose still blends back. */
 	TArray<FName> PosedBones;
