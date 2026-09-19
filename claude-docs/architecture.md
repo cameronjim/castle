@@ -100,7 +100,32 @@ UMissionSubsystem (world subsystem)
   `ReportStimulus(Kind, Location, bSuccessful)` is the single entry point both perception
   and tests use. No behavior tree yet; stage 3 decides whether one is needed.
 
+### Inventory and weapons (`Source/Castle/Player`, `Source/Castle/Combat`)
+- `UWeaponDefinition` (primary data asset, type `Weapon`): every stat for one weapon, its
+  hotbar slot, melee flags, viewmodel mesh, arms pose name, and hand offset. Assets:
+  `DA_Weapon_Hands`, `DA_Weapon_Pistol`, `DA_Weapon_Rifle` in `Content/Blueprints/Weapons`.
+- `UInventoryComponent` on the player: three slots keyed by `EHotbarSlot`, each holding a
+  definition plus magazine and reserve; the keycard set; `ActiveSlot`; select/next/previous
+  with a swap lockout; `AddWeapon`, `AddAmmo`, `Clear`, `ApplyStartingWeapons`. Fires
+  `OnInventoryChanged` and `OnActiveSlotChanged`. Hands are always present.
+- `UWeaponComponent` reads its stats from the active definition and writes ammo through to
+  the inventory slot on every change. Melee definitions do a short sphere sweep and call
+  `UHealthComponent::ApplyMeleeDamage`, which can stagger.
+- Mission lifecycle hooks: starting weapons applied on `OnMissionStarted`, inventory cleared
+  on `OnMissionComplete` (before the end card) and on restart.
+
+### Settings (`Source/Castle/Settings`)
+- `UCastleSettingsSubsystem` (game instance): owns `FCastleSettings`, persists it to the
+  `CastleSettings` save slot on every change, broadcasts `OnSettingsChanged`. The character
+  subscribes so sensitivity changes apply live.
+
 ### UI (`Source/Castle/UI`)
+- `UCastleHotbarWidget`: three slot boxes at bottom centre, inside the HUD overlay.
+- `UCastleInventoryWidget`: Tab. Read-only list of weapons, keycards, spare ammo. Pauses.
+- `UCastlePauseWidget`, `UCastleSettingsWidget`, `UMissionEndCardWidget`: pause menu with
+  Resume, Settings, Restart, Quit; settings with the sensitivity slider; mission end card.
+  All build their own layout when the Blueprint has none, and dim the game with an
+  `FSlateColorBrush` (a `UBorder` default brush has no resource, so tinting it draws nothing).
 - `UCastleHudWidget`: objective title, ammo (`12 / 24`, blank when unarmed), interaction
   prompt, crosshair. Builds its own layout in `RebuildWidget` when the Blueprint has none.
   Subscribes to the mission subsystem, the pawn's weapon, and the takedown component.

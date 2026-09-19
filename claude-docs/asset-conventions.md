@@ -12,7 +12,7 @@ Content/
     Audio/              S_FB01_Frank_01 ...
   Blueprints/
     Player/             BP_CastleCharacter, BP_CastlePlayerController, BP_CastleGameMode
-    Weapons/            DA_Weapon_Pistol, DA_Weapon_Shotgun, BP_WeaponPickup
+    Weapons/            DA_Weapon_Hands, DA_Weapon_Pistol, DA_Weapon_Rifle (UWeaponDefinition)
     AI/                 BP_Guard, BP_Guard_Baton, BP_Guard_Rifle, BP_Inmate_Broken,
                         BT_Guard, BB_Guard, EQS_CoverPoints, BTT_*, BTS_*, BTD_*
     Bosses/             BP_Boss_Base, BP_Boss_Orderly, BP_Boss_Deacon, BP_Boss_Sniper,
@@ -20,8 +20,8 @@ Content/
     World/              BP_Door_Keycard, BP_Door_Powered, BP_Vent, BP_Light_Shootable,
                         BP_Generator, BP_Switch, BP_Checkpoint, BP_MissionStarter,
                         BP_Pickup_Keycard, BP_Pickup_Ammo
-    UI/                 WBP_Hud, WBP_Flashback, WBP_EndCard, WBP_Subtitle, WBP_BossHealth,
-                        WBP_MainMenu, WBP_Pause, WBP_Settings
+    UI/                 WBP_Hud, WBP_Hotbar, WBP_Inventory, WBP_Flashback, WBP_EndCard,
+                        WBP_Pause, WBP_Settings, later WBP_Subtitle, WBP_BossHealth, WBP_MainMenu
   Input/                IMC_Default, IMC_Flashback, IA_Move, IA_Look, IA_Jump, IA_Sprint,
                         IA_Crouch, IA_Fire, IA_Aim, IA_Reload, IA_Takedown, IA_Interact,
                         IA_Dodge, IA_Pause, IA_Skip
