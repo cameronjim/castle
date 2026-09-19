@@ -1,5 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/World.h"
 #include "Misc/AutomationTest.h"
 #include "Mission/MissionDefinition.h"
 #include "Mission/MissionObjective.h"
@@ -7,6 +10,7 @@
 #include "Player/CastleCharacter.h"
 #include "Tests/CastleTestUtils.h"
 #include "World/DoorActor.h"
+#include "World/InteractionComponent.h"
 #include "World/Interactable.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -158,6 +162,96 @@ bool FCastleDoorUnlockedNeedsNoKeycard::RunTest(const FString& Parameters)
 	TestEqual(TEXT("The prompt is the plain one"),
 		IInteractable::Execute_GetInteractPrompt(Door).ToString(), FString(TEXT("[E] Open")));
 	TestTrue(TEXT("It opens with no keycard at all"), Door->TryOpen(Player));
+
+	return true;
+}
+
+/**
+ * "The door to the second room only opens with the keycard on the top... I think the whole door
+ * has to unlock???"
+ *
+ * It did only answer at the top. The frame used to be the actor's root, and a root component's
+ * relative location is thrown away by the spawn transform, so the 130 cm the content script wrote
+ * on it never arrived: the frame sank half under the floor and the leaf, whose offset is measured
+ * from the frame, floated up out of reach. What was left at eye height was a gap, and the
+ * interaction sweep went straight through it into corridor 2.
+ *
+ * So: the leaf must sit on the floor whatever the actor is spawned at, and a sweep at any height
+ * up it has to come back with the door.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleDoorWholeSlabInteracts, "Castle.Door.WholeSlabInteracts",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleDoorWholeSlabInteracts::RunTest(const FString& Parameters)
+{
+	FCastleTestWorld TestWorld;
+
+	// Spawned well away from the origin on purpose: this is what caught the root-component bug.
+	const FVector DoorLocation(2900.f, 0.f, 0.f);
+	ADoorActor* Door = Cast<ADoorActor>(
+		TestWorld.SpawnActor(ADoorActor::StaticClass(), DoorLocation, FRotator::ZeroRotator));
+	if (!Door || !Door->DoorMesh || !Door->FrameMesh)
+	{
+		AddError(TEXT("Failed to spawn the door."));
+		return false;
+	}
+
+	// The leaf is 220 cm tall and stands on the threshold, so its centre is at 110 - not at 286,
+	// which is where the old hierarchy put it.
+	TestEqual(TEXT("The leaf stands on the floor, wherever the door was placed"),
+		static_cast<float>(Door->GetLeafWorldCentre().Z),
+		static_cast<float>(DoorLocation.Z) + Door->LeafHeight * 0.5f, 0.5f);
+	TestEqual(TEXT("And the frame with it"),
+		static_cast<float>(Door->FrameMesh->GetComponentLocation().Z),
+		static_cast<float>(DoorLocation.Z) + Door->FrameHeight * 0.5f, 0.5f);
+
+	// The frame is a solid cube as wide as the opening: if it collided it would plug the doorway
+	// the door just cleared, and swallow the interaction sweep on the way.
+	TestTrue(TEXT("The frame is scenery and never collides"),
+		Door->FrameMesh->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
+	TestTrue(TEXT("The leaf blocks the interaction channel"),
+		Door->DoorMesh->GetCollisionResponseToChannel(ECC_Visibility) == ECR_Block);
+
+	// Now the reproduction itself. The leaf needs geometry to be hit, and an engine shape is the
+	// one mesh a test may reach for; without it the transform assertions above still stand.
+	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	if (!Cube)
+	{
+		AddWarning(TEXT("/Engine/BasicShapes/Cube is not available; skipped the sweep."));
+		return true;
+	}
+
+	// The shipped leaf: 10 cm thick, 100 wide, 220 tall.
+	Door->DoorMesh->SetStaticMesh(Cube);
+	Door->DoorMesh->SetRelativeScale3D(FVector(0.1f, 1.0f, 2.2f));
+
+	UWorld* World = TestWorld.Get();
+	const UInteractionComponent* Defaults = GetDefault<UInteractionComponent>();
+	const float Radius = Defaults->TraceRadius;
+
+	// 150 cm back from the slab, level, at the four heights a player's eyes can be: crouched,
+	// looking down, standing, looking up. Every one has to find the door.
+	for (const float Height : { 50.f, 100.f, 150.f, 200.f })
+	{
+		const FVector Start = DoorLocation + FVector(-150.f, 0.f, Height);
+		const FVector End = DoorLocation + FVector(Defaults->InteractRange - 150.f, 0.f, Height);
+
+		TArray<FHitResult> Hits;
+		World->SweepMultiByChannel(Hits, Start, End, FQuat::Identity, ECC_Visibility,
+			FCollisionShape::MakeSphere(Radius));
+
+		const AActor* Found = nullptr;
+		for (const FHitResult& Hit : Hits)
+		{
+			if (Hit.GetActor() == Door)
+			{
+				Found = Hit.GetActor();
+				break;
+			}
+		}
+
+		TestTrue(FString::Printf(TEXT("A sweep at %.0f cm finds the door"), Height), Found == Door);
+	}
 
 	return true;
 }

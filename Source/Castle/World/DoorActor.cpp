@@ -3,6 +3,7 @@
 #include "World/DoorActor.h"
 
 #include "Castle.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Mission/MissionSubsystem.h"
 #include "Player/CastleCharacter.h"
@@ -12,16 +13,34 @@ ADoorActor::ADoorActor()
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
 
+	// A bare scene component is the root, so the actor's origin is the middle of the threshold
+	// and both meshes keep the relative heights authored here. See the DoorRoot comment.
+	DoorRoot = CreateDefaultSubobject<USceneComponent>(TEXT("DoorRoot"));
+	SetRootComponent(DoorRoot);
+	DoorRoot->SetMobility(EComponentMobility::Static);
+
 	FrameMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("FrameMesh"));
-	SetRootComponent(FrameMesh);
+	FrameMesh->SetupAttachment(DoorRoot);
 	FrameMesh->SetMobility(EComponentMobility::Static);
+	FrameMesh->SetRelativeLocation(FVector(0.f, 0.f, FrameHeight * 0.5f));
+	// Scenery only. A frame wide enough to be a surround is also wide enough to plug the
+	// doorway, and a blocking one swallowed the interaction sweep and the player with it.
+	FrameMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	FrameMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
 
 	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMesh"));
-	DoorMesh->SetupAttachment(FrameMesh);
-	// Movable and blocking: the leaf is what stops the player walking through.
+	DoorMesh->SetupAttachment(DoorRoot);
+	// Movable and blocking: the leaf is what stops the player walking through, and the whole
+	// slab from the floor to LeafHeight is what the interaction sweep finds.
 	DoorMesh->SetMobility(EComponentMobility::Movable);
+	DoorMesh->SetRelativeLocation(FVector(0.f, 0.f, LeafHeight * 0.5f));
 	DoorMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	DoorMesh->SetCollisionResponseToAllChannels(ECR_Block);
+}
+
+FVector ADoorActor::GetLeafWorldCentre() const
+{
+	return DoorMesh ? DoorMesh->GetComponentLocation() : GetActorLocation();
 }
 
 void ADoorActor::BeginPlay()

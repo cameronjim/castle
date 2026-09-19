@@ -63,10 +63,36 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door")
 	float SlideDistance = 110.f;
 
+	/**
+	 * Height of the leaf in centimetres. Only used to sit it on the floor: the mesh itself is
+	 * scaled in the Blueprint, and this is what says where its centre goes.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Door", meta = (ClampMin = "1.0"))
+	float LeafHeight = 220.f;
+
+	/** Height of the frame surround, same deal. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Door", meta = (ClampMin = "1.0"))
+	float FrameHeight = 260.f;
+
 	UPROPERTY(BlueprintAssignable, Category = "Door")
 	FOnDoorOpenedSignature OnDoorOpened;
 
-	/** Static surround; never moves. */
+	/**
+	 * The actor's root, at the foot of the doorway. Everything else hangs off it.
+	 *
+	 * The frame used to be the root, and a root component's relative location is overwritten by
+	 * the spawn transform - so the 130 cm the content script wrote on it was thrown away and the
+	 * leaf, whose offset is measured from the frame, ended up floating near the ceiling with a
+	 * hole at eye height. A root that is never moved keeps both offsets honest.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Door")
+	TObjectPtr<USceneComponent> DoorRoot;
+
+	/**
+	 * Static surround; never moves and never collides. It is scenery: the leaf is what stops the
+	 * player and what the interaction sweep has to find, and a frame that blocked would seal the
+	 * opening the door just cleared.
+	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Door")
 	TObjectPtr<UStaticMeshComponent> FrameMesh;
 
@@ -91,6 +117,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Door")
 	bool IsOpen() const { return bOpen; }
+
+	/** World centre of the leaf. Exposed so a test can trace at the heights it really covers. */
+	UFUNCTION(BlueprintPure, Category = "Door")
+	FVector GetLeafWorldCentre() const;
 
 	/** 0 closed, 1 fully open. */
 	UFUNCTION(BlueprintPure, Category = "Door")
