@@ -18,6 +18,8 @@
 #include "Mission/MissionObjective.h"
 #include "Mission/MissionSubsystem.h"
 #include "Player/CastleCharacter.h"
+#include "Player/InventoryComponent.h"
+#include "UI/CastleHotbarWidget.h"
 
 TSharedRef<SWidget> UCastleHudWidget::RebuildWidget()
 {
@@ -48,6 +50,21 @@ TSharedRef<SWidget> UCastleHudWidget::RebuildWidget()
 		AddText(PromptText, TEXT("PromptText"), HAlign_Center, VAlign_Center, FMargin(0.f, 120.f, 0.f, 0.f));
 
 		BuildCrosshair(Root);
+
+		// The hotbar is its own widget so it can be styled and tested on its own, but it lives
+		// inside the HUD's overlay rather than being a second thing the controller manages.
+		TSubclassOf<UCastleHotbarWidget> HotbarClass = HotbarWidgetClass;
+		if (!HotbarClass)
+		{
+			HotbarClass = UCastleHotbarWidget::StaticClass();
+		}
+		Hotbar = WidgetTree->ConstructWidget<UCastleHotbarWidget>(HotbarClass, TEXT("Hotbar"));
+		if (UOverlaySlot* HotbarSlot = Cast<UOverlaySlot>(Root->AddChild(Hotbar)))
+		{
+			HotbarSlot->SetHorizontalAlignment(HAlign_Center);
+			HotbarSlot->SetVerticalAlignment(VAlign_Bottom);
+			HotbarSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 24.f));
+		}
 	}
 
 	return Super::RebuildWidget();
@@ -121,6 +138,23 @@ void UCastleHudWidget::RefreshCrosshair()
 		}
 
 		Bar->SetBrushColor(Color);
+
+		// Fists get a dot, not a cone: the first bar becomes the dot and the other three go.
+		if (bDotMode)
+		{
+			Bar->SetVisibility(Index == 0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+			if (Index == 0)
+			{
+				if (UCanvasPanelSlot* DotSlot = Cast<UCanvasPanelSlot>(Bar->Slot))
+				{
+					DotSlot->SetSize(FVector2D(DotSizePixels, DotSizePixels));
+					DotSlot->SetPosition(FVector2D::ZeroVector);
+				}
+			}
+			continue;
+		}
+
+		Bar->SetVisibility(ESlateVisibility::HitTestInvisible);
 		if (UCanvasPanelSlot* BarSlot = Cast<UCanvasPanelSlot>(Bar->Slot))
 		{
 			BarSlot->SetSize(Sizes[Index]);
@@ -143,8 +177,32 @@ FLinearColor UCastleHudWidget::GetCrosshairColor() const
 
 bool UCastleHudWidget::IsCrosshairVisible() const
 {
+	// Fists are a weapon too, so the crosshair stays up for them - as a dot, not as bars.
+	if (FindPawnInventory() != nullptr)
+	{
+		return true;
+	}
+
 	const UWeaponComponent* Weapon = FindPawnWeapon();
 	return Weapon != nullptr && Weapon->HasWeapon();
+}
+
+void UCastleHudWidget::SetCrosshairDotMode(bool bNewDotMode)
+{
+	if (bDotMode == bNewDotMode)
+	{
+		return;
+	}
+
+	bDotMode = bNewDotMode;
+	RefreshCrosshair();
+}
+
+UInventoryComponent* UCastleHudWidget::FindPawnInventory() const
+{
+	const APlayerController* PC = GetOwningPlayer();
+	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	return Pawn ? Pawn->FindComponentByClass<UInventoryComponent>() : nullptr;
 }
 
 void UCastleHudWidget::SetCrosshairAiming(bool bNewAiming)
@@ -186,6 +244,9 @@ void UCastleHudWidget::PollPawnCrosshairState()
 
 	SetCrosshairAiming(Character->IsAiming());
 	SetCrosshairSprinting(Character->IsSprinting());
+
+	const UWeaponComponent* Weapon = FindPawnWeapon();
+	SetCrosshairDotMode(Weapon != nullptr && !Weapon->HasWeapon());
 }
 
 void UCastleHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSeconds)

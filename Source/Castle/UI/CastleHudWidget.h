@@ -8,6 +8,8 @@
 
 class UBorder;
 class UCanvasPanel;
+class UCastleHotbarWidget;
+class UInventoryComponent;
 class UOverlay;
 class UTextBlock;
 class UMissionDefinition;
@@ -60,6 +62,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD")
 	static FText FormatAmmo(int32 Magazine, int32 Reserve);
 
+	// --- Hotbar ---------------------------------------------------------------------------------
+
+	/** Hotbar built into the HUD. WBP_Hotbar when the content script has wired one. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Hotbar")
+	TSubclassOf<UCastleHotbarWidget> HotbarWidgetClass;
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Hotbar")
+	UCastleHotbarWidget* GetHotbar() const { return Hotbar; }
+
 	// --- Crosshair ------------------------------------------------------------------------------
 
 	/** Tightens the centre gap to AimGapPixels. Driven from the pawn's aim state every frame. */
@@ -69,6 +80,19 @@ public:
 	/** Fades the bars to SprintOpacity: you cannot shoot accurately while sprinting anyway. */
 	UFUNCTION(BlueprintCallable, Category = "HUD|Crosshair")
 	void SetCrosshairSprinting(bool bNewSprinting);
+
+	/**
+	 * Collapses the four bars to a single centre dot. Hands get a dot rather than bars: there
+	 * is no cone of fire to show, only where the punch lands.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Crosshair")
+	void SetCrosshairDotMode(bool bNewDotMode);
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
+	bool IsCrosshairDotMode() const { return bDotMode; }
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
+	float GetCrosshairDotSize() const { return DotSizePixels; }
 
 	/** Flashes the four bars white for HitFlashSeconds. Bound to UWeaponComponent::OnHit. */
 	UFUNCTION(BlueprintCallable, Category = "HUD|Crosshair")
@@ -175,6 +199,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0"))
 	float AimGapPixels = 2.f;
 
+	/** Size of the single dot drawn instead of the bars while Frank's fists are up. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "1.0"))
+	float DotSizePixels = 2.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Crosshair")
+	bool bDotMode = false;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0"))
 	float HitFlashSeconds = 0.1f;
 
@@ -201,6 +232,13 @@ protected:
 	/** Weapon currently bound to OnAmmoChanged, so the binding can be swapped on pickup. */
 	UPROPERTY(Transient)
 	TObjectPtr<UWeaponComponent> BoundWeapon = nullptr;
+
+	/** The hotbar along the bottom of the screen. Built into the HUD's own overlay. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hotbar")
+	TObjectPtr<UCastleHotbarWidget> Hotbar = nullptr;
+
+	/** The pawn's inventory, for the ammo line and the crosshair's dot mode. */
+	UInventoryComponent* FindPawnInventory() const;
 
 	bool bBound = false;
 };

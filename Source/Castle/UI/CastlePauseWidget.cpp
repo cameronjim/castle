@@ -3,6 +3,7 @@
 #include "UI/CastlePauseWidget.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "Brushes/SlateColorBrush.h"
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/ButtonSlot.h"
@@ -46,8 +47,11 @@ TSharedRef<SWidget> UCastlePauseWidget::RebuildWidget()
 		UOverlay* Root = WidgetTree->ConstructWidget<UOverlay>(UOverlay::StaticClass(), TEXT("PauseRoot"));
 		WidgetTree->RootWidget = Root;
 
-		// A dimmer so the frozen game reads as background rather than as the menu.
+		// A dimmer so the frozen game reads as background rather than as the menu. UBorder's
+		// default brush carries no image resource, so SetBrushColor alone painted nothing and
+		// the menu has been sitting on undimmed gameplay; a colour brush always draws.
 		UBorder* Dimmer = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("Dimmer"));
+		Dimmer->SetBrush(FSlateColorBrush(FLinearColor::White));
 		Dimmer->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, 0.6f));
 		if (UOverlaySlot* DimmerSlot = Cast<UOverlaySlot>(Root->AddChild(Dimmer)))
 		{
