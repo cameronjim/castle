@@ -138,11 +138,9 @@ rule here, change the test and the code in the same commit.
   and fades the crosshair to 40%.
 - The crosshair is hidden while unarmed. Four green bars, 7 x 2 px, gap 3 px from centre
   (2 px while aiming), centred.
-- True first person: Frank's body is the mannequin under the camera with the head hidden
-  for the owner. Arms are a poseable mesh with hand-authored poses (`PoseFists`,
-  `PosePistol`), blended over 0.2 s on weapon change. The pistol attaches to the right hand.
-  Hip position is low and close; aim brings the sights under the crosshair without pushing
-  the gun far forward.
+- Hip position is low and close, grip near the bottom edge. Aim brings the slide under the
+  crosshair without pushing the gun far forward; the weapon never fills more than the
+  bottom 40% of the frame and the left arm never crosses screen centre.
 
 ## Inventory and hotbar (planned next; semantics fixed now)
 - Three hotbar slots: 1 Hands, 2 Pistol, 3 Rifle (rifle unused until a later mission).
@@ -161,14 +159,17 @@ rule here, change the test and the code in the same commit.
   `DA_Weapon_Rifle`): damage, magazine, reserve, fire rate, reload, spread, headshot
   multiplier, viewmodel mesh and pose name. `UWeaponComponent` holds the active
   definition and per-weapon ammo state keyed by definition.
-- Viewmodel is the pistol only, attached to the camera, owner-only, no shadow, never
-  affecting gameplay. There is no arms mesh: UE 5.8 ships none, and the full-mannequin
-  fallback put the torso in the camera. `bUseArmsMesh` stays false until a real arms asset
-  exists. Hip transform (42, 18, -14) with yaw -90 because the template pistol is modelled
-  barrel along +Y; aim lerps to (38, 0, -11.5) so the slide sits on the crosshair. Fire
-  kicks it back 3 cm and up 2 degrees over 0.05 s (return over 0.15 s) and flashes a
-  muzzle light at the barrel end for 0.05 s. Reload dips it out of frame for
-  `ReloadSeconds`. Sway scales with speed. Nothing is shown while unarmed.
+- Viewmodel is `UFirstPersonArmsComponent`, a poseable mannequin attached to the camera,
+  owner-only, no shadow, never affecting gameplay. UE 5.8 ships no arms asset, so poses are
+  hand-authored as limb direction targets per bone and blended over 0.2 s. The pistol
+  attaches to the arms' right hand (the template pistol is modelled barrel along +Y, hence
+  the -90 yaw on the hand offset). Fire kicks the arms back 3 cm and up 2 degrees over
+  0.05 s (return over 0.15 s) and flashes a muzzle light at the barrel end for 0.05 s.
+  Reload dips them out of frame for `ReloadSeconds`. Sway scales with speed. Unarmed shows
+  fists in a boxer's guard. A real arms pack from Fab would replace the poseable rig
+  without changing any of these rules.
+- The body mesh under the camera is the same mannequin, visible to everyone, with head,
+  neck, and clavicles hidden for the owner so only one pair of arms is ever seen.
 
 ## Navigation
 - Nav data is generated at runtime (`RuntimeGeneration=Dynamic`) and the game mode calls
