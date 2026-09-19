@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Settings/CastleSettings.h"
 #include "CastleCharacter.generated.h"
 
 class UAnimSequence;
@@ -96,6 +97,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Input")
 	float GetEffectiveLookSensitivity() const;
 
+	/**
+	 * The yaw/pitch delta a raw look input produces. Split out of Input_Look so the sensitivity
+	 * rules can be tested without an input stack.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Input")
+	FVector2D ComputeLookDelta(FVector2D RawInput, bool bAiming) const;
+
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Castle|Character")
 	void OnInteractPressed();
@@ -128,6 +136,7 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void PawnClientRestart() override;
+	virtual void PossessedBy(AController* NewController) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	//~ End APawn interface
 
@@ -265,12 +274,31 @@ protected:
 	 * Multiplier on the raw Look input. The mouse mapping is 1 degree per unit, which is far
 	 * too fast to hold an aim; this is the one number to change when the mouse feels wrong.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.05"))
-	float LookSensitivity = 0.45f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.02"))
+	float LookSensitivity = 0.2f;
+
+	/**
+	 * The sensitivity UCastleSettingsSubsystem last handed us. The subsystem wins whenever one
+	 * exists; LookSensitivity above is only the fallback for a world without a game instance,
+	 * which is every automation test.
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	float SettingsLookSensitivity = 0.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	bool bHasSettingsLookSensitivity = false;
 
 	/** LookSensitivity is multiplied by this again while aiming down sights. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.05", ClampMax = "1.0"))
 	float AimLookMultiplier = 0.7f;
+
+	/** Reads the current sensitivity out of the settings subsystem and subscribes to changes. */
+	void BindToSettingsSubsystem();
+
+	void UnbindFromSettingsSubsystem();
+
+	UFUNCTION()
+	void HandleSettingsChanged(FCastleSettings Settings);
 
 	// --- Aim ------------------------------------------------------------------------------------
 

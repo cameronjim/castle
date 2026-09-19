@@ -18,6 +18,7 @@
 #include "GameFramework/PlayerController.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
+#include "Settings/CastleSettingsSubsystem.h"
 #include "Components/PawnNoiseEmitterComponent.h"
 #include "TimerManager.h"
 #include "World/InteractionComponent.h"
@@ -126,6 +127,8 @@ void ACastleCharacter::BeginPlay()
 
 	InitialiseViewModel();
 
+	BindToSettingsSubsystem();
+
 	// Guards hear the player through AISense_Hearing; MakeNoise on a fixed beat is enough
 	// resolution for a stealth game and costs nothing per frame.
 	if (UWorld* World = GetWorld())
@@ -135,8 +138,19 @@ void ACastleCharacter::BeginPlay()
 	}
 }
 
+void ACastleCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	// BeginPlay may have run before the game instance had its subsystems; possession is the
+	// second, reliable chance to pick the player's sensitivity up.
+	BindToSettingsSubsystem();
+}
+
 void ACastleCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	UnbindFromSettingsSubsystem();
+
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(NoiseTimerHandle);
@@ -309,14 +323,54 @@ void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), MoveInput.X);
 }
 
+void ACastleCharacter::BindToSettingsSubsystem()
+{
+	UCastleSettingsSubsystem* SettingsSubsystem = UCastleSettingsSubsystem::Get(this);
+	if (!SettingsSubsystem)
+	{
+		// No game instance: an automation world. LookSensitivity is the fallback.
+		return;
+	}
+
+	SettingsLookSensitivity = SettingsSubsystem->GetLookSensitivity();
+	bHasSettingsLookSensitivity = true;
+
+	if (!SettingsSubsystem->OnSettingsChanged.IsAlreadyBound(this, &ACastleCharacter::HandleSettingsChanged))
+	{
+		SettingsSubsystem->OnSettingsChanged.AddDynamic(this, &ACastleCharacter::HandleSettingsChanged);
+	}
+}
+
+void ACastleCharacter::UnbindFromSettingsSubsystem()
+{
+	if (UCastleSettingsSubsystem* SettingsSubsystem = UCastleSettingsSubsystem::Get(this))
+	{
+		SettingsSubsystem->OnSettingsChanged.RemoveDynamic(this, &ACastleCharacter::HandleSettingsChanged);
+	}
+}
+
+void ACastleCharacter::HandleSettingsChanged(FCastleSettings NewSettings)
+{
+	// Live, so the slider can be felt while the pause menu is still open.
+	SettingsLookSensitivity = NewSettings.LookSensitivity;
+	bHasSettingsLookSensitivity = true;
+}
+
 float ACastleCharacter::GetEffectiveLookSensitivity() const
 {
-	return bIsAiming ? LookSensitivity * AimLookMultiplier : LookSensitivity;
+	const float Base = bHasSettingsLookSensitivity ? SettingsLookSensitivity : LookSensitivity;
+	return bIsAiming ? Base * AimLookMultiplier : Base;
+}
+
+FVector2D ACastleCharacter::ComputeLookDelta(FVector2D RawInput, bool bAiming) const
+{
+	const float Base = bHasSettingsLookSensitivity ? SettingsLookSensitivity : LookSensitivity;
+	return RawInput * (bAiming ? Base * AimLookMultiplier : Base);
 }
 
 void ACastleCharacter::Input_Look(const FInputActionValue& Value)
 {
-	const FVector2D LookInput = Value.Get<FVector2D>() * GetEffectiveLookSensitivity();
+	const FVector2D LookInput = ComputeLookDelta(Value.Get<FVector2D>(), bIsAiming);
 
 	AddControllerYawInput(LookInput.X);
 	AddControllerPitchInput(LookInput.Y);
