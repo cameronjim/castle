@@ -2,9 +2,16 @@
 
 #include "Combat/HealthComponent.h"
 #include "Combat/WeaponComponent.h"
+#include "Combat/WeaponDefinition.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Player/InventoryComponent.h"
+#include "Player/LocomotionAnim.h"
+#include "World/PickupActor.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformFileManager.h"
@@ -24,11 +31,11 @@
  * tools, not assertions: they exist so the room and the view model can be reviewed without
  * opening the full editor.
  *
- *   Castle.Screenshot.M01Cell       cell.png, corridor.png, doorway.png, station.png - the
- *                                   room, pawn hidden
+ *   Castle.Screenshot.M01Cell       cell.png, corridor.png, doorway.png, station.png,
+ *                                   corridor2.png, exitroom.png - the room, pawn hidden
  *   Castle.Screenshot.M01Viewmodel  viewmodel_fists.png, viewmodel_lookdown.png,
  *                                   viewmodel_hip.png, viewmodel_aim.png, viewmodel_fire.png,
- *                                   guard_dead.png - the pawn visible
+ *                                   guard_walking.png, guard_dead.png - the pawn visible
  *   Castle.Screenshot.Settings      UI/settings.png - the pause menu's Settings screen
  *
  * Both need a real RHI, so they are explicit no-ops in the normal -nullrhi suite:
@@ -123,22 +130,110 @@ bool FCastleTakeRoomShot::Update()
 	return true;
 }
 
-/** Arm Frank, so the view model has a pistol in it. */
+/**
+ * Arm Frank the way the game does: through a weapon pickup in the level.
+ *
+ * This used to call WeaponComponent::GiveWeapon, which arms the component but leaves
+ * ActiveDefinition null - so the view model kept the Blueprint's default mesh and its C++ grip
+ * rotation, and the shot looked right while the real game, which goes through the definition,
+ * showed no gun at all. Anything the pickup path gets wrong now gets it wrong here too.
+ */
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
 	FCastleGiveWeapon, FAutomationTestBase*, Test);
 
 bool FCastleGiveWeapon::Update()
 {
+	UWorld* World = FindScreenshotWorld();
 	ACastleCharacter* Frank = Cast<ACastleCharacter>(FindScreenshotPawn());
-	UWeaponComponent* Weapon = Frank ? Frank->GetWeaponComponent() : nullptr;
-	if (!Weapon)
+	if (!World || !Frank || !Frank->GetInventoryComponent())
 	{
-		Test->AddError(TEXT("No weapon component on the player pawn."));
+		Test->AddError(TEXT("No player pawn with an inventory to arm."));
 		return true;
 	}
 
-	Weapon->GiveWeapon(12, 36);
+	for (TActorIterator<APickupActor> It(World); It; ++It)
+	{
+		if (It->PickupType != EPickupType::Weapon || It->Weapon.IsNull())
+		{
+			continue;
+		}
+		Test->AddInfo(FString::Printf(TEXT("Taking %s through the real pickup path."), *It->GetName()));
+		It->ApplyTo(Frank);
+		break;
+	}
+
+	const UWeaponComponent* Weapon = Frank->GetWeaponComponent();
+	if (!Weapon || !Weapon->HasWeapon())
+	{
+		Test->AddError(TEXT("No weapon pickup in the map armed the player; the hip shot has no gun."));
+		return true;
+	}
+
 	Frank->RefreshViewModelForWeapon();
+	const UStaticMeshComponent* WeaponMesh = Frank->GetWeaponMesh();
+	Test->AddInfo(FString::Printf(TEXT("View model: mesh=%s hidden=%d definition=%s"),
+		*GetNameSafe(WeaponMesh ? WeaponMesh->GetStaticMesh() : nullptr),
+		WeaponMesh && WeaponMesh->bHiddenInGame ? 1 : 0,
+		*GetNameSafe(Weapon->GetActiveDefinition())));
+	if (WeaponMesh && (!WeaponMesh->GetStaticMesh() || WeaponMesh->bHiddenInGame))
+	{
+		Test->AddError(TEXT("The view model pistol is missing or hidden after the pickup."));
+	}
+	return true;
+}
+
+/** Frame a guard from behind while he walks, and report whether his body leads or trails. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
+	FCastleFrameWalkingGuard, FAutomationTestBase*, Test);
+
+bool FCastleFrameWalkingGuard::Update()
+{
+	UWorld* World = FindScreenshotWorld();
+	APawn* Pawn = FindScreenshotPawn();
+	if (!World || !Pawn)
+	{
+		return true;
+	}
+
+	AGuardCharacter* Walking = nullptr;
+	float BestSpeed = 20.f;
+	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	{
+		const float Speed = It->GetVelocity().Size2D();
+		if (!It->IsLimp() && Speed > BestSpeed)
+		{
+			BestSpeed = Speed;
+			Walking = *It;
+		}
+	}
+
+	if (!Walking)
+	{
+		Test->AddWarning(TEXT("No guard was moving; skipped guard_walking.png."));
+		return true;
+	}
+
+	const float Facing = CastleLocomotion::GetFacingAlongVelocity(Walking->GetMesh(), Walking->GetVelocity());
+	Test->AddInfo(FString::Printf(TEXT("%s at %.0f cm/s, mesh faces travel by %.2f."),
+		*Walking->GetName(), BestSpeed, Facing));
+	if (Facing < 0.7f)
+	{
+		Test->AddError(FString::Printf(
+			TEXT("%s is walking sideways or backwards (facing dot %.2f)."), *Walking->GetName(), Facing));
+	}
+
+	// Stand off his shoulder so the shot shows which way the body points against which way it
+	// travels; straight behind him hides exactly that.
+	const FVector Travel = Walking->GetVelocity().GetSafeNormal2D();
+	const FVector Side = FVector::CrossProduct(FVector::UpVector, Travel);
+	const FVector Body = Walking->GetActorLocation();
+	const FVector Eye = Body - Travel * 260.f + Side * 90.f + FVector(0.f, 0.f, 70.f);
+	const FRotator Look = (Body - Eye).Rotation();
+	Pawn->TeleportTo(Eye, Look, false, true);
+	if (APlayerController* PC = World->GetFirstPlayerController())
+	{
+		PC->SetControlRotation(Look);
+	}
 	return true;
 }
 
@@ -399,6 +494,19 @@ bool FCastleScreenshotM01Cell::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("station.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
+	// Through the keycard door and down corridor 2, which is where "second room is absolutely
+	// pitch black" was. Corridor 2 runs x 2900..4900 into the exit room at 4900..5500.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(2960.f, 0.f, 170.f), FRotator(-2.f, 0.f, 0.f), true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("corridor2.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
+	// And the exit room itself, the far end of the level.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(4820.f, 0.f, 170.f), FRotator(-2.f, 0.f, 0.f), true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("exitroom.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
 	return true;
 }
 
@@ -446,6 +554,12 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleFireAndShoot(this, TEXT("viewmodel_fire.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
+	// A guard mid-patrol, framed off his shoulder: the shot that answers "do they walk forwards".
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleFrameWalkingGuard(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("guard_walking.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
 	// And the other half of the playtest: a guard who is supposed to end up on the floor.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKillNearestGuard(this));
