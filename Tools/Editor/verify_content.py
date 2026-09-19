@@ -403,10 +403,22 @@ def check_weapon_data():
             if value_text(got) != str(want):
                 fail("{0}.{1} is {2}, expected {3}".format(name, field, got, want))
 
-    pistol_mesh = prop(c.load_or_none(c.asset_path(WEAPON_PATH, "DA_Weapon_Pistol")), "view_model_mesh")
+    pistol = c.load_or_none(c.asset_path(WEAPON_PATH, "DA_Weapon_Pistol"))
+    pistol_mesh = prop(pistol, "view_model_mesh")
     say("  DA_Weapon_Pistol.view_model_mesh = {0}".format(pistol_mesh))
     if not str(pistol_mesh or ""):
         fail("DA_Weapon_Pistol has no ViewModelMesh")
+
+    # SM_Pistol is modelled barrel-along-+Y, so the grip needs a -90 yaw and nothing else.
+    # unreal.Rotator is (roll, pitch, yaw), and writing the C++ (pitch, yaw, roll) order here
+    # once put -90 on the pitch instead: the gun pointed through the palm and left the frame.
+    hand_rotation = prop(pistol, "hand_rotation")
+    say("  DA_Weapon_Pistol.hand_rotation   = {0}".format(hand_rotation))
+    if hand_rotation is not None and not isinstance(hand_rotation, str):
+        if abs(hand_rotation.yaw + 90.0) > 0.5 or abs(hand_rotation.pitch) > 0.5 \
+                or abs(hand_rotation.roll) > 0.5:
+            fail("DA_Weapon_Pistol.hand_rotation is {0}, expected yaw -90 and nothing else "
+                 "(unreal.Rotator takes roll, pitch, yaw)".format(hand_rotation))
 
     pickup_class = c.load_generated_class(WORLD_PATH, "BP_Pickup_Pistol")
     if pickup_class is not None:
@@ -604,6 +616,63 @@ def check_m01_gameplay(actors):
         fail("{0} guard(s) carry loot, expected exactly 1".format(len(looters)))
 
 
+def base_material(material):
+    """Walk a material instance up to the Material that owns the usage flags."""
+    seen = 0
+    while material is not None and not isinstance(material, unreal.Material) and seen < 8:
+        try:
+            material = material.get_editor_property("parent")
+        except Exception:  # noqa: BLE001
+            return None
+        seen += 1
+    return material if isinstance(material, unreal.Material) else None
+
+
+SKELETAL_MESH_COMPONENTS = (
+    (AI_PATH, "BP_Guard", ("mesh",)),
+    (PLAYER_PATH, "BP_CastleCharacter", ("mesh", "arms_mesh")),
+)
+
+
+def check_skeletal_material_usage():
+    """Every material on a skeletal mesh must have bUsedWithSkeletalMesh.
+
+    Without it the renderer silently substitutes the grey engine default and logs
+    "missing usage flag SkeletalMesh!" - which is what had Frank in white plastic sleeves and
+    the guards in mannequin grey while every asset check passed.
+    """
+    say("---- skeletal mesh material usage ----")
+    for path, name, component_names in SKELETAL_MESH_COMPONENTS:
+        cls = c.load_generated_class(path, name)
+        if cls is None:
+            continue
+        cdo = unreal.get_default_object(cls)
+        for component_name in component_names:
+            component = prop(cdo, component_name)
+            if component is None:
+                continue
+            for slot in range(4):
+                try:
+                    material = component.get_material(slot)
+                except Exception:  # noqa: BLE001
+                    break
+                if material is None:
+                    continue
+                base = base_material(material)
+                flag = None
+                if base is not None:
+                    try:
+                        flag = bool(base.get_editor_property("used_with_skeletal_mesh"))
+                    except Exception:  # noqa: BLE001
+                        flag = None
+                say("  {0}.{1} slot {2} = {3} used_with_skeletal_mesh={4}".format(
+                    name, component_name, slot, name_of(material), flag))
+                if flag is not True:
+                    fail("{0}.{1} slot {2} wears {3}, which has no SkeletalMesh usage flag; "
+                         "it will render as the grey default".format(
+                             name, component_name, slot, name_of(material)))
+
+
 def main():
     say("==== verifying stage 1-2 starter content ====")
     check_existence()
@@ -613,6 +682,7 @@ def main():
     check_pickup_parts()
     check_guard_presentation()
     check_view_model()
+    check_skeletal_material_usage()
     check_weapon_data()
     check_data_assets()
     check_maps()

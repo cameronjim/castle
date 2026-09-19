@@ -122,11 +122,15 @@ def _build_guard_visor(material):
 
 
 def ensure_guard_materials():
-    """M_GuardBody and M_GuardVisor at /Game/Characters/Guard. Idempotent."""
+    """M_GuardBody and M_GuardVisor at /Game/Characters/Guard. Idempotent.
+
+    Both go on SK_Mannequin, so both need bUsedWithSkeletalMesh; without it the guards wore the
+    grey engine default and the log filled with "missing usage flag SkeletalMesh!".
+    """
     c.ensure_directory(GUARD_MATERIAL_PATH)
     return {
-        "body": m.ensure_material(M_GUARD_BODY, _build_guard_body),
-        "visor": m.ensure_material(M_GUARD_VISOR, _build_guard_visor),
+        "body": m.ensure_material(M_GUARD_BODY, _build_guard_body, skeletal=True),
+        "visor": m.ensure_material(M_GUARD_VISOR, _build_guard_visor, skeletal=True),
     }
 
 

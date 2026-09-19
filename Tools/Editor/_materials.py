@@ -287,15 +287,45 @@ def _split(full_path):
     return full_path.rsplit("/", 1)[0], full_path.rsplit("/", 1)[1]
 
 
-def ensure_material(full_path, build_fn, rebuild=False):
+def ensure_skeletal_usage(material, full_path=""):
+    """Set bUsedWithSkeletalMesh on a Material when it is not already set.
+
+    A material without the flag is swapped for the grey engine default on every skeletal mesh
+    that wears it, and the cook logs ``missing usage flag SkeletalMesh!``. That is what put
+    Frank in white plastic sleeves and the guards in mannequin grey. The flag lives in the
+    asset, so it has to be written and saved here rather than discovered at runtime.
+
+    Safe on anything: a material instance has no such property and is left alone. Returns True
+    only when the asset actually changed.
+    """
+    if material is None or not isinstance(material, unreal.Material):
+        return False
+    label = full_path or c.safe_name(material)
+    try:
+        if bool(material.get_editor_property("used_with_skeletal_mesh")):
+            return False
+        material.set_editor_property("used_with_skeletal_mesh", True)
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("used_with_skeletal_mesh " + label, exc)
+        return False
+
+    c.save(material)
+    c.log("updated", label, "used_with_skeletal_mesh = True")
+    return True
+
+
+def ensure_material(full_path, build_fn, rebuild=False, skeletal=False):
     """Idempotent Material. ``build_fn(material)`` wires the graph on first creation.
 
     An existing material is returned untouched unless ``rebuild`` is True, in which case
-    its expressions are cleared and ``build_fn`` runs again.
+    its expressions are cleared and ``build_fn`` runs again. ``skeletal`` marks the material
+    as usable on skeletal meshes, which is checked on every run, not only on creation.
     """
     package_path, name = _split(full_path)
     existing = c.load_or_none(full_path)
     if existing is not None and not rebuild:
+        if skeletal and ensure_skeletal_usage(existing, full_path):
+            return existing
         c.log("exists", full_path)
         return existing
 
@@ -321,6 +351,11 @@ def ensure_material(full_path, build_fn, rebuild=False):
                 c.log_error("delete_all_material_expressions " + full_path, exc)
 
         build_fn(material)
+        if skeletal:
+            try:
+                material.set_editor_property("used_with_skeletal_mesh", True)
+            except Exception as exc:  # noqa: BLE001
+                c.log_error("used_with_skeletal_mesh " + full_path, exc)
         unreal.MaterialEditingLibrary.recompile_material(material)
         c.save(material)
         c.log("created" if created else "updated", full_path)
@@ -653,7 +688,10 @@ def ensure_prop_materials():
     """
     out = {}
     try:
-        out["pistol"] = ensure_material(M_PISTOL, _build_flat((0.02, 0.02, 0.02), 0.35, 0.9))
+        # skeletal too: the view-model pistol is a static mesh today, but the flag costs one
+        # extra shader permutation and saves a grey default gun the day it becomes a skeletal one.
+        out["pistol"] = ensure_material(
+            M_PISTOL, _build_flat((0.02, 0.02, 0.02), 0.35, 0.9), skeletal=True)
     except Exception as exc:  # noqa: BLE001
         c.log_error("ensure_prop_materials " + M_PISTOL, exc)
         out["pistol"] = None
@@ -676,12 +714,14 @@ def ensure_character_materials():
     """
     out = {}
     try:
-        out["arms"] = ensure_material(M_FRANK_ARMS, _build_flat((0.06, 0.07, 0.05), 0.85))
+        out["arms"] = ensure_material(
+            M_FRANK_ARMS, _build_flat((0.06, 0.07, 0.05), 0.85), skeletal=True)
     except Exception as exc:  # noqa: BLE001
         c.log_error("ensure_character_materials " + M_FRANK_ARMS, exc)
         out["arms"] = None
     try:
-        out["gloves"] = ensure_material(M_FRANK_GLOVES, _build_flat((0.02, 0.02, 0.02), 0.7))
+        out["gloves"] = ensure_material(
+            M_FRANK_GLOVES, _build_flat((0.02, 0.02, 0.02), 0.7), skeletal=True)
     except Exception as exc:  # noqa: BLE001
         c.log_error("ensure_character_materials " + M_FRANK_GLOVES, exc)
         out["gloves"] = None
