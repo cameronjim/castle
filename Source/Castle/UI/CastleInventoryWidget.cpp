@@ -129,12 +129,30 @@ void UCastleInventoryWidget::HandleInventoryChanged()
 TArray<FText> UCastleInventoryWidget::BuildInventoryLines() const
 {
 	TArray<FText> Lines;
+	for (const FCastleInventoryRow& Row : BuildInventoryRows())
+	{
+		Lines.Add(Row.Text);
+	}
+	return Lines;
+}
+
+TArray<FCastleInventoryRow> UCastleInventoryWidget::BuildInventoryRows() const
+{
+	TArray<FCastleInventoryRow> Lines;
 	if (!BoundInventory)
 	{
 		return Lines;
 	}
 
-	Lines.Add(NSLOCTEXT("Castle", "InventoryWeapons", "Weapons"));
+	auto AddRow = [&Lines](const FText& Text, bool bHeading)
+	{
+		FCastleInventoryRow Row;
+		Row.Text = Text;
+		Row.bHeading = bHeading;
+		Lines.Add(Row);
+	};
+
+	AddRow(NSLOCTEXT("Castle", "InventoryWeapons", "Weapons"), true);
 
 	for (int32 Index = 0; Index < CastleHotbarSlotCount; ++Index)
 	{
@@ -149,23 +167,23 @@ TArray<FText> UCastleInventoryWidget::BuildInventoryLines() const
 		const FString Ammo = Entry.IsRanged()
 			? FString::Printf(TEXT("  %d / %d"), Entry.Magazine, Entry.Reserve)
 			: FString();
-		Lines.Add(FText::FromString(FString::Printf(TEXT("%d. %s%s"), Index + 1, *Name, *Ammo)));
+		AddRow(FText::FromString(FString::Printf(TEXT("%d. %s%s"), Index + 1, *Name, *Ammo)), false);
 	}
 
-	Lines.Add(NSLOCTEXT("Castle", "InventoryKeycards", "Keycards"));
+	AddRow(NSLOCTEXT("Castle", "InventoryKeycards", "Keycards"), true);
 
 	TArray<FName> Keycards = BoundInventory->GetKeycards().Array();
 	Keycards.Sort(FNameLexicalLess());
 	if (Keycards.Num() == 0)
 	{
-		Lines.Add(NSLOCTEXT("Castle", "InventoryNoKeycards", "none"));
+		AddRow(NSLOCTEXT("Castle", "InventoryNoKeycards", "none"), false);
 	}
 	for (const FName& Keycard : Keycards)
 	{
-		Lines.Add(FText::FromName(Keycard));
+		AddRow(FText::FromName(Keycard), false);
 	}
 
-	Lines.Add(NSLOCTEXT("Castle", "InventorySpareAmmo", "Spare ammo"));
+	AddRow(NSLOCTEXT("Castle", "InventorySpareAmmo", "Spare ammo"), true);
 
 	bool bAnySpare = false;
 	for (int32 Index = 0; Index < CastleHotbarSlotCount; ++Index)
@@ -176,12 +194,12 @@ TArray<FText> UCastleInventoryWidget::BuildInventoryLines() const
 			continue;
 		}
 		bAnySpare = true;
-		Lines.Add(FText::FromString(FString::Printf(TEXT("%s  %d"),
-			*Entry.Weapon->GetDisplayNameOrAssetName().ToString(), Entry.Reserve)));
+		AddRow(FText::FromString(FString::Printf(TEXT("%s  %d"),
+			*Entry.Weapon->GetDisplayNameOrAssetName().ToString(), Entry.Reserve)), false);
 	}
 	if (!bAnySpare)
 	{
-		Lines.Add(NSLOCTEXT("Castle", "InventoryNoSpareAmmo", "none"));
+		AddRow(NSLOCTEXT("Castle", "InventoryNoSpareAmmo", "none"), false);
 	}
 
 	return Lines;
@@ -197,15 +215,25 @@ void UCastleInventoryWidget::RefreshRows()
 	RowBox->ClearChildren();
 
 	int32 RowIndex = 0;
-	for (const FText& Line : BuildInventoryLines())
+	for (const FCastleInventoryRow& Row : BuildInventoryRows())
 	{
 		UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(
 			UTextBlock::StaticClass(), *FString::Printf(TEXT("Row%d"), RowIndex++));
-		Text->SetText(Line);
+		Text->SetText(Row.Text);
+
+		// Headings sit flush left in the HUD green; the things you are carrying are indented
+		// white underneath them, so the screen reads as three lists rather than one block.
+		if (Row.bHeading)
+		{
+			Text->SetColorAndOpacity(FSlateColor(HeadingColor));
+		}
+
 		if (UVerticalBoxSlot* LineSlot = Cast<UVerticalBoxSlot>(RowBox->AddChild(Text)))
 		{
 			LineSlot->SetHorizontalAlignment(HAlign_Left);
-			LineSlot->SetPadding(FMargin(0.f, 2.f));
+			LineSlot->SetPadding(Row.bHeading
+				? FMargin(0.f, RowIndex > 1 ? 16.f : 0.f, 0.f, 4.f)
+				: FMargin(20.f, 2.f, 0.f, 2.f));
 		}
 	}
 }

@@ -8,6 +8,8 @@
 #include "Components/BorderSlot.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
+#include "Components/SizeBox.h"
+#include "Components/SizeBoxSlot.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
@@ -38,12 +40,23 @@ TSharedRef<SWidget> UCastleHotbarWidget::RebuildWidget()
 			Box->SetBrush(FSlateColorBrush(FLinearColor::White));
 			Box->SetPadding(FMargin(10.f, 6.f));
 
+			// A size box so all three slots are the same width whatever is written in them;
+			// without it the empty slot shrinks to its dash and the bar looks broken.
+			USizeBox* Sizer = WidgetTree->ConstructWidget<USizeBox>(
+				USizeBox::StaticClass(), *(TEXT("SlotSizer") + Suffix));
+			Sizer->SetMinDesiredWidth(SlotWidthPixels);
+			if (UBorderSlot* BoxSlot = Cast<UBorderSlot>(Box->AddChild(Sizer)))
+			{
+				BoxSlot->SetHorizontalAlignment(HAlign_Fill);
+				BoxSlot->SetVerticalAlignment(VAlign_Center);
+			}
+
 			UVerticalBox* Stack = WidgetTree->ConstructWidget<UVerticalBox>(
 				UVerticalBox::StaticClass(), *(TEXT("SlotStack") + Suffix));
-			if (UBorderSlot* BoxSlot = Cast<UBorderSlot>(Box->AddChild(Stack)))
+			if (USizeBoxSlot* StackSlot = Cast<USizeBoxSlot>(Sizer->AddChild(Stack)))
 			{
-				BoxSlot->SetHorizontalAlignment(HAlign_Center);
-				BoxSlot->SetVerticalAlignment(VAlign_Center);
+				StackSlot->SetHorizontalAlignment(HAlign_Center);
+				StackSlot->SetVerticalAlignment(VAlign_Center);
 			}
 
 			auto AddLine = [this, Stack](TArray<TObjectPtr<UTextBlock>>& Into, const FString& Name)

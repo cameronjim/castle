@@ -9,6 +9,7 @@
 
 class UBorder;
 class UHorizontalBox;
+class USizeBox;
 class UInventoryComponent;
 class UTextBlock;
 
@@ -106,6 +107,10 @@ protected:
 	/** A slot that holds something but is not in his hands. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Hotbar")
 	FLinearColor FilledSlotColor = FLinearColor(0.f, 0.f, 0.f, 0.55f);
+
+	/** Width every slot box is at least, so the three of them line up. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Hotbar", meta = (ClampMin = "1.0"))
+	float SlotWidthPixels = 96.f;
 
 	/** A slot with nothing in it. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Hotbar")

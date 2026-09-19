@@ -11,6 +11,20 @@ class UInventoryComponent;
 class UTextBlock;
 class UVerticalBox;
 
+/** One line of the inventory screen: a section heading, or an item under one. */
+USTRUCT(BlueprintType)
+struct CASTLE_API FCastleInventoryRow
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory|UI")
+	FText Text;
+
+	/** Headings are drawn dim and unindented; items are white and indented under them. */
+	UPROPERTY(BlueprintReadOnly, Category = "Inventory|UI")
+	bool bHeading = false;
+};
+
 /**
  * The Tab screen: everything Frank is carrying, read-only. Weapons with their slot number and
  * ammo, keycards by id, spare rounds per weapon.
@@ -46,6 +60,14 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Inventory|UI")
 	TArray<FText> BuildInventoryLines() const;
+
+	/** The same list with the section headings marked, which is what the layout needs. */
+	UFUNCTION(BlueprintPure, Category = "Inventory|UI")
+	TArray<FCastleInventoryRow> BuildInventoryRows() const;
+
+	/** Colour of a section heading. Rows themselves are left at the text block's default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Inventory|UI")
+	FLinearColor HeadingColor = FLinearColor(0.22f, 1.f, 0.08f, 0.8f);
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Inventory|UI")
 	FText TitleLabel;
