@@ -194,15 +194,13 @@ EXIT_SIGN = ("Art_ExitSign_Station", (2290.0, 0.0, 330.0), (10.0, 60.0, 16.0))
 #                                             playtesting layout and AI
 #
 # Tools/create-content.ps1 -Bright sets CASTLE_BRIGHT=1 for the content-script process.
-ROOM_EXPOSURE_EV_NORMAL = -3.0   # the shipped look: dark but seeable
-ROOM_EXPOSURE_EV_TESTING = -1.5  # bright, for playtesting layout and AI
-BRIGHT = os.environ.get("CASTLE_BRIGHT", "0") == "1"
-ROOM_EXPOSURE_EV = ROOM_EXPOSURE_EV_TESTING if BRIGHT else ROOM_EXPOSURE_EV_NORMAL
-
-# The fluorescent tube, red emergency and keycard stripe emissive instances were tuned by
-# eye at -4.5 EV (the old fixed bias). A brighter preset needs a dimmer emissive or the
-# tubes blow out, so scale by how many stops brighter this preset is than that baseline.
-EMISSIVE_INTENSITY_FACTOR = 2 ** (ROOM_EXPOSURE_EV - (-4.5))
+# The numbers themselves live in _materials, because create_world_blueprints.py asks for the
+# same lamp instances and the two have to agree or each run undoes the other's tuning.
+ROOM_EXPOSURE_EV_NORMAL = m.ROOM_EXPOSURE_EV_NORMAL   # the shipped look: dark but seeable
+ROOM_EXPOSURE_EV_TESTING = m.ROOM_EXPOSURE_EV_TESTING  # bright, for playtesting layout and AI
+BRIGHT = m.BRIGHT
+ROOM_EXPOSURE_EV = m.ROOM_EXPOSURE_EV
+EMISSIVE_INTENSITY_FACTOR = m.EMISSIVE_INTENSITY_FACTOR
 
 COOL_WHITE = (200, 220, 255)
 EMERGENCY_RED = (255, 25, 10)

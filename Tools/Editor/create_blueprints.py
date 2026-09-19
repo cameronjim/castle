@@ -289,6 +289,15 @@ def configure_view_model(bp):
     # sees. Both meshes get the same fatigues so the legs match the forearms.
     c.ensure_directory(m.MATERIALS_PATH)
     character_materials = m.ensure_character_materials()
+
+    # The view model pistol is the same white template mesh the pickup uses, and the pickup
+    # already has a gun-metal material; without this the aimed shot is a white plastic gun.
+    pistol_material = m.ensure_prop_materials().get("pistol")
+    if pistol_material is not None:
+        changed = set_component_materials(
+            bp, "weapon_mesh", [""], {"arms": pistol_material},
+            "BP_CastleCharacter.WeaponMesh") or changed
+
     slots = mesh_slot_names(mannequin)
     changed = set_component_materials(
         bp, "arms_mesh", slots, character_materials, "BP_CastleCharacter.ArmsMesh") or changed
@@ -358,6 +367,10 @@ def run():
         # The body plays the same two sequences the guards do; there is no AnimBP.
         values.append(("idle_anim", c.load_or_none(MANNEQUIN_IDLE)))
         values.append(("walk_anim", c.load_or_none(MANNEQUIN_WALK)))
+        # Frank's fatigues. ACastleCharacter puts this on every slot of the body and the arms
+        # at BeginPlay; a component material override alone does not reach the spawned pawn.
+        c.ensure_directory(m.MATERIALS_PATH)
+        values.append(("fatigues_material", m.ensure_character_materials().get("arms")))
         apply_defaults(bp_character, "BP_CastleCharacter", PLAYER_PATH, values)
         configure_view_model(bp_character)
 

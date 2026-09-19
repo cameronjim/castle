@@ -20,6 +20,23 @@ import _common as c  # noqa: E402
 
 MATERIALS_PATH = "/Game/Materials"
 
+# --- exposure preset -------------------------------------------------------------------
+# The emissive instances are tuned against the room's exposure, and two scripts ask for
+# them (create_world_blueprints for the keycard stripe, create_room_art for the lamps).
+# The factor lives here so both agree: when they disagreed, every run rewrote the four
+# MI_* assets to the other one's number and left them dirty in git forever.
+#
+#   default (CASTLE_BRIGHT unset or "0") -> ROOM_EXPOSURE_EV_NORMAL, the shipped look
+#   CASTLE_BRIGHT=1                      -> ROOM_EXPOSURE_EV_TESTING, for playtesting
+ROOM_EXPOSURE_EV_NORMAL = -3.0
+ROOM_EXPOSURE_EV_TESTING = -1.5
+BRIGHT = os.environ.get("CASTLE_BRIGHT", "0") == "1"
+ROOM_EXPOSURE_EV = ROOM_EXPOSURE_EV_TESTING if BRIGHT else ROOM_EXPOSURE_EV_NORMAL
+
+# The lamp instances were eyeballed at the old fixed -4.5 EV bias, so a brighter preset
+# needs a proportionally dimmer emissive or the tubes blow out.
+EMISSIVE_INTENSITY_FACTOR = 2 ** (ROOM_EXPOSURE_EV - (-4.5))
+
 # Wall / floor / metal
 M_CONCRETE = MATERIALS_PATH + "/M_Concrete"
 M_CONCRETE_FLOOR = MATERIALS_PATH + "/M_ConcreteFloor"
@@ -583,14 +600,14 @@ def ensure_surface_materials():
     return out
 
 
-def ensure_light_materials(intensity_factor=1.0):
+def ensure_light_materials(intensity_factor=None):
     """M_Emissive + M_FluorescentFlicker and the four lamp instances.
 
-    ``intensity_factor`` scales the tuned strengths below - they were eyeballed at the
-    room art pass's -4.5 EV default, so a brighter exposure preset needs a proportionally
-    dimmer emissive or the tubes blow out. create_room_art.py derives this from
-    ROOM_EXPOSURE_EV; anyone calling this module directly gets the -4.5 tuning as-is.
+    ``intensity_factor`` scales the tuned strengths below. Leave it out: the default is
+    EMISSIVE_INTENSITY_FACTOR, which is the whole point of that constant living up there.
     """
+    if intensity_factor is None:
+        intensity_factor = EMISSIVE_INTENSITY_FACTOR
     out = {}
     try:
         out["emissive"] = ensure_material(M_EMISSIVE, _build_emissive)
@@ -671,7 +688,7 @@ def ensure_character_materials():
     return out
 
 
-def ensure_all(intensity_factor=1.0):
+def ensure_all(intensity_factor=None):
     """Every material the room-art pass needs, in one dict."""
     materials = {}
     materials.update(ensure_surface_materials())
@@ -681,7 +698,7 @@ def ensure_all(intensity_factor=1.0):
     return materials
 
 
-def run(intensity_factor=1.0):
+def run(intensity_factor=None):
     c.ensure_directory(MATERIALS_PATH)
     return ensure_all(intensity_factor)
 
