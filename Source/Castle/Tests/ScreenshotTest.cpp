@@ -24,9 +24,11 @@
  * tools, not assertions: they exist so the room and the view model can be reviewed without
  * opening the full editor.
  *
- *   Castle.Screenshot.M01Cell       cell.png, corridor.png, doorway.png - the room, pawn hidden
- *   Castle.Screenshot.M01Viewmodel  viewmodel_fists.png, viewmodel_hip.png, viewmodel_aim.png,
- *                                   viewmodel_fire.png, guard_dead.png - the pawn visible
+ *   Castle.Screenshot.M01Cell       cell.png, corridor.png, doorway.png, station.png - the
+ *                                   room, pawn hidden
+ *   Castle.Screenshot.M01Viewmodel  viewmodel_fists.png, viewmodel_lookdown.png,
+ *                                   viewmodel_hip.png, viewmodel_aim.png, viewmodel_fire.png,
+ *                                   guard_dead.png - the pawn visible
  *   Castle.Screenshot.Settings      UI/settings.png - the pause menu's Settings screen
  *
  * Both need a real RHI, so they are explicit no-ops in the normal -nullrhi suite:
@@ -98,7 +100,10 @@ bool FCastlePlaceCamera::Update()
 		return true;
 	}
 
-	Pawn->TeleportTo(Location, Rotation, false, true);
+	// Yaw only on the actor: a character never pitches (bUseControllerRotationPitch is off), and
+	// teleporting one nose-down swings his body out of his own camera, which is precisely what
+	// the look-down shot is meant to show.
+	Pawn->TeleportTo(Location, FRotator(0.f, Rotation.Yaw, 0.f), false, true);
 	PC->SetControlRotation(Rotation);
 	Pawn->SetActorHiddenInGame(bHidePawn);
 	return true;
@@ -386,6 +391,14 @@ bool FCastleScreenshotM01Cell::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("doorway.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
+	// The end of corridor 1, looking into the guard station. This is the shot that answers
+	// whether the keycard door at x = 2900 reads as the way forward, and whether the art pass's
+	// door frame fights with the door Blueprint's own.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(2150.f, 0.f, 170.f), FRotator(-2.f, 0.f, 0.f), true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("station.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
 	return true;
 }
 
@@ -410,6 +423,15 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_fists.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
+	// Looking at his own feet: the one shot that shows the body under the camera, so a white
+	// mannequin leg or a missing torso is visible before a playtest finds it.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(600.f, 0.f, 170.f), FRotator(-70.f, 0.f, 0.f), false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_lookdown.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(600.f, 0.f, 170.f), FRotator(-3.f, 0.f, 0.f), false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleGiveWeapon(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_hip.png")));

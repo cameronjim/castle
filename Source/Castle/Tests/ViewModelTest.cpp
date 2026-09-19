@@ -24,6 +24,20 @@ namespace CastleViewModelTest
 		return LoadObject<USkeleton>(
 			nullptr, TEXT("/Game/Mannequin/Character/Mesh/SK_Mannequin_Skeleton"));
 	}
+
+	/** Where a bone sits in the reference pose, in component space, by walking up to the root. */
+	static FVector ReferenceBoneLocation(const FReferenceSkeleton& ReferenceSkeleton, FName BoneName)
+	{
+		const TArray<FTransform>& Pose = ReferenceSkeleton.GetRefBonePose();
+		FTransform Accumulated = FTransform::Identity;
+		int32 Index = ReferenceSkeleton.FindBoneIndex(BoneName);
+		while (Pose.IsValidIndex(Index))
+		{
+			Accumulated = Accumulated * Pose[Index];
+			Index = ReferenceSkeleton.GetParentIndex(Index);
+		}
+		return Accumulated.GetLocation();
+	}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleViewModelPoseBonesExist, "Castle.ViewModel.PoseBonesExist",
@@ -56,6 +70,67 @@ bool FCastleViewModelPoseBonesExist::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("SK_Mannequin has a bone called %s"), *BoneName.ToString()),
 			ReferenceSkeleton.FindBoneIndex(BoneName) != INDEX_NONE);
 	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleViewModelFingerBonesExist, "Castle.ViewModel.FingerBonesExist",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleViewModelFingerBonesExist::RunTest(const FString& Parameters)
+{
+	UFirstPersonArmsComponent* Arms = NewObject<UFirstPersonArmsComponent>();
+
+	const TArray<FName> Fingers = Arms->GetFingerBoneNames();
+	// Five fingers, three joints each, two hands. The curl pass writes to every one of them, and
+	// a name the skeleton does not have is silently skipped, which is how an open hand happens.
+	TestEqual(TEXT("Both hands offer thirty finger joints"), Fingers.Num(), 30);
+
+	USkeleton* Skeleton = CastleViewModelTest::LoadMannequinSkeleton();
+	if (!Skeleton)
+	{
+		AddInfo(TEXT("SK_Mannequin_Skeleton did not load; skipping the finger-bone check."));
+		return true;
+	}
+
+	const FReferenceSkeleton& ReferenceSkeleton = Skeleton->GetReferenceSkeleton();
+	for (const FName& BoneName : Fingers)
+	{
+		TestTrue(FString::Printf(TEXT("SK_Mannequin has a finger bone called %s"), *BoneName.ToString()),
+			ReferenceSkeleton.FindBoneIndex(BoneName) != INDEX_NONE);
+	}
+
+	// Not an assertion: the pose tables are solved by hand from these numbers, so the test
+	// prints them rather than making the next person open the editor to measure again.
+	for (const TCHAR* BoneName : { TEXT("upperarm_r"), TEXT("lowerarm_r"), TEXT("hand_r"),
+		TEXT("upperarm_l"), TEXT("lowerarm_l"), TEXT("hand_l"), TEXT("middle_01_r"), TEXT("head") })
+	{
+		AddInfo(FString::Printf(TEXT("reference %s at %s"), BoneName,
+			*CastleViewModelTest::ReferenceBoneLocation(ReferenceSkeleton, FName(BoneName)).ToCompactString()));
+	}
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleViewModelPunchAlternates, "Castle.ViewModel.PunchAlternates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleViewModelPunchAlternates::RunTest(const FString& Parameters)
+{
+	UFirstPersonArmsComponent* Arms = NewObject<UFirstPersonArmsComponent>();
+
+	TestFalse(TEXT("Nothing is punching until something asks for it"), Arms->IsPunching());
+	TestEqual(TEXT("And the fists are at rest"), Arms->GetPunchAlpha(), 0.f);
+
+	Arms->PlayPunch();
+	TestTrue(TEXT("The first jab is out"), Arms->IsPunching());
+	TestTrue(TEXT("And it is the right fist"), Arms->IsPunchingRightHand());
+
+	Arms->PlayPunch();
+	TestTrue(TEXT("The second jab is the left"), !Arms->IsPunchingRightHand());
+
+	Arms->PlayPunch();
+	TestTrue(TEXT("And the third is the right again"), Arms->IsPunchingRightHand());
 
 	return true;
 }
