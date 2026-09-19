@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Player/FirstPersonArmsComponent.h"
 #include "Settings/CastleSettings.h"
 #include "CastleCharacter.generated.h"
 
@@ -22,8 +23,13 @@ class UWeaponComponent;
 struct FInputActionValue;
 
 /**
- * First-person player character. Create a Blueprint child (BP_CastleCharacter), assign the
- * Input assets, add a mesh, and add a UWeaponComponent for shooting.
+ * True first-person player character. Frank has a real body: ACharacter's own skeletal mesh
+ * wears SK_Mannequin, plays the guards' idle/walk sequences, casts shadows and is what a
+ * mirror would show. His head is hidden so it does not fill the camera, and the hands that
+ * hold the gun are a separate poseable arms component in front of it.
+ *
+ * Create a Blueprint child (BP_CastleCharacter), assign the Input assets, and let
+ * Tools/Editor/create_blueprints.py fill in the meshes and animations.
  */
 UCLASS(Blueprintable, BlueprintType)
 class CASTLE_API ACastleCharacter : public ACharacter
@@ -110,9 +116,17 @@ public:
 
 	// --- View model -----------------------------------------------------------------------------
 
-	/** Arms rendered in front of the camera. Owner-only, no shadow. */
+	/** Arms rendered in front of the camera. Owner-only, no shadow, hand-posed. */
 	UFUNCTION(BlueprintPure, Category = "Castle|ViewModel")
-	USkeletalMeshComponent* GetArmsMesh() const { return ArmsMesh; }
+	UFirstPersonArmsComponent* GetArmsMesh() const { return ArmsMesh; }
+
+	/** True when the poseable arms are the view model; false falls back to a camera-held pistol. */
+	UFUNCTION(BlueprintPure, Category = "Castle|ViewModel")
+	bool UsesArmsMesh() const { return bUseArmsMesh; }
+
+	/** Bones hidden on the body mesh so Frank's own head is not inside the camera. */
+	UFUNCTION(BlueprintPure, Category = "Castle|ViewModel")
+	TArray<FName> GetHiddenBodyBones() const;
 
 	/** The pistol in the arms' right hand. Hidden until bHasWeapon. */
 	UFUNCTION(BlueprintPure, Category = "Castle|ViewModel")
@@ -167,6 +181,12 @@ protected:
 	/** Hides the bones that are not arms and plays the resting pose. Runs once at BeginPlay. */
 	void InitialiseViewModel();
 
+	/** Hides the head (and, with arms on, the body's own arms) on the body mesh. */
+	void InitialiseBodyMesh();
+
+	/** Swaps the body between IdleAnim and WalkAnim. There is no AnimBP; see LocomotionAnim.h. */
+	void UpdateBodyLocomotion();
+
 	/** Advances the recoil, reload dip and sway clocks and writes the arms' relative transform. */
 	void UpdateViewModel(float DeltaSeconds);
 
@@ -200,12 +220,11 @@ protected:
 	TObjectPtr<UPawnNoiseEmitterComponent> NoiseEmitter;
 
 	/**
-	 * Optional first-person arms. UE 5.8 ships no arms-only skeletal mesh, and the full body
-	 * mannequin wraps its torso and shoulders around the camera, so this is off by default
-	 * (bUseArmsMesh false) and the pistol alone is the view model.
+	 * The hands Frank sees. UE 5.8 ships no arms-only skeletal mesh, so this is SK_Mannequin
+	 * again with everything but the arm chains hidden, posed by hand rather than animated.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
-	TObjectPtr<USkeletalMeshComponent> ArmsMesh;
+	TObjectPtr<UFirstPersonArmsComponent> ArmsMesh;
 
 	/** The view model pistol. Attached to the camera, or to WeaponSocketName when arms are on. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
@@ -324,22 +343,38 @@ protected:
 	// --- View model -----------------------------------------------------------------------------
 
 	/**
-	 * Off by default. The only arms mesh available is the full body mannequin, whose torso and
-	 * shoulders surround the camera; turn this on only once a real arms-only mesh exists.
+	 * On: the poseable arms hold the pistol and Frank sees hands. Off: the fallback, with the
+	 * pistol parented straight to the camera and no hands at all.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|ViewModel")
-	bool bUseArmsMesh = false;
+	bool bUseArmsMesh = true;
 
-	/** Rest pose of the arms relative to the camera: down and forward so only the hands show. */
+	/**
+	 * Where the arms mesh's root (the mannequin's feet) sits relative to the camera. The whole
+	 * body is dropped by roughly its own height so the shoulders land at the camera and only
+	 * the arms rise into frame; ArmsHipOffset then places the hands.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector ArmsRelativeLocation = FVector(12.f, 0.f, -152.f);
+	FVector ArmsRelativeLocation = FVector(0.f, 0.f, -150.f);
 
+	/** SK_Mannequin faces +Y in its own space, so -90 yaw points it down the camera's forward. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	FRotator ArmsRelativeRotation = FRotator(0.f, -90.f, 0.f);
 
+	/** Hip pose of the arms, added to ArmsRelativeLocation: forward, right and low. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FVector ArmsHipOffset = FVector(24.f, 10.f, -16.f);
+
 	/**
-	 * Bones hidden so the full-body mannequin reads as a pair of arms. Hiding a bone hides its
-	 * children, so the legs go with the thighs and the head goes with the neck.
+	 * Aim pose: centred and only slightly further forward. Cameron's note after the third play
+	 * was that aiming threw the pistol out in front of his face, so this is deliberately close.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FVector ArmsAimOffset = FVector(18.f, 0.f, -9.f);
+
+	/**
+	 * Bones hidden on the body mesh for its owner: his own head would otherwise be inside the
+	 * camera. With the arms on, the body's arm chains go too, so there is only one pair.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	TArray<FName> HiddenViewModelBones;
@@ -347,6 +382,13 @@ protected:
 	/** Socket or bone on ArmsMesh the weapon hangs off. Only used while bUseArmsMesh. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	FName WeaponSocketName = FName(TEXT("hand_r"));
+
+	/** Where the grip sits in the palm, relative to the hand_r bone. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FVector WeaponHandOffset = FVector(-2.f, 4.f, 0.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
+	FRotator WeaponHandRotation = FRotator(0.f, 0.f, -90.f);
 
 	/**
 	 * Hip rest pose of the pistol in camera space: X forward, Y right, Z up. Lower right of
@@ -369,20 +411,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	FVector WeaponAimLocation = FVector(38.f, 0.f, -11.5f);
 
-	/** Empty-handed pose. Optional: with no animation asset the arms hold their reference pose. */
+	/** Body animation while standing still. The same sequence the guards use. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
-	TObjectPtr<UAnimSequence> ArmsIdleAnim;
+	TObjectPtr<UAnimSequence> IdleAnim;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
-	TObjectPtr<UAnimSequence> ArmsPistolIdleAnim;
+	TObjectPtr<UAnimSequence> WalkAnim;
 
-	/** Played once per shot. With none set, the procedural recoil kick carries the feedback. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
-	TObjectPtr<UAnimSequence> ArmsFireAnim;
-
-	/** Played on reload. With none set, the arms dip out of frame and back over ReloadSeconds. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation")
-	TObjectPtr<UAnimSequence> ArmsReloadAnim;
+	/** WalkAnim above this much ground speed, IdleAnim below it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Animation", meta = (ClampMin = "0.0"))
+	float WalkAnimSpeedThreshold = 20.f;
 
 	/** How far back the arms travel at the peak of the recoil, in centimetres. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel|Recoil", meta = (ClampMin = "0.0"))
@@ -451,4 +489,8 @@ private:
 
 	/** What bHasWeapon was last frame, so the arms only re-pose when it actually changes. */
 	bool bViewModelArmed = false;
+
+	/** Whichever of IdleAnim / WalkAnim the body is playing, so Tick only re-plays on a change. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> CurrentLocomotionAnim;
 };
