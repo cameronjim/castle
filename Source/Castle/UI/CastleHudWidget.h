@@ -78,6 +78,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
 	float GetCrosshairGap() const { return bCrosshairAiming ? AimGapPixels : HipGapPixels; }
 
+	/** How long each bar is, in pixels. Exposed so the size is a rule and not a guess. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
+	float GetCrosshairBarLength() const { return BarLengthPixels; }
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
+	float GetCrosshairBarThickness() const { return BarThicknessPixels; }
+
 	/** The crosshair is hidden until Frank has a weapon in his hands. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
 	bool IsCrosshairVisible() const;
@@ -155,17 +162,18 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair")
 	FLinearColor HitMarkerColor = FLinearColor::White;
 
+	/** Small: Cameron's note after the third play was that the old 14 x 3 plus was a target. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "1.0"))
-	float BarLengthPixels = 14.f;
+	float BarLengthPixels = 7.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "1.0"))
-	float BarThicknessPixels = 3.f;
+	float BarThicknessPixels = 2.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0"))
-	float HipGapPixels = 8.f;
+	float HipGapPixels = 3.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0"))
-	float AimGapPixels = 4.f;
+	float AimGapPixels = 2.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0"))
 	float HitFlashSeconds = 0.1f;

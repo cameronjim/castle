@@ -17,13 +17,35 @@ bool FCastleHudCrosshairGap::RunTest(const FString& Parameters)
 {
 	UCastleHudWidget* Hud = NewObject<UCastleHudWidget>();
 
-	TestEqual(TEXT("Hip fire leaves an 8 pixel gap"), Hud->GetCrosshairGap(), 8.f);
+	TestEqual(TEXT("Hip fire leaves a 3 pixel gap"), Hud->GetCrosshairGap(), 3.f);
 
 	Hud->SetCrosshairAiming(true);
-	TestEqual(TEXT("Aiming tightens it to 4"), Hud->GetCrosshairGap(), 4.f);
+	TestEqual(TEXT("Aiming tightens it to 2"), Hud->GetCrosshairGap(), 2.f);
 
 	Hud->SetCrosshairAiming(false);
-	TestEqual(TEXT("And it opens back up"), Hud->GetCrosshairGap(), 8.f);
+	TestEqual(TEXT("And it opens back up"), Hud->GetCrosshairGap(), 3.f);
+
+	return true;
+}
+
+/**
+ * The bars are small on purpose: 7 x 2 pixels with a 3 pixel gap. Cameron asked for a much
+ * smaller crosshair after the third play, and a later tweak that quietly grows it back is
+ * exactly the regression worth a test.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleHudCrosshairSize, "Castle.Hud.CrosshairSize",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleHudCrosshairSize::RunTest(const FString& Parameters)
+{
+	UCastleHudWidget* Hud = NewObject<UCastleHudWidget>();
+
+	TestEqual(TEXT("Bars are 7 pixels long"), Hud->GetCrosshairBarLength(), 7.f);
+	TestEqual(TEXT("And 2 pixels thick"), Hud->GetCrosshairBarThickness(), 2.f);
+	TestTrue(TEXT("A bar is longer than it is thick"),
+		Hud->GetCrosshairBarLength() > Hud->GetCrosshairBarThickness());
+	TestTrue(TEXT("The whole plus is no more than 20 pixels across"),
+		2.f * (Hud->GetCrosshairGap() + Hud->GetCrosshairBarLength()) <= 20.f);
 
 	return true;
 }
