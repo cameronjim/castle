@@ -13,6 +13,7 @@
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "PhysicsEngine/PhysicsAsset.h"
+#include "Player/LocomotionAnim.h"
 #include "World/PickupActor.h"
 
 AGuardCharacter::AGuardCharacter()
@@ -144,25 +145,9 @@ void AGuardCharacter::UpdateLocomotionAnimation()
 		return;
 	}
 
-	UAnimSequence* Wanted = SelectLocomotionAnim();
-	if (!Wanted || Wanted == CurrentLocomotionAnim)
-	{
-		// Re-playing the same sequence every frame would hold it on its first pose forever.
-		return;
-	}
-
-	CurrentLocomotionAnim = Wanted;
-
 	// A greybox guard with no mesh still tracks which animation it would be playing, which is
 	// what the test asserts on; there is simply nothing to play it through.
-	USkeletalMeshComponent* SkeletalMesh = GetMesh();
-	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset())
-	{
-		return;
-	}
-
-	SkeletalMesh->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-	SkeletalMesh->PlayAnimation(Wanted, /*bLooping=*/true);
+	CastleLocomotion::PlayIfChanged(GetMesh(), SelectLocomotionAnim(), CurrentLocomotionAnim);
 }
 
 void AGuardCharacter::SetAlertState(EGuardAlertState NewState)
