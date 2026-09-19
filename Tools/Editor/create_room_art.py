@@ -197,9 +197,11 @@ BASELINE_FLUORESCENTS = (
     ("Exit", 5200.0, 0.0),
 )
 
-# 45 cd, not the 100 corridor 1 runs at: these rooms are still on M_Greybox, whose 0.5 albedo
-# is twice the concrete's, and at 100 the first render of corridor 2 came back blown out white.
-BASELINE_INTENSITY = 45.0
+# Not the 100 corridor 1 runs at: these rooms are still on M_Greybox, and at 100 the first
+# render of corridor 2 came back blown out white. Dropped from 45 to 31.5 (30% lower) when
+# darkening M_Greybox to (0.20, 0.21, 0.22) still left the exit room's back wall blown out
+# directly under its ceiling fluorescent.
+BASELINE_INTENSITY = 31.5
 
 # A red lamp at the mouth of the exit room, so the last room reads as the way out rather than
 # as more corridor. (lamp label, lamp centre, size), (light label, light centre).

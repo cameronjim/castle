@@ -116,10 +116,10 @@ def cube_mesh():
 def ensure_greybox_materials():
     """Create (once) the two simple greybox materials and cache them for this run."""
     _GREYBOX_MATERIALS["greybox"] = c.ensure_constant_color_material(
-        "M_Greybox", MATERIALS_PATH, (0.5, 0.5, 0.5), 0.9
+        "M_Greybox", MATERIALS_PATH, (0.20, 0.21, 0.22), 0.9
     )
     _GREYBOX_MATERIALS["floor"] = c.ensure_constant_color_material(
-        "M_Greybox_Floor", MATERIALS_PATH, (0.35, 0.35, 0.35), 0.9
+        "M_Greybox_Floor", MATERIALS_PATH, (0.12, 0.13, 0.14), 0.9
     )
     return _GREYBOX_MATERIALS
 

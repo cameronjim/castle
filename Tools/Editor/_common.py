@@ -255,17 +255,58 @@ def set_props(obj, values, context=""):
 # --------------------------------------------------------------------------------------
 
 
+def _find_expression(material, expr_class):
+    """First material expression of ``expr_class`` in ``material``'s graph, or None."""
+    try:
+        expressions = unreal.MaterialEditingLibrary.get_material_expressions(material)
+    except Exception:  # noqa: BLE001
+        return None
+    for expr in expressions:
+        if isinstance(expr, expr_class):
+            return expr
+    return None
+
+
 def ensure_constant_color_material(name, path, base_color_rgb, roughness):
     """Idempotent opaque material: a Constant3Vector base colour + a Constant roughness.
 
     ``base_color_rgb`` is (r, g, b) in 0..1. Returns the material, or None on failure.
-    Existing materials are left untouched (their graph is not re-checked or re-wired).
+
+    When the material already exists, its Constant3Vector base-colour node is compared
+    against ``base_color_rgb`` (roughness is left alone - only the colour is tuning knob
+    callers have needed so far). A mismatch updates the constant, recompiles, and saves;
+    an exact match is a no-op so re-running this doesn't dirty the asset every time.
     """
     full = asset_path(path, name)
     existing = load_or_none(full)
     if existing is not None:
-        log("exists", full)
-        return existing
+        color_expr = _find_expression(existing, unreal.MaterialExpressionConstant3Vector)
+        if color_expr is None:
+            log("exists", full, "no Constant3Vector node to check")
+            return existing
+
+        try:
+            current = color_expr.get_editor_property("constant")
+            target = unreal.LinearColor(
+                base_color_rgb[0], base_color_rgb[1], base_color_rgb[2], 1.0
+            )
+            matches = (
+                abs(current.r - target.r) < 1e-4
+                and abs(current.g - target.g) < 1e-4
+                and abs(current.b - target.b) < 1e-4
+            )
+            if matches:
+                log("exists", full)
+                return existing
+
+            color_expr.set_editor_property("constant", target)
+            unreal.MaterialEditingLibrary.recompile_material(existing)
+            save(existing)
+            log("updated", full, "base colour -> {0}".format(base_color_rgb))
+            return existing
+        except Exception as exc:  # noqa: BLE001
+            log_error("ensure_constant_color_material update " + full, exc)
+            return existing
 
     try:
         ensure_directory(path)
