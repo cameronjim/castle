@@ -15,6 +15,8 @@ class UPointLightComponent;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class UInputMappingContext;
+class UMaterialInterface;
+class UMeshComponent;
 class UHealthComponent;
 class UInteractionComponent;
 class UInventoryComponent;
@@ -195,6 +197,9 @@ protected:
 
 	/** Hides the bones that are not arms and plays the resting pose. Runs once at BeginPlay. */
 	void InitialiseViewModel();
+
+	/** Puts FatiguesMaterial on every slot of a mesh. Does nothing when it is unset. */
+	void ApplyFatigues(UMeshComponent* Target) const;
 
 	/** Hides the head (and, with arms on, the body's own arms) on the body mesh. */
 	void InitialiseBodyMesh();
@@ -405,13 +410,14 @@ protected:
 	FVector ArmsHipOffset = FVector(0.f, 5.f, 0.f);
 
 	/**
-	 * Aim pose: centred, pushed 12 cm further down the camera than the hip pose and dropped 6 cm
-	 * under it. Cameron's note after the fourth play was that the aimed pistol filled the lower
-	 * half of the screen and the support arm cut across the crosshair; arm's length is what
-	 * fixes both, because the view model shrinks as it goes away from the camera.
+	 * Aim pose: centred, and 8 cm lower than it used to be. Cameron's note after the fourth play
+	 * was that the aimed pistol filled the lower half of the screen and the support arm cut
+	 * across the crosshair. Dropping the rig is the fix that works; pushing it further down the
+	 * camera is not, because the right arm is already at 94% of its reach in the pistol pose and
+	 * sliding the whole body forward only drags the shoulders through the near plane.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector ArmsAimOffset = FVector(8.f, -4.f, 4.f);
+	FVector ArmsAimOffset = FVector(0.f, -4.f, 2.f);
 
 	/**
 	 * Bones hidden on the body mesh for its owner: his own head would otherwise be inside the
@@ -419,6 +425,16 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
 	TArray<FName> HiddenViewModelBones;
+
+	/**
+	 * What Frank wears, on both the arms he sees and the body he looks down at: M_FrankArms,
+	 * assigned by Tools/Editor/create_blueprints.py. Applied in code rather than left as a
+	 * component material override, because a material set on the inherited Mesh component's
+	 * archetype does not survive into the spawned pawn - the shipped look was a white mannequin
+	 * body under a pair of dark arms.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Castle|ViewModel")
+	TObjectPtr<UMaterialInterface> FatiguesMaterial;
 
 	/** Socket or bone on ArmsMesh the weapon hangs off. Only used while bUseArmsMesh. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")

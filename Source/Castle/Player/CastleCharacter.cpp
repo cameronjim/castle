@@ -614,7 +614,22 @@ void ACastleCharacter::InitialiseBodyMesh()
 		}
 	}
 
+	ApplyFatigues(BodyMesh);
 	UpdateBodyLocomotion();
+}
+
+void ACastleCharacter::ApplyFatigues(UMeshComponent* Target) const
+{
+	if (!FatiguesMaterial || !Target)
+	{
+		return;
+	}
+
+	const int32 SlotCount = Target->GetNumMaterials();
+	for (int32 Index = 0; Index < SlotCount; ++Index)
+	{
+		Target->SetMaterial(Index, FatiguesMaterial);
+	}
 }
 
 void ACastleCharacter::UpdateBodyLocomotion()
@@ -641,6 +656,7 @@ void ACastleCharacter::InitialiseViewModel()
 	if (bArmsActive)
 	{
 		ArmsMesh->InitialiseArms();
+		ApplyFatigues(ArmsMesh);
 	}
 
 	if (WeaponMesh)
