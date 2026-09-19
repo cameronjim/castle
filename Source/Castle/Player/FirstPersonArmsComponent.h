@@ -47,6 +47,26 @@ struct FCastleArmBonePose
 };
 
 /**
+ * One finger joint and how far down its chain it sits.
+ *
+ * Fingers are not authored as direction targets: a closed hand is fifteen joints per side all
+ * doing the same thing, so they are curled procedurally about one axis instead. Depth is 1 at
+ * the knuckle, 3 at the tip, and the curl angle is multiplied by it so the chain closes evenly.
+ */
+struct FCastleFingerJoint
+{
+	FName BoneName;
+
+	/** 1 at the knuckle joint, 2 and 3 further down the finger. */
+	int32 Depth = 1;
+
+	/** The thumb opposes rather than flexes, so it takes a fraction of the curl. */
+	bool bThumb = false;
+
+	bool bRightHand = true;
+};
+
+/**
  * The arms Frank sees in front of him. A poseable mesh rather than a skeletal one: UE 5.8
  * ships no arms-only asset and no arms AnimBP, and a poseable mesh is the only component that
  * takes per-bone rotations without one. It holds two hand-authored poses and blends between
@@ -79,8 +99,31 @@ public:
 	/** The authored table for a pose. Exposed so a test can check its bone names. */
 	const TArray<FCastleArmBonePose>& GetPoseTable(ECastleArmsPose Pose) const;
 
-	/** Every bone either pose touches, plus the hidden ones. Used by the bone-name test. */
+	/** Every bone either pose touches, plus the hidden and curled ones. Used by the bone-name test. */
 	TArray<FName> GetAllPoseBoneNames() const;
+
+	/** The thirty finger joints the curl pass writes to, five fingers by three joints by two hands. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
+	TArray<FName> GetFingerBoneNames() const;
+
+	/**
+	 * Throws a 0.25 s jab with the fist that did not throw the last one, starting with the right.
+	 * Purely cosmetic: melee damage is the caller's business.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Arms")
+	void PlayPunch();
+
+	/** True while a jab is still travelling out or coming back. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
+	bool IsPunching() const { return PunchElapsed >= 0.f; }
+
+	/** Which fist the current (or most recent) jab used. The first call ever is the right. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
+	bool IsPunchingRightHand() const { return bPunchRightHand; }
+
+	/** 0 at rest, 1 at full extension. A half sine, so the jab lands and returns in one curve. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
+	float GetPunchAlpha() const;
 
 	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
 	TArray<FName> GetHiddenArmBones() const { return HiddenArmBones; }
@@ -96,6 +139,21 @@ protected:
 
 	/** The delta rotation Pose asks of BoneName, or identity when it does not mention it. */
 	FQuat FindPoseDelta(ECastleArmsPose Pose, FName BoneName) const;
+
+	/** Closes the fingers of both hands by the current blend of the two poses' curl angles. */
+	void ApplyFingerCurl();
+
+	/** Slides the arm roots forward while a jab is out, and back to the reference otherwise. */
+	void ApplyPunchOffset();
+
+	/** Degrees one finger joint closes in Pose. Right and left differ once a pistol is in them. */
+	float GetCurlDegrees(ECastleArmsPose Pose, bool bRightHand) const;
+
+	/**
+	 * The component-space axis the fingers of one hand flex about, measured from the reference
+	 * pose: across the knuckles, signed so that a positive rotation closes the hand.
+	 */
+	FVector ComputeCurlAxis(bool bRightHand);
 
 	/**
 	 * Empty-handed pose: forearms up, fists at chest height, elbows bent about 100 degrees,
@@ -122,6 +180,41 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms", meta = (ClampMin = "0.0"))
 	float PoseBlendSeconds = 0.2f;
 
+	// --- finger curl --------------------------------------------------------------------------
+
+	/** Degrees each of the three joints closes in the fists pose. Three times this is a fist. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Fingers", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float FistsCurlDegrees = 70.f;
+
+	/** The trigger hand: closed round the grip, not balled up. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Fingers", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float PistolRightCurlDegrees = 50.f;
+
+	/** The support hand wraps the shooting hand, so it closes a little less. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Fingers", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float PistolLeftCurlDegrees = 40.f;
+
+	/** The thumb lies across the fingers rather than folding into the palm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Fingers", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ThumbCurlScale = 0.45f;
+
+	/**
+	 * Flip to -1 if the fingers ever open backwards. The flex axis is measured from the skeleton
+	 * (see ComputeCurlAxis), and the one thing it assumes is that the thumb sits on the palm side.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Fingers")
+	float FingerCurlSign = 1.f;
+
+	// --- punch --------------------------------------------------------------------------------
+
+	/** How far the jabbing arm travels down the camera's forward axis, in centimetres. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Punch", meta = (ClampMin = "0.0"))
+	float PunchDistance = 20.f;
+
+	/** Seconds the whole jab takes, out and back. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Punch", meta = (ClampMin = "0.01"))
+	float PunchSeconds = 0.25f;
+
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Castle|Arms")
 	ECastleArmsPose ActivePose = ECastleArmsPose::Fists;
 
@@ -138,7 +231,23 @@ private:
 	/** Union of both tables' bone names, so a bone dropped from one pose still blends back. */
 	TArray<FName> PosedBones;
 
+	/** Every finger joint of both hands, built once in the constructor. */
+	TArray<FCastleFingerJoint> FingerJoints;
+
+	/** Reference-pose component-space location of each arm root, so the jab can slide it. */
+	TMap<FName, FVector> ReferenceLocations;
+
+	/** Component-space flex axis per hand, measured from the reference pose at init. */
+	FVector CurlAxisRight = FVector::ZeroVector;
+	FVector CurlAxisLeft = FVector::ZeroVector;
+
 	float BlendAlpha = 1.f;
+
+	/** Seconds into the current jab, or negative when no fist is out. */
+	float PunchElapsed = -1.f;
+
+	/** Which fist threw the last jab. Starts false so the first PlayPunch() is a right. */
+	bool bPunchRightHand = false;
 
 	bool bArmsInitialised = false;
 };

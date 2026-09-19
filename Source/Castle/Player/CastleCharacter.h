@@ -17,6 +17,8 @@ class UStaticMeshComponent;
 class UInputMappingContext;
 class UHealthComponent;
 class UInteractionComponent;
+class UInventoryComponent;
+class UWeaponDefinition;
 class UPawnNoiseEmitterComponent;
 class UTakedownComponent;
 class UWeaponComponent;
@@ -55,7 +57,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
 
-	/** True once GiveKeycard(KeycardId) has been called for that id. */
+	/** The hotbar and keycard ring. Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Character")
+	UInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
+
+	/** True once GiveKeycard(KeycardId) has been called for that id. Forwards to the inventory. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	bool HasKeycard(FName KeycardId) const;
 
@@ -65,7 +71,11 @@ public:
 
 	/** Keycards picked up so far. Doors check this by id. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
-	TSet<FName> GetKeycards() const { return Keycards; }
+	TSet<FName> GetKeycards() const;
+
+	/** Kicks the arms for a punch. Called for every melee swing that goes out. */
+	UFUNCTION(BlueprintCallable, Category = "Castle|ViewModel")
+	void PlayMeleeFeedback();
 
 	/**
 	 * Loudness the player is currently emitting, per claude-docs/gameplay-semantics.md:
@@ -169,6 +179,11 @@ protected:
 	void Input_Interact(const FInputActionValue& Value);
 	void Input_AimStarted(const FInputActionValue& Value);
 	void Input_AimCompleted(const FInputActionValue& Value);
+	void Input_Slot1(const FInputActionValue& Value);
+	void Input_Slot2(const FInputActionValue& Value);
+	void Input_Slot3(const FInputActionValue& Value);
+	void Input_SlotScroll(const FInputActionValue& Value);
+	void Input_Inventory(const FInputActionValue& Value);
 
 	/** Walk speed for the current sprint/aim combination, written to CharacterMovement. */
 	void UpdateMaxWalkSpeed();
@@ -214,6 +229,10 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UInteractionComponent> InteractionComponent;
+
+	/** Three hotbar slots and the keycard ring. Hands are always in slot 0. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
+	TObjectPtr<UInventoryComponent> InventoryComponent;
 
 	/** What AISense_Hearing listens to. MakeNoise routes through this. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
@@ -271,6 +290,26 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> InteractAction;
+
+	/** Number key 1: Hands. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot1Action;
+
+	/** Number key 2: Pistol. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot2Action;
+
+	/** Number key 3: Rifle. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot3Action;
+
+	/** Mouse wheel. Positive is the next slot, negative the previous; empty slots are skipped. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> SlotScrollAction;
+
+	/** Tab: opens the read-only inventory screen, which pauses like the pause menu does. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> InventoryAction;
 
 	// --- Movement tuning ------------------------------------------------------------------------
 
@@ -366,11 +405,13 @@ protected:
 	FVector ArmsHipOffset = FVector(0.f, 5.f, 0.f);
 
 	/**
-	 * Aim pose: centred and only slightly further forward. Cameron's note after the third play
-	 * was that aiming threw the pistol out in front of his face, so this is deliberately close.
+	 * Aim pose: centred, pushed 12 cm further down the camera than the hip pose and dropped 6 cm
+	 * under it. Cameron's note after the fourth play was that the aimed pistol filled the lower
+	 * half of the screen and the support arm cut across the crosshair; arm's length is what
+	 * fixes both, because the view model shrinks as it goes away from the camera.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|ViewModel")
-	FVector ArmsAimOffset = FVector(-4.f, -4.f, 10.f);
+	FVector ArmsAimOffset = FVector(8.f, -4.f, 4.f);
 
 	/**
 	 * Bones hidden on the body mesh for its owner: his own head would otherwise be inside the
@@ -464,10 +505,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Noise", meta = (ClampMin = "0.0"))
 	float GunshotNoiseLoudness = 3.f;
 
-	/** Keycard ids collected so far. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Character")
-	TSet<FName> Keycards;
-
 	/** Timer body: emits one movement noise event if the player is making any. */
 	void EmitMovementNoise();
 
@@ -489,6 +526,10 @@ private:
 
 	/** What bHasWeapon was last frame, so the arms only re-pose when it actually changes. */
 	bool bViewModelArmed = false;
+
+	/** The definition the view model is currently dressed for, so Tick only re-dresses on a change. */
+	UPROPERTY(Transient)
+	TObjectPtr<UWeaponDefinition> ViewModelDefinition = nullptr;
 
 	/** Whichever of IdleAnim / WalkAnim the body is playing, so Tick only re-plays on a change. */
 	UPROPERTY(Transient)

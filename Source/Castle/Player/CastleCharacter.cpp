@@ -6,9 +6,11 @@
 #include "Camera/CameraComponent.h"
 #include "Castle.h"
 #include "CastleGameMode.h"
+#include "CastlePlayerController.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/TakedownComponent.h"
 #include "Combat/WeaponComponent.h"
+#include "Combat/WeaponDefinition.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -20,6 +22,7 @@
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
 #include "Player/FirstPersonArmsComponent.h"
+#include "Player/InventoryComponent.h"
 #include "Player/LocomotionAnim.h"
 #include "Settings/CastleSettingsSubsystem.h"
 #include "Components/PawnNoiseEmitterComponent.h"
@@ -47,9 +50,11 @@ ACastleCharacter::ACastleCharacter()
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 	NoiseEmitter = CreateDefaultSubobject<UPawnNoiseEmitterComponent>(TEXT("NoiseEmitter"));
 
-	// Frank starts the mission empty-handed; the pistol pickup calls GiveWeapon.
+	// Frank starts the mission with his fists; a pickup fills the pistol slot.
 	WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
 	WeaponComponent->bHasWeapon = false;
+
+	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 
 	// --- view model ---------------------------------------------------------------------------
 	ArmsMesh = CreateDefaultSubobject<UFirstPersonArmsComponent>(TEXT("ArmsMesh"));
@@ -212,19 +217,18 @@ void ACastleCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 
 bool ACastleCharacter::HasKeycard(FName KeycardId) const
 {
-	return !KeycardId.IsNone() && Keycards.Contains(KeycardId);
+	// The ring lives in the inventory now; doors and tests still ask the pawn.
+	return InventoryComponent && InventoryComponent->HasKeycard(KeycardId);
 }
 
 bool ACastleCharacter::GiveKeycard(FName KeycardId)
 {
-	if (KeycardId.IsNone() || Keycards.Contains(KeycardId))
-	{
-		return false;
-	}
+	return InventoryComponent && InventoryComponent->GiveKeycard(KeycardId);
+}
 
-	Keycards.Add(KeycardId);
-	UE_LOG(LogCastle, Log, TEXT("%s picked up keycard '%s'."), *GetName(), *KeycardId.ToString());
-	return true;
+TSet<FName> ACastleCharacter::GetKeycards() const
+{
+	return InventoryComponent ? InventoryComponent->GetKeycards() : TSet<FName>();
 }
 
 void ACastleCharacter::PawnClientRestart()
@@ -314,6 +318,77 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	if (InteractAction)
 	{
 		EnhancedInput->BindAction(InteractAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_Interact);
+	}
+	if (Slot1Action)
+	{
+		EnhancedInput->BindAction(Slot1Action, ETriggerEvent::Started, this, &ACastleCharacter::Input_Slot1);
+	}
+	if (Slot2Action)
+	{
+		EnhancedInput->BindAction(Slot2Action, ETriggerEvent::Started, this, &ACastleCharacter::Input_Slot2);
+	}
+	if (Slot3Action)
+	{
+		EnhancedInput->BindAction(Slot3Action, ETriggerEvent::Started, this, &ACastleCharacter::Input_Slot3);
+	}
+	if (SlotScrollAction)
+	{
+		// Triggered, not Started: the wheel is an axis and every notch is its own value.
+		EnhancedInput->BindAction(SlotScrollAction, ETriggerEvent::Triggered, this, &ACastleCharacter::Input_SlotScroll);
+	}
+	if (InventoryAction)
+	{
+		EnhancedInput->BindAction(InventoryAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_Inventory);
+	}
+}
+
+void ACastleCharacter::Input_Slot1(const FInputActionValue& /*Value*/)
+{
+	if (InventoryComponent)
+	{
+		InventoryComponent->SelectSlot(EHotbarSlot::Hands);
+	}
+}
+
+void ACastleCharacter::Input_Slot2(const FInputActionValue& /*Value*/)
+{
+	if (InventoryComponent)
+	{
+		InventoryComponent->SelectSlot(EHotbarSlot::Pistol);
+	}
+}
+
+void ACastleCharacter::Input_Slot3(const FInputActionValue& /*Value*/)
+{
+	if (InventoryComponent)
+	{
+		InventoryComponent->SelectSlot(EHotbarSlot::Rifle);
+	}
+}
+
+void ACastleCharacter::Input_SlotScroll(const FInputActionValue& Value)
+{
+	const float Axis = Value.Get<float>();
+	if (!InventoryComponent || FMath::IsNearlyZero(Axis))
+	{
+		return;
+	}
+
+	if (Axis > 0.f)
+	{
+		InventoryComponent->SelectNextSlot();
+	}
+	else
+	{
+		InventoryComponent->SelectPreviousSlot();
+	}
+}
+
+void ACastleCharacter::Input_Inventory(const FInputActionValue& /*Value*/)
+{
+	if (ACastlePlayerController* PC = Cast<ACastlePlayerController>(GetController()))
+	{
+		PC->ToggleInventory();
 	}
 }
 
@@ -597,11 +672,31 @@ void ACastleCharacter::RefreshViewModelForWeapon()
 {
 	const UWeaponComponent* Weapon = GetWeaponComponent();
 	const bool bArmed = Weapon && Weapon->HasWeapon();
+	UWeaponDefinition* Definition = Weapon ? Weapon->GetActiveDefinition() : nullptr;
+
 	bViewModelArmed = bArmed;
+	ViewModelDefinition = Definition;
 
 	if (WeaponMesh)
 	{
 		WeaponMesh->SetHiddenInGame(!bArmed);
+
+		// The mesh is data: the pistol carries one, the fists and (so far) the rifle do not.
+		if (Definition && !Definition->ViewModelMesh.IsNull())
+		{
+			if (UStaticMesh* Held = Definition->ViewModelMesh.LoadSynchronous())
+			{
+				if (WeaponMesh->GetStaticMesh() != Held)
+				{
+					WeaponMesh->SetStaticMesh(Held);
+				}
+			}
+		}
+
+		if (Definition && bUseArmsMesh && ArmsMesh && WeaponMesh->GetAttachParent() == ArmsMesh)
+		{
+			WeaponMesh->SetRelativeLocationAndRotation(Definition->HandOffset, Definition->HandRotation);
+		}
 	}
 
 	if (!bUseArmsMesh || !ArmsMesh)
@@ -609,8 +704,27 @@ void ACastleCharacter::RefreshViewModelForWeapon()
 		return;
 	}
 
-	// Fists when he is empty-handed, the pistol grip when he is not. The component blends.
-	ArmsMesh->SetPose(bArmed ? ECastleArmsPose::Pistol : ECastleArmsPose::Fists);
+	// The pose is named in the data asset. UFirstPersonArmsComponent only authors Fists and
+	// Pistol today, so a rifle borrows the pistol grip until a rifle pose exists.
+	ECastleArmsPose Pose = bArmed ? ECastleArmsPose::Pistol : ECastleArmsPose::Fists;
+	if (Definition)
+	{
+		Pose = Definition->ArmsPoseName == FName(TEXT("Fists"))
+			? ECastleArmsPose::Fists : ECastleArmsPose::Pistol;
+	}
+	ArmsMesh->SetPose(Pose);
+}
+
+void ACastleCharacter::PlayMeleeFeedback()
+{
+	// Reuse the recoil curve: the whole view model kicks back and settles under the jab.
+	RecoilElapsed = 0.f;
+
+	// And the arm that throws it goes out on its own, alternating fists call by call.
+	if (bUseArmsMesh && ArmsMesh)
+	{
+		ArmsMesh->PlayPunch();
+	}
 }
 
 float ACastleCharacter::GetRecoilAlpha() const
@@ -663,7 +777,7 @@ FVector ACastleCharacter::GetViewModelOffset() const
 void ACastleCharacter::UpdateViewModel(float DeltaSeconds)
 {
 	const UWeaponComponent* Weapon = GetWeaponComponent();
-	if (Weapon && Weapon->HasWeapon() != bViewModelArmed)
+	if (Weapon && (Weapon->HasWeapon() != bViewModelArmed || Weapon->GetActiveDefinition() != ViewModelDefinition))
 	{
 		RefreshViewModelForWeapon();
 	}
@@ -755,12 +869,21 @@ void ACastleCharacter::Input_Fire(const FInputActionValue& /*Value*/)
 	}
 
 	UWeaponComponent* Weapon = GetWeaponComponent();
-	if (Weapon && Weapon->Fire())
+	if (!Weapon || !Weapon->Fire())
 	{
-		// A gunshot is the loudest thing in the level; every guard in range goes Alerted.
-		MakeNoise(GunshotNoiseLoudness, this, GetActorLocation());
-		PlayFireFeedback();
+		return;
 	}
+
+	if (Weapon->IsMelee())
+	{
+		// A punch is quiet: it is the stealth option that does not bring the block down on you.
+		PlayMeleeFeedback();
+		return;
+	}
+
+	// A gunshot is the loudest thing in the level; every guard in range goes Alerted.
+	MakeNoise(GunshotNoiseLoudness, this, GetActorLocation());
+	PlayFireFeedback();
 }
 
 void ACastleCharacter::Input_Reload(const FInputActionValue& /*Value*/)
