@@ -27,6 +27,7 @@ EXPECTED_MATERIALS = (
     m.MI_FLUORESCENT_TUBE,
     m.MI_RED_EMERGENCY,
     m.MI_KEYCARD_STRIPE,
+    m.MI_MONITOR,
     m.M_PISTOL,
     m.M_KEYCARD_BODY,
 )
@@ -68,6 +69,23 @@ EXPECTED_ACTORS = (
     "Art_Panel_A",
     "Art_Panel_B",
     "Art_Camera_Body",
+    # Guard station: the room with the keycard door.
+    "Art_Floor_Station",
+    "Art_Tube_Station_A",
+    "Art_Tube_Station_B",
+    "Art_Light_Station_A",
+    "Art_Light_Station_B",
+    "Art_Station_Desk",
+    "Art_Station_Monitor",
+    "Art_Station_Locker_A",
+    "Art_Station_Locker_B",
+    "Art_Station_Locker_C",
+    "Art_Station_CardReader",
+    "Art_Station_ReaderLed",
+    "Art_Station_DoorJamb_S",
+    "Art_Station_DoorJamb_N",
+    "Art_Station_DoorLintel",
+    "Art_Station_DoorHeader",
 )
 
 # Gameplay actors the art pass must not have disturbed.
@@ -201,7 +219,7 @@ def check_gameplay_intact(by_label):
 
 
 def check_wall_materials(by_label):
-    say("---- cell and corridor 1 surfaces ----")
+    say("---- cell, corridor 1 and guard station surfaces ----")
     for label in art.ART_WALL_LABELS:
         actor = by_label.get(label)
         if actor is None:
@@ -212,7 +230,7 @@ def check_wall_materials(by_label):
         if name != "M_Concrete":
             fail("{0} is on {1}, expected M_Concrete".format(label, name))
 
-    for label in ("Art_Floor_Cell", "Art_Floor_Corr1"):
+    for label in [entry[0] for entry in art.FLOOR_SKIMS]:
         actor = by_label.get(label)
         if actor is None:
             continue
@@ -280,10 +298,35 @@ def check_lighting(actors):
     rects = [a for a in actors if rect_class is not None and isinstance(a, rect_class)]
     points = [a for a in actors if isinstance(a, unreal.PointLight)]
     say("  rect lights: {0}, point lights: {1}".format(len(rects), len(points)))
-    if len(rects) < 6:
-        fail("{0} rect light(s), expected 6 fluorescents".format(len(rects)))
+    expected_rects = len(art.FLUORESCENTS)
+    if len(rects) < expected_rects:
+        fail("{0} rect light(s), expected {1} fluorescents".format(len(rects), expected_rects))
     if not points:
         fail("no PointLight; the red emergency lamp is missing")
+
+    station_lights = [
+        a for a in actors
+        if art.label_of(a) in ("Art_Light_Station_A", "Art_Light_Station_B")
+    ]
+    say("  guard station lights: {0}".format(len(station_lights)))
+    if len(station_lights) != 2:
+        fail("the guard station has {0} light(s), expected 2".format(len(station_lights)))
+
+    # Nothing in these maps has built lighting, so a Static light renders black. The smoke
+    # test asserts this too; checking it here catches it without booting the game.
+    static = []
+    for actor in actors:
+        try:
+            root = actor.get_editor_property("root_component")
+        except Exception:  # noqa: BLE001
+            continue
+        if root is None or not isinstance(root, unreal.LightComponent):
+            continue
+        if root.get_editor_property("mobility") == unreal.ComponentMobility.STATIC:
+            static.append(art.label_of(actor))
+    say("  static lights: {0}".format(len(static)))
+    for label in static:
+        fail("{0} has Static mobility; it will render as a black surface".format(label))
 
 
 def main():
