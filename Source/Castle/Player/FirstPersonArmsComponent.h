@@ -128,6 +128,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
 	TArray<FName> GetHiddenArmBones() const { return HiddenArmBones; }
 
+	/** Centimetres between the two authored fist targets. The fists must never meet. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
+	float GetFistSeparation() const { return (FistTargetRight - FistTargetLeft).Size(); }
+
+	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
+	FVector GetFistTarget(bool bRightHand) const { return bRightHand ? FistTargetRight : FistTargetLeft; }
+
+	/** Component-space X of the camera: the line the two fists sit either side of. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Arms")
+	float GetViewCentreX() const { return ViewCentreX; }
+
 	//~ Begin UActorComponent interface
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
@@ -168,6 +179,23 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Pose")
 	TArray<FCastleArmBonePose> PosePistol;
+
+	/**
+	 * Where the fists pose puts each fist, in component space. These are the inputs the direction
+	 * tables above were solved from, kept as data so the one rule that matters - the two fists are
+	 * a hand's width apart, one either side of the centre line, with the right one leading - can
+	 * be checked without a skeleton. Changing them does not move anything on its own; re-solve the
+	 * tables in PoseFists to match.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Pose")
+	FVector FistTargetRight = FVector(-11.f, 35.f, 145.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Pose")
+	FVector FistTargetLeft = FVector(21.f, 35.f, 139.f);
+
+	/** Component-space X the camera sits at; the fists straddle it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Arms|Pose")
+	float ViewCentreX = 5.f;
 
 	/**
 	 * Bones hidden so the full-body mannequin reads as a pair of arms. The spine is not in the
