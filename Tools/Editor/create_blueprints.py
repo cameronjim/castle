@@ -5,6 +5,7 @@
     /Game/Blueprints/Player/BP_CastleGameMode         parent ACastleGameMode
     /Game/Blueprints/UI/WBP_Flashback                 parent UFlashbackWidget
     /Game/Blueprints/UI/WBP_Pause                     parent UCastlePauseWidget
+    /Game/Blueprints/UI/WBP_Settings                  parent UCastleSettingsWidget
     /Game/Blueprints/UI/WBP_EndCard                   parent UMissionEndCardWidget
 
 Then, on the class default objects:
@@ -13,7 +14,8 @@ Then, on the class default objects:
                              that exists on ACastleCharacter
     BP_CastleGameMode        DefaultPawnClass, PlayerControllerClass
     BP_CastlePlayerController FlashbackWidgetClass = WBP_Flashback_C,
-                             PauseWidgetClass = WBP_Pause_C, PauseAction = IA_Pause,
+                             PauseWidgetClass = WBP_Pause_C,
+                             SettingsWidgetClass = WBP_Settings_C, PauseAction = IA_Pause,
                              PauseMappingContext = IMC_Default,
                              EndCardWidgetClass = WBP_EndCard_C
 
@@ -254,12 +256,16 @@ def run():
     wbp_factories = ("WidgetBlueprintFactory",)
 
     pause_parent = c.find_class("CastlePauseWidget", "/Script/Castle.CastlePauseWidget")
+    settings_parent = c.find_class(
+        "CastleSettingsWidget", "/Script/Castle.CastleSettingsWidget"
+    )
     end_card_parent = c.find_class(
         "MissionEndCardWidget", "/Script/Castle.MissionEndCardWidget"
     )
 
     wbp_flashback, _ = make_blueprint("WBP_Flashback", UI_PATH, widget_parent, wbp_factories)
     wbp_pause, _ = make_blueprint("WBP_Pause", UI_PATH, pause_parent, wbp_factories)
+    wbp_settings, _ = make_blueprint("WBP_Settings", UI_PATH, settings_parent, wbp_factories)
     wbp_end_card, _ = make_blueprint("WBP_EndCard", UI_PATH, end_card_parent, wbp_factories)
     bp_character, _ = make_blueprint(
         "BP_CastleCharacter", PLAYER_PATH, character_parent, bp_factories
@@ -272,7 +278,10 @@ def run():
     )
 
     # Newly created Blueprints need to exist on disk before load_class can find the _C.
-    for bp in (wbp_flashback, wbp_pause, wbp_end_card, bp_character, bp_controller, bp_game_mode):
+    for bp in (
+        wbp_flashback, wbp_pause, wbp_settings, wbp_end_card,
+        bp_character, bp_controller, bp_game_mode,
+    ):
         if bp is not None:
             c.compile_blueprint(bp)
             c.save(bp, only_if_dirty=True)
@@ -294,6 +303,7 @@ def run():
             [
                 ("flashback_widget_class", c.load_generated_class(UI_PATH, "WBP_Flashback")),
                 ("pause_widget_class", c.load_generated_class(UI_PATH, "WBP_Pause")),
+                ("settings_widget_class", c.load_generated_class(UI_PATH, "WBP_Settings")),
                 ("pause_action", c.load_or_none(c.asset_path(INPUT_PATH, "IA_Pause"))),
                 (
                     "pause_mapping_context",
@@ -324,6 +334,7 @@ def run():
         "game_mode": bp_game_mode,
         "flashback_widget": wbp_flashback,
         "pause_widget": wbp_pause,
+        "settings_widget": wbp_settings,
         "end_card_widget": wbp_end_card,
     }
 

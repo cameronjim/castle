@@ -37,8 +37,8 @@ CHARACTER_INPUT_PROPS = [
 
 # Pause is bound on the controller so it survives the pawn being locked out or dead.
 CONTROLLER_PROPS = [
-    "flashback_widget_class", "hud_widget_class", "pause_widget_class", "pause_action",
-    "pause_mapping_context", "end_card_widget_class",
+    "flashback_widget_class", "hud_widget_class", "pause_widget_class",
+    "settings_widget_class", "pause_action", "pause_mapping_context", "end_card_widget_class",
 ]
 
 EXPECTED = (
@@ -51,6 +51,7 @@ EXPECTED = (
         c.asset_path(UI_PATH, "WBP_Flashback"),
         c.asset_path(UI_PATH, "WBP_Hud"),
         c.asset_path(UI_PATH, "WBP_Pause"),
+        c.asset_path(UI_PATH, "WBP_Settings"),
         c.asset_path(UI_PATH, "WBP_EndCard"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Pistol"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Keycard"),
@@ -223,7 +224,7 @@ def check_world_blueprints():
             fail("BP_Guard.ai_controller_class is not AGuardAIController")
         say("  BP_Guard.auto_possess_ai          = {0}".format(prop(cdo, "auto_possess_ai")))
 
-    for name in ("WBP_Hud", "WBP_Pause", "WBP_EndCard"):
+    for name in ("WBP_Hud", "WBP_Pause", "WBP_Settings", "WBP_EndCard"):
         if c.load_generated_class(UI_PATH, name) is None:
             fail(name + "_C")
         else:
