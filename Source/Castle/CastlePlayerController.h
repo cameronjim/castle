@@ -8,6 +8,7 @@
 
 class UCastleHudWidget;
 class UCastlePauseWidget;
+class UCastleSettingsWidget;
 class UFlashbackDefinition;
 class UFlashbackWidget;
 class UInputAction;
@@ -125,6 +126,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Pause")
 	void RestartMissionFromPause();
 
+	// --- Settings -------------------------------------------------------------------------------
+
+	/** UMG widget (reparented to UCastleSettingsWidget) shown when Settings is chosen. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Settings")
+	TSubclassOf<UCastleSettingsWidget> SettingsWidgetClass;
+
+	/** Swaps the pause menu for the settings screen. The game stays paused throughout. */
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void OpenSettings();
+
+	/** Swaps the settings screen back for the pause menu. */
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void CloseSettings();
+
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	bool IsSettingsOpen() const { return bSettingsOpen; }
+
 	/** Pause menu "Quit to desktop". */
 	UFUNCTION(BlueprintCallable, Category = "Pause")
 	void QuitToDesktop();
@@ -143,6 +161,12 @@ protected:
 	void HandlePauseResumeClicked();
 
 	UFUNCTION()
+	void HandlePauseSettingsClicked();
+
+	UFUNCTION()
+	void HandleSettingsBackRequested();
+
+	UFUNCTION()
 	void HandlePauseRestartClicked();
 
 	UFUNCTION()
@@ -152,6 +176,14 @@ protected:
 	UCastlePauseWidget* ShowPauseWidget();
 
 	void HidePauseWidget();
+
+	/** Creates SettingsWidget (if needed) and adds it to the viewport. Returns the widget or null. */
+	UCastleSettingsWidget* ShowSettingsWidget();
+
+	void HideSettingsWidget();
+
+	/** Whichever menu should hold keyboard focus right now, or an invalid pointer for none. */
+	TSharedPtr<SWidget> GetFocusedMenuWidget() const;
 
 	/** UI+Game input with a cursor while paused, game-only input while playing. */
 	void ApplyPauseInputMode(bool bPaused);
@@ -196,6 +228,9 @@ protected:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Pause")
 	TObjectPtr<UCastlePauseWidget> PauseWidget = nullptr;
 
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Settings")
+	TObjectPtr<UCastleSettingsWidget> SettingsWidget = nullptr;
+
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
 	TObjectPtr<UMissionEndCardWidget> EndCardWidget = nullptr;
 
@@ -212,6 +247,10 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Pause")
 	bool bPauseMenuOpen = false;
+
+	/** True while the settings screen has replaced the pause menu. Implies bPauseMenuOpen. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Settings")
+	bool bSettingsOpen = false;
 
 	/**
 	 * Set for the whole of a flashback, including the frames where the widget exists but has

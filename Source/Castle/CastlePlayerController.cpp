@@ -23,6 +23,7 @@
 #include "Mission/MissionSubsystem.h"
 #include "UI/CastleHudWidget.h"
 #include "UI/CastlePauseWidget.h"
+#include "UI/CastleSettingsWidget.h"
 #include "UI/MissionEndCardWidget.h"
 
 void ACastlePlayerController::BeginPlay()
@@ -82,6 +83,14 @@ void ACastlePlayerController::SetupInputComponent()
 
 void ACastlePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
 {
+	// Escape inside Settings is Back, not unpause: the player came from the pause menu and
+	// that is where one press should put them.
+	if (bSettingsOpen)
+	{
+		CloseSettings();
+		return;
+	}
+
 	TogglePause();
 }
 
@@ -129,11 +138,45 @@ void ACastlePlayerController::SetPauseMenuOpen(bool bOpen)
 	}
 	else
 	{
+		// Leaving the pause state at all takes the settings screen with it.
+		bSettingsOpen = false;
+		HideSettingsWidget();
 		HidePauseWidget();
 	}
 
 	SetPause(bOpen);
 	ApplyPauseInputMode(bOpen);
+}
+
+void ACastlePlayerController::OpenSettings()
+{
+	if (!bPauseMenuOpen || bSettingsOpen)
+	{
+		return;
+	}
+
+	if (!ShowSettingsWidget())
+	{
+		return;
+	}
+
+	// One menu at a time; the game stays paused underneath both.
+	HidePauseWidget();
+	bSettingsOpen = true;
+	ApplyPauseInputMode(true);
+}
+
+void ACastlePlayerController::CloseSettings()
+{
+	if (!bSettingsOpen)
+	{
+		return;
+	}
+
+	bSettingsOpen = false;
+	HideSettingsWidget();
+	ShowPauseWidget();
+	ApplyPauseInputMode(true);
 }
 
 UCastlePauseWidget* ACastlePlayerController::ShowPauseWidget()
@@ -155,6 +198,7 @@ UCastlePauseWidget* ACastlePlayerController::ShowPauseWidget()
 		}
 
 		PauseWidget->OnResumeClicked.AddDynamic(this, &ACastlePlayerController::HandlePauseResumeClicked);
+		PauseWidget->OnSettingsClicked.AddDynamic(this, &ACastlePlayerController::HandlePauseSettingsClicked);
 		PauseWidget->OnRestartMissionClicked.AddDynamic(this, &ACastlePlayerController::HandlePauseRestartClicked);
 		PauseWidget->OnQuitToDesktopClicked.AddDynamic(this, &ACastlePlayerController::HandlePauseQuitClicked);
 	}
@@ -176,6 +220,57 @@ void ACastlePlayerController::HidePauseWidget()
 	}
 }
 
+UCastleSettingsWidget* ACastlePlayerController::ShowSettingsWidget()
+{
+	if (!SettingsWidgetClass || !IsLocalController())
+	{
+		UE_LOG(LogCastle, Warning, TEXT("%s has no SettingsWidgetClass set."), *GetName());
+		return nullptr;
+	}
+
+	if (!SettingsWidget)
+	{
+		SettingsWidget = CreateWidget<UCastleSettingsWidget>(this, SettingsWidgetClass);
+		if (!SettingsWidget)
+		{
+			UE_LOG(LogCastle, Warning, TEXT("%s: could not create the settings widget."), *GetName());
+			return nullptr;
+		}
+
+		SettingsWidget->OnBackRequested.AddDynamic(this, &ACastlePlayerController::HandleSettingsBackRequested);
+	}
+
+	if (!SettingsWidget->IsInViewport())
+	{
+		SettingsWidget->AddToViewport(11);
+	}
+	SettingsWidget->SetVisibility(ESlateVisibility::Visible);
+	SettingsWidget->RefreshFromSettings();
+
+	return SettingsWidget;
+}
+
+void ACastlePlayerController::HideSettingsWidget()
+{
+	if (SettingsWidget)
+	{
+		SettingsWidget->RemoveFromParent();
+	}
+}
+
+TSharedPtr<SWidget> ACastlePlayerController::GetFocusedMenuWidget() const
+{
+	if (bSettingsOpen && SettingsWidget)
+	{
+		return SettingsWidget->TakeWidget();
+	}
+	if (PauseWidget)
+	{
+		return PauseWidget->TakeWidget();
+	}
+	return nullptr;
+}
+
 void ACastlePlayerController::ApplyPauseInputMode(bool bPaused)
 {
 	if (!IsLocalController())
@@ -189,9 +284,11 @@ void ACastlePlayerController::ApplyPauseInputMode(bool bPaused)
 		FInputModeGameAndUI Mode;
 		Mode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
 		Mode.SetHideCursorDuringCapture(false);
-		if (PauseWidget)
+		// Game and UI, so the Escape mapping still reaches this controller while a slider has
+		// keyboard focus.
+		if (const TSharedPtr<SWidget> Focus = GetFocusedMenuWidget())
 		{
-			Mode.SetWidgetToFocus(PauseWidget->TakeWidget());
+			Mode.SetWidgetToFocus(Focus);
 		}
 		SetInputMode(Mode);
 		bShowMouseCursor = true;
@@ -205,6 +302,16 @@ void ACastlePlayerController::ApplyPauseInputMode(bool bPaused)
 void ACastlePlayerController::HandlePauseResumeClicked()
 {
 	SetPauseMenuOpen(false);
+}
+
+void ACastlePlayerController::HandlePauseSettingsClicked()
+{
+	OpenSettings();
+}
+
+void ACastlePlayerController::HandleSettingsBackRequested()
+{
+	CloseSettings();
 }
 
 void ACastlePlayerController::HandlePauseRestartClicked()
@@ -287,9 +394,18 @@ void ACastlePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		ActiveFlashbackWidget = nullptr;
 	}
 
+	if (SettingsWidget)
+	{
+		SettingsWidget->OnBackRequested.RemoveDynamic(this, &ACastlePlayerController::HandleSettingsBackRequested);
+		SettingsWidget->RemoveFromParent();
+		SettingsWidget = nullptr;
+	}
+	bSettingsOpen = false;
+
 	if (PauseWidget)
 	{
 		PauseWidget->OnResumeClicked.RemoveDynamic(this, &ACastlePlayerController::HandlePauseResumeClicked);
+		PauseWidget->OnSettingsClicked.RemoveDynamic(this, &ACastlePlayerController::HandlePauseSettingsClicked);
 		PauseWidget->OnRestartMissionClicked.RemoveDynamic(this, &ACastlePlayerController::HandlePauseRestartClicked);
 		PauseWidget->OnQuitToDesktopClicked.RemoveDynamic(this, &ACastlePlayerController::HandlePauseQuitClicked);
 		PauseWidget->RemoveFromParent();

@@ -22,6 +22,10 @@ void UCastlePauseWidget::ApplyDefaultLabels()
 	{
 		ResumeLabel = NSLOCTEXT("Castle", "PauseResume", "Resume");
 	}
+	if (SettingsLabel.IsEmpty())
+	{
+		SettingsLabel = NSLOCTEXT("Castle", "PauseSettings", "Settings");
+	}
 	if (RestartMissionLabel.IsEmpty())
 	{
 		RestartMissionLabel = NSLOCTEXT("Castle", "PauseRestart", "Restart mission");
@@ -93,6 +97,7 @@ TSharedRef<SWidget> UCastlePauseWidget::RebuildWidget()
 		};
 
 		AddButton(ResumeButton, TEXT("ResumeButton"), ResumeLabel);
+		AddButton(SettingsButton, TEXT("SettingsButton"), SettingsLabel);
 		AddButton(RestartMissionButton, TEXT("RestartMissionButton"), RestartMissionLabel);
 		AddButton(QuitToDesktopButton, TEXT("QuitToDesktopButton"), QuitToDesktopLabel);
 	}
@@ -115,6 +120,10 @@ void UCastlePauseWidget::NativeConstruct()
 	{
 		ResumeButton->OnClicked.AddDynamic(this, &UCastlePauseWidget::HandleResumeClicked);
 	}
+	if (SettingsButton)
+	{
+		SettingsButton->OnClicked.AddDynamic(this, &UCastlePauseWidget::HandleSettingsClicked);
+	}
 	if (RestartMissionButton)
 	{
 		RestartMissionButton->OnClicked.AddDynamic(this, &UCastlePauseWidget::HandleRestartMissionClicked);
@@ -135,6 +144,10 @@ void UCastlePauseWidget::NativeDestruct()
 		{
 			ResumeButton->OnClicked.RemoveDynamic(this, &UCastlePauseWidget::HandleResumeClicked);
 		}
+		if (SettingsButton)
+		{
+			SettingsButton->OnClicked.RemoveDynamic(this, &UCastlePauseWidget::HandleSettingsClicked);
+		}
 		if (RestartMissionButton)
 		{
 			RestartMissionButton->OnClicked.RemoveDynamic(this, &UCastlePauseWidget::HandleRestartMissionClicked);
@@ -152,6 +165,11 @@ void UCastlePauseWidget::NativeDestruct()
 void UCastlePauseWidget::HandleResumeClicked()
 {
 	OnResumeClicked.Broadcast();
+}
+
+void UCastlePauseWidget::HandleSettingsClicked()
+{
+	OnSettingsClicked.Broadcast();
 }
 
 void UCastlePauseWidget::HandleRestartMissionClicked()

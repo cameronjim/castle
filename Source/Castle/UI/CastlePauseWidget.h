@@ -13,9 +13,9 @@ class UVerticalBox;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPauseMenuChoiceSignature);
 
 /**
- * The Escape menu: Resume, Restart mission, Quit to desktop.
+ * The Escape menu: Resume, Settings, Restart mission, Quit to desktop.
  *
- * Reparent a UMG widget to this class and name three buttons ResumeButton,
+ * Reparent a UMG widget to this class and name four buttons ResumeButton, SettingsButton,
  * RestartMissionButton and QuitToDesktopButton to have them driven automatically. A subclass
  * with no designer layout works too, because RebuildWidget builds a vertical stack itself
  * (the same approach as UCastleHudWidget and UFlashbackWidget).
@@ -33,6 +33,9 @@ public:
 	FOnPauseMenuChoiceSignature OnResumeClicked;
 
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
+	FOnPauseMenuChoiceSignature OnSettingsClicked;
+
+	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnRestartMissionClicked;
 
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
@@ -44,6 +47,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText ResumeLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
+	FText SettingsLabel;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText RestartMissionLabel;
@@ -62,6 +68,9 @@ protected:
 	void HandleResumeClicked();
 
 	UFUNCTION()
+	void HandleSettingsClicked();
+
+	UFUNCTION()
 	void HandleRestartMissionClicked();
 
 	UFUNCTION()
@@ -72,6 +81,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> ResumeButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SettingsButton = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> RestartMissionButton = nullptr;
