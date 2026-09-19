@@ -36,10 +36,14 @@ PLAYER_PATH = "/Game/Blueprints/Player"
 UI_PATH = "/Game/Blueprints/UI"
 INPUT_PATH = "/Game/Input"
 
-# UE 5.8 ships no first-person arms mesh, and the full body mannequin parented to the camera
-# fills the lower screen with its own torso. So there are no arms: the view model is the
-# pistol alone, attached to the camera. See ACastleCharacter::bUseArmsMesh.
-#
+# True first person. UE 5.8 ships no arms-only mesh, so SK_Mannequin is used twice: once as
+# Frank's actual body (ACharacter's own Mesh, animated, shadow-casting, head hidden) and once
+# as the poseable arms in front of the camera. See ACastleCharacter and
+# UFirstPersonArmsComponent.
+MANNEQUIN_MESH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
+MANNEQUIN_IDLE = "/Game/Mannequin/Animations/ThirdPersonIdle"
+MANNEQUIN_WALK = "/Game/Mannequin/Animations/ThirdPersonWalk"
+
 # Copied out of Templates/TemplateResources/Standard/Weapons. Its internal references are
 # absolute (/Game/Weapons/...), so Content/Weapons is where these have to live.
 PISTOL_MESH = "/Game/Weapons/Pistol/Meshes/SM_Pistol"
@@ -144,6 +148,22 @@ def apply_defaults(bp, name, path, values):
     return applied
 
 
+def component_asset(component, prop_name):
+    """The asset a component already has, by property or by its getter. None when unknown."""
+    try:
+        return component.get_editor_property(prop_name)
+    except Exception:  # noqa: BLE001 - private UPROPERTY; try the getter instead
+        pass
+
+    getter = getattr(component, "get_" + prop_name, None)
+    if getter is None:
+        return None
+    try:
+        return getter()
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def set_component_asset(bp, component_name, setter_name, prop_name, asset, context):
     """Assign a mesh on an inherited component through the Blueprint CDO. Returns True if changed.
 
@@ -165,11 +185,8 @@ def set_component_asset(bp, component_name, setter_name, prop_name, asset, conte
         c.log("skipped", context, "no component called " + component_name)
         return False
 
-    try:
-        if component.get_editor_property(prop_name) == asset:
-            return False
-    except Exception:  # noqa: BLE001 - set_props reports a missing property
-        pass
+    if component_asset(component, prop_name) == asset:
+        return False
 
     try:
         getattr(component, setter_name)(asset)
@@ -180,61 +197,31 @@ def set_component_asset(bp, component_name, setter_name, prop_name, asset, conte
         return False
 
 
-def clear_component_asset(bp, component_name, setter_name, prop_name, context):
-    """Blank a mesh on an inherited component. Returns True if it had one to clear."""
-    cdo = c.blueprint_cdo(bp)
-    component = None
-    if cdo is not None:
-        try:
-            component = cdo.get_editor_property(component_name)
-        except Exception:  # noqa: BLE001
-            component = None
-    if component is None:
-        return False
-
-    try:
-        if component.get_editor_property(prop_name) is None:
-            return False
-        getattr(component, setter_name)(None)
-        c.log("updated", context, "cleared")
-        return True
-    except Exception as exc:  # noqa: BLE001
-        c.log_error(context, exc)
-        return False
-
-
 def configure_view_model(bp):
-    """Give BP_CastleCharacter its view model pistol.
+    """Give BP_CastleCharacter its body, its hands and its pistol.
 
-    The arms stay empty on purpose. The only skeletal mesh available is the full body
-    mannequin, and parented to the camera it puts its own torso and shoulders across the
-    lower two thirds of the screen. ACastleCharacter::bUseArmsMesh is false to match, so the
-    pistol alone is the view model until a real arms-only mesh exists.
+    Three assignments, all SK_Mannequin or its sequences:
+      Mesh      Frank's real body. Animated by IdleAnim/WalkAnim, head hidden in C++.
+      ArmsMesh  the poseable hands in front of the camera, posed in C++, never animated.
+      WeaponMesh the pistol, parented to the arms' hand_r.
     """
     if bp is None:
         return
 
     pistol = c.load_or_none(PISTOL_MESH)
+    mannequin = c.load_or_none(MANNEQUIN_MESH)
 
-    changed = clear_component_asset(
-        bp, "arms_mesh", "set_skeletal_mesh_asset", "skeletal_mesh_asset",
-        "BP_CastleCharacter.ArmsMesh")
+    changed = set_component_asset(
+        bp, "mesh", "set_skeletal_mesh_asset", "skeletal_mesh_asset", mannequin,
+        "BP_CastleCharacter.Mesh")
+    # A poseable mesh is a USkinnedMeshComponent, so it takes the skinned-asset setter rather
+    # than the skeletal-mesh one a USkeletalMeshComponent has.
+    changed = set_component_asset(
+        bp, "arms_mesh", "set_skinned_asset_and_update", "skinned_asset", mannequin,
+        "BP_CastleCharacter.ArmsMesh") or changed
     changed = set_component_asset(
         bp, "weapon_mesh", "set_static_mesh", "static_mesh", pistol,
         "BP_CastleCharacter.WeaponMesh") or changed
-
-    # The arms poses go with the arms; a pose on a mesh-less component is dead weight.
-    cdo = c.blueprint_cdo(bp)
-    if cdo is not None:
-        for prop in ("arms_idle_anim", "arms_pistol_idle_anim"):
-            try:
-                if cdo.get_editor_property(prop) is None:
-                    continue
-                cdo.set_editor_property(prop, None)
-                c.log("updated", "BP_CastleCharacter", "cleared " + prop)
-                changed = True
-            except Exception:  # noqa: BLE001 - property may not exist in this build
-                continue
 
     if changed:
         c.compile_blueprint(bp)
@@ -291,6 +278,9 @@ def run():
         values = [("default_mapping_context", c.load_or_none(c.asset_path(INPUT_PATH, "IMC_Default")))]
         for prop, asset_name in CHARACTER_INPUT_PROPERTIES:
             values.append((prop, c.load_or_none(c.asset_path(INPUT_PATH, asset_name))))
+        # The body plays the same two sequences the guards do; there is no AnimBP.
+        values.append(("idle_anim", c.load_or_none(MANNEQUIN_IDLE)))
+        values.append(("walk_anim", c.load_or_none(MANNEQUIN_WALK)))
         apply_defaults(bp_character, "BP_CastleCharacter", PLAYER_PATH, values)
         configure_view_model(bp_character)
 

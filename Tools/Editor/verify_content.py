@@ -304,8 +304,18 @@ def check_guard_presentation():
             fail("BP_Guard.Mesh slot {0} has no material".format(slot))
 
 
+def skinned_asset(component):
+    """The mesh on a poseable/skinned component. Its property is private; the getter is not."""
+    if component is None:
+        return None
+    try:
+        return component.get_skinned_asset()
+    except Exception:  # noqa: BLE001
+        return prop(component, "skinned_asset")
+
+
 def check_view_model():
-    """Frank's view model: the pistol, on the camera. There are deliberately no arms."""
+    """Frank's view model: a real body, poseable hands in front of it, and the pistol."""
     say("---- first-person view model ----")
 
     cls = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
@@ -321,18 +331,29 @@ def check_view_model():
     if weapon_asset is None:
         fail("BP_CastleCharacter.WeaponMesh has no pistol mesh")
 
-    say("  WeaponRelativeLocation       = {0}".format(prop(cdo, "weapon_relative_location")))
-    say("  WeaponAimLocation            = {0}".format(prop(cdo, "weapon_aim_location")))
+    say("  ArmsHipOffset                = {0}".format(prop(cdo, "arms_hip_offset")))
+    say("  ArmsAimOffset                = {0}".format(prop(cdo, "arms_aim_offset")))
 
-    # The only skeletal mesh available is the full body mannequin, which wraps the camera in
-    # its own torso. Arms stay off until there is an arms-only mesh to use.
-    if prop(cdo, "use_arms_mesh"):
-        fail("BP_CastleCharacter.bUseArmsMesh is on; the mannequin arms fill the screen")
+    # True first person: SK_Mannequin twice. Once as Frank's body, once as the poseable hands.
+    body = prop(cdo, "mesh")
+    body_asset = prop(body, "skeletal_mesh_asset") if body is not None else None
+    say("  Mesh.skeletal_mesh_asset     = {0}".format(name_of(body_asset)))
+    if body_asset is None:
+        fail("BP_CastleCharacter.Mesh has no body mesh; run create_blueprints.py")
+
+    for field in ("idle_anim", "walk_anim"):
+        value = prop(cdo, field)
+        say("  BP_CastleCharacter.{0:<9} = {1}".format(field, name_of(value)))
+        if value is None:
+            fail("BP_CastleCharacter." + field + " is unset; Frank's body stands in a T-pose")
+
+    if not prop(cdo, "use_arms_mesh"):
+        say("  bUseArmsMesh                 = off (pistol-on-camera fallback)")
     arms = prop(cdo, "arms_mesh")
-    arms_asset = prop(arms, "skeletal_mesh_asset") if arms is not None else None
-    say("  ArmsMesh.skeletal_mesh_asset = {0}".format(name_of(arms_asset)))
-    if arms_asset is not None:
-        fail("BP_CastleCharacter.ArmsMesh has a mesh; run create_blueprints.py to clear it")
+    arms_asset = skinned_asset(arms)
+    say("  ArmsMesh.skinned_asset       = {0}".format(name_of(arms_asset)))
+    if prop(cdo, "use_arms_mesh") and arms_asset is None:
+        fail("BP_CastleCharacter.ArmsMesh has no mesh; run create_blueprints.py")
 
 
 def check_data_assets():

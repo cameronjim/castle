@@ -25,8 +25,7 @@ ANIM_BP_PATH = MANNEQUIN_PATH + "/Animations/ThirdPerson_AnimBP"
 GUARD_PATH = "/Game/Blueprints/AI"
 PLAYER_PATH = "/Game/Blueprints/Player"
 
-# Frank has no arms: the mannequin is a full body and parented to the camera it fills the
-# lower screen with its own torso. These clips are the guards' locomotion only.
+# Locomotion for everyone who walks: the guards, and Frank's own true-first-person body.
 ARMS_ANIM_PATHS = [
     MANNEQUIN_PATH + "/Animations/ThirdPersonIdle",
     MANNEQUIN_PATH + "/Animations/ThirdPersonWalk",
@@ -103,7 +102,7 @@ def check_locomotion_anims():
 
 
 def check_view_model():
-    # There are no first-person arms: the mannequin is a full body and wraps the camera.
+    # True first person: SK_Mannequin is Frank's body, and again his poseable hands.
     say("---- first-person view model ----")
     player_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
     if player_class is None:
@@ -112,14 +111,31 @@ def check_view_model():
 
     cdo = unreal.get_default_object(player_class)
 
+    body = prop(cdo, "mesh")
+    if body is None:
+        fail("BP_CastleCharacter has no body Mesh component")
+    else:
+        assigned = prop(body, "skeletal_mesh_asset")
+        say("  Mesh.skeletal_mesh_asset     = {0}".format(name_of(assigned)))
+        say("  Mesh.relative_location       = {0}".format(prop(body, "relative_location")))
+        if assigned is None:
+            fail("BP_CastleCharacter.Mesh has no body mesh; run create_blueprints.py")
+
     arms = prop(cdo, "arms_mesh")
     if arms is None:
         fail("BP_CastleCharacter has no ArmsMesh component")
     else:
-        assigned = prop(arms, "skeletal_mesh_asset")
-        say("  ArmsMesh.skeletal_mesh_asset = {0}".format(name_of(assigned)))
-        if assigned is not None:
-            fail("BP_CastleCharacter.ArmsMesh has a mesh; run create_blueprints.py to clear it")
+        try:
+            assigned = arms.get_skinned_asset()
+        except Exception:  # noqa: BLE001
+            assigned = prop(arms, "skinned_asset")
+        say("  ArmsMesh.skinned_asset       = {0}".format(name_of(assigned)))
+        if assigned is None and prop(cdo, "use_arms_mesh"):
+            fail("BP_CastleCharacter.ArmsMesh has no mesh; run create_blueprints.py")
+
+    for field in ("idle_anim", "walk_anim"):
+        if prop(cdo, field) is None:
+            fail("BP_CastleCharacter." + field + " is unset; Frank's body stands in a T-pose")
 
     weapon = prop(cdo, "weapon_mesh")
     if weapon is None:
@@ -130,7 +146,8 @@ def check_view_model():
         if assigned is None:
             fail("BP_CastleCharacter.WeaponMesh has no pistol; run create_blueprints.py")
 
-    say("  hidden bones                 = {0}".format(list(prop(cdo, "hidden_view_model_bones") or [])))
+    say("  hidden body bones            = {0}".format(list(prop(cdo, "hidden_view_model_bones") or [])))
+    say("  bUseArmsMesh                 = {0}".format(prop(cdo, "use_arms_mesh")))
 
 
 def check_guard_look():
