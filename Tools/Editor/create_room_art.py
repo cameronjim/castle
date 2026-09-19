@@ -175,9 +175,53 @@ STATION_DRESSING = (
     ("Art_Station_ReaderLed", (2872.0, -75.0, 126.0), (4.0, 6.0, 4.0), "red", 0.0),
     ("Art_Station_DoorJamb_S", (2900.0, -80.0, 130.0), (30.0, 20.0, 260.0), "steel", 0.0),
     ("Art_Station_DoorJamb_N", (2900.0, 80.0, 130.0), (30.0, 20.0, 260.0), "steel", 0.0),
-    ("Art_Station_DoorLintel", (2900.0, 0.0, 270.0), (30.0, 180.0, 20.0), "steel", 0.0),
+    # 60 tall and centred at 250, not 20 at 270: the door leaf stops at z 220 and the header
+    # starts at 280, and the slot between them was an open hole through into corridor 2.
+    ("Art_Station_DoorLintel", (2900.0, 0.0, 250.0), (30.0, 180.0, 60.0), "steel", 0.0),
     ("Art_Station_DoorHeader", (2900.0, 0.0, 340.0), (20.0, 160.0, 120.0), "concrete", 0.0),
 )
+
+# --- baseline lighting ------------------------------------------------------------------
+# Every room past the keycard door is still greybox - Cameron dresses one room at a time - but
+# a greybox room the player cannot see is not a greybox room, it is a black screen. Ceilings
+# went over the whole map, which is what took the sun out of corridor 2 and the exit room and
+# left them pitch black. These are plain steady tubes at the same 100 cd as corridor 1, labelled
+# Art_Base_ so the real art pass for each room can replace them without hunting.
+#
+# (suffix, x, y). Corridors get one every 500 cm, rooms one in the middle.
+BASELINE_FLUORESCENTS = (
+    ("Corr2_A", 3150.0, 0.0),
+    ("Corr2_B", 3650.0, 0.0),
+    ("Corr2_C", 4150.0, 0.0),
+    ("Corr2_D", 4650.0, 0.0),
+    ("Exit", 5200.0, 0.0),
+)
+
+BASELINE_INTENSITY = 100.0
+
+# A red lamp at the mouth of the exit room, so the last room reads as the way out rather than
+# as more corridor. (lamp label, lamp centre, size), (light label, light centre).
+BASELINE_RED_LAMP = ("Art_Base_RedEmergency_Exit", (4960.0, 278.0, 300.0), (16.0, 20.0, 26.0))
+BASELINE_RED_LIGHT = ("Art_Base_Light_RedExit", (4960.0, 262.0, 295.0))
+
+# Green exit sign hanging over the stairwell trigger at (5200, 0).
+BASELINE_EXIT_SIGN = ("Art_Base_ExitSign_Exit", (5200.0, 0.0, 330.0), (10.0, 60.0, 16.0))
+
+# Floor-centre samples every room has to have a light near, checked by verify_room_art.py.
+# (name, x, y). Nothing here may be further than LIGHT_REACH cm from a light actor.
+ROOM_LIGHT_SAMPLES = (
+    ("cell", 150.0, 0.0),
+    ("corridor1_west", 400.0, 0.0),
+    ("corridor1_mid", 1300.0, 0.0),
+    ("corridor1_east", 2200.0, 0.0),
+    ("station", 2600.0, 0.0),
+    ("corridor2_west", 3150.0, 0.0),
+    ("corridor2_mid", 3900.0, 0.0),
+    ("corridor2_east", 4650.0, 0.0),
+    ("exit_room", 5200.0, 0.0),
+)
+
+LIGHT_REACH = 600.0
 
 RED_LAMP = ("Art_RedEmergency", (2240.0, 130.0, 300.0), (16.0, 20.0, 26.0))
 RED_LIGHT = ("Art_Light_RedEmergency", (2225.0, 118.0, 295.0))
@@ -706,31 +750,36 @@ def step_post_process():
             c.log_error("step_post_process " + label_of(actor), exc)
 
 
+def ensure_fluorescent(prefix, suffix, x, y, key, intensity):
+    """One fixture: a tube mesh at the ceiling and a rect light pointed down out of it."""
+    ensure_box(prefix + "Tube_" + suffix, (x, y, TUBE_Z), TUBE_SIZE, key)
+
+    props = [
+        ("intensity", intensity),
+        ("light_color", color(COOL_WHITE)),
+        ("source_width", TUBE_SIZE[0]),
+        ("source_height", TUBE_SIZE[1]),
+        ("attenuation_radius", 1400.0),
+        ("cast_shadows", True),
+    ]
+    units = getattr(unreal, "LightUnits", None)
+    if units is not None and getattr(units, "CANDELAS", None) is not None:
+        props.insert(0, ("intensity_units", units.CANDELAS))
+    ensure_light(
+        c.find_class("RectLight", "/Script/Engine.RectLight"),
+        prefix + "Light_" + suffix,
+        (x, y, TUBE_LIGHT_Z),
+        # unreal.Rotator is (roll, pitch, yaw): a -90 pitch aims the panel at the floor.
+        unreal.Rotator(0.0, -90.0, 0.0),
+        props,
+        "rect_light_component",
+    )
+
+
 def step_fluorescents():
     """A tube mesh at the ceiling plus a rect light under it, per fixture."""
-    rect_class = c.find_class("RectLight", "/Script/Engine.RectLight")
     for suffix, x, y, key, intensity in FLUORESCENTS:
-        ensure_box("Art_Tube_" + suffix, (x, y, TUBE_Z), TUBE_SIZE, key)
-
-        props = [
-            ("intensity", intensity),
-            ("light_color", color(COOL_WHITE)),
-            ("source_width", TUBE_SIZE[0]),
-            ("source_height", TUBE_SIZE[1]),
-            ("attenuation_radius", 1400.0),
-            ("cast_shadows", True),
-        ]
-        units = getattr(unreal, "LightUnits", None)
-        if units is not None and getattr(units, "CANDELAS", None) is not None:
-            props.insert(0, ("intensity_units", units.CANDELAS))
-        ensure_light(
-            rect_class,
-            "Art_Light_" + suffix,
-            (x, y, TUBE_LIGHT_Z),
-            unreal.Rotator(0.0, -90.0, 0.0),
-            props,
-            "rect_light_component",
-        )
+        ensure_fluorescent("Art_", suffix, x, y, key, intensity)
     c.log(
         "note",
         "Art_Tube_Corr1_B",
@@ -759,6 +808,37 @@ def step_emergency_light():
     )
 
     sign_label, sign_center, sign_size = EXIT_SIGN
+    ensure_box(sign_label, sign_center, sign_size, "stripe")
+
+
+def step_baseline_lighting():
+    """Make every undressed room visible: steady tubes, a red lamp and a green exit sign.
+
+    Nothing here is art. It is the floor under the art: a room whose only light source was the
+    sun went black the moment the ceilings went on, and a black room cannot be playtested.
+    """
+    for suffix, x, y in BASELINE_FLUORESCENTS:
+        ensure_fluorescent("Art_Base_", suffix, x, y, "tube", BASELINE_INTENSITY)
+
+    lamp_label, lamp_center, lamp_size = BASELINE_RED_LAMP
+    ensure_box(lamp_label, lamp_center, lamp_size, "red")
+
+    light_label, light_center = BASELINE_RED_LIGHT
+    ensure_light(
+        unreal.PointLight,
+        light_label,
+        light_center,
+        None,
+        [
+            ("intensity", 800.0),
+            ("light_color", color(EMERGENCY_RED)),
+            ("attenuation_radius", 600.0),
+            ("cast_shadows", True),
+        ],
+        "point_light_component",
+    )
+
+    sign_label, sign_center, sign_size = BASELINE_EXIT_SIGN
     ensure_box(sign_label, sign_center, sign_size, "stripe")
 
 
@@ -791,6 +871,7 @@ STEPS = (
     ("fog", step_fog),
     ("post process", step_post_process),
     ("fluorescents", step_fluorescents),
+    ("baseline lighting", step_baseline_lighting),
     ("emergency light", step_emergency_light),
     ("cell dressing", step_cell_dressing),
     ("corridor dressing", step_corridor_dressing),

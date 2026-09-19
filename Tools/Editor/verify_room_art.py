@@ -86,6 +86,20 @@ EXPECTED_ACTORS = (
     "Art_Station_DoorJamb_N",
     "Art_Station_DoorLintel",
     "Art_Station_DoorHeader",
+    # Baseline lighting for the rooms that are still greybox.
+    "Art_Base_Tube_Corr2_A",
+    "Art_Base_Tube_Corr2_B",
+    "Art_Base_Tube_Corr2_C",
+    "Art_Base_Tube_Corr2_D",
+    "Art_Base_Tube_Exit",
+    "Art_Base_Light_Corr2_A",
+    "Art_Base_Light_Corr2_B",
+    "Art_Base_Light_Corr2_C",
+    "Art_Base_Light_Corr2_D",
+    "Art_Base_Light_Exit",
+    "Art_Base_RedEmergency_Exit",
+    "Art_Base_Light_RedExit",
+    "Art_Base_ExitSign_Exit",
 )
 
 # Gameplay actors the art pass must not have disturbed.
@@ -240,6 +254,47 @@ def check_wall_materials(by_label):
             fail("{0} is on {1}, expected M_ConcreteFloor".format(label, name))
 
 
+def check_every_room_is_lit(actors):
+    """No room's floor centre may be further than LIGHT_REACH from a light.
+
+    Standing in for a real luminance probe, which a headless editor cannot take. It is the
+    check that would have caught corridor 2 and the exit room going black when the ceilings
+    went in: both were 11 and 24 metres from the nearest lamp.
+    """
+    say("---- every room is lit ----")
+    lights = []
+    for actor in actors:
+        try:
+            root = actor.get_editor_property("root_component")
+        except Exception:  # noqa: BLE001
+            continue
+        if root is None or not isinstance(root, unreal.LightComponent):
+            continue
+        if isinstance(actor, (unreal.DirectionalLight, unreal.SkyLight)):
+            # The sun is dimmed to nothing on purpose; it lights no room.
+            continue
+        try:
+            location = actor.get_actor_location()
+        except Exception:  # noqa: BLE001
+            continue
+        lights.append((art.label_of(actor), location.x, location.y))
+
+    if not lights:
+        fail("the level has no local lights at all")
+        return
+
+    for name, rx, ry in art.ROOM_LIGHT_SAMPLES:
+        nearest_label, nearest = None, None
+        for label, lx, ly in lights:
+            distance = ((lx - rx) ** 2 + (ly - ry) ** 2) ** 0.5
+            if nearest is None or distance < nearest:
+                nearest_label, nearest = label, distance
+        say("  {0:<16} nearest light {1} at {2:.0f} cm".format(name, nearest_label, nearest))
+        if nearest > art.LIGHT_REACH:
+            fail("{0} has no light within {1:.0f} cm (nearest is {2} at {3:.0f})".format(
+                name, art.LIGHT_REACH, nearest_label, nearest))
+
+
 def check_exposure(actors):
     say("---- exposure preset ----")
     say("  CASTLE_BRIGHT={0} -> ROOM_EXPOSURE_EV={1:.2f}".format(
@@ -347,6 +402,7 @@ def main():
     check_gameplay_intact(by_label)
     check_wall_materials(by_label)
     check_lighting(actors)
+    check_every_room_is_lit(actors)
     check_exposure(actors)
 
     if PROBLEMS:
