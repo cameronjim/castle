@@ -118,7 +118,11 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Weapon")
 	FOnWeaponHitSignature OnHit;
 
-	/** Cone half-angle of the melee sweep is not a thing; this is its reach in centimetres. */
+	/** Damage one punch does. Separate from Damage so holding fists never rewrites gun stats. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "0.0"))
+	float MeleeDamage = 15.f;
+
+	/** Reach of the punch sweep, in centimetres. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "0.0"))
 	float MeleeRange = 120.f;
 

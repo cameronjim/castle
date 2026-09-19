@@ -97,6 +97,13 @@ FVector UWeaponComponent::ApplyConeSpread(const FVector& Direction, float Spread
 
 void UWeaponComponent::GiveWeapon(int32 Magazine, int32 Reserve)
 {
+	// The definition-free path: "you are now holding a gun with these rounds". Guards and the
+	// screenshot tests use it, and it has to win over a melee definition left in the slot.
+	if (IsMelee())
+	{
+		ActiveDefinition = nullptr;
+	}
+
 	bHasWeapon = true;
 	CurrentAmmo = FMath::Clamp(Magazine, 0, MagazineSize);
 	ReserveAmmo = FMath::Max(Reserve, 0);
@@ -126,19 +133,28 @@ void UWeaponComponent::ApplyStatsFromDefinition()
 		return;
 	}
 
+	MeleeRange = ActiveDefinition->MeleeRange;
+	MeleeCooldown = ActiveDefinition->MeleeCooldown;
+	bStaggerOnHit = ActiveDefinition->bStaggerOnHit;
+
+	if (ActiveDefinition->bIsMelee)
+	{
+		// Fists carry no ammo, spread or reload, so holding them must not overwrite the gun
+		// stats the component would go back to the moment a weapon is selected again.
+		MeleeDamage = ActiveDefinition->Damage;
+		return;
+	}
+
 	// The definition is the source of truth; these properties stay as the runtime copy so the
 	// trace, reload and spread code does not have to null-check a data asset on every shot.
 	Damage = ActiveDefinition->Damage;
-	MagazineSize = FMath::Max(ActiveDefinition->MagazineSize, 0);
+	MagazineSize = FMath::Max(ActiveDefinition->MagazineSize, 1);
 	FireRate = FMath::Max(ActiveDefinition->FireRate, 1.f);
 	ReloadSeconds = ActiveDefinition->ReloadSeconds;
 	HipSpreadDegrees = ActiveDefinition->HipSpreadDegrees;
 	AimSpreadDegrees = ActiveDefinition->AimSpreadDegrees;
 	HeadshotMultiplier = ActiveDefinition->HeadshotMultiplier;
 	HeadBoneNames = ActiveDefinition->HeadBoneNames;
-	MeleeRange = ActiveDefinition->MeleeRange;
-	MeleeCooldown = ActiveDefinition->MeleeCooldown;
-	bStaggerOnHit = ActiveDefinition->bStaggerOnHit;
 }
 
 void UWeaponComponent::SetActiveWeapon(UWeaponDefinition* Definition, int32 Magazine, int32 Reserve)
@@ -324,7 +340,7 @@ bool UWeaponComponent::FireMelee()
 		return true;
 	}
 
-	const float DamageDealt = Health->ApplyMeleeDamage(Damage, Owner, bStaggerOnHit);
+	const float DamageDealt = Health->ApplyMeleeDamage(MeleeDamage, Owner, bStaggerOnHit);
 
 	UE_LOG(LogCastle, Verbose, TEXT("%s: punched %s for %.1f damage."),
 		*GetNameSafe(Owner), *GetNameSafe(HitActor), DamageDealt);
