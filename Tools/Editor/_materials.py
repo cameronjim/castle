@@ -31,6 +31,7 @@ M_FLUORESCENT_FLICKER = MATERIALS_PATH + "/M_FluorescentFlicker"
 MI_FLUORESCENT_TUBE = MATERIALS_PATH + "/MI_FluorescentTube"
 MI_RED_EMERGENCY = MATERIALS_PATH + "/MI_RedEmergency"
 MI_KEYCARD_STRIPE = MATERIALS_PATH + "/MI_KeycardStripe"
+MI_MONITOR = MATERIALS_PATH + "/MI_Monitor"
 
 # Props
 M_PISTOL = MATERIALS_PATH + "/M_Pistol"
@@ -578,7 +579,7 @@ def ensure_surface_materials():
 
 
 def ensure_light_materials(intensity_factor=1.0):
-    """M_Emissive + M_FluorescentFlicker and the three lamp instances.
+    """M_Emissive + M_FluorescentFlicker and the four lamp instances.
 
     ``intensity_factor`` scales the tuned strengths below - they were eyeballed at the
     room art pass's -4.5 EV default, so a brighter exposure preset needs a proportionally
@@ -605,6 +606,8 @@ def ensure_light_materials(intensity_factor=1.0):
         ("tube", MI_FLUORESCENT_TUBE, (0.85, 0.90, 1.00), 150.0),
         ("red", MI_RED_EMERGENCY, (1.00, 0.05, 0.02), 250.0),
         ("stripe", MI_KEYCARD_STRIPE, (0.10, 0.90, 0.30), 60.0),
+        # A CRT left on in the guard station: bright enough to glow, too dim to light the room.
+        ("monitor", MI_MONITOR, (0.20, 0.55, 1.00), 25.0),
     )
     for key, path, rgb, strength in instances:
         try:

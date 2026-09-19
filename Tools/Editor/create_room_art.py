@@ -57,6 +57,8 @@ CEILING_Z = WALL_HEIGHT + CEILING_THICK / 2.0
 
 CELL_X = (0.0, 300.0)
 CORR1_X = (300.0, 2300.0)
+STATION_X = (2300.0, 2900.0)
+STATION_Y = (-300.0, 300.0)
 ROOM_Y = (-150.0, 150.0)
 DOORWAY_Y = (-50.0, 50.0)
 
@@ -79,14 +81,19 @@ ART_WALL_LABELS = (
     "Wall_Corr1_North",
     "Wall_StationIn_S",
     "Wall_StationIn_N",
+    # The guard station: the room the keycard door is in, so it gets the same treatment.
+    "Wall_Station_South",
+    "Wall_Station_North",
+    "Wall_SecurityDoor_S",
+    "Wall_SecurityDoor_N",
 )
 
-# (label, cx, cy, sx, sy, material key). The first two are the art rooms; the rest just
+# (label, cx, cy, sx, sy, material key). The first three are the art rooms; the rest just
 # stop the sun, so they stay on the greybox material.
 CEILINGS = (
     ("Art_Ceiling_Cell", 150.0, 0.0, 340.0, 340.0, "concrete"),
     ("Art_Ceiling_Corr1", 1300.0, 0.0, 2000.0, 340.0, "concrete"),
-    ("Art_Ceiling_Station", 2600.0, 0.0, 640.0, 640.0, "greybox"),
+    ("Art_Ceiling_Station", 2600.0, 0.0, 640.0, 640.0, "concrete"),
     ("Art_Ceiling_Corr2", 3900.0, 0.0, 2000.0, 340.0, "greybox"),
     ("Art_Ceiling_Exit", 5200.0, 0.0, 640.0, 640.0, "greybox"),
 )
@@ -96,6 +103,7 @@ CEILINGS = (
 FLOOR_SKIMS = (
     ("Art_Floor_Cell", 150.0, 0.0, 340.0, 320.0),
     ("Art_Floor_Corr1", 1300.0, 0.0, 2000.0, 320.0),
+    ("Art_Floor_Station", 2600.0, 0.0, 640.0, 640.0),
 )
 
 TUBE_SIZE = (120.0, 10.0, 5.0)
@@ -112,6 +120,10 @@ FLUORESCENTS = (
     ("Corr1_C", 400.0, 0.0, "tube", 100.0),
     ("Corr1_D", 1200.0, 0.0, "tube", 100.0),
     ("Corr1_E", 2200.0, 0.0, "tube", 100.0),
+    # The guard station is the room the player has to solve, so it is the brightest thing
+    # in the level. Station_A hangs a metre short of the keycard door to point at it.
+    ("Station_A", 2800.0, 0.0, "tube", 100.0),
+    ("Station_B", 2450.0, 0.0, "tube", 100.0),
 )
 
 # (label, center, size, material key, yaw)
@@ -142,6 +154,27 @@ CORRIDOR_PIPES = (
     ("Art_Pipe_A", (1300.0, 130.0, 356.0), 7.0, 2000.0, "steel"),
     ("Art_Pipe_B", (1300.0, 130.0, 338.0), 7.0, 2000.0, "steel"),
     ("Art_Pipe_C", (1300.0, 131.0, 320.0), 8.0, 2000.0, "steel"),
+)
+
+# The guard station, x 2300..2900, y -300..300. BP_Door_Keycard sits at (2900, 0) with its
+# own frame mesh 140 wide and 260 tall, so the steel frame here wraps outside that: jambs at
+# y +-80, a lintel at z 270, and a concrete header closing the slot up to the ceiling.
+# The spare pistol (2700, -200) and keycard (2700, 200) pickups are left alone.
+# (label, center, size, material key, yaw)
+STATION_DRESSING = (
+    ("Art_Station_Desk", (2450.0, -250.0, 37.5), (160.0, 70.0, 75.0), "steel", 0.0),
+    ("Art_Station_Monitor", (2450.0, -262.0, 95.0), (50.0, 8.0, 30.0), "monitor", 0.0),
+    ("Art_Station_Locker_A", (2400.0, 265.0, 90.0), (40.0, 50.0, 180.0), "steel", 0.0),
+    ("Art_Station_Locker_B", (2445.0, 265.0, 90.0), (40.0, 50.0, 180.0), "steel", 0.0),
+    ("Art_Station_Locker_C", (2490.0, 265.0, 90.0), (40.0, 50.0, 180.0), "steel", 0.0),
+    ("Art_Station_CardReader", (2882.0, -75.0, 120.0), (16.0, 16.0, 24.0), "steel", 0.0),
+    # Red because a material instance cannot switch to green from Python; the door Blueprint
+    # owns that state and can swap the material when it unlocks.
+    ("Art_Station_ReaderLed", (2872.0, -75.0, 126.0), (4.0, 6.0, 4.0), "red", 0.0),
+    ("Art_Station_DoorJamb_S", (2900.0, -80.0, 130.0), (30.0, 20.0, 260.0), "steel", 0.0),
+    ("Art_Station_DoorJamb_N", (2900.0, 80.0, 130.0), (30.0, 20.0, 260.0), "steel", 0.0),
+    ("Art_Station_DoorLintel", (2900.0, 0.0, 270.0), (30.0, 180.0, 20.0), "steel", 0.0),
+    ("Art_Station_DoorHeader", (2900.0, 0.0, 340.0), (20.0, 160.0, 120.0), "concrete", 0.0),
 )
 
 RED_LAMP = ("Art_RedEmergency", (2240.0, 130.0, 300.0), (16.0, 20.0, 26.0))
@@ -734,6 +767,12 @@ def step_cell_dressing():
         ensure_box(label, center, size, key, yaw)
 
 
+def step_station_dressing():
+    """The guard station: desk, monitor, lockers, card reader and the keycard door frame."""
+    for label, center, size, key, yaw in STATION_DRESSING:
+        ensure_box(label, center, size, key, yaw)
+
+
 def step_corridor_dressing():
     for label, center, size, key, yaw in CORRIDOR_DRESSING:
         ensure_box(label, center, size, key, yaw)
@@ -755,6 +794,7 @@ STEPS = (
     ("emergency light", step_emergency_light),
     ("cell dressing", step_cell_dressing),
     ("corridor dressing", step_corridor_dressing),
+    ("station dressing", step_station_dressing),
 )
 
 
@@ -785,8 +825,10 @@ def run():
     c.log(
         "note",
         MAP_PATH,
-        "cell x {0:.0f}..{1:.0f}, corridor 1 x {2:.0f}..{3:.0f}, y {4:.0f}..{5:.0f}".format(
-            CELL_X[0], CELL_X[1], CORR1_X[0], CORR1_X[1], ROOM_Y[0], ROOM_Y[1]),
+        "cell x {0:.0f}..{1:.0f}, corridor 1 x {2:.0f}..{3:.0f} (y {4:.0f}..{5:.0f}), "
+        "guard station x {6:.0f}..{7:.0f} (y {8:.0f}..{9:.0f})".format(
+            CELL_X[0], CELL_X[1], CORR1_X[0], CORR1_X[1], ROOM_Y[0], ROOM_Y[1],
+            STATION_X[0], STATION_X[1], STATION_Y[0], STATION_Y[1]),
     )
     c.log("note", MAP_PATH, "{0} patrol point(s) checked for clearance".format(
         len(_STATE["patrol"])))

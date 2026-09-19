@@ -6,6 +6,7 @@
 #include "GameFramework/PlayerController.h"
 #include "CastlePlayerController.generated.h"
 
+class SWidget;
 class UCastleHudWidget;
 class UCastlePauseWidget;
 class UCastleSettingsWidget;
