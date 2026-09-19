@@ -270,6 +270,25 @@ bool UInventoryComponent::AddWeapon(UWeaponDefinition* Definition)
 	return true;
 }
 
+bool UInventoryComponent::AddWeaponWithAmmo(UWeaponDefinition* Definition, int32 Magazine, int32 Reserve)
+{
+	if (!AddWeapon(Definition))
+	{
+		return false;
+	}
+
+	// What this particular pickup carries, which can differ from the definition's defaults - a
+	// half-empty gun off a dead guard.
+	SetSlotAmmo(Definition->Slot,
+		FMath::Clamp(Magazine, 0, FMath::Max(Definition->MagazineSize, 0)), FMath::Max(Reserve, 0));
+
+	if (Definition->Slot == ActiveSlot)
+	{
+		ApplyActiveSlotToWeapon();
+	}
+	return true;
+}
+
 bool UInventoryComponent::AddAmmoToSlot(EHotbarSlot Slot, int32 Rounds)
 {
 	const int32 Index = static_cast<int32>(Slot);

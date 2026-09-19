@@ -698,6 +698,8 @@ void ACastleCharacter::RefreshViewModelForWeapon()
 		WeaponMesh->SetHiddenInGame(!bArmed);
 
 		// The mesh is data: the pistol carries one, the fists and (so far) the rifle do not.
+		// LoadSynchronous, not Get: in a packaged run nothing has pulled the soft pointer in yet,
+		// and Get() would quietly hand back null and leave the Blueprint's default mesh showing.
 		if (Definition && !Definition->ViewModelMesh.IsNull())
 		{
 			if (UStaticMesh* Held = Definition->ViewModelMesh.LoadSynchronous())
@@ -706,6 +708,11 @@ void ACastleCharacter::RefreshViewModelForWeapon()
 				{
 					WeaponMesh->SetStaticMesh(Held);
 				}
+			}
+			else
+			{
+				UE_LOG(LogCastle, Warning, TEXT("%s: %s names a view model mesh that will not load (%s)."),
+					*GetName(), *Definition->GetName(), *Definition->ViewModelMesh.ToString());
 			}
 		}
 

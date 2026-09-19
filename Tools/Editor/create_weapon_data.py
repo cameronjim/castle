@@ -68,7 +68,12 @@ def weapon_values(name):
             ("view_model_mesh", c.load_or_none(PISTOL_MESH)),
             ("arms_pose_name", "Pistol"),
             ("hand_offset", unreal.Vector(4.0, 0.0, 0.0)),
-            ("hand_rotation", unreal.Rotator(0.0, -90.0, 0.0)),
+            # unreal.Rotator is (roll, pitch, yaw), not the (pitch, yaw, roll) an FRotator
+            # literal in C++ takes. Writing the C++ order here gave the pistol a -90 degree
+            # PITCH: in game the slide pointed straight down through the palm and the gun
+            # vanished out of frame, while the editor screenshots - which arm Frank without a
+            # definition and so fall back to the C++ default - looked perfect.
+            ("hand_rotation", unreal.Rotator(0.0, 0.0, -90.0)),
         ]
 
     # Rifle: placeholder stats so the third slot is real long before the mission that uses it.

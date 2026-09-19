@@ -112,18 +112,13 @@ bool APickupActor::ApplyTo(AActor* Interactor)
 	{
 		if (Inventory && Definition)
 		{
-			Inventory->AddWeapon(Definition);
-			// MagazineAmount and AmmoAmount are what this particular pickup carries, which can
-			// differ from the definition's defaults (a half-empty gun off a dead guard).
-			Inventory->SetSlotAmmo(Definition->Slot,
-				FMath::Clamp(MagazineAmount, 0, Definition->MagazineSize), FMath::Max(AmmoAmount, 0));
-			if (Inventory->GetActiveSlot() == Definition->Slot)
-			{
-				if (UWeaponComponent* Held = Character->GetWeaponComponent())
-				{
-					Held->SetActiveWeapon(Definition, MagazineAmount, AmmoAmount);
-				}
-			}
+			// One call: the inventory owns slotting, ammo and handing the gun to the weapon
+			// component, so a pickup cannot arm the player halfway.
+			Inventory->AddWeaponWithAmmo(Definition, MagazineAmount, AmmoAmount);
+
+			// The view model reads the weapon component on the next tick anyway; doing it here
+			// means the gun is in his hand on the frame he picks it up.
+			Character->RefreshViewModelForWeapon();
 			break;
 		}
 

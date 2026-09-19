@@ -106,6 +106,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool AddWeapon(UWeaponDefinition* Definition);
 
+	/**
+	 * AddWeapon, then set that slot to exactly these rounds and push the result to the weapon
+	 * component if it is the one in hand. This is the single path every weapon pickup takes: the
+	 * pickup used to do the same three steps itself, and the one it skipped decided whether the
+	 * view model ever heard about the gun.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	bool AddWeaponWithAmmo(UWeaponDefinition* Definition, int32 Magazine, int32 Reserve);
+
 	/** Adds reserve rounds for Definition's slot. Returns false when that slot is empty. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool AddAmmo(UWeaponDefinition* Definition, int32 Rounds);
