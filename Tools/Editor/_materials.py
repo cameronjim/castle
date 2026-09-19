@@ -577,8 +577,14 @@ def ensure_surface_materials():
     return out
 
 
-def ensure_light_materials():
-    """M_Emissive + M_FluorescentFlicker and the three lamp instances."""
+def ensure_light_materials(intensity_factor=1.0):
+    """M_Emissive + M_FluorescentFlicker and the three lamp instances.
+
+    ``intensity_factor`` scales the tuned strengths below - they were eyeballed at the
+    room art pass's -4.5 EV default, so a brighter exposure preset needs a proportionally
+    dimmer emissive or the tubes blow out. create_room_art.py derives this from
+    ROOM_EXPOSURE_EV; anyone calling this module directly gets the -4.5 tuning as-is.
+    """
     out = {}
     try:
         out["emissive"] = ensure_material(M_EMISSIVE, _build_emissive)
@@ -595,6 +601,7 @@ def ensure_light_materials():
     instances = (
         # Emissive strength is in the same ballpark as the lights themselves, because the
         # scene is graded several stops down - a tube at 8 would read as dark plastic.
+        # These are the -4.5 EV values; intensity_factor scales them for other presets.
         ("tube", MI_FLUORESCENT_TUBE, (0.85, 0.90, 1.00), 150.0),
         ("red", MI_RED_EMERGENCY, (1.00, 0.05, 0.02), 250.0),
         ("stripe", MI_KEYCARD_STRIPE, (0.10, 0.90, 0.30), 60.0),
@@ -605,7 +612,7 @@ def ensure_light_materials():
                 path,
                 out.get("emissive"),
                 vectors=[(EMISSIVE_COLOR_PARAM, rgb)],
-                scalars=[(EMISSIVE_INTENSITY_PARAM, strength)],
+                scalars=[(EMISSIVE_INTENSITY_PARAM, strength * intensity_factor)],
             )
         except Exception as exc:  # noqa: BLE001
             c.log_error("ensure_light_materials " + path, exc)
@@ -635,18 +642,18 @@ def ensure_prop_materials():
     return out
 
 
-def ensure_all():
+def ensure_all(intensity_factor=1.0):
     """Every material the room-art pass needs, in one dict."""
     materials = {}
     materials.update(ensure_surface_materials())
-    materials.update(ensure_light_materials())
+    materials.update(ensure_light_materials(intensity_factor))
     materials.update(ensure_prop_materials())
     return materials
 
 
-def run():
+def run(intensity_factor=1.0):
     c.ensure_directory(MATERIALS_PATH)
-    return ensure_all()
+    return ensure_all(intensity_factor)
 
 
 if __name__ == "__main__":

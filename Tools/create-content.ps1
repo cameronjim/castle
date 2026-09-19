@@ -6,11 +6,13 @@
 # Do not run this while another editor instance is open - they collide on the module DLL.
 #
 #   .\Tools\create-content.ps1
+#   .\Tools\create-content.ps1 -Bright   # brighter room exposure, for playtesting layout and AI
 
 [CmdletBinding()]
 param(
     [string]$Engine = "C:\Program Files\Epic Games\UE_5.8",
-    [string]$Project = ""
+    [string]$Project = "",
+    [switch]$Bright
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,20 +33,26 @@ if (-not (Test-Path $LogDir))    { New-Item -ItemType Directory -Path $LogDir | 
 if (Test-Path $LogFile)          { Remove-Item $LogFile -Force }
 
 Write-Host "Running $Script through $EditorCmd ..."
+if ($Bright) { Write-Host "Bright preset requested (CASTLE_BRIGHT=1)." -ForegroundColor Yellow }
 
-& $EditorCmd $Project `
-    -run=pythonscript `
-    "-script=$Script" `
-    -unattended `
-    -nullrhi `
-    -nosplash `
-    -nop4 `
-    -stdout `
-    -FullStdOutLogOutput `
-    -NoLogTimes `
-    "-abslog=$LogFile"
+if ($Bright) { $env:CASTLE_BRIGHT = "1" }
+try {
+    & $EditorCmd $Project `
+        -run=pythonscript `
+        "-script=$Script" `
+        -unattended `
+        -nullrhi `
+        -nosplash `
+        -nop4 `
+        -stdout `
+        -FullStdOutLogOutput `
+        -NoLogTimes `
+        "-abslog=$LogFile"
 
-$editorExit = $LASTEXITCODE
+    $editorExit = $LASTEXITCODE
+} finally {
+    if ($Bright) { Remove-Item Env:\CASTLE_BRIGHT -ErrorAction SilentlyContinue }
+}
 
 if (-not (Test-Path $LogFile)) {
     Write-Host "No log at $LogFile - the editor produced nothing to inspect." -ForegroundColor Red

@@ -1,4 +1,4 @@
-﻿"""Art pass over the first room and first corridor of L_M01_CellBlockD.
+"""Art pass over the first room and first corridor of L_M01_CellBlockD.
 
 Turns Frank's cell and corridor 1 from lit grey boxes into a dark black-site prison:
 procedural concrete, a steel cell door left open, fluorescent tubes (one with a bad
@@ -148,9 +148,26 @@ RED_LAMP = ("Art_RedEmergency", (2240.0, 130.0, 300.0), (16.0, 20.0, 26.0))
 RED_LIGHT = ("Art_Light_RedEmergency", (2225.0, 118.0, 295.0))
 EXIT_SIGN = ("Art_ExitSign_Station", (2290.0, 0.0, 330.0), (10.0, 60.0, 16.0))
 
-# Config/DefaultEngine.ini turns auto exposure off project-wide, so the scene renders at a
-# fixed exposure that blows a fluorescent-lit interior out to white. This is the stop-down.
-EXPOSURE_BIAS = -4.5
+# --- room brightness ----------------------------------------------------------------
+# Config/DefaultEngine.ini turns auto exposure off project-wide, so the scene renders at
+# a fixed exposure that would blow a fluorescent-lit interior out to white without a
+# stop-down. Two presets, one env var, one number to change to revert:
+#
+#   default (CASTLE_BRIGHT unset or "0")  -> ROOM_EXPOSURE_EV_NORMAL, dark but seeable,
+#                                             the shipped look
+#   CASTLE_BRIGHT=1                       -> ROOM_EXPOSURE_EV_TESTING, brighter, for
+#                                             playtesting layout and AI
+#
+# Tools/create-content.ps1 -Bright sets CASTLE_BRIGHT=1 for the content-script process.
+ROOM_EXPOSURE_EV_NORMAL = -3.0   # the shipped look: dark but seeable
+ROOM_EXPOSURE_EV_TESTING = -1.5  # bright, for playtesting layout and AI
+BRIGHT = os.environ.get("CASTLE_BRIGHT", "0") == "1"
+ROOM_EXPOSURE_EV = ROOM_EXPOSURE_EV_TESTING if BRIGHT else ROOM_EXPOSURE_EV_NORMAL
+
+# The fluorescent tube, red emergency and keycard stripe emissive instances were tuned by
+# eye at -4.5 EV (the old fixed bias). A brighter preset needs a dimmer emissive or the
+# tubes blow out, so scale by how many stops brighter this preset is than that baseline.
+EMISSIVE_INTENSITY_FACTOR = 2 ** (ROOM_EXPOSURE_EV - (-4.5))
 
 COOL_WHITE = (200, 220, 255)
 EMERGENCY_RED = (255, 25, 10)
@@ -626,7 +643,7 @@ def step_post_process():
                     ("override_bloom_intensity", True),
                     ("bloom_intensity", 0.6),
                     ("override_auto_exposure_bias", True),
-                    ("auto_exposure_bias", EXPOSURE_BIAS),
+                    ("auto_exposure_bias", ROOM_EXPOSURE_EV),
                     ("override_auto_exposure_min_brightness", True),
                     ("auto_exposure_min_brightness", 0.6),
                     ("override_auto_exposure_max_brightness", True),
@@ -743,7 +760,17 @@ STEPS = (
 
 def run():
     _STATE["changed"] = 0
-    materials = m.run()
+    c.log(
+        "note",
+        "exposure preset",
+        "{0} (CASTLE_BRIGHT={1}) EV {2:.1f}, emissive x{3:.3f}".format(
+            "testing" if BRIGHT else "normal",
+            os.environ.get("CASTLE_BRIGHT", "0"),
+            ROOM_EXPOSURE_EV,
+            EMISSIVE_INTENSITY_FACTOR,
+        ),
+    )
+    materials = m.run(EMISSIVE_INTENSITY_FACTOR)
     greybox = c.load_or_none(GREYBOX_PATH)
     if greybox is None:
         unreal.log_warning("[Castle] M_Greybox missing; the spare ceilings stay untextured")
