@@ -15,6 +15,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOnHealthChangedSignature, UHealth
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDeathSignature, UHealthComponent*, HealthComponent, AActor*, Killer);
 
+/** Fired by a melee hit above StaggerThreshold. Bullets never stagger. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStaggeredSignature, UHealthComponent*, HealthComponent, AActor*, DamageInstigator);
+
 /**
  * Health, damage and death for any actor. Automatically forwards the owner's
  * OnTakeAnyDamage (so UGameplayStatics::ApplyDamage/ApplyPointDamage just work).
@@ -46,9 +49,26 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Health")
 	FOnDeathSignature OnDeath;
 
+	UPROPERTY(BlueprintAssignable, Category = "Health")
+	FOnStaggeredSignature OnStaggered;
+
+	/**
+	 * Melee damage above this fires OnStaggered. A punch is 15 damage, so the default lets
+	 * every punch stagger and leaves room for a weaker one later.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health", meta = (ClampMin = "0.0"))
+	float StaggerThreshold = 10.f;
+
 	/** Applies DamageAmount. Returns the damage actually taken (0 when invulnerable or dead). */
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	float ApplyDamage(float DamageAmount, AActor* DamageInstigator = nullptr);
+
+	/**
+	 * Melee damage: the same as ApplyDamage, plus OnStaggered when bStagger is true, the
+	 * damage landed and it was above StaggerThreshold. Ignored damage never staggers.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Health")
+	float ApplyMeleeDamage(float DamageAmount, AActor* DamageInstigator = nullptr, bool bStagger = true);
 
 	/** Restores health up to MaxHealth. Returns the amount actually healed. No-op while dead. */
 	UFUNCTION(BlueprintCallable, Category = "Health")

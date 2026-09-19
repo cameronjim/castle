@@ -5,7 +5,9 @@
 #include "Castle.h"
 #include "CollisionQueryParams.h"
 #include "Combat/HealthComponent.h"
+#include "Combat/WeaponDefinition.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Player/InventoryComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
@@ -98,7 +100,75 @@ void UWeaponComponent::GiveWeapon(int32 Magazine, int32 Reserve)
 	bHasWeapon = true;
 	CurrentAmmo = FMath::Clamp(Magazine, 0, MagazineSize);
 	ReserveAmmo = FMath::Max(Reserve, 0);
+	PushAmmoToInventory();
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
+}
+
+void UWeaponComponent::SetInventory(UInventoryComponent* InInventory)
+{
+	Inventory = InInventory;
+}
+
+UInventoryComponent* UWeaponComponent::GetInventory() const
+{
+	return Inventory.Get();
+}
+
+bool UWeaponComponent::IsMelee() const
+{
+	return ActiveDefinition != nullptr && ActiveDefinition->bIsMelee;
+}
+
+void UWeaponComponent::ApplyStatsFromDefinition()
+{
+	if (!ActiveDefinition)
+	{
+		return;
+	}
+
+	// The definition is the source of truth; these properties stay as the runtime copy so the
+	// trace, reload and spread code does not have to null-check a data asset on every shot.
+	Damage = ActiveDefinition->Damage;
+	MagazineSize = FMath::Max(ActiveDefinition->MagazineSize, 0);
+	FireRate = FMath::Max(ActiveDefinition->FireRate, 1.f);
+	ReloadSeconds = ActiveDefinition->ReloadSeconds;
+	HipSpreadDegrees = ActiveDefinition->HipSpreadDegrees;
+	AimSpreadDegrees = ActiveDefinition->AimSpreadDegrees;
+	HeadshotMultiplier = ActiveDefinition->HeadshotMultiplier;
+	HeadBoneNames = ActiveDefinition->HeadBoneNames;
+	MeleeRange = ActiveDefinition->MeleeRange;
+	MeleeCooldown = ActiveDefinition->MeleeCooldown;
+	bStaggerOnHit = ActiveDefinition->bStaggerOnHit;
+}
+
+void UWeaponComponent::SetActiveWeapon(UWeaponDefinition* Definition, int32 Magazine, int32 Reserve)
+{
+	CancelReload();
+
+	ActiveDefinition = Definition;
+	ApplyStatsFromDefinition();
+
+	// bHasWeapon is now "the active slot is a ranged weapon": fists are a weapon, but they are
+	// not one that has ammo, a crosshair full of bars or a reload.
+	bHasWeapon = Definition != nullptr && !Definition->bIsMelee;
+
+	CurrentAmmo = FMath::Clamp(Magazine, 0, FMath::Max(MagazineSize, 0));
+	ReserveAmmo = FMath::Max(Reserve, 0);
+
+	if (!bHasWeapon)
+	{
+		bIsAiming = false;
+	}
+
+	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
+}
+
+void UWeaponComponent::PushAmmoToInventory()
+{
+	if (UInventoryComponent* Owner = Inventory.Get())
+	{
+		Owner->SetSlotAmmo(Owner->GetActiveSlot(), CurrentAmmo, ReserveAmmo);
+	}
 }
 
 void UWeaponComponent::RemoveWeapon()
@@ -111,6 +181,20 @@ void UWeaponComponent::RemoveWeapon()
 
 bool UWeaponComponent::CanFire() const
 {
+	// A swap owns the hands for SwapSeconds; nothing fires during it, fists included.
+	if (const UInventoryComponent* Owner = Inventory.Get())
+	{
+		if (Owner->IsSwapping())
+		{
+			return false;
+		}
+	}
+
+	if (IsMelee())
+	{
+		return GetNowSeconds() - LastFireTimeSeconds >= static_cast<double>(MeleeCooldown);
+	}
+
 	if (!bHasWeapon || bIsReloading || CurrentAmmo <= 0)
 	{
 		return false;
@@ -150,6 +234,20 @@ void UWeaponComponent::GetFireViewPoint(FVector& OutLocation, FRotator& OutRotat
 
 bool UWeaponComponent::Fire()
 {
+	// Switching weapons takes SwapSeconds and the trigger does nothing for the whole of it.
+	if (const UInventoryComponent* Owner = Inventory.Get())
+	{
+		if (Owner->IsSwapping())
+		{
+			return false;
+		}
+	}
+
+	if (IsMelee())
+	{
+		return FireMelee();
+	}
+
 	if (!bHasWeapon)
 	{
 		// Empty-handed: not even a dry-fire click.
@@ -174,9 +272,64 @@ bool UWeaponComponent::Fire()
 
 	LastFireTimeSeconds = GetNowSeconds();
 	--CurrentAmmo;
+	PushAmmoToInventory();
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 
 	TraceAndApplyDamage();
+	return true;
+}
+
+bool UWeaponComponent::FireMelee()
+{
+	if (GetNowSeconds() - LastFireTimeSeconds < static_cast<double>(MeleeCooldown))
+	{
+		return false;
+	}
+
+	LastFireTimeSeconds = GetNowSeconds();
+
+	UWorld* World = GetWorld();
+	AActor* Owner = GetOwner();
+	if (!World || !Owner)
+	{
+		// No world to punch in. The cooldown still ran, which is what the test asserts on.
+		return true;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetFireViewPoint(ViewLocation, ViewRotation);
+
+	const FVector Direction = ViewRotation.Vector();
+	const FVector SweepEnd = ViewLocation + Direction * MeleeRange;
+
+	// A sphere, not a line: a fist is a wide thing and missing a guard by two centimetres is
+	// not the feedback anyone wants from a punch.
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CastleWeaponMelee), /*bTraceComplex=*/false, Owner);
+	QueryParams.AddIgnoredActor(Owner);
+
+	FHitResult Hit;
+	const bool bHitSomething = World->SweepSingleByChannel(
+		Hit, ViewLocation, SweepEnd, FQuat::Identity, TraceChannel,
+		FCollisionShape::MakeSphere(MeleeSweepRadius), QueryParams);
+
+	OnWeaponFired(Hit, bHitSomething);
+
+	AActor* HitActor = bHitSomething ? Hit.GetActor() : nullptr;
+	UHealthComponent* Health = HitActor ? HitActor->FindComponentByClass<UHealthComponent>() : nullptr;
+	if (!Health)
+	{
+		UE_LOG(LogCastle, Verbose, TEXT("%s: punch hit nothing within %.0f units."),
+			*GetNameSafe(Owner), MeleeRange);
+		return true;
+	}
+
+	const float DamageDealt = Health->ApplyMeleeDamage(Damage, Owner, bStaggerOnHit);
+
+	UE_LOG(LogCastle, Verbose, TEXT("%s: punched %s for %.1f damage."),
+		*GetNameSafe(Owner), *GetNameSafe(HitActor), DamageDealt);
+
+	OnHit.Broadcast(HitActor, DamageDealt);
 	return true;
 }
 
@@ -322,6 +475,7 @@ void UWeaponComponent::CompleteReloadNow()
 	CurrentAmmo += Loaded;
 	ReserveAmmo -= Loaded;
 
+	PushAmmoToInventory();
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 	OnReloadFinished();
 }
@@ -350,5 +504,6 @@ void UWeaponComponent::AddAmmo(int32 Rounds)
 	}
 
 	ReserveAmmo += Rounds;
+	PushAmmoToInventory();
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 }

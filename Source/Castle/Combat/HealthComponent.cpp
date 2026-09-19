@@ -29,6 +29,19 @@ void UHealthComponent::HandleTakeAnyDamage(AActor* /*DamagedActor*/, float Damag
 	ApplyDamage(Damage, DamageInstigator ? DamageInstigator : DamageCauser);
 }
 
+float UHealthComponent::ApplyMeleeDamage(float DamageAmount, AActor* DamageInstigator, bool bStagger)
+{
+	const float Taken = ApplyDamage(DamageAmount, DamageInstigator);
+
+	// Damage that was ignored (invulnerable, already dead, non-positive) never staggers.
+	if (bStagger && Taken > StaggerThreshold)
+	{
+		OnStaggered.Broadcast(this, DamageInstigator);
+	}
+
+	return Taken;
+}
+
 float UHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator)
 {
 	if (DamageAmount <= 0.f || bInvulnerable || bIsDead)

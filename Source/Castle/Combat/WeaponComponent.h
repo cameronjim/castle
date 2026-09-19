@@ -9,6 +9,8 @@
 #include "WeaponComponent.generated.h"
 
 class UDamageType;
+class UInventoryComponent;
+class UWeaponDefinition;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChangedSignature, int32, CurrentAmmo, int32, ReserveAmmo);
 
@@ -34,11 +36,20 @@ public:
 	UWeaponComponent();
 
 	/**
-	 * False while the owner is empty-handed: Fire and Reload do nothing and the HUD shows no ammo.
-	 * The player's component starts false and APickupActor turns it on; guards start armed.
+	 * False while the owner is holding no ranged weapon: Fire traces nothing, Reload does
+	 * nothing and the HUD shows no ammo. With an inventory attached this means "the active
+	 * slot is a ranged weapon", so it is false while Frank has his fists up. Guards have no
+	 * inventory and simply start armed.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon")
 	bool bHasWeapon = true;
+
+	/**
+	 * The weapon this component is currently firing. Null for a component driven by its own
+	 * properties (guards), set by UInventoryComponent for the player.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon")
+	TObjectPtr<UWeaponDefinition> ActiveDefinition = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Ammo", meta = (ClampMin = "1"))
 	int32 MagazineSize = 12;
@@ -107,9 +118,44 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Weapon")
 	FOnWeaponHitSignature OnHit;
 
+	/** Cone half-angle of the melee sweep is not a thing; this is its reach in centimetres. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "0.0"))
+	float MeleeRange = 120.f;
+
+	/** Seconds between punches. Replaces the fire-rate check while the active weapon is melee. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "0.0"))
+	float MeleeCooldown = 0.6f;
+
+	/** Radius of the punch sweep, so a fist does not need pixel-accurate aim. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "1.0"))
+	float MeleeSweepRadius = 20.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee")
+	bool bStaggerOnHit = true;
+
 	/** Arms the owner with Magazine rounds loaded and Reserve spare, and fires OnAmmoChanged. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void GiveWeapon(int32 Magazine, int32 Reserve);
+
+	/**
+	 * Points the component at Definition and loads its ammo. Called by UInventoryComponent on
+	 * every slot change; a null definition disarms the owner.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Weapon")
+	void SetActiveWeapon(UWeaponDefinition* Definition, int32 Magazine, int32 Reserve);
+
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	UWeaponDefinition* GetActiveDefinition() const { return ActiveDefinition; }
+
+	/** True while the active weapon is Frank's fists. */
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	bool IsMelee() const;
+
+	/** The inventory that owns this component's ammo. Set by UInventoryComponent. */
+	void SetInventory(UInventoryComponent* InInventory);
+
+	UFUNCTION(BlueprintPure, Category = "Weapon")
+	UInventoryComponent* GetInventory() const;
 
 	/** Disarms the owner. Ammo is kept so a later GiveWeapon can restore it. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
@@ -207,6 +253,15 @@ protected:
 	/** Runs the hitscan trace and applies damage. Skipped when the component has no world. */
 	void TraceAndApplyDamage();
 
+	/** Copies ActiveDefinition's stats onto this component's own tuning properties. */
+	void ApplyStatsFromDefinition();
+
+	/** Writes the current magazine and reserve back into the inventory's active slot. */
+	void PushAmmoToInventory();
+
+	/** One punch: a short sphere sweep forward, melee damage on the first thing it meets. */
+	bool FireMelee();
+
 	/**
 	 * Bone the shot should be scored against.
 	 *
@@ -229,6 +284,9 @@ private:
 
 	double LastFireTimeSeconds = TNumericLimits<double>::Lowest();
 	FTimerHandle ReloadTimerHandle;
+
+	/** Weak so a destroyed pawn's inventory never keeps this component's write-back alive. */
+	TWeakObjectPtr<UInventoryComponent> Inventory;
 
 	bool bUseTestTime = false;
 	double TestTimeOverride = 0.0;
