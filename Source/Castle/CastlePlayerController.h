@@ -8,6 +8,7 @@
 
 class SWidget;
 class UCastleHudWidget;
+class UCastleInventoryWidget;
 class UCastlePauseWidget;
 class UCastleSettingsWidget;
 class UFlashbackDefinition;
@@ -127,6 +128,29 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Pause")
 	void RestartMissionFromPause();
 
+	// --- Inventory ------------------------------------------------------------------------------
+
+	/** UMG widget (reparented to UCastleInventoryWidget) shown on Tab. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Inventory")
+	TSubclassOf<UCastleInventoryWidget> InventoryWidgetClass;
+
+	/** Opens the inventory screen, or closes it when it is already open. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void ToggleInventory();
+
+	/**
+	 * Opens or closes the inventory screen. Opening pauses the game the way the pause menu
+	 * does; Tab or Escape closes it. Refused while the pause menu or a flashback owns the pause.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void SetInventoryOpen(bool bOpen);
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	bool IsInventoryOpen() const { return bInventoryOpen; }
+
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	UCastleInventoryWidget* GetInventoryWidget() const { return InventoryWidget; }
+
 	// --- Settings -------------------------------------------------------------------------------
 
 	/** UMG widget (reparented to UCastleSettingsWidget) shown when Settings is chosen. */
@@ -231,6 +255,12 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Settings")
 	TObjectPtr<UCastleSettingsWidget> SettingsWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Inventory")
+	TObjectPtr<UCastleInventoryWidget> InventoryWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Inventory")
+	bool bInventoryOpen = false;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
 	TObjectPtr<UMissionEndCardWidget> EndCardWidget = nullptr;

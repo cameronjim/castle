@@ -22,6 +22,7 @@
 #include "Mission/MissionFlowController.h"
 #include "Mission/MissionSubsystem.h"
 #include "UI/CastleHudWidget.h"
+#include "UI/CastleInventoryWidget.h"
 #include "UI/CastlePauseWidget.h"
 #include "UI/CastleSettingsWidget.h"
 #include "UI/MissionEndCardWidget.h"
@@ -91,7 +92,68 @@ void ACastlePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
 		return;
 	}
 
+	// Escape closes the inventory rather than opening a second menu over it.
+	if (bInventoryOpen)
+	{
+		SetInventoryOpen(false);
+		return;
+	}
+
 	TogglePause();
+}
+
+void ACastlePlayerController::ToggleInventory()
+{
+	SetInventoryOpen(!bInventoryOpen);
+}
+
+void ACastlePlayerController::SetInventoryOpen(bool bOpen)
+{
+	if (bInventoryOpen == bOpen)
+	{
+		return;
+	}
+
+	// One thing owns the pause at a time; the slideshow and the pause menu both outrank Tab.
+	if (bOpen && (bPauseMenuOpen || bFlashbackActive))
+	{
+		return;
+	}
+
+	if (bOpen)
+	{
+		if (!InventoryWidgetClass || !IsLocalController())
+		{
+			UE_LOG(LogCastle, Warning, TEXT("%s has no InventoryWidgetClass set."), *GetName());
+			return;
+		}
+
+		if (!InventoryWidget)
+		{
+			InventoryWidget = CreateWidget<UCastleInventoryWidget>(this, InventoryWidgetClass);
+			if (!InventoryWidget)
+			{
+				UE_LOG(LogCastle, Warning, TEXT("%s: could not create the inventory widget."), *GetName());
+				return;
+			}
+		}
+
+		if (!InventoryWidget->IsInViewport())
+		{
+			InventoryWidget->AddToViewport(10);
+		}
+		InventoryWidget->SetVisibility(ESlateVisibility::Visible);
+		InventoryWidget->BindToOwningPawn();
+		InventoryWidget->RefreshRows();
+	}
+	else if (InventoryWidget)
+	{
+		InventoryWidget->RemoveFromParent();
+	}
+
+	bInventoryOpen = bOpen;
+	SetPause(bOpen);
+	ApplyPauseInputMode(bOpen);
 }
 
 bool ACastlePlayerController::CanTogglePause() const
@@ -260,6 +322,10 @@ void ACastlePlayerController::HideSettingsWidget()
 
 TSharedPtr<SWidget> ACastlePlayerController::GetFocusedMenuWidget() const
 {
+	if (bInventoryOpen && InventoryWidget)
+	{
+		return InventoryWidget->TakeWidget();
+	}
 	if (bSettingsOpen && SettingsWidget)
 	{
 		return SettingsWidget->TakeWidget();
@@ -401,6 +467,13 @@ void ACastlePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		SettingsWidget = nullptr;
 	}
 	bSettingsOpen = false;
+
+	if (InventoryWidget)
+	{
+		InventoryWidget->RemoveFromParent();
+		InventoryWidget = nullptr;
+	}
+	bInventoryOpen = false;
 
 	if (PauseWidget)
 	{
