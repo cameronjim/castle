@@ -222,6 +222,27 @@ def check_wall_materials(by_label):
             fail("{0} is on {1}, expected M_ConcreteFloor".format(label, name))
 
 
+def check_exposure(actors):
+    say("---- exposure preset ----")
+    say("  CASTLE_BRIGHT={0} -> ROOM_EXPOSURE_EV={1:.2f}".format(
+        os.environ.get("CASTLE_BRIGHT", "0"), art.ROOM_EXPOSURE_EV))
+    volumes = [a for a in actors if isinstance(a, unreal.PostProcessVolume)]
+    if not volumes:
+        fail("no PostProcessVolume in the level; cannot check exposure")
+        return
+    for volume in volumes:
+        try:
+            settings = volume.get_editor_property("settings")
+            bias = settings.get_editor_property("auto_exposure_bias")
+        except Exception:  # noqa: BLE001
+            fail("{0} has no readable auto_exposure_bias".format(art.label_of(volume)))
+            continue
+        say("  {0:<22} auto_exposure_bias={1}".format(art.label_of(volume), bias))
+        if abs(bias - art.ROOM_EXPOSURE_EV) > 0.01:
+            fail("{0} auto_exposure_bias is {1}, expected {2} for the active preset".format(
+                art.label_of(volume), bias, art.ROOM_EXPOSURE_EV))
+
+
 def check_lighting(actors):
     say("---- lighting ----")
     suns = [a for a in actors if isinstance(a, unreal.DirectionalLight)]
@@ -283,6 +304,7 @@ def main():
     check_gameplay_intact(by_label)
     check_wall_materials(by_label)
     check_lighting(actors)
+    check_exposure(actors)
 
     if PROBLEMS:
         unreal.log_error("[VerifyArt] FAIL: {0} problem(s)".format(len(PROBLEMS)))
