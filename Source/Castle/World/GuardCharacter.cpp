@@ -48,13 +48,24 @@ AGuardCharacter::AGuardCharacter()
 	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
 	{
 		SkeletalMesh->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
+
+		// The mannequin is authored facing its own +Y, so a -90 degree yaw is what points it down
+		// the actor's +X and makes the walk cycle agree with the direction of travel. This lived
+		// only in create_world_blueprints.py, which meant a guard spawned from C++ faced ninety
+		// degrees off and nothing in the test suite could see it.
+		SkeletalMesh->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -96.f), FRotator(0.f, -90.f, 0.f));
 	}
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		Movement->MaxWalkSpeed = 300.f;
-		Movement->bUseControllerDesiredRotation = true;
-		Movement->bOrientRotationToMovement = false;
+		// Face where you are actually going. With bUseControllerDesiredRotation the body chased
+		// the control rotation instead, and the controller points that at the player the moment
+		// he is seen - so an alerted guard closing the distance played a forward walk cycle while
+		// travelling sideways or backwards. AGuardAIController turns him to face a target only
+		// when he has stopped to shoot.
+		Movement->bUseControllerDesiredRotation = false;
+		Movement->bOrientRotationToMovement = true;
 		Movement->RotationRate = FRotator(0.f, 360.f, 0.f);
 	}
 

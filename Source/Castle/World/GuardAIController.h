@@ -144,6 +144,13 @@ protected:
 	void RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius);
 	void ReportMoveResult(EPathFollowingRequestResult::Type Result, const FString& GoalDescription);
 
+	/**
+	 * Turns a stopped guard to face ToTarget. Only ever called when he is not moving: while he
+	 * is, the movement component orients him along his own velocity so the walk cycle points the
+	 * way he is going.
+	 */
+	static void FaceTarget(APawn* Guard, const FVector& ToTarget);
+
 	/** One shot at TargetActor through the guard's weapon, scattered by AimSpreadDegrees. */
 	void FireAtTarget();
 

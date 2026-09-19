@@ -378,7 +378,9 @@ void AGuardAIController::TickAlerted(float DeltaSeconds)
 
 	const FVector ToTarget = TargetActor->GetActorLocation() - Guard->GetActorLocation();
 
-	// Face him whether shooting or closing; the weapon traces along the control rotation.
+	// The weapon traces along the control rotation, so the aim always points at him. The body
+	// does not follow it any more (see AGuardCharacter's movement setup): it faces where it is
+	// walking, and only squares up once he has stopped.
 	FRotator FacingRotation = ToTarget.Rotation();
 	FacingRotation.Roll = 0.f;
 	SetControlRotation(FacingRotation);
@@ -392,12 +394,26 @@ void AGuardAIController::TickAlerted(float DeltaSeconds)
 	}
 
 	StopMovement();
+	FaceTarget(Guard, ToTarget);
 
 	if (TimeSinceLastShot >= FireInterval)
 	{
 		TimeSinceLastShot = 0.f;
 		FireAtTarget();
 	}
+}
+
+void AGuardAIController::FaceTarget(APawn* Guard, const FVector& ToTarget)
+{
+	// Standing still, bOrientRotationToMovement has no direction to work from, so the turn is
+	// made by hand. Yaw only: a guard does not lean over to shoot down at you.
+	const FVector Flat = ToTarget.GetSafeNormal2D();
+	if (!Guard || Flat.IsNearlyZero())
+	{
+		return;
+	}
+
+	Guard->SetActorRotation(FRotator(0.f, Flat.Rotation().Yaw, 0.f));
 }
 
 void AGuardAIController::FireAtTarget()
