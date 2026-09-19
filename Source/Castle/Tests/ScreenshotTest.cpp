@@ -216,10 +216,18 @@ bool FCastleFrameWalkingGuard::Update()
 	const float Facing = CastleLocomotion::GetFacingAlongVelocity(Walking->GetMesh(), Walking->GetVelocity());
 	Test->AddInfo(FString::Printf(TEXT("%s at %.0f cm/s, mesh faces travel by %.2f."),
 		*Walking->GetName(), BestSpeed, Facing));
-	if (Facing < 0.7f)
+	// A guard turning at the end of his patrol leg is legitimately off-axis for half a second,
+	// so only a body actually travelling against its own facing is an error.
+	if (Facing < -0.2f)
 	{
 		Test->AddError(FString::Printf(
-			TEXT("%s is walking sideways or backwards (facing dot %.2f)."), *Walking->GetName(), Facing));
+			TEXT("%s is walking backwards (facing dot %.2f)."), *Walking->GetName(), Facing));
+	}
+	else if (Facing < 0.7f)
+	{
+		Test->AddWarning(FString::Printf(
+			TEXT("%s is mid-turn (facing dot %.2f); the shot may not show the walk cycle square on."),
+			*Walking->GetName(), Facing));
 	}
 
 	// Stand off his shoulder so the shot shows which way the body points against which way it

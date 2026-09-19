@@ -48,9 +48,9 @@ M_GUARD_VISOR = GUARD_MATERIAL_PATH + "/M_GuardVisor"
 GUARD_MESH_LOCATION = unreal.Vector(0.0, 0.0, -96.0)
 GUARD_MESH_ROTATION = unreal.Rotator(0.0, 0.0, -90.0)
 
-# Doors are 100 wide x 220 tall (claude-docs/asset-conventions.md); the cube is 100 cm.
+# Doors are 100 wide x 220 tall (claude-docs/asset-conventions.md); the cube is 100 cm. Only the
+# leaf has a mesh: the surround around this doorway is built by the room-art pass.
 DOOR_LEAF_SCALE = unreal.Vector(0.1, 1.0, 2.2)
-DOOR_FRAME_SCALE = unreal.Vector(0.2, 1.4, 2.6)
 
 
 def mesh(path):
@@ -323,20 +323,21 @@ def make_door(door_material):
     )
 
     cube = mesh(CUBE_PATH)
-    # Frame sits in the wall; the leaf fills the 100x220 opening and slides sideways.
-    changed = set_component_mesh(bp, "frame_mesh", cube, DOOR_FRAME_SCALE, unreal.Vector(0.0, 0.0, 130.0))
+    # The leaf fills the 100x220 opening and slides sideways. The frame stays empty: a cube big
+    # enough to read as a surround is also a cube that plugs the doorway and hides the leaf
+    # behind it, and the room-art pass already builds a real steel frame out of jambs, a lintel
+    # and a header around this opening.
+    changed = clear_component_mesh(bp, "frame_mesh", "BP_Door_Keycard.FrameMesh")
     changed = set_component_mesh(bp, "door_mesh", cube, DOOR_LEAF_SCALE, unreal.Vector(0.0, 0.0, 110.0)) or changed
 
     cdo = c.blueprint_cdo(bp)
     if cdo is not None and door_material is not None:
-        for component_name in ("frame_mesh", "door_mesh"):
-            try:
-                component = cdo.get_editor_property(component_name)
-            except Exception:  # noqa: BLE001
-                component = None
-            changed = set_component_material(
-                component, 0, door_material, "BP_Door_Keycard." + component_name
-            ) or changed
+        try:
+            component = cdo.get_editor_property("door_mesh")
+        except Exception:  # noqa: BLE001
+            component = None
+        changed = set_component_material(
+            component, 0, door_material, "BP_Door_Keycard.door_mesh") or changed
 
     if changed:
         c.compile_blueprint(bp)

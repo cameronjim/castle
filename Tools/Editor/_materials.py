@@ -287,44 +287,62 @@ def _split(full_path):
     return full_path.rsplit("/", 1)[0], full_path.rsplit("/", 1)[1]
 
 
-def ensure_skeletal_usage(material, full_path=""):
-    """Set bUsedWithSkeletalMesh on a Material when it is not already set.
+def usage_flags(skeletal=False, nanite=False):
+    """The bUsedWith* property names a material has to carry for a given kind of mesh."""
+    flags = []
+    if skeletal:
+        flags.append("used_with_skeletal_mesh")
+    if nanite:
+        flags.append("used_with_nanite")
+    return flags
 
-    A material without the flag is swapped for the grey engine default on every skeletal mesh
-    that wears it, and the cook logs ``missing usage flag SkeletalMesh!``. That is what put
-    Frank in white plastic sleeves and the guards in mannequin grey. The flag lives in the
-    asset, so it has to be written and saved here rather than discovered at runtime.
+
+def ensure_usage(material, flags, full_path=""):
+    """Set the named bUsedWith* flags on a Material when they are not already set.
+
+    A material missing the flag for the mesh it is on is swapped for the grey engine default
+    and the log says ``missing usage flag ...! Default Material will be used in game``. That is
+    what put Frank in white plastic sleeves, the guards in mannequin grey and the pistol in
+    default grey the moment it was picked up. The flags live in the asset, so they have to be
+    written and saved here; nothing at runtime can recover them.
 
     Safe on anything: a material instance has no such property and is left alone. Returns True
     only when the asset actually changed.
     """
-    if material is None or not isinstance(material, unreal.Material):
+    if material is None or not isinstance(material, unreal.Material) or not flags:
         return False
+
     label = full_path or c.safe_name(material)
-    try:
-        if bool(material.get_editor_property("used_with_skeletal_mesh")):
-            return False
-        material.set_editor_property("used_with_skeletal_mesh", True)
-    except Exception as exc:  # noqa: BLE001
-        c.log_error("used_with_skeletal_mesh " + label, exc)
+    written = []
+    for flag in flags:
+        try:
+            if bool(material.get_editor_property(flag)):
+                continue
+            material.set_editor_property(flag, True)
+            written.append(flag)
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("{0} {1}".format(flag, label), exc)
+
+    if not written:
         return False
 
     c.save(material)
-    c.log("updated", label, "used_with_skeletal_mesh = True")
+    c.log("updated", label, ", ".join(written) + " = True")
     return True
 
 
-def ensure_material(full_path, build_fn, rebuild=False, skeletal=False):
+def ensure_material(full_path, build_fn, rebuild=False, skeletal=False, nanite=False):
     """Idempotent Material. ``build_fn(material)`` wires the graph on first creation.
 
-    An existing material is returned untouched unless ``rebuild`` is True, in which case
-    its expressions are cleared and ``build_fn`` runs again. ``skeletal`` marks the material
-    as usable on skeletal meshes, which is checked on every run, not only on creation.
+    An existing material is returned untouched unless ``rebuild`` is True, in which case its
+    expressions are cleared and ``build_fn`` runs again. ``skeletal`` and ``nanite`` mark the
+    material as usable on those mesh types, and are checked on every run, not only on creation.
     """
     package_path, name = _split(full_path)
+    flags = usage_flags(skeletal, nanite)
     existing = c.load_or_none(full_path)
     if existing is not None and not rebuild:
-        if skeletal and ensure_skeletal_usage(existing, full_path):
+        if ensure_usage(existing, flags, full_path):
             return existing
         c.log("exists", full_path)
         return existing
@@ -351,11 +369,11 @@ def ensure_material(full_path, build_fn, rebuild=False, skeletal=False):
                 c.log_error("delete_all_material_expressions " + full_path, exc)
 
         build_fn(material)
-        if skeletal:
+        for flag in flags:
             try:
-                material.set_editor_property("used_with_skeletal_mesh", True)
+                material.set_editor_property(flag, True)
             except Exception as exc:  # noqa: BLE001
-                c.log_error("used_with_skeletal_mesh " + full_path, exc)
+                c.log_error("{0} {1}".format(flag, full_path), exc)
         unreal.MaterialEditingLibrary.recompile_material(material)
         c.save(material)
         c.log("created" if created else "updated", full_path)
@@ -688,10 +706,11 @@ def ensure_prop_materials():
     """
     out = {}
     try:
-        # skeletal too: the view-model pistol is a static mesh today, but the flag costs one
-        # extra shader permutation and saves a grey default gun the day it becomes a skeletal one.
+        # nanite because SM_Pistol is a Nanite mesh, and without the flag the gun in Frank's
+        # hand rendered as the grey engine default the moment he picked it up. Skeletal too:
+        # it costs one shader permutation and saves the same bug the day the pistol grows bones.
         out["pistol"] = ensure_material(
-            M_PISTOL, _build_flat((0.02, 0.02, 0.02), 0.35, 0.9), skeletal=True)
+            M_PISTOL, _build_flat((0.02, 0.02, 0.02), 0.35, 0.9), skeletal=True, nanite=True)
     except Exception as exc:  # noqa: BLE001
         c.log_error("ensure_prop_materials " + M_PISTOL, exc)
         out["pistol"] = None

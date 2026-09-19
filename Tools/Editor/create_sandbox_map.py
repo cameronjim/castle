@@ -511,50 +511,51 @@ def add_nav_volume():
 DOOR_COMPONENT_HEIGHTS = (("frame_mesh", 130.0), ("door_mesh", 110.0))
 
 
-def fix_door_components():
-    """Put the placed door's meshes back where the class says they go.
+def door_is_seated(door):
+    """True when the placed door's frame and leaf stand on its threshold, as the class says.
 
     ADoorActor used to have the frame as its root, and a root component's relative location is
     overwritten by the spawn transform - so the frame sank half under the floor and the leaf,
     measured from it, floated with a gap at eye height that the interaction sweep passed
     straight through. That is why the door only answered when the player looked at the top of
-    it. The class now has a plain scene root; this clears the stale per-instance overrides a map
-    saved before that.
+    it. The class has a plain scene root now, but a map saved under the old hierarchy carries
+    per-instance overrides that survive it and compound, so the placed actor is checked rather
+    than trusted.
     """
-    door = find_actor_by_label(M01_DOOR[0])
-    if door is None:
-        return 0
+    try:
+        base = door.get_actor_location().z
+    except Exception:  # noqa: BLE001
+        return False
 
-    changed = 0
     for comp_name, z in DOOR_COMPONENT_HEIGHTS:
         try:
             comp = door.get_editor_property(comp_name)
+            if comp is None or abs(comp.get_world_location().z - (base + z)) > 0.5:
+                return False
         except Exception:  # noqa: BLE001
-            comp = None
-        if comp is None:
-            c.log("skipped", M01_DOOR[0] + "." + comp_name, "no such component")
-            continue
-        try:
-            current = comp.get_editor_property("relative_location")
-            if (abs(current.x) < 0.05 and abs(current.y) < 0.05 and abs(current.z - z) < 0.05):
-                continue
-            comp.set_editor_property("relative_location", unreal.Vector(0.0, 0.0, z))
-        except Exception as exc:  # noqa: BLE001
-            c.log_error(M01_DOOR[0] + "." + comp_name, exc)
-            continue
-        changed += 1
-        c.log("updated", M01_DOOR[0] + "." + comp_name, "relative z -> {0:.0f}".format(z))
-    return changed
+            return False
+    return True
 
 
 def add_door():
     door_class = c.load_generated_class(WORLD_BP_PATH, "BP_Door_Keycard")
     label, dx, dy = M01_DOOR
+
+    # A door whose meshes have drifted is replaced outright: the overrides are per component and
+    # clearing them one at a time leaves the scales behind.
+    existing = find_actor_by_label(label)
+    fixed = 0
+    if existing is not None and door_class is not None and not door_is_seated(existing):
+        try:
+            existing.destroy_actor()
+            fixed = 1
+            c.log("updated", label, "meshes had drifted; replacing the actor")
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("destroy " + label, exc)
+
     _door, created = ensure_actor(door_class, label, unreal.Vector(dx, dy, 0.0))
     if created:
         c.log("created", label, "locked on keycard 'cellblock'")
-
-    fixed = fix_door_components()
 
     # The door completes security_door now, so the old trigger volume would race it.
     stale = find_actor_by_label("OBJ_security_door")
