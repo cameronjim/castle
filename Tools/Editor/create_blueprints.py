@@ -7,6 +7,8 @@
     /Game/Blueprints/UI/WBP_Pause                     parent UCastlePauseWidget
     /Game/Blueprints/UI/WBP_Settings                  parent UCastleSettingsWidget
     /Game/Blueprints/UI/WBP_EndCard                   parent UMissionEndCardWidget
+    /Game/Blueprints/UI/WBP_Hotbar                    parent UCastleHotbarWidget
+    /Game/Blueprints/UI/WBP_Inventory                 parent UCastleInventoryWidget
 
 Then, on the class default objects:
 
@@ -31,6 +33,7 @@ import unreal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
+import _materials as m  # noqa: E402
 
 PLAYER_PATH = "/Game/Blueprints/Player"
 UI_PATH = "/Game/Blueprints/UI"
@@ -64,6 +67,11 @@ CHARACTER_INPUT_PROPERTIES = [
     ("takedown_action", "IA_Takedown"),
     ("interact_action", "IA_Interact"),
     ("skip_action", "IA_Skip"),
+    ("slot1_action", "IA_Slot1"),
+    ("slot2_action", "IA_Slot2"),
+    ("slot3_action", "IA_Slot3"),
+    ("slot_scroll_action", "IA_SlotScroll"),
+    ("inventory_action", "IA_Inventory"),
 ]
 
 
@@ -197,6 +205,60 @@ def set_component_asset(bp, component_name, setter_name, prop_name, asset, conte
         return False
 
 
+def mesh_slot_names(mesh):
+    """The material slot names of a skeletal mesh, in order. Empty list when it has none."""
+    names = []
+    if mesh is None:
+        return names
+    try:
+        slots = mesh.get_editor_property("materials") or []
+    except Exception:  # noqa: BLE001
+        return names
+    for slot in slots:
+        try:
+            names.append(str(slot.get_editor_property("material_slot_name")))
+        except Exception:  # noqa: BLE001
+            names.append("")
+    return names
+
+
+def set_component_materials(bp, component_name, slot_names, materials, context):
+    """Put Frank's fatigues on every slot of a mesh component. Returns True if anything changed.
+
+    The mannequin is one material over the whole body, so a "hands" slot is something only a
+    future arms pack would have; if one shows up it gets the gloves instead of the sleeves.
+    """
+    arms = materials.get("arms")
+    gloves = materials.get("gloves") or arms
+    if arms is None:
+        c.log("skipped", context, "M_FrankArms was not created")
+        return False
+
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property(component_name)
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        c.log("skipped", context, "no component called " + component_name)
+        return False
+
+    changed = False
+    for index, slot in enumerate(slot_names or [""]):
+        wanted = gloves if ("hand" in slot.lower() or "glove" in slot.lower()) else arms
+        try:
+            if component.get_material(index) == wanted:
+                continue
+            component.set_material(index, wanted)
+            c.log("updated", context, "slot {0} -> {1}".format(index, wanted.get_name()))
+            changed = True
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("{0} slot {1}".format(context, index), exc)
+    return changed
+
+
 def configure_view_model(bp):
     """Give BP_CastleCharacter its body, its hands and its pistol.
 
@@ -222,6 +284,16 @@ def configure_view_model(bp):
     changed = set_component_asset(
         bp, "weapon_mesh", "set_static_mesh", "static_mesh", pistol,
         "BP_CastleCharacter.WeaponMesh") or changed
+
+    # Shiny white plastic is what the mannequin ships as, and it is the first thing a player
+    # sees. Both meshes get the same fatigues so the legs match the forearms.
+    c.ensure_directory(m.MATERIALS_PATH)
+    character_materials = m.ensure_character_materials()
+    slots = mesh_slot_names(mannequin)
+    changed = set_component_materials(
+        bp, "arms_mesh", slots, character_materials, "BP_CastleCharacter.ArmsMesh") or changed
+    changed = set_component_materials(
+        bp, "mesh", slots, character_materials, "BP_CastleCharacter.Mesh") or changed
 
     if changed:
         c.compile_blueprint(bp)
@@ -254,6 +326,11 @@ def run():
     wbp_pause, _ = make_blueprint("WBP_Pause", UI_PATH, pause_parent, wbp_factories)
     wbp_settings, _ = make_blueprint("WBP_Settings", UI_PATH, settings_parent, wbp_factories)
     wbp_end_card, _ = make_blueprint("WBP_EndCard", UI_PATH, end_card_parent, wbp_factories)
+
+    hotbar_parent = c.find_class("CastleHotbarWidget", "/Script/Castle.CastleHotbarWidget")
+    inventory_parent = c.find_class("CastleInventoryWidget", "/Script/Castle.CastleInventoryWidget")
+    wbp_hotbar, _ = make_blueprint("WBP_Hotbar", UI_PATH, hotbar_parent, wbp_factories)
+    wbp_inventory, _ = make_blueprint("WBP_Inventory", UI_PATH, inventory_parent, wbp_factories)
     bp_character, _ = make_blueprint(
         "BP_CastleCharacter", PLAYER_PATH, character_parent, bp_factories
     )
@@ -266,7 +343,7 @@ def run():
 
     # Newly created Blueprints need to exist on disk before load_class can find the _C.
     for bp in (
-        wbp_flashback, wbp_pause, wbp_settings, wbp_end_card,
+        wbp_flashback, wbp_pause, wbp_settings, wbp_end_card, wbp_hotbar, wbp_inventory,
         bp_character, bp_controller, bp_game_mode,
     ):
         if bp is not None:
@@ -300,6 +377,7 @@ def run():
                     c.load_or_none(c.asset_path(INPUT_PATH, "IMC_Default")),
                 ),
                 ("end_card_widget_class", c.load_generated_class(UI_PATH, "WBP_EndCard")),
+                ("inventory_widget_class", c.load_generated_class(UI_PATH, "WBP_Inventory")),
             ],
         )
 
@@ -326,6 +404,8 @@ def run():
         "pause_widget": wbp_pause,
         "settings_widget": wbp_settings,
         "end_card_widget": wbp_end_card,
+        "hotbar_widget": wbp_hotbar,
+        "inventory_widget": wbp_inventory,
     }
 
 

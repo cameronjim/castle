@@ -1,6 +1,6 @@
 """Create the stage-2 world, AI and HUD Blueprints and wire their class defaults.
 
-    /Game/Blueprints/UI/WBP_Hud                parent UCastleHudWidget
+    /Game/Blueprints/UI/WBP_Hud                parent UCastleHudWidget, HotbarWidgetClass
     /Game/Blueprints/World/BP_Pickup_Pistol    parent APickupActor, Weapon
     /Game/Blueprints/World/BP_Pickup_Keycard   parent APickupActor, Keycard "cellblock"
     /Game/Blueprints/World/BP_Door_Keycard     parent ADoorActor, locked on "cellblock"
@@ -176,6 +176,9 @@ def make_hud():
     if bp is not None:
         c.compile_blueprint(bp)
         c.save(bp, only_if_dirty=True)
+        # The hotbar lives inside the HUD's own overlay, so the HUD is what holds its class.
+        cb.apply_defaults(bp, "WBP_Hud", UI_PATH,
+                          [("hotbar_widget_class", c.load_generated_class(UI_PATH, "WBP_Hotbar"))])
     return bp
 
 

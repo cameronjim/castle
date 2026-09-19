@@ -4,6 +4,7 @@
     2. create_placeholder_textures T_FB01_01..06   (before the data assets that point at them)
     3. create_blueprints           BP_Castle* and WBP_Flashback (before the maps that use them)
     3b. create_world_blueprints    WBP_Hud, BP_Pickup_*, BP_Door_Keycard, BP_Guard
+    3c. create_weapon_data         DA_Weapon_Hands/Pistol/Rifle (after the pickups they wire into)
     4. create_mission_data         DA_M01_CellBlockD, DA_FB01_Sunday
     5. create_sandbox_map          L_Sandbox, L_M01_CellBlockD
     6. create_room_art             procedural materials + the M01 cell/corridor art pass
@@ -31,6 +32,7 @@ STEPS = [
     ("placeholder textures", "create_placeholder_textures"),
     ("blueprints", "create_blueprints"),
     ("world blueprints", "create_world_blueprints"),
+    ("weapon data", "create_weapon_data"),
     ("mission data", "create_mission_data"),
     ("maps", "create_sandbox_map"),
     ("room art", "create_room_art"),

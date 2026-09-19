@@ -37,6 +37,11 @@ MI_MONITOR = MATERIALS_PATH + "/MI_Monitor"
 M_PISTOL = MATERIALS_PATH + "/M_Pistol"
 M_KEYCARD_BODY = MATERIALS_PATH + "/M_KeycardBody"
 
+# Frank himself. The mannequin ships as shiny white plastic, which reads as a mannequin in
+# every first-person shot; these are prison-issue fatigues and gloved hands.
+M_FRANK_ARMS = MATERIALS_PATH + "/M_FrankArms"
+M_FRANK_GLOVES = MATERIALS_PATH + "/M_FrankGloves"
+
 EMISSIVE_COLOR_PARAM = "Color"
 EMISSIVE_INTENSITY_PARAM = "Intensity"
 
@@ -645,12 +650,34 @@ def ensure_prop_materials():
     return out
 
 
+def ensure_character_materials():
+    """Frank's sleeves and gloves: {'arms': M_FrankArms, 'gloves': M_FrankGloves}.
+
+    Both the view-model arms and the body mesh under the camera wear these, so the legs he
+    looks down at match the forearms he sees. create_blueprints.py assigns them; the mannequin
+    has no separate hand slot, so the gloves only land if a skeleton ever grows one.
+    """
+    out = {}
+    try:
+        out["arms"] = ensure_material(M_FRANK_ARMS, _build_flat((0.06, 0.07, 0.05), 0.85))
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("ensure_character_materials " + M_FRANK_ARMS, exc)
+        out["arms"] = None
+    try:
+        out["gloves"] = ensure_material(M_FRANK_GLOVES, _build_flat((0.02, 0.02, 0.02), 0.7))
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("ensure_character_materials " + M_FRANK_GLOVES, exc)
+        out["gloves"] = None
+    return out
+
+
 def ensure_all(intensity_factor=1.0):
     """Every material the room-art pass needs, in one dict."""
     materials = {}
     materials.update(ensure_surface_materials())
     materials.update(ensure_light_materials(intensity_factor))
     materials.update(ensure_prop_materials())
+    materials.update(ensure_character_materials())
     return materials
 
 

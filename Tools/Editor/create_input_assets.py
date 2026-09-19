@@ -3,6 +3,8 @@
     IA_Move, IA_Look                (Axis2D)
     IA_Jump  IA_Sprint  IA_Crouch  IA_Fire  IA_Aim  IA_Reload
     IA_Takedown  IA_Interact  IA_Pause  IA_Skip   (Digital / bool)
+    IA_Slot1  IA_Slot2  IA_Slot3  IA_Inventory     (Digital / bool)
+    IA_SlotScroll                   (Axis1D, the mouse wheel)
     IMC_Default                     with the UE first-person template's WASD + mouse setup
 
 Idempotent: existing assets are left alone (the IMC's key mappings are only rebuilt when
@@ -20,6 +22,7 @@ import _common as c  # noqa: E402
 INPUT_PATH = "/Game/Input"
 
 BOOL = "BOOLEAN"
+AXIS1D = "AXIS1D"
 AXIS2D = "AXIS2D"
 
 # name -> EInputActionValueType member name
@@ -36,6 +39,11 @@ ACTIONS = [
     ("IA_Interact", BOOL),
     ("IA_Pause", BOOL),
     ("IA_Skip", BOOL),
+    ("IA_Slot1", BOOL),
+    ("IA_Slot2", BOOL),
+    ("IA_Slot3", BOOL),
+    ("IA_SlotScroll", AXIS1D),
+    ("IA_Inventory", BOOL),
 ]
 
 # (action name, FKey name, [modifier specs])
@@ -64,6 +72,12 @@ MAPPINGS = [
     ("IA_Interact", "E", []),
     ("IA_Pause", "Escape", []),
     ("IA_Skip", "AnyKey", []),
+    ("IA_Slot1", "One", []),
+    ("IA_Slot2", "Two", []),
+    ("IA_Slot3", "Three", []),
+    # The wheel is a single axis: up is +1 (next slot), down is -1 (previous).
+    ("IA_SlotScroll", "MouseWheelAxis", []),
+    ("IA_Inventory", "Tab", []),
 ]
 
 

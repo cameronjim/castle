@@ -23,22 +23,26 @@ AI_PATH = "/Game/Blueprints/AI"
 IMAGE_PATH = "/Game/Flashbacks/Images"
 PISTOL_PATH = "/Game/Weapons/Pistol"
 GUARD_MATERIAL_PATH = "/Game/Characters/Guard"
+WEAPON_PATH = "/Game/Blueprints/Weapons"
 
 IA_NAMES = [
     "IA_Move", "IA_Look", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
     "IA_Aim", "IA_Reload", "IA_Takedown", "IA_Interact", "IA_Pause", "IA_Skip",
+    "IA_Slot1", "IA_Slot2", "IA_Slot3", "IA_SlotScroll", "IA_Inventory",
 ]
 
 CHARACTER_INPUT_PROPS = [
     "default_mapping_context", "move_action", "look_action", "jump_action", "sprint_action",
     "crouch_action", "fire_action", "aim_action", "reload_action", "takedown_action",
-    "interact_action",
+    "interact_action", "slot1_action", "slot2_action", "slot3_action",
+    "slot_scroll_action", "inventory_action",
 ]
 
 # Pause is bound on the controller so it survives the pawn being locked out or dead.
 CONTROLLER_PROPS = [
     "flashback_widget_class", "hud_widget_class", "pause_widget_class",
     "settings_widget_class", "pause_action", "pause_mapping_context", "end_card_widget_class",
+    "inventory_widget_class",
 ]
 
 EXPECTED = (
@@ -53,6 +57,8 @@ EXPECTED = (
         c.asset_path(UI_PATH, "WBP_Pause"),
         c.asset_path(UI_PATH, "WBP_Settings"),
         c.asset_path(UI_PATH, "WBP_EndCard"),
+        c.asset_path(UI_PATH, "WBP_Hotbar"),
+        c.asset_path(UI_PATH, "WBP_Inventory"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Pistol"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Keycard"),
         c.asset_path(WORLD_PATH, "BP_Door_Keycard"),
@@ -68,6 +74,9 @@ EXPECTED = (
         c.asset_path(GUARD_MATERIAL_PATH, "M_GuardVisor"),
     ]
     + [
+        WEAPON_PATH + "/DA_Weapon_Hands",
+        WEAPON_PATH + "/DA_Weapon_Pistol",
+        WEAPON_PATH + "/DA_Weapon_Rifle",
         "/Game/Missions/DA_M01_CellBlockD",
         "/Game/Flashbacks/Definitions/DA_FB01_Sunday",
         "/Game/Maps/L_Sandbox",
@@ -224,7 +233,8 @@ def check_world_blueprints():
             fail("BP_Guard.ai_controller_class is not AGuardAIController")
         say("  BP_Guard.auto_possess_ai          = {0}".format(prop(cdo, "auto_possess_ai")))
 
-    for name in ("WBP_Hud", "WBP_Pause", "WBP_Settings", "WBP_EndCard"):
+    for name in ("WBP_Hud", "WBP_Pause", "WBP_Settings", "WBP_EndCard",
+                 "WBP_Hotbar", "WBP_Inventory"):
         if c.load_generated_class(UI_PATH, name) is None:
             fail(name + "_C")
         else:
@@ -354,6 +364,53 @@ def check_view_model():
     say("  ArmsMesh.skinned_asset       = {0}".format(name_of(arms_asset)))
     if prop(cdo, "use_arms_mesh") and arms_asset is None:
         fail("BP_CastleCharacter.ArmsMesh has no mesh; run create_blueprints.py")
+
+
+def check_weapon_data():
+    """The three weapon definitions, and the two places they have to be wired into."""
+    say("---- weapon data ----")
+
+    expected = {
+        "DA_Weapon_Hands": [("is_melee", True), ("damage", 15.0), ("melee_range", 120.0)],
+        "DA_Weapon_Pistol": [("is_melee", False), ("damage", 34.0), ("magazine_size", 12),
+                             ("default_reserve", 24), ("headshot_multiplier", 3.0)],
+        "DA_Weapon_Rifle": [("is_melee", False), ("damage", 24.0), ("magazine_size", 30),
+                            ("default_reserve", 90)],
+    }
+
+    for name, fields in expected.items():
+        asset = c.load_or_none(c.asset_path(WEAPON_PATH, name))
+        if asset is None:
+            fail(name)
+            continue
+        say("  {0}: slot={1} pose={2}".format(name, prop(asset, "slot"), prop(asset, "arms_pose_name")))
+        for field, want in fields:
+            got = prop(asset, field)
+            say("    {0:<22} = {1}".format(field, got))
+            if value_text(got) != str(want):
+                fail("{0}.{1} is {2}, expected {3}".format(name, field, got, want))
+
+    pistol_mesh = prop(c.load_or_none(c.asset_path(WEAPON_PATH, "DA_Weapon_Pistol")), "view_model_mesh")
+    say("  DA_Weapon_Pistol.view_model_mesh = {0}".format(pistol_mesh))
+    if not str(pistol_mesh or ""):
+        fail("DA_Weapon_Pistol has no ViewModelMesh")
+
+    pickup_class = c.load_generated_class(WORLD_PATH, "BP_Pickup_Pistol")
+    if pickup_class is not None:
+        weapon = prop(unreal.get_default_object(pickup_class), "weapon")
+        say("  BP_Pickup_Pistol.weapon           = {0}".format(weapon))
+        if "DA_Weapon_Pistol" not in str(weapon or ""):
+            fail("BP_Pickup_Pistol.weapon is not DA_Weapon_Pistol")
+
+    char_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    if char_class is not None:
+        inventory = prop(unreal.get_default_object(char_class), "inventory_component")
+        hands = prop(inventory, "hands_definition") if inventory is not None else None
+        say("  BP_CastleCharacter.Inventory.hands_definition = {0}".format(hands))
+        if inventory is None:
+            fail("BP_CastleCharacter has no InventoryComponent")
+        elif "DA_Weapon_Hands" not in str(hands or ""):
+            fail("BP_CastleCharacter.InventoryComponent.hands_definition is not DA_Weapon_Hands")
 
 
 def check_data_assets():
@@ -543,6 +600,7 @@ def main():
     check_pickup_parts()
     check_guard_presentation()
     check_view_model()
+    check_weapon_data()
     check_data_assets()
     check_maps()
     if PROBLEMS:
