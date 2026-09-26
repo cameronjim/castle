@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Combat/MeleeComponent.h"
 #include "GameFramework/Character.h"
+#include "ISpudObject.h"
 #include "Player/HawkeyeMovementTypes.h"
 #include "Settings/HawkeyeSettings.h"
 #include "HawkeyeCharacter.generated.h"
@@ -44,7 +45,7 @@ struct FInputActionValue;
  * BP_HawkeyeCharacter is the input-wired base; BP_Kate is the playable child.
  */
 UCLASS(Blueprintable, BlueprintType)
-class HAWKEYE_API AHawkeyeCharacter : public ACharacter
+class HAWKEYE_API AHawkeyeCharacter : public ACharacter, public ISpudObject, public ISpudObjectCallback
 {
 	GENERATED_BODY()
 
@@ -478,6 +479,26 @@ public:
 	/** Lets go of everything the player was holding (sprint, aim, a draw, the wheel) when control leaves. */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Character")
 	void ReleaseHeldInputs();
+
+	// --- Save (claude-docs/gameplay-semantics.md, "Save data") -----------------------------------
+
+	//~ Begin ISpudObject interface
+	/** CharacterName: Kate is spawned by the game mode, so her FName is not stable between loads. */
+	virtual FString OverrideName_Implementation() const override;
+	//~ End ISpudObject interface
+
+	//~ Begin ISpudObjectCallback interface
+	/** Copies health and the quiver into the SaveGame snapshot fields below. */
+	virtual void SpudPreStore_Implementation(const USpudState* State) override;
+	/** Applies the snapshot back to the health and inventory components. */
+	virtual void SpudPostRestore_Implementation(const USpudState* State) override;
+	//~ End ISpudObjectCallback interface
+
+	/** Fills the snapshot from the components. Public so a test can check the round trip without SPUD. */
+	void CaptureSaveSnapshot();
+
+	/** Applies the snapshot to the components. Does nothing when no snapshot was ever captured. */
+	void ApplySaveSnapshot();
 
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Hawkeye|Character")
@@ -1178,6 +1199,27 @@ protected:
 
 	/** Asks this character's partner for the once-a-fight revive. True when he took it on (she is down). */
 	bool TryPartnerRevive(AActor* Killer);
+
+	// Saved by SPUD with the actor (UPROPERTY SaveGame). Components are not saved by SPUD, so the
+	// health and quiver are mirrored here just before a store and applied just after a restore.
+
+	/** Health at the save; negative when nothing was captured. */
+	UPROPERTY(SaveGame)
+	float SavedHealth = -1.f;
+
+	/** The carried bow as a soft object path, empty for none. */
+	UPROPERTY(SaveGame)
+	FString SavedBowPath;
+
+	/** Each filled quiver slot's arrow asset path, parallel to SavedArrowCounts. */
+	UPROPERTY(SaveGame)
+	TArray<FString> SavedArrowPaths;
+
+	UPROPERTY(SaveGame)
+	TArray<int32> SavedArrowCounts;
+
+	UPROPERTY(SaveGame)
+	int32 SavedActiveArrowSlot = 1;
 
 	/** Set while waiting for the partner's revive. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Health")

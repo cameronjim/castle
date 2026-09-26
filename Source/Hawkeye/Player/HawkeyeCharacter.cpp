@@ -39,6 +39,8 @@
 #include "World/InteractionComponent.h"
 #include "Partner/HawkeyePartnerController.h"
 #include "Combat/ArrowDefinition.h"
+#include "Combat/BowDefinition.h"
+#include "UObject/SoftObjectPath.h"
 #include "UI/HawkeyeHudWidget.h"
 #include "UI/QuiverWheelMath.h"
 
@@ -304,9 +306,10 @@ void AHawkeyeCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer
 	UE_LOG(LogHawkeye, Log, TEXT("%s died (killer: %s); restarting the mission."),
 		*GetName(), *GetNameSafe(Killer));
 
+	// Back to the last autosave behind a fade, not to the top of the chapter.
 	if (AHawkeyeGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AHawkeyeGameMode>() : nullptr)
 	{
-		GameMode->RestartMission();
+		GameMode->ReloadLastCheckpoint();
 	}
 }
 
@@ -343,6 +346,80 @@ void AHawkeyeCharacter::ReviveFromDown(float HealthFraction)
 	UnCrouch();
 	UpdateMaxWalkSpeed();
 	UE_LOG(LogHawkeye, Log, TEXT("%s: revived at %.0f health."), *GetName(), HealthComponent->GetCurrentHealth());
+}
+
+// --- Save ------------------------------------------------------------------------------------------
+
+FString AHawkeyeCharacter::OverrideName_Implementation() const
+{
+	return CharacterName.IsEmpty() ? FString() : CharacterName.ToString();
+}
+
+void AHawkeyeCharacter::SpudPreStore_Implementation(const USpudState* /*State*/)
+{
+	CaptureSaveSnapshot();
+}
+
+void AHawkeyeCharacter::SpudPostRestore_Implementation(const USpudState* /*State*/)
+{
+	ApplySaveSnapshot();
+}
+
+void AHawkeyeCharacter::CaptureSaveSnapshot()
+{
+	SavedHealth = HealthComponent ? HealthComponent->GetCurrentHealth() : -1.f;
+	SavedBowPath.Reset();
+	SavedArrowPaths.Reset();
+	SavedArrowCounts.Reset();
+	SavedActiveArrowSlot = 1;
+	if (!InventoryComponent)
+	{
+		return;
+	}
+	SavedBowPath = InventoryComponent->GetBow() ? FSoftObjectPath(InventoryComponent->GetBow()).ToString() : FString();
+	for (const FHawkeyeQuiverSlot& Entry : InventoryComponent->GetArrowSlots())
+	{
+		// A transient stand-in (tests, a missing asset) has no path to come back from.
+		if (Entry.Arrow && Entry.Arrow->IsAsset())
+		{
+			SavedArrowPaths.Add(FSoftObjectPath(Entry.Arrow).ToString());
+			SavedArrowCounts.Add(Entry.Count);
+		}
+	}
+	SavedActiveArrowSlot = InventoryComponent->GetActiveArrowSlot();
+}
+
+void AHawkeyeCharacter::ApplySaveSnapshot()
+{
+	if (SavedHealth < 0.f)
+	{
+		return;
+	}
+	if (HealthComponent && SavedHealth > 0.f)
+	{
+		HealthComponent->Revive(SavedHealth);
+	}
+	if (!InventoryComponent)
+	{
+		return;
+	}
+	UBowDefinition* SavedBow = SavedBowPath.IsEmpty() ? nullptr : LoadObject<UBowDefinition>(nullptr, *SavedBowPath);
+	TArray<FHawkeyeQuiverSlot> Slots;
+	for (int32 Index = 0; Index < SavedArrowPaths.Num() && Index < SavedArrowCounts.Num(); ++Index)
+	{
+		UArrowDefinition* Arrow = LoadObject<UArrowDefinition>(nullptr, *SavedArrowPaths[Index]);
+		if (!Arrow)
+		{
+			UE_LOG(LogHawkeye, Warning, TEXT("%s: saved arrow %s no longer exists; dropped."), *GetName(), *SavedArrowPaths[Index]);
+			continue;
+		}
+		FHawkeyeQuiverSlot& Slot = Slots.AddDefaulted_GetRef();
+		Slot.Arrow = Arrow;
+		Slot.Count = SavedArrowCounts[Index];
+	}
+	InventoryComponent->RestoreQuiver(SavedBow, Slots, SavedActiveArrowSlot);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: restored from the save at %.0f health, bow %s, %d arrow type(s)."), *GetName(),
+		SavedHealth, *GetNameSafe(SavedBow), Slots.Num());
 }
 
 FText AHawkeyeCharacter::GetCharacterName() const
