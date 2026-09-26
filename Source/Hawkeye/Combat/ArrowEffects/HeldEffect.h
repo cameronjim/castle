@@ -54,15 +54,19 @@ public:
 
 	/** Blob diameter, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Putty", meta = (ClampMin = "1.0"))
-	float BlobSize = 45.f;
+	float BlobSize = 55.f;
 
-	/** Bone the blob sits on while holding a thug. */
+	/**
+	 * Where the blob sits on a held thug, from his capsule centre in his own frame (X forward): on
+	 * the front of his chest. The capsule, not a bone, so it never depends on how a skeleton's axes
+	 * are authored.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Putty")
-	FName BlobBone = FName(TEXT("spine_03"));
+	FVector BlobOffset = FVector(22.f, 0.f, 36.f);
 
-	/** Putty purple-grey, so it reads as Kate's on a red tracksuit. */
+	/** Putty purple, glowing faintly (M_ArrowNock), so it reads as Kate's on a red tracksuit at night. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Putty")
-	FLinearColor PuttyColor = FLinearColor(0.42f, 0.3f, 0.55f);
+	FLinearColor PuttyColor = FLinearColor(0.08f, 0.035f, 0.13f);
 
 	UFUNCTION(BlueprintPure, Category = "Putty")
 	EHeldPhase GetPhase() const { return Phase; }
@@ -99,6 +103,16 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Putty")
 	TObjectPtr<UStaticMeshComponent> Blob;
+
+	/** Two smaller gobs thrown off the main one, so it reads as goo splashed over him. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Putty")
+	TObjectPtr<UStaticMeshComponent> Splat;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Putty")
+	TObjectPtr<UStaticMeshComponent> Splat2;
+
+	/** Shows or hides the blob and, on a thug, the gobs. */
+	void ShowBlob(bool bWithSplats);
 
 	TWeakObjectPtr<AThugCharacter> Target;
 	EHeldPhase Phase = EHeldPhase::None;

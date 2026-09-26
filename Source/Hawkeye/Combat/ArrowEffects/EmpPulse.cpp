@@ -116,14 +116,15 @@ void AEmpPulse::UpdateRing()
 		// Each segment a flat bar along the ring's tangent; the engine cube is 100 cm on a side.
 		Segment->SetRelativeLocationAndRotation(
 			Out * RingRadius, FRotator(0.f, FMath::RadiansToDegrees(Angle) + 90.f, 0.f));
-		Segment->SetRelativeScale3D(FVector(SegmentLength / 100.f, 0.14f, 0.06f));
+		Segment->SetRelativeScale3D(FVector(SegmentLength / 100.f, 0.3f, 0.12f));
 		if (SegmentMaterials.IsValidIndex(Index) && SegmentMaterials[Index])
 		{
-			SegmentMaterials[Index]->SetScalarParameterValue(TEXT("Intensity"), 6.f * Brightness);
+			SegmentMaterials[Index]->SetScalarParameterValue(TEXT("Intensity"), 3.f * Brightness);
 		}
 	}
 	if (Flash)
 	{
-		Flash->SetIntensity(20000.f * FMath::Max(0.f, 1.f - Alpha * 2.5f));
+		// A blink, not a floodlight: the point of the shot is that it goes dark.
+		Flash->SetIntensity(400.f * FMath::Max(0.f, 1.f - Alpha * 4.f));
 	}
 }

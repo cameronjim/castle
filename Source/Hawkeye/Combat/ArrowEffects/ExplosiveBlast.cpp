@@ -121,7 +121,7 @@ void AExplosiveBlast::UpdateFireball()
 {
 	const float Alpha = FMath::Clamp(Elapsed / FlashSeconds, 0.f, 1.f);
 	// Out fast to most of the radius, then hangs and fades.
-	const float Size = Radius * 1.3f * FMath::Sin(FMath::Min(Alpha * 2.5f, 1.f) * HALF_PI);
+	const float Size = Radius * 0.6f * FMath::Sin(FMath::Min(Alpha * 2.5f, 1.f) * HALF_PI);
 	const float Fade = 1.f - FMath::SmoothStep(0.25f, 1.f, Alpha);
 	Fireball->SetRelativeLocation(FVector(0.f, 0.f, Size * 0.3f));
 	Fireball->SetRelativeScale3D(FVector(FMath::Max(Size, 1.f) / 100.f));
@@ -129,11 +129,12 @@ void AExplosiveBlast::UpdateFireball()
 	FireballCore->SetRelativeScale3D(FVector(FMath::Max(Size * 0.55f, 1.f) / 100.f));
 	if (FireballMaterial)
 	{
-		FireballMaterial->SetScalarParameterValue(TEXT("Intensity"), 4.f * Fade);
+		FireballMaterial->SetScalarParameterValue(TEXT("Intensity"), 0.5f * Fade);
 	}
 	if (CoreMaterial)
 	{
-		CoreMaterial->SetScalarParameterValue(TEXT("Intensity"), 10.f * Fade);
+		CoreMaterial->SetScalarParameterValue(TEXT("Intensity"), 1.2f * Fade);
 	}
-	Flash->SetIntensity(400000.f * Fade * Fade);
+	// A street lamp is under 100 cd; this is a couple of dozen of them for an instant.
+	Flash->SetIntensity(2500.f * Fade * Fade);
 }

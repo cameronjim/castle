@@ -47,11 +47,11 @@ public:
 	float CentreLift = 100.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Smoke")
-	FLinearColor SmokeColor = FLinearColor(0.55f, 0.56f, 0.6f);
+	FLinearColor SmokeColor = FLinearColor(0.3f, 0.31f, 0.34f);
 
 	/** Opacity of each puff at full strength. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Smoke", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float PuffOpacity = 0.55f;
+	float PuffOpacity = 0.7f;
 
 	/** Where the cloud is centred. */
 	UFUNCTION(BlueprintPure, Category = "Smoke")

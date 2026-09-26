@@ -3,8 +3,8 @@
 #include "Combat/ArrowEffects/HeldEffect.h"
 
 #include "Hawkeye.h"
+#include "Combat/ArrowProjectile.h"
 #include "Combat/HealthComponent.h"
-#include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -15,16 +15,36 @@
 AHeldEffect::AHeldEffect()
 {
 	Blob = MakeVisualPart(TEXT("Blob"), SphereMesh);
-	Blob->SetVisibility(false);
+	Splat = MakeVisualPart(TEXT("Splat"), SphereMesh);
+	Splat2 = MakeVisualPart(TEXT("Splat2"), SphereMesh);
+	for (UStaticMeshComponent* Part : { Blob.Get(), Splat.Get(), Splat2.Get() })
+	{
+		Part->SetVisibility(false);
+	}
+}
+
+void AHeldEffect::ShowBlob(bool bWithSplats)
+{
+	Blob->SetVisibility(true);
+	Splat->SetVisibility(bWithSplats);
+	Splat2->SetVisibility(bWithSplats);
 }
 
 void AHeldEffect::BeginPlay()
 {
 	Super::BeginPlay();
-	// Opaque: putty is a solid goo, so the plain shape material tinted does it.
-	TintPart(Blob, nullptr, PuttyColor);
-	// A slightly squashed blob reads as goo rather than a ball.
-	Blob->SetRelativeScale3D(FVector(BlobSize / 100.f, BlobSize / 100.f, BlobSize * 0.7f / 100.f));
+	// Solid goo with a faint glow of its own: the nock's material takes the same Color parameter.
+	UMaterialInterface* Material = LoadEffectMaterial(AArrowProjectile::DefaultNockMaterialPath);
+	for (UStaticMeshComponent* Part : { Blob.Get(), Splat.Get(), Splat2.Get() })
+	{
+		TintPart(Part, Material, PuttyColor);
+	}
+	// Squashed against his chest: goo rather than a ball. The gobs sit on a shoulder and a hip.
+	Blob->SetRelativeScale3D(FVector(BlobSize * 0.55f / 100.f, BlobSize / 100.f, BlobSize * 0.8f / 100.f));
+	Splat->SetRelativeLocation(FVector(-4.f, 24.f, 22.f));
+	Splat->SetRelativeScale3D(FVector(BlobSize * 0.4f / 100.f));
+	Splat2->SetRelativeLocation(FVector(-8.f, -20.f, -50.f));
+	Splat2->SetRelativeScale3D(FVector(BlobSize * 0.35f / 100.f));
 }
 
 void AHeldEffect::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -134,15 +154,9 @@ void AHeldEffect::BeginHold()
 		Brain->SetHeld(true);
 	}
 
-	USkeletalMeshComponent* Body = Thug->GetMesh();
-	const bool bOnBone = Body && Body->GetSkeletalMeshAsset() && Body->DoesSocketExist(BlobBone);
-	AttachToComponent(bOnBone ? static_cast<USceneComponent*>(Body) : Thug->GetRootComponent(),
-		FAttachmentTransformRules::SnapToTargetNotIncludingScale, bOnBone ? BlobBone : NAME_None);
-	if (!bOnBone)
-	{
-		SetActorRelativeLocation(FVector(20.f, 0.f, 30.f));
-	}
-	Blob->SetVisibility(true);
+	AttachToComponent(Thug->GetRootComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+	SetActorRelativeLocation(BlobOffset);
+	ShowBlob(true);
 }
 
 void AHeldEffect::Release()
@@ -177,7 +191,7 @@ void AHeldEffect::BeginSurfaceBlob()
 	// Half sunk into the wall, flattened along its normal.
 	SetActorLocationAndRotation(ImpactPoint, FRotationMatrix::MakeFromZ(ImpactNormal).Rotator());
 	Blob->SetRelativeScale3D(FVector(BlobSize / 100.f, BlobSize / 100.f, BlobSize * 0.45f / 100.f));
-	Blob->SetVisibility(true);
+	ShowBlob(false);
 	if (USceneComponent* Surface = GetHitActor() ? GetHitActor()->GetRootComponent() : nullptr)
 	{
 		AttachToComponent(Surface, FAttachmentTransformRules::KeepWorldTransform);
