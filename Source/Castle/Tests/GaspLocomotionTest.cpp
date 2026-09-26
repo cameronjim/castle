@@ -6,6 +6,7 @@
 #include "Misc/AutomationTest.h"
 #include "Modules/ModuleManager.h"
 #include "Player/CastleCharacter.h"
+#include "Player/GaspTraversal.h"
 #include "Tests/CastleTestUtils.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -156,6 +157,43 @@ bool FCastleGaspInputStateBridge::RunTest(const FString& Parameters)
 	Kate->StopAim();
 	TestFalse(TEXT("Aim released: WantsToAim clears"), Kate->GetGaspInputFlag(TEXT("WantsToAim")));
 	TestFalse(TEXT("Aim released: WantsToStrafe clears"), Kate->GetGaspInputFlag(TEXT("WantsToStrafe")));
+	return true;
+}
+
+/**
+ * The sample's traversal is reachable from C++: SandboxCharacter_CMC::GetTraversalCheckInputs and
+ * AC_TraversalLogic::TryTraversalAction with the parameters UParkourComponent passes, BP_Kate
+ * carries the component, and LevelBlock_Traversable (what the generator places on every roof edge)
+ * has its ledge splines and GetLedgeTransforms.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGaspTraversalApi, "Castle.Gasp.TraversalApi",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleGaspTraversalApi::RunTest(const FString& Parameters)
+{
+	UClass* KateClass = CastleGaspTest::LoadKateClass();
+	UClass* LogicClass = StaticLoadClass(UActorComponent::StaticClass(), nullptr,
+		TEXT("/Game/Blueprints/AC_TraversalLogic.AC_TraversalLogic_C"));
+	UClass* BlockClass = StaticLoadClass(AActor::StaticClass(), nullptr,
+		TEXT("/Game/Levels/LevelPrototyping/LevelBlock_Traversable.LevelBlock_Traversable_C"));
+	if (!TestNotNull(TEXT("BP_Kate_C loads"), KateClass) || !TestNotNull(TEXT("AC_TraversalLogic_C loads"), LogicClass)
+		|| !TestNotNull(TEXT("LevelBlock_Traversable_C loads"), BlockClass))
+	{
+		return false;
+	}
+
+	FString Report;
+	TestTrue(TEXT("GetTraversalCheckInputs and TryTraversalAction have the expected parameters"),
+		CastleGaspTraversal::HasTraversalApi(KateClass, LogicClass, Report));
+	AddInfo(Report);
+	TestNotNull(TEXT("LevelBlock_Traversable has GetLedgeTransforms"), BlockClass->FindFunctionByName(TEXT("GetLedgeTransforms")));
+	TestNotNull(TEXT("LevelBlock_Traversable has its Ledges array"), FindFProperty<FArrayProperty>(BlockClass, TEXT("Ledges")));
+
+	const FCastleTestWorld TestWorld;
+	AActor* Kate = TestWorld.SpawnActor(KateClass, FVector::ZeroVector, FRotator::ZeroRotator);
+	UActorComponent* Logic = CastleGaspTraversal::FindTraversalLogic(Kate);
+	TestTrue(TEXT("BP_Kate carries AC_TraversalLogic"), Logic && Logic->IsA(LogicClass));
+	TestFalse(TEXT("Not traversing at rest"), CastleGaspTraversal::IsDoingTraversal(Logic));
 	return true;
 }
 
