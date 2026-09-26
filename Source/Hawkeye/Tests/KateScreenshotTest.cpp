@@ -45,6 +45,7 @@
 #include "World/GrappleAnchor.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
+#include "Tests/EnemyScreenshots.h"
 #include "Tests/PartnerScreenshots.h"
 #include "Tests/SaveScreenshots.h"
 
@@ -109,6 +110,8 @@
  *
  *   partner_follow.png, partner_shoot.png, banter.png, switch_clint.png: the partner pass
  *                           (PartnerScreenshotTest.cpp)
+ *   squad_alert.png, gunner_cover.png, archer_draw.png, archer_arrow.png, archer_pickup.png: the
+ *                           enemy pass (EnemyScreenshotTest.cpp)
  *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass, run last
  *                           (SaveRoundTripTest.cpp)
  *
@@ -2798,6 +2801,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 
 	// Clint: following, shooting what she hit, a banter line, and the switch to him.
 	HawkeyeAddPartnerShots(this);
+
+	// The enemies: the squad alert, the gunner's peek from cover, the archer's draw and his arrow.
+	HawkeyeAddEnemyShots(this);
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.DebugMovement 0")));
 
