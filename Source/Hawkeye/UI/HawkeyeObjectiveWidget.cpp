@@ -21,7 +21,7 @@
 
 namespace HawkeyeObjectiveHud
 {
-	static constexpr float CompassHeight = 26.f;
+	static constexpr float CompassHeight = 30.f;
 	static const FLinearColor Shadow(0.f, 0.f, 0.f, 0.6f);
 
 	static FVector2D MeasureText(const FText& Text, const FSlateFontInfo& Font)
@@ -280,7 +280,7 @@ void UHawkeyeObjectiveWidget::PaintMarker(const FGeometry& Geometry, FSlateWindo
 	}
 
 	// The distance goes under the diamond, or over it when the arrow is pointing down.
-	const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 11);
+	const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 13);
 	const bool bTextAbove = !Placement.bOnScreen && Dir.Y > 0.5f;
 	const float TextHeight = MeasureText(DistanceText, Font).Y;
 	const FVector2D TextTop = bTextAbove
@@ -302,7 +302,7 @@ void UHawkeyeObjectiveWidget::PaintCompass(const FGeometry& Geometry, FSlateWind
 		FCoreStyle::Get().GetBrush(TEXT("WhiteBrush")), ESlateDrawEffect::None, CompassBackColor);
 
 	static const TCHAR* Cardinals[] = { TEXT("N"), TEXT("E"), TEXT("S"), TEXT("W") };
-	const FSlateFontInfo LetterFont = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 11);
+	const FSlateFontInfo LetterFont = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 14);
 	const int32 TickCount = FMath::Max(1, FMath::RoundToInt(360.f / CompassTickDegrees));
 	for (int32 Tick = 0; Tick < TickCount; ++Tick)
 	{
@@ -324,25 +324,25 @@ void UHawkeyeObjectiveWidget::PaintCompass(const FGeometry& Geometry, FSlateWind
 				FVector2D(X, CompassTop + 5.f), Color);
 			continue;
 		}
-		const float Length = WholeBearing % 45 == 0 ? 9.f : 5.f;
+		const float Length = WholeBearing % 45 == 0 ? 12.f : 7.f;
 		Color.A *= 0.8f;
 		FSlateDrawElement::MakeLines(Out, LayerId + 1, Geometry.ToPaintGeometry(),
 			TArray<FVector2D>{ FVector2D(X, Bottom - 4.f - Length), FVector2D(X, Bottom - 4.f) },
-			ESlateDrawEffect::None, Color, true, 1.5f);
+			ESlateDrawEffect::None, Color, true, 2.f);
 	}
 
 	// Where the camera faces: a small caret under the strip's centre.
 	FSlateDrawElement::MakeLines(Out, LayerId + 1, Geometry.ToPaintGeometry(),
-		TArray<FVector2D>{ FVector2D(CentreX - 4.f, Bottom + 6.f), FVector2D(CentreX, Bottom + 2.f),
-			FVector2D(CentreX + 4.f, Bottom + 6.f) },
-		ESlateDrawEffect::None, MarkerColor, true, 1.5f);
+		TArray<FVector2D>{ FVector2D(CentreX - 6.f, Bottom + 8.f), FVector2D(CentreX, Bottom + 2.f),
+			FVector2D(CentreX + 6.f, Bottom + 8.f) },
+		ESlateDrawEffect::None, MarkerColor, true, 2.f);
 
 	if (bCompassIconVisible)
 	{
 		FLinearColor IconColor = MarkerColor;
 		IconColor.A = bCompassIconClamped ? 0.55f : 1.f;
 		DrawDiamond(Out, LayerId + 2, Geometry, FVector2D(CentreX + CompassIconOffset, CompassTop + CompassHeight * 0.5f),
-			6.f, 2.f, IconColor);
+			8.f, 2.f, IconColor);
 	}
 }
 
@@ -366,8 +366,8 @@ void UHawkeyeObjectiveWidget::PaintToast(const FGeometry& Geometry, FSlateWindow
 	FLinearColor TitleColor = FLinearColor::White;
 	TitleColor.A = Alpha;
 
-	const FSlateFontInfo HeadingFont = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 12);
-	const FSlateFontInfo TitleFont = FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 20);
+	const FSlateFontInfo HeadingFont = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 14);
+	const FSlateFontInfo TitleFont = FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 24);
 	const FText Heading = ToastQueue[0].Heading.ToUpper();
 	DrawText(Out, LayerId, Geometry, Heading, HeadingFont, FVector2D(CentreX, Top), HeadingColor);
 	DrawText(Out, LayerId, Geometry, ToastQueue[0].Title, TitleFont,
