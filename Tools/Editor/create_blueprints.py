@@ -82,6 +82,7 @@ GASP_MESH = "/Game/Characters/UEFN_Mannequin/Meshes/SKM_UEFN_Mannequin"
 CHARACTER_INPUT_PROPERTIES = [
     ("move_action", "IA_Move"),
     ("look_action", "IA_Look"),
+    ("look_stick_action", "IA_LookStick"),
     ("jump_action", "IA_Jump"),
     ("sprint_action", "IA_Sprint"),
     ("crouch_action", "IA_Crouch"),

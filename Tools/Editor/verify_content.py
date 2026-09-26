@@ -26,18 +26,40 @@ WEAPON_PATH = "/Game/Blueprints/Weapons"
 KATE_MATERIAL_PATH = "/Game/Characters/Kate"
 
 IA_NAMES = [
-    "IA_Move", "IA_Look", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
+    "IA_Move", "IA_Look", "IA_LookStick", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
     "IA_Aim", "IA_Reload", "IA_Takedown", "IA_Interact", "IA_Pause", "IA_Skip",
     "IA_Slot1", "IA_Slot2", "IA_Slot3", "IA_Slot4", "IA_Slot5", "IA_Slot6", "IA_SlotScroll",
     "IA_Inventory", "IA_Grapple", "IA_Melee",
 ]
 
 CHARACTER_INPUT_PROPS = [
-    "default_mapping_context", "move_action", "look_action", "jump_action", "sprint_action",
-    "crouch_action", "fire_action", "aim_action", "reload_action", "takedown_action",
-    "interact_action", "slot1_action", "slot2_action", "slot3_action", "slot4_action",
-    "slot5_action", "slot6_action", "slot_scroll_action", "inventory_action", "grapple_action",
-    "melee_action",
+    "default_mapping_context", "move_action", "look_action", "look_stick_action", "jump_action",
+    "sprint_action", "crouch_action", "fire_action", "aim_action", "reload_action",
+    "takedown_action", "interact_action", "slot1_action", "slot2_action", "slot3_action",
+    "slot4_action", "slot5_action", "slot6_action", "slot_scroll_action", "inventory_action",
+    "grapple_action", "melee_action",
+]
+
+# (action, key) pairs the gamepad pass must have added to IMC_Default. Xbox layout; a
+# PlayStation pad reports the same Gamepad_* keys, so nothing PS-specific is checked here.
+GAMEPAD_MAPPINGS = [
+    ("IA_Move", "Gamepad_Left2D"),
+    ("IA_LookStick", "Gamepad_Right2D"),
+    ("IA_Jump", "Gamepad_FaceButton_Bottom"),
+    ("IA_Sprint", "Gamepad_LeftThumbstick"),
+    ("IA_Crouch", "Gamepad_FaceButton_Right"),
+    ("IA_Fire", "Gamepad_RightTrigger"),
+    ("IA_Aim", "Gamepad_LeftTrigger"),
+    ("IA_Grapple", "Gamepad_RightShoulder"),
+    ("IA_Melee", "Gamepad_FaceButton_Left"),
+    ("IA_Takedown", "Gamepad_FaceButton_Top"),
+    ("IA_Interact", "Gamepad_FaceButton_Top"),
+    ("IA_Inventory", "Gamepad_Special_Left"),
+    ("IA_Pause", "Gamepad_Special_Right"),
+    ("IA_SlotScroll", "Gamepad_DPad_Left"),
+    ("IA_SlotScroll", "Gamepad_DPad_Right"),
+    ("IA_Slot1", "Gamepad_DPad_Up"),
+    ("IA_Slot2", "Gamepad_DPad_Down"),
 ]
 
 # Pause is bound on the controller so it survives the pawn being locked out or dead.
@@ -177,6 +199,8 @@ def check_input():
     container = prop(imc, "default_key_mappings")
     mappings = list(prop(container, "mappings") or []) if container else []
     say("  IMC_Default: {0} mappings".format(len(mappings)))
+
+    found_pairs = set()
     for mapping in mappings:
         action = prop(mapping, "action")
         key = prop(mapping, "key")
@@ -188,6 +212,18 @@ def check_input():
                 name_of(action), str(key_name), mod_names
             )
         )
+        found_pairs.add((name_of(action), str(key_name)))
+
+    say("---- gamepad mappings ----")
+    missing_gamepad = [
+        "{0} -> {1}".format(action, key)
+        for action, key in GAMEPAD_MAPPINGS
+        if (action, key) not in found_pairs
+    ]
+    say("  {0}/{1} gamepad mappings present".format(
+        len(GAMEPAD_MAPPINGS) - len(missing_gamepad), len(GAMEPAD_MAPPINGS)))
+    for entry in missing_gamepad:
+        fail("IMC_Default missing gamepad mapping " + entry)
 
 
 def check_blueprints():

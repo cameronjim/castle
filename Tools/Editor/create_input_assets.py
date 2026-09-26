@@ -1,13 +1,17 @@
 """Create the Enhanced Input starter assets in /Game/Input.
 
     IA_Move, IA_Look                (Axis2D)
+    IA_LookStick                    (Axis2D, gamepad right stick; kept apart from IA_Look so
+                                     ACastleCharacter's handler can scale it by delta time)
     IA_Jump  IA_Sprint  IA_Crouch  IA_Fire  IA_Aim  IA_Reload
     IA_Takedown  IA_Interact  IA_Pause  IA_Skip   (Digital / bool)
     IA_Slot1 .. IA_Slot6  IA_Inventory             (Digital / bool, keys 1..6: quiver slots)
     IA_Grapple                      (Digital / bool, Q: the grapple arrow)
     IA_Melee                        (Digital / bool, V: bow strike, tap light / hold heavy)
-    IA_SlotScroll                   (Axis1D, the mouse wheel)
-    IMC_Default                     with the UE first-person template's WASD + mouse setup
+    IA_SlotScroll                   (Axis1D, the mouse wheel and the D-pad left/right)
+    IMC_Default                     with the UE first-person template's WASD + mouse setup, plus
+                                     a full Xbox-layout gamepad mapping (PlayStation pads read the
+                                     same physical buttons through Unreal's Gamepad_* keys)
 
 Idempotent: existing assets are left alone (the IMC's key mappings are only rebuilt when
 its mapping count doesn't match the table below).
@@ -31,6 +35,7 @@ AXIS2D = "AXIS2D"
 ACTIONS = [
     ("IA_Move", AXIS2D),
     ("IA_Look", AXIS2D),
+    ("IA_LookStick", AXIS2D),
     ("IA_Jump", BOOL),
     ("IA_Sprint", BOOL),
     ("IA_Crouch", BOOL),
@@ -61,6 +66,18 @@ ACTIONS = [
 SWIZZLE = ("InputModifierSwizzleAxis", {})           # default order is YXZ
 NEGATE = ("InputModifierNegate", {})                 # negates X, Y and Z
 NEGATE_Y = ("InputModifierNegate", {"x": False, "y": True, "z": False})
+NEGATE_X = ("InputModifierNegate", {"x": True, "y": False, "z": False})
+
+# Gamepad_Left2D: X = strafe, Y = forward, same axis order WASD swizzles onto, so the stick needs
+# no swizzle - only a deadzone so a thumb resting on the stick doesn't creep the character.
+_RADIAL = ("ENUM", "DeadZoneType", "RADIAL")
+STICK_MOVE_DEADZONE = ("InputModifierDeadZone", {"lower_threshold": 0.2, "upper_threshold": 1.0, "type": _RADIAL})
+
+# The look stick: a slightly bigger deadzone than movement (a stick that isn't perfectly centred
+# must never cause a slow camera drift) plus a Scalar so 1.0 stick deflection is easy to tune
+# later without touching StickYawDegreesPerSecond/StickPitchDegreesPerSecond in C++.
+STICK_LOOK_DEADZONE = ("InputModifierDeadZone", {"lower_threshold": 0.25, "upper_threshold": 1.0, "type": _RADIAL})
+STICK_LOOK_SCALAR = ("InputModifierScalar", {"scalar": unreal.Vector(1.0, 1.0, 1.0)})
 
 MAPPINGS = [
     ("IA_Move", "W", [SWIZZLE]),
@@ -91,6 +108,33 @@ MAPPINGS = [
     ("IA_Grapple", "Q", []),
     # V: a bow strike. Tap for the light, hold 0.4 s for the heavy (ACastleCharacter decides).
     ("IA_Melee", "V", []),
+
+    # --- Gamepad (Xbox layout; a PlayStation pad reports the same Gamepad_* keys) --------------
+    ("IA_Move", "Gamepad_Left2D", [STICK_MOVE_DEADZONE]),
+    # IA_Look stays mouse-only; the stick drives IA_LookStick instead so ACastleCharacter's
+    # handler (which must scale by delta time and StickSensitivity) has an unambiguous source.
+    ("IA_LookStick", "Gamepad_Right2D", [STICK_LOOK_DEADZONE, STICK_LOOK_SCALAR, NEGATE_Y]),
+    ("IA_Jump", "Gamepad_FaceButton_Bottom", []),               # A
+    ("IA_Sprint", "Gamepad_LeftThumbstick", []),                # L3, held
+    ("IA_Crouch", "Gamepad_FaceButton_Right", []),              # B: also drives dodge tap / slide
+    # Bool actions read an analog trigger as pressed past the default 0.5 threshold, so no
+    # modifier is needed to make the pull digital here.
+    ("IA_Fire", "Gamepad_RightTrigger", []),                    # RT: draw the bow
+    ("IA_Aim", "Gamepad_LeftTrigger", []),                       # LT
+    ("IA_Grapple", "Gamepad_RightShoulder", []),                # RB
+    ("IA_Melee", "Gamepad_FaceButton_Left", []),                # X: strike
+    # Takedown and Interact share Y: ACastleCharacter binds Takedown first and has Interact back
+    # off for that press when a takedown just landed (see Input_Takedown/Input_Interact).
+    ("IA_Takedown", "Gamepad_FaceButton_Top", []),              # Y
+    ("IA_Interact", "Gamepad_FaceButton_Top", []),              # Y
+    ("IA_Inventory", "Gamepad_Special_Left", []),               # View
+    ("IA_Pause", "Gamepad_Special_Right", []),                  # Menu
+    # D-pad left/right cycles arrow slots; up/down jump straight to slot 1 (standard) and 2
+    # (grapple), the two slots CH01 always grants.
+    ("IA_SlotScroll", "Gamepad_DPad_Left", [NEGATE_X]),
+    ("IA_SlotScroll", "Gamepad_DPad_Right", []),
+    ("IA_Slot1", "Gamepad_DPad_Up", []),
+    ("IA_Slot2", "Gamepad_DPad_Down", []),
 ]
 
 
@@ -159,6 +203,26 @@ def create_actions():
     return created
 
 
+def resolve_enum_value(enum_class_name, member_name):
+    """unreal.<EnumClassName>.<MEMBER>, or None if the enum isn't exposed to Python."""
+    enum = getattr(unreal, enum_class_name, None)
+    if enum is None:
+        return None
+    return getattr(enum, member_name, None)
+
+
+def _resolve_prop_value(value):
+    """('ENUM', ClassName, MEMBER) becomes the real enum value; anything else passes through."""
+    if isinstance(value, tuple) and len(value) == 3 and value[0] == "ENUM":
+        resolved = resolve_enum_value(value[1], value[2])
+        if resolved is None:
+            unreal.log_warning(
+                "[Castle] enum {0}.{1} not exposed to Python".format(value[1], value[2])
+            )
+        return resolved
+    return value
+
+
 def build_modifier(imc, spec):
     cls_name, props = spec
     cls = getattr(unreal, cls_name, None)
@@ -167,7 +231,8 @@ def build_modifier(imc, spec):
         return None
     modifier = unreal.new_object(cls, outer=imc)
     if props:
-        c.set_props(modifier, sorted(props.items()), cls_name)
+        resolved = [(name, _resolve_prop_value(value)) for name, value in props.items()]
+        c.set_props(modifier, sorted(resolved), cls_name)
     return modifier
 
 
