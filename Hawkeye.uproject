@@ -90,6 +90,10 @@
 		{
 			"Name": "FullBodyIK",
 			"Enabled": true
+		},
+		{
+			"Name": "SPUD",
+			"Enabled": true
 		}
 	]
 }

@@ -28,7 +28,9 @@ public class Hawkeye : ModuleRules
 			// The partner's brain: ST_Partner runs on a StateTreeAIComponent.
 			"StateTreeModule",
 			"GameplayStateTreeModule",
-			"GameplayTags"
+			"GameplayTags",
+			// Campaign save: Plugins/SPUD (sinbad/SPUD, MIT) persists ISpudObject actors and globals.
+			"SPUD"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
