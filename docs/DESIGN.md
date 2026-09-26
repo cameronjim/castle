@@ -36,8 +36,15 @@ across. Bows, trick arrows, and a dog.
 Manhattan in the second week of January, right after the show. Snow on the ground,
 Christmas decorations coming down, the Rockefeller tree already gone. The playable slice
 is built around the show's locations (see `docs/research/nyc-hawkeye.md` for what is
-sourced and what isn't). Start small: one district that contains Kate's neighbourhood and
-a route to Midtown. Expand only when that district is finished.
+sourced and what isn't).
+
+**Home district: the East Village** (decided 2026-09-25). Kate's walk-up is coded as a
+downtown apartment above a pizza place; the East Village and Lower East Side give us
+five-to-six-storey tenements, fire escapes, rooftops close enough to grapple between,
+brownstone rows, and the Fraction and Aja feel. First block: the tenement blocks east of
+First Avenue around Tompkins Square Park. Midtown (Rockefeller Center, Clint's hotel, the
+auction's implied Park Avenue address) is a later district reached by the story. Expand
+only when the first block is finished.
 
 ## Cast
 - **Kate Bishop.** Lead. Twenty-two, rich family in freefall after her mother's arrest,
