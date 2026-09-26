@@ -124,8 +124,18 @@ def _to_pixel(material, vertex_node, x, y):
     return node
 
 
+def tracksuit_builder(suit_rgb, stripe_rgb, mask_rgb):
+    """A build function for the tracksuit graph in these colours (the archer wears it in grey and purple)."""
+    return lambda material: _build_tracksuit(material, suit_rgb, stripe_rgb, mask_rgb)
+
+
 def _build_thug_tracksuit(material):
     """Red tracksuit, light stripes down the outside of the legs and body, a black ski mask."""
+    _build_tracksuit(material, TRACKSUIT_RED, TRACKSUIT_STRIPE, SKI_MASK)
+
+
+def _build_tracksuit(material, suit_rgb, stripe_rgb, mask_rgb):
+    """Suit colour, stripes down the outside of the legs and body, a ski mask over the head."""
     # Pre-skinned position and normal exist only in the vertex shader; a vertex interpolator
     # carries them to the pixel shader so the mask and stripe edges stay crisp per pixel.
     pos = _to_pixel(material, m.expr(
@@ -144,9 +154,9 @@ def _build_thug_tracksuit(material):
     arm = m.step(material, side_abs, STRIPE_MAX_SIDE_CM, -650, 50, sharpness=0.5)
     stripe = m.lerp(material, facing_out, None, arm, -450, -50, const_b=0.0)
 
-    red = m.constant3(material, TRACKSUIT_RED, -700, -500)
-    white = m.constant3(material, TRACKSUIT_STRIPE, -700, -350)
-    mask = m.constant3(material, SKI_MASK, -700, -200)
+    red = m.constant3(material, suit_rgb, -700, -500)
+    white = m.constant3(material, stripe_rgb, -700, -350)
+    mask = m.constant3(material, mask_rgb, -700, -200)
     suit = m.lerp(material, red, white, stripe, -500, -400)
     base = m.lerp(material, suit, mask, head, -300, -300)
     m.connect_property(base, unreal.MaterialProperty.MP_BASE_COLOR)
@@ -154,9 +164,18 @@ def _build_thug_tracksuit(material):
     m.connect_property(_pulse_emissive(material, head), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
 
 
+def trim_builder(rgb):
+    """A build function for the chest-patch graph in this colour."""
+    return lambda material: _build_trim(material, rgb)
+
+
 def _build_thug_trim(material):
     """The chest patch: the same light grey as the stripes, flashing with the body."""
-    m.connect_property(m.constant3(material, TRACKSUIT_STRIPE, -700, -200),
+    _build_trim(material, TRACKSUIT_STRIPE)
+
+
+def _build_trim(material, rgb):
+    m.connect_property(m.constant3(material, rgb, -700, -200),
                        unreal.MaterialProperty.MP_BASE_COLOR)
     m.set_scalar_property(material, 0.45, unreal.MaterialProperty.MP_ROUGHNESS, -700, 0)
     m.connect_property(_pulse_emissive(material, None), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
