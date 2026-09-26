@@ -52,6 +52,10 @@ void UCastleSettingsWidget::ApplyDefaultLabels()
 	{
 		SensitivityLabel = NSLOCTEXT("Castle", "SettingsSensitivity", "Mouse sensitivity");
 	}
+	if (StickSensitivityLabel.IsEmpty())
+	{
+		StickSensitivityLabel = NSLOCTEXT("Castle", "SettingsStickSensitivity", "Controller sensitivity");
+	}
 	if (BackLabel.IsEmpty())
 	{
 		BackLabel = NSLOCTEXT("Castle", "SettingsBack", "Back");
@@ -180,6 +184,83 @@ TSharedRef<SWidget> UCastleSettingsWidget::RebuildWidget()
 			ValueSlot->SetVerticalAlignment(VAlign_Center);
 		}
 
+		// --- Second option: controller sensitivity, same row shape as the mouse one -------------
+		USizeBox* StickRowBox =
+			WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StickSensitivityRowBox"));
+		StickRowBox->SetWidthOverride(RowWidth);
+		if (UVerticalBoxSlot* StickRowSlot = Cast<UVerticalBoxSlot>(OptionStack->AddChild(StickRowBox)))
+		{
+			StickRowSlot->SetHorizontalAlignment(HAlign_Center);
+			StickRowSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 40.f));
+		}
+
+		UHorizontalBox* StickRow =
+			WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("StickSensitivityRow"));
+		if (USizeBoxSlot* StickRowInner = Cast<USizeBoxSlot>(StickRowBox->AddChild(StickRow)))
+		{
+			StickRowInner->SetHorizontalAlignment(HAlign_Fill);
+			StickRowInner->SetVerticalAlignment(VAlign_Center);
+		}
+
+		if (!StickSensitivityLabelText)
+		{
+			StickSensitivityLabelText =
+				WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StickSensitivityLabelText"));
+		}
+		StickSensitivityLabelText->SetText(StickSensitivityLabel);
+		SetFontSize(StickSensitivityLabelText, 20);
+
+		USizeBox* StickLabelBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StickLabelBox"));
+		StickLabelBox->SetWidthOverride(LabelWidth);
+		if (USizeBoxSlot* StickLabelInner = Cast<USizeBoxSlot>(StickLabelBox->AddChild(StickSensitivityLabelText)))
+		{
+			StickLabelInner->SetHorizontalAlignment(HAlign_Left);
+			StickLabelInner->SetVerticalAlignment(VAlign_Center);
+		}
+		if (UHorizontalBoxSlot* StickLabelSlot = Cast<UHorizontalBoxSlot>(StickRow->AddChild(StickLabelBox)))
+		{
+			StickLabelSlot->SetVerticalAlignment(VAlign_Center);
+		}
+
+		if (!StickSensitivitySlider)
+		{
+			StickSensitivitySlider =
+				WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), TEXT("StickSensitivitySlider"));
+		}
+
+		USizeBox* StickSliderBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StickSliderBox"));
+		StickSliderBox->SetHeightOverride(SliderHeight);
+		if (USizeBoxSlot* StickSliderInner = Cast<USizeBoxSlot>(StickSliderBox->AddChild(StickSensitivitySlider)))
+		{
+			StickSliderInner->SetHorizontalAlignment(HAlign_Fill);
+			StickSliderInner->SetVerticalAlignment(VAlign_Center);
+		}
+		if (UHorizontalBoxSlot* StickSliderSlot = Cast<UHorizontalBoxSlot>(StickRow->AddChild(StickSliderBox)))
+		{
+			StickSliderSlot->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+			StickSliderSlot->SetVerticalAlignment(VAlign_Center);
+			StickSliderSlot->SetPadding(FMargin(0.f, 0.f, 24.f, 0.f));
+		}
+
+		if (!StickSensitivityValueText)
+		{
+			StickSensitivityValueText =
+				WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("StickSensitivityValueText"));
+		}
+		SetFontSize(StickSensitivityValueText, 20);
+
+		USizeBox* StickValueBox = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("StickValueBox"));
+		StickValueBox->SetWidthOverride(ValueWidth);
+		if (USizeBoxSlot* StickValueInner = Cast<USizeBoxSlot>(StickValueBox->AddChild(StickSensitivityValueText)))
+		{
+			StickValueInner->SetHorizontalAlignment(HAlign_Right);
+			StickValueInner->SetVerticalAlignment(VAlign_Center);
+		}
+		if (UHorizontalBoxSlot* StickValueSlot = Cast<UHorizontalBoxSlot>(StickRow->AddChild(StickValueBox)))
+		{
+			StickValueSlot->SetVerticalAlignment(VAlign_Center);
+		}
+
 		// --- Back -----------------------------------------------------------------------------
 		if (!BackButton)
 		{
@@ -218,12 +299,22 @@ void UCastleSettingsWidget::NativeConstruct()
 		SensitivitySlider->SetMaxValue(UCastleSettingsSubsystem::MaxLookSensitivity);
 		SensitivitySlider->SetStepSize(CastleSettingsWidgetLayout::SliderStep);
 	}
+	if (StickSensitivitySlider)
+	{
+		StickSensitivitySlider->SetMinValue(UCastleSettingsSubsystem::MinStickSensitivity);
+		StickSensitivitySlider->SetMaxValue(UCastleSettingsSubsystem::MaxStickSensitivity);
+		StickSensitivitySlider->SetStepSize(CastleSettingsWidgetLayout::SliderStep);
+	}
 
 	if (!bBound)
 	{
 		if (SensitivitySlider)
 		{
 			SensitivitySlider->OnValueChanged.AddDynamic(this, &UCastleSettingsWidget::HandleSensitivityChanged);
+		}
+		if (StickSensitivitySlider)
+		{
+			StickSensitivitySlider->OnValueChanged.AddDynamic(this, &UCastleSettingsWidget::HandleStickSensitivityChanged);
 		}
 		if (BackButton)
 		{
@@ -242,6 +333,10 @@ void UCastleSettingsWidget::NativeDestruct()
 		if (SensitivitySlider)
 		{
 			SensitivitySlider->OnValueChanged.RemoveDynamic(this, &UCastleSettingsWidget::HandleSensitivityChanged);
+		}
+		if (StickSensitivitySlider)
+		{
+			StickSensitivitySlider->OnValueChanged.RemoveDynamic(this, &UCastleSettingsWidget::HandleStickSensitivityChanged);
 		}
 		if (BackButton)
 		{
@@ -265,6 +360,16 @@ void UCastleSettingsWidget::RefreshFromSettings()
 		SensitivitySlider->SetValue(Sensitivity);
 	}
 	UpdateValueText(Sensitivity);
+
+	const float StickSensitivity = SettingsSubsystem
+		? SettingsSubsystem->GetStickSensitivity()
+		: FCastleSettings().StickSensitivity;
+
+	if (StickSensitivitySlider)
+	{
+		StickSensitivitySlider->SetValue(StickSensitivity);
+	}
+	UpdateStickValueText(StickSensitivity);
 }
 
 void UCastleSettingsWidget::UpdateValueText(float Value)
@@ -272,6 +377,14 @@ void UCastleSettingsWidget::UpdateValueText(float Value)
 	if (SensitivityValueText)
 	{
 		SensitivityValueText->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), Value)));
+	}
+}
+
+void UCastleSettingsWidget::UpdateStickValueText(float Value)
+{
+	if (StickSensitivityValueText)
+	{
+		StickSensitivityValueText->SetText(FText::FromString(FString::Printf(TEXT("%.2f"), Value)));
 	}
 }
 
@@ -285,6 +398,18 @@ void UCastleSettingsWidget::HandleSensitivityChanged(float Value)
 	}
 
 	UpdateValueText(UCastleSettingsSubsystem::ClampLookSensitivity(Value));
+}
+
+void UCastleSettingsWidget::HandleStickSensitivityChanged(float Value)
+{
+	if (UCastleSettingsSubsystem* SettingsSubsystem = UCastleSettingsSubsystem::Get(this))
+	{
+		SettingsSubsystem->SetStickSensitivity(Value);
+		UpdateStickValueText(SettingsSubsystem->GetStickSensitivity());
+		return;
+	}
+
+	UpdateStickValueText(UCastleSettingsSubsystem::ClampStickSensitivity(Value));
 }
 
 void UCastleSettingsWidget::HandleBackClicked()

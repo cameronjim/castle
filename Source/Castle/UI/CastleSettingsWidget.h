@@ -42,6 +42,9 @@ public:
 	FText SensitivityLabel;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings")
+	FText StickSensitivityLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings")
 	FText BackLabel;
 
 	/** Pulls the slider and the number back in line with the subsystem. Called on construct. */
@@ -59,6 +62,9 @@ protected:
 	void HandleSensitivityChanged(float Value);
 
 	UFUNCTION()
+	void HandleStickSensitivityChanged(float Value);
+
+	UFUNCTION()
 	void HandleBackClicked();
 
 	/** Fills in any label the designer left empty. Called before the layout is built. */
@@ -67,11 +73,21 @@ protected:
 	/** Writes Value into SensitivityValueText as two decimals. */
 	void UpdateValueText(float Value);
 
+	/** Writes Value into StickSensitivityValueText as two decimals. */
+	void UpdateStickValueText(float Value);
+
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<USlider> SensitivitySlider = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SensitivityValueText = nullptr;
+
+	/** Second slider, "Controller sensitivity", directly under the mouse one. */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<USlider> StickSensitivitySlider = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> StickSensitivityValueText = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;
@@ -81,6 +97,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SensitivityLabelText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> StickSensitivityLabelText = nullptr;
 
 	/** The stack RebuildWidget builds when the Blueprint has no layout of its own. */
 	UPROPERTY(Transient)
