@@ -30,6 +30,10 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   ``City_Obj_<objective>`` trigger volumes on roofs picked from the records, each with a 1 m
   ``City_Beacon_<objective>`` (pole, emissive purple ``City_BeaconTop_``, and a movable 300 lm
   purple ``City_BeaconLight_``) at the end of the roof nearest the start.
+* Barney's archers: two ``City_Archer_<n>`` (BP_Archer, tag ArcherPair) on the roofs of two other
+  buildings 15 to 25 m from the find_arrow roof, each with a clear line to it (building footprints
+  and heights, parapets included) and as far apart around it as the roofs allow. Their roofs, and
+  every roof those lines cross, get no rooftop clutter. Aggressive only when Kate is within 30 m.
 * chapter 1's first fight: four ``City_Thug_<n>`` (BP_Thug). A Fists and a Bat thug face each
   other on the cross_block roof (tag RoofPair, counted by ``City_ThugGroup_clear_roof``, which
   completes ``clear_roof``); a Bat thug and the gunner patrol the Avenue A sidewalk beside the
@@ -1591,6 +1595,215 @@ def ensure_thugs(district, existing):
 
 
 # --------------------------------------------------------------------------------------
+# Barney's archers: two BP_Archer on roofs facing the find_arrow roof
+# --------------------------------------------------------------------------------------
+
+ARCHER_PREFIX = "City_Archer_"
+ARCHER_BP_PATH = "/Game/Blueprints/Bosses"
+ARCHER_BP_NAME = "BP_Archer"
+ARCHER_PAIR_TAG = "ArcherPair"
+ARCHER_MIN_DISTANCE = 1500.0      # cm from the find_arrow beacon (where Kate stands): the archer's band
+ARCHER_MAX_DISTANCE = 2500.0
+ARCHER_IDEAL_DISTANCE = 2000.0
+ARCHER_GRID = 150.0               # cm between candidate spots on a roof
+ARCHER_EDGE_CLEARANCE = 250.0     # cm inside the roof edge, so he never stands in the parapet
+ARCHER_EYE = THUG_HALF_HEIGHT + 60.0     # cm above his roof
+ARCHER_TARGET_CHEST = 130.0       # cm above the find_arrow roof: Kate's chest standing
+ARCHER_LINE_MARGIN = 20.0         # cm the line must clear a roof or parapet by
+ARCHER_PARAPET = 90.0             # cm; generate's parapets (skipped under 6 m)
+ARCHER_MIN_SPREAD_DEG = 35.0      # the two archers this far apart round her
+ARCHER_MIN_APART = 800.0          # cm between the two archers
+ARCHER_ROOF_PAIR_CLEAR = 3000.0   # preferred distance from the RoofPair, so the first fight stays two on one
+
+
+def _building_tops(district):
+    """[(rec, ring, bounds, top z cm)] for every building, parapet included."""
+    out = []
+    for rec in district.buildings:
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) < 3:
+            continue
+        top = rec["height_m"] * 100.0 + (ARCHER_PARAPET if rec["height_m"] >= 6.0 else 0.0)
+        out.append((rec, ring, geo.bounds(ring), top))
+    return out
+
+
+def _segment_params(a, b, ring):
+    """Parameters (0..1) along a->b where it crosses the ring's edges, plus 0 and 1 if an end is inside."""
+    ts = []
+    if geo.point_in_polygon(a, ring):
+        ts.append(0.0)
+    if geo.point_in_polygon(b, ring):
+        ts.append(1.0)
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    n = len(ring)
+    for i in range(n):
+        p, q = ring[i], ring[(i + 1) % n]
+        ex, ey = q[0] - p[0], q[1] - p[1]
+        den = dx * ey - dy * ex
+        if abs(den) < 1e-9:
+            continue
+        t = ((p[0] - a[0]) * ey - (p[1] - a[1]) * ex) / den
+        u = ((p[0] - a[0]) * dy - (p[1] - a[1]) * dx) / den
+        if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
+            ts.append(t)
+    return ts
+
+
+def archer_line_blockers(a3, b3, tops):
+    """Ids of the buildings whose roof or parapet the straight line a3 -> b3 does not clear."""
+    a, b = (a3[0], a3[1]), (b3[0], b3[1])
+    x0, x1 = min(a[0], b[0]), max(a[0], b[0])
+    y0, y1 = min(a[1], b[1]), max(a[1], b[1])
+    blocked = []
+    for rec, ring, box, top in tops:
+        if box[0] > x1 or box[2] < x0 or box[1] > y1 or box[3] < y0:
+            continue
+        ts = _segment_params(a, b, ring)
+        if not ts:
+            continue
+        # The line is straight, so its lowest point over the footprint is at an entry or exit.
+        low = min(a3[2] + (b3[2] - a3[2]) * t for t in ts)
+        if low < top + ARCHER_LINE_MARGIN:
+            blocked.append(rec["id"])
+    return blocked
+
+
+def archer_crossed_buildings(a3, b3, tops):
+    """Ids of every building whose footprint the line a3 -> b3 passes over."""
+    a, b = (a3[0], a3[1]), (b3[0], b3[1])
+    return [rec["id"] for rec, ring, _box, _top in tops if _segment_params(a, b, ring)]
+
+
+def archer_target(district):
+    """(x, y, z) of Kate's chest at the find_arrow beacon, or None."""
+    spot = beacon_spots(district).get("find_arrow")
+    if spot is None:
+        return None
+    x, y, roof_z, _how = spot
+    return (x, y, roof_z + ARCHER_TARGET_CHEST)
+
+
+_ARCHER_CACHE = {}
+
+
+def archer_placements(district):
+    """[(label, x, y, z, yaw, osm id, distance cm)] for the two archers, best first; [] if none fit."""
+    key = id(district)
+    if key not in _ARCHER_CACHE:
+        _ARCHER_CACHE[key] = _archer_placements(district)
+    return _ARCHER_CACHE[key]
+
+
+def _archer_placements(district):
+    target = archer_target(district)
+    roofs = objective_roofs(district)
+    if target is None or "find_arrow" not in roofs:
+        return []
+    taken = {rec["id"] for rec in roofs.values()}
+    safehouse = safehouse_spot(district)
+    if safehouse is not None:
+        taken.add(safehouse["rec"]["id"])
+    cross = roofs.get("cross_block")
+    cross_centre = cross["centre"] if cross else None
+    reach = ARCHER_MAX_DISTANCE + 100.0
+    # Every line runs between two points within reach of the target: nothing farther can block it.
+    tops = [t for t in _building_tops(district) if not (t[2][0] > target[0] + reach or t[2][2] < target[0] - reach
+                                                        or t[2][1] > target[1] + reach or t[2][3] < target[1] - reach)]
+    best = {}   # osm id -> (score, x, y, z, yaw, distance)
+    for rec, ring, box, _top in tops:
+        if rec["id"] in taken or rec["height_m"] < OBJECTIVE_MIN_HEIGHT_M:
+            continue
+        if box[0] > target[0] + reach or box[2] < target[0] - reach or box[1] > target[1] + reach or box[3] < target[1] - reach:
+            continue
+        roof_z = rec["height_m"] * 100.0
+        gx = box[0] + ARCHER_GRID * 0.5
+        while gx < box[2]:
+            gy = box[1] + ARCHER_GRID * 0.5
+            while gy < box[3]:
+                pt = (gx, gy)
+                gy += ARCHER_GRID
+                d = math.hypot(pt[0] - target[0], pt[1] - target[1])
+                if d < ARCHER_MIN_DISTANCE or d > ARCHER_MAX_DISTANCE or _edge_clearance(pt, ring) < ARCHER_EDGE_CLEARANCE:
+                    continue
+                eye = (pt[0], pt[1], roof_z + ARCHER_EYE)
+                if archer_line_blockers(eye, target, tops):
+                    continue
+                score = abs(d - ARCHER_IDEAL_DISTANCE)
+                if cross_centre is not None and math.hypot(pt[0] - cross_centre[0], pt[1] - cross_centre[1]) < ARCHER_ROOF_PAIR_CLEAR:
+                    score += 1000.0
+                if rec["id"] not in best or score < best[rec["id"]][0]:
+                    yaw = math.degrees(math.atan2(target[1] - pt[1], target[0] - pt[0]))
+                    best[rec["id"]] = (score, pt[0], pt[1], roof_z + THUG_HALF_HEIGHT + 2.0, yaw, d)
+            gx += ARCHER_GRID
+    ranked = sorted(best.items(), key=lambda kv: (kv[1][0], kv[0]))
+    if not ranked:
+        return []
+    first_id, first = ranked[0]
+    picks = [(first_id, first)]
+
+    def bearing(p):
+        return math.degrees(math.atan2(p[2] - target[1], p[1] - target[0]))
+
+    for spread in (ARCHER_MIN_SPREAD_DEG, 15.0, 0.0):
+        for osm, cand in ranked[1:]:
+            apart = math.hypot(cand[1] - first[1], cand[2] - first[2])
+            turn = abs((bearing(cand) - bearing(first) + 180.0) % 360.0 - 180.0)
+            if apart >= ARCHER_MIN_APART and turn >= spread:
+                picks.append((osm, cand))
+                break
+        if len(picks) == 2:
+            break
+    return [(ARCHER_PREFIX + str(i), p[1], p[2], p[3], p[4], osm, p[5]) for i, (osm, p) in enumerate(picks)]
+
+
+def archer_quiet_roofs(district):
+    """Ids of the archers' roofs and every roof their lines to the find_arrow roof cross: no roof clutter."""
+    target = archer_target(district)
+    placements = archer_placements(district)
+    if target is None or not placements:
+        return set()
+    tops = _building_tops(district)
+    quiet = set()
+    for _label, x, y, z, _yaw, osm, _d in placements:
+        quiet.add(osm)
+        quiet.update(archer_crossed_buildings((x, y, z - THUG_HALF_HEIGHT + ARCHER_EYE), target, tops))
+    return quiet
+
+
+def ensure_archers(district, existing):
+    """City_Archer_<n> (BP_Archer), tagged ArcherPair. Idempotent by label."""
+    cls = c.load_generated_class(ARCHER_BP_PATH, ARCHER_BP_NAME)
+    if cls is None or not hasattr(unreal, "ThugWeapon"):
+        c.log("FAILED", ARCHER_PREFIX + "*", "BP_Archer missing; build and run create_enemies.py")
+        return 0
+    placements = archer_placements(district)
+    if len(placements) != 2:
+        c.log("FAILED", ARCHER_PREFIX + "*", "found {0} archer spots facing find_arrow".format(len(placements)))
+    changes = 0
+    wanted = set()
+    for label, x, y, z, yaw, osm, distance in placements:
+        actor, n = _ensure_located(existing, label, cls, unreal.Vector(x, y, z), yaw)
+        if actor is None:
+            continue
+        wanted.add(label)
+        if actor.get_editor_property("weapon") != unreal.ThugWeapon.BOW:
+            actor.set_editor_property("weapon", unreal.ThugWeapon.BOW)
+            n += 1
+        n += _ensure_tags(actor, ["Thug", "City", "CityArcher", ARCHER_PAIR_TAG, "osm:" + osm])
+        changes += n
+        c.log("updated" if n else "exists", label, "on osm {0} at ({1:.0f}, {2:.0f}, {3:.0f}) yaw {4:.0f}, {5:.0f} cm from find_arrow".format(
+            osm, x, y, z, yaw, distance))
+    for label, actor in list(existing.items()):
+        if label.startswith(ARCHER_PREFIX) and label not in wanted:
+            actor.destroy_actor()
+            existing.pop(label, None)
+            changes += 1
+            c.log("updated", label, "removed stray")
+    return changes
+
+
+# --------------------------------------------------------------------------------------
 # street lamps
 # --------------------------------------------------------------------------------------
 
@@ -2803,7 +3016,8 @@ def clutter_plan(district):
     Street clutter keeps clear of lamps, the thug patrol, the PlayerStart and the parkour test blocks.
     """
     plan = {kind: [] for kind in CLUTTER_KINDS}
-    objective_ids = {rec["id"] for rec in objective_roofs(district).values()}
+    # The archers' roofs and the roofs their lines cross stay bare, so nothing stands in the duel.
+    objective_ids = {rec["id"] for rec in objective_roofs(district).values()} | archer_quiet_roofs(district)
     anchors = anchor_spots(district)
     anchor_pts = []   # (x, y, z): every anchor and its landing point
     for x, y, z, yaw, forward, _drop, _osm in anchors:
@@ -3325,6 +3539,7 @@ def run():
     changes += ensure_objective_beacons(district, existing)
     changes += ensure_safehouse(district, existing)
     changes += ensure_thugs(district, existing)
+    changes += ensure_archers(district, existing)
     changes += ensure_clint(district, existing)
     changes += ensure_street_lamps(district, existing)
     changes += ensure_ledge_spawner(district, existing)
