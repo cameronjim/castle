@@ -1,0 +1,545 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "Combat/BowComponent.h"
+
+#include "Camera/CameraComponent.h"
+#include "Hawkeye.h"
+#include "CollisionQueryParams.h"
+#include "Combat/ArrowDefinition.h"
+#include "Combat/ArrowProjectile.h"
+#include "Combat/BowDefinition.h"
+#include "Combat/HealthComponent.h"
+#include "Combat/WeaponComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/World.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/Controller.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
+#include "Player/HawkeyeCharacter.h"
+#include "Player/GrappleComponent.h"
+#include "Player/InventoryComponent.h"
+
+namespace HawkeyeBow
+{
+	static const TCHAR* CylinderPath = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
+	static const TCHAR* ShapeMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
+}
+
+UBowComponent::UBowComponent()
+{
+	PrimaryComponentTick.bCanEverTick = true;
+	// After the body has animated, so the bow sits on this frame's hand and spine, not last frame's.
+	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
+	DefaultProjectileClass = AArrowProjectile::StaticClass();
+}
+
+void UBowComponent::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Per-owner seed so two archers never scatter identically.
+	SpreadStream.Initialize(*GetNameSafe(GetOwner()));
+
+	if (UInventoryComponent* Inventory = FindInventory())
+	{
+		Inventory->OnInventoryChanged.AddDynamic(this, &UBowComponent::HandleInventoryChanged);
+	}
+	RefreshBowVisual();
+}
+
+void UBowComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UInventoryComponent* Inventory = FindInventory())
+	{
+		Inventory->OnInventoryChanged.RemoveDynamic(this, &UBowComponent::HandleInventoryChanged);
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+void UBowComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (bDrawing)
+	{
+		OnDrawChanged.Broadcast(GetDrawFraction());
+	}
+	UpdateBowVisual();
+}
+
+double UBowComponent::GetNowSeconds() const
+{
+	if (bUseTestTime)
+	{
+		return TestTimeOverride;
+	}
+	const UWorld* World = GetWorld();
+	return World ? static_cast<double>(World->GetTimeSeconds()) : 0.0;
+}
+
+void UBowComponent::SetTestTimeSeconds(double InSeconds)
+{
+	bUseTestTime = true;
+	TestTimeOverride = InSeconds;
+}
+
+UInventoryComponent* UBowComponent::FindInventory() const
+{
+	const AActor* Owner = GetOwner();
+	return Owner ? Owner->FindComponentByClass<UInventoryComponent>() : nullptr;
+}
+
+UBowDefinition* UBowComponent::GetBow() const
+{
+	const UInventoryComponent* Inventory = FindInventory();
+	return Inventory ? Inventory->GetBow() : nullptr;
+}
+
+float UBowComponent::GetDrawElapsed() const
+{
+	return bDrawing ? static_cast<float>(FMath::Max(0.0, GetNowSeconds() - DrawStartSeconds)) : 0.f;
+}
+
+float UBowComponent::GetDrawFraction() const
+{
+	const UBowDefinition* Bow = GetBow();
+	return (bDrawing && Bow) ? Bow->ComputeDrawFraction(GetDrawElapsed()) : 0.f;
+}
+
+float UBowComponent::GetCurrentSpreadDegrees() const
+{
+	const UBowDefinition* Bow = GetBow();
+	return Bow ? Bow->ComputeSpread(GetDrawFraction()) : 0.f;
+}
+
+bool UBowComponent::IsBowInHand() const
+{
+	return bDrawing || GetNowSeconds() < FollowThroughUntilSeconds;
+}
+
+bool UBowComponent::IsInPerfectWindow() const
+{
+	const UBowDefinition* Bow = GetBow();
+	return bDrawing && Bow && Bow->IsPerfectRelease(GetDrawElapsed());
+}
+
+// --- Draw -------------------------------------------------------------------------------------------
+
+bool UBowComponent::StartDraw()
+{
+	AActor* Owner = GetOwner();
+	if (bDrawing || !GetBow() || !Owner)
+	{
+		return false;
+	}
+	if (const UHealthComponent* Health = Owner->FindComponentByClass<UHealthComponent>())
+	{
+		if (!Health->IsAlive())
+		{
+			return false;
+		}
+	}
+
+	bDrawing = true;
+	DrawStartSeconds = GetNowSeconds();
+	if (AHawkeyeCharacter* Character = Cast<AHawkeyeCharacter>(Owner))
+	{
+		// Drawing is aiming: camera in over the shoulder, strafing, walking slower.
+		Character->NotifyBowDrawStarted();
+	}
+	OnDrawChanged.Broadcast(0.f);
+	UpdateBowVisual();
+	return true;
+}
+
+void UBowComponent::EndDraw()
+{
+	bDrawing = false;
+	OnDrawChanged.Broadcast(0.f);
+	if (AHawkeyeCharacter* Character = Cast<AHawkeyeCharacter>(GetOwner()))
+	{
+		Character->NotifyBowDrawEnded();
+	}
+	UpdateBowVisual();
+}
+
+void UBowComponent::CancelDraw()
+{
+	if (!bDrawing)
+	{
+		return;
+	}
+	UE_LOG(LogHawkeye, Verbose, TEXT("%s: draw let down at %.0f%%."), *GetNameSafe(GetOwner()), GetDrawFraction() * 100.f);
+	EndDraw();
+}
+
+bool UBowComponent::ReleaseDraw()
+{
+	if (!bDrawing)
+	{
+		return false;
+	}
+
+	const UBowDefinition* Bow = GetBow();
+	const float Elapsed = GetDrawElapsed();
+	const float Fraction = Bow ? Bow->ComputeDrawFraction(Elapsed) : 0.f;
+	EndDraw();
+
+	if (!Bow || Bow->IsBelowMinDraw(Fraction))
+	{
+		// Too early: the string is let down and the arrow stays on it.
+		UE_LOG(LogHawkeye, Log, TEXT("%s: released at %.0f%% draw, below %.0f%%; cancelled."), *GetNameSafe(GetOwner()),
+			Fraction * 100.f, Bow ? Bow->MinDrawFraction * 100.f : 0.f);
+		return false;
+	}
+	return FireArrow(Elapsed);
+}
+
+// --- Firing -----------------------------------------------------------------------------------------
+
+bool UBowComponent::FireGrapple(UArrowDefinition* Arrow)
+{
+	UGrappleComponent* Grapple = GetOwner() ? GetOwner()->FindComponentByClass<UGrappleComponent>() : nullptr;
+	const bool bFired = Grapple && Grapple->TryFire();
+	if (bFired)
+	{
+		OnArrowFired.Broadcast(Arrow);
+	}
+	else
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: grapple arrow released with no marked anchor (or none left); nothing spent."),
+			*GetNameSafe(GetOwner()));
+	}
+	return bFired;
+}
+
+bool UBowComponent::FireArrow(float Elapsed)
+{
+	UInventoryComponent* Inventory = FindInventory();
+	UBowDefinition* Bow = GetBow();
+	UArrowDefinition* Arrow = Inventory ? Inventory->GetActiveArrow() : nullptr;
+	AActor* Owner = GetOwner();
+	if (!Arrow || !Bow || !Owner)
+	{
+		return false;
+	}
+	if (Arrow->OnHitEffect == EArrowHitEffect::Grapple)
+	{
+		return FireGrapple(Arrow);
+	}
+
+	const int32 Slot = Inventory->GetActiveArrowSlot();
+	if (!Inventory->ConsumeArrow(Slot))
+	{
+		// TODO(stage3): the empty-quiver click sound.
+		UE_LOG(LogHawkeye, Log, TEXT("%s: no %s left in slot %d."), *GetNameSafe(Owner), *GetNameSafe(Arrow), Slot);
+		return false;
+	}
+
+	const float Fraction = Bow->ComputeDrawFraction(Elapsed);
+	const bool bPerfect = Bow->IsPerfectRelease(Elapsed);
+	const float Damage = Bow->ComputeReleaseDamage(Arrow->Damage, Fraction, bPerfect);
+	const float Spread = Bow->ComputeSpread(Fraction);
+	const float Speed = Bow->ComputeSpeed(Fraction);
+
+	const FVector Start = GetArrowSpawnLocation();
+	FVector Aim = (ComputeAimPoint() - Start).GetSafeNormal();
+	if (Aim.IsNearlyZero())
+	{
+		Aim = Owner->GetActorForwardVector();
+	}
+	const FVector Direction = UWeaponComponent::ApplyConeSpread(Aim, Spread, SpreadStream);
+
+	if (AArrowProjectile* Projectile = SpawnArrowProjectile(Arrow, DefaultProjectileClass, Direction))
+	{
+		Projectile->InitArrow(Arrow, Bow, Damage, Owner, this);
+		Projectile->LaunchWithVelocity(Direction * Speed);
+	}
+
+	if (bPerfect)
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: perfect release (%.2f s, window %.2f-%.2f s): +%.0f%% damage."),
+			*GetNameSafe(Owner), Elapsed, Bow->FullDrawSeconds, Bow->FullDrawSeconds + Bow->PerfectWindowSeconds,
+			Bow->PerfectBonus * 100.f);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: loosed %s at %.0f%% draw: %.0f cm/s, spread %.2f deg, damage %.1f; %d left."),
+		*GetNameSafe(Owner), *GetNameSafe(Arrow), Fraction * 100.f, Speed, Spread, Damage, Inventory->GetArrowCount(Slot));
+
+	FollowThroughUntilSeconds = GetNowSeconds() + FollowThroughSeconds;
+	OnArrowFired.Broadcast(Arrow);
+	return true;
+}
+
+AArrowProjectile* UBowComponent::SpawnArrowProjectile(UArrowDefinition* Arrow, TSubclassOf<AArrowProjectile> FallbackClass,
+	const FVector& Direction) const
+{
+	UWorld* World = GetWorld();
+	AActor* Owner = GetOwner();
+	TSubclassOf<AArrowProjectile> Class = (Arrow && Arrow->ProjectileClass) ? Arrow->ProjectileClass : FallbackClass;
+	if (!World || !Owner || !Class)
+	{
+		return nullptr;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	Params.Owner = Owner;
+	Params.Instigator = Cast<APawn>(Owner);
+	return World->SpawnActor<AArrowProjectile>(Class, GetArrowSpawnLocation(), Direction.Rotation(), Params);
+}
+
+FVector UBowComponent::GetArrowSpawnLocation() const
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return FVector::ZeroVector;
+	}
+	const ACharacter* Character = Cast<ACharacter>(Owner);
+	const USkeletalMeshComponent* Body = Character ? Character->GetMesh() : nullptr;
+	const UBowDefinition* Bow = GetBow();
+	if (Body && Bow && !Bow->HandSocket.IsNone() && Body->DoesSocketExist(Bow->HandSocket))
+	{
+		return Body->GetSocketLocation(Bow->HandSocket);
+	}
+	return Owner->GetActorTransform().TransformPosition(ArrowLaunchOffset);
+}
+
+FVector UBowComponent::ComputeAimPoint() const
+{
+	const AActor* Owner = GetOwner();
+	const UWorld* World = GetWorld();
+	if (!Owner || !World)
+	{
+		return FVector::ZeroVector;
+	}
+
+	FVector ViewLocation;
+	FVector ViewForward;
+	const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(Owner);
+	if (const UCameraComponent* Camera = Hawkeye ? Hawkeye->GetFollowCamera() : nullptr)
+	{
+		ViewLocation = Camera->GetComponentLocation();
+		ViewForward = Camera->GetForwardVector();
+	}
+	else
+	{
+		FRotator ViewRotation;
+		Owner->GetActorEyesViewPoint(ViewLocation, ViewRotation);
+		ViewForward = ViewRotation.Vector();
+	}
+
+	// Start level with the character along the view, so nothing between the lens and her back
+	// (a railing the arm pulled in past) becomes the target.
+	const float ToCharacter = FMath::Max(0.f, FVector::DotProduct(Owner->GetActorLocation() - ViewLocation, ViewForward));
+	const FVector Start = ViewLocation + ViewForward * ToCharacter;
+	const FVector End = ViewLocation + ViewForward * AimTraceDistance;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HawkeyeBowAim), /*bTraceComplex=*/false, Owner);
+	FHitResult Hit;
+	if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_HawkeyeWeapon, Params))
+	{
+		return Hit.ImpactPoint;
+	}
+	return End;
+}
+
+void UBowComponent::NotifyArrowHit(AActor* HitActor, float Damage, bool bHeadshot)
+{
+	OnHit.Broadcast(HitActor, Damage, bHeadshot);
+}
+
+void UBowComponent::HandleInventoryChanged()
+{
+	if (bDrawing && !GetBow())
+	{
+		CancelDraw();
+	}
+	RefreshBowVisual();
+}
+
+// --- Visual -----------------------------------------------------------------------------------------
+
+void UBowComponent::RefreshBowVisual()
+{
+	UBowDefinition* Bow = GetBow();
+	if (Bow == VisualBow && (BowMesh != nullptr) == (Bow != nullptr))
+	{
+		return;
+	}
+
+	for (UStaticMeshComponent* Existing : { BowMesh.Get(), StringUpper.Get(), StringLower.Get(), NockedShaft.Get(), NockedNock.Get() })
+	{
+		if (Existing)
+		{
+			Existing->DestroyComponent();
+		}
+	}
+	BowMesh = nullptr;
+	StringUpper = nullptr;
+	StringLower = nullptr;
+	NockedShaft = nullptr;
+	NockedNock = nullptr;
+	VisualBow = Bow;
+
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Body = Character ? Character->GetMesh() : nullptr;
+	if (!Bow || !Body || !GetWorld())
+	{
+		return;
+	}
+
+	auto MakePart = [Character, Body](USceneComponent* Parent, FName Socket, UStaticMesh* Mesh)
+	{
+		UStaticMeshComponent* Part = NewObject<UStaticMeshComponent>(Character);
+		Part->SetStaticMesh(Mesh);
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Part->SetCanEverAffectNavigation(false);
+		Part->SetupAttachment(Parent ? Parent : Body, Socket);
+		Part->RegisterComponent();
+		return Part;
+	};
+
+	// Soft: the definition does not pull its mesh into memory until a bow is actually carried.
+	BowMesh = MakePart(Body, HolsterBone, Bow->BowMesh.IsNull() ? nullptr : Bow->BowMesh.LoadSynchronous());
+	BowMesh->SetCastShadow(true);
+
+	UStaticMesh* Cylinder = LoadObject<UStaticMesh>(nullptr, HawkeyeBow::CylinderPath);
+	StringUpper = MakePart(BowMesh, NAME_None, Cylinder);
+	StringLower = MakePart(BowMesh, NAME_None, Cylinder);
+	UMaterialInterface* ShapeMaterial = LoadObject<UMaterialInterface>(nullptr, HawkeyeBow::ShapeMaterialPath);
+	for (UStaticMeshComponent* String : { StringUpper.Get(), StringLower.Get() })
+	{
+		String->SetCastShadow(false);
+		if (ShapeMaterial)
+		{
+			String->SetMaterial(0, ShapeMaterial);
+			if (UMaterialInstanceDynamic* Tint = String->CreateDynamicMaterialInstance(0))
+			{
+				Tint->SetVectorParameterValue(TEXT("Color"), StringColor);
+			}
+		}
+	}
+
+	// The arrow on the string: the same pale shaft and purple nock as a loosed one.
+	NockedShaft = MakePart(BowMesh, NAME_None, Cylinder);
+	NockedNock = MakePart(BowMesh, NAME_None, Cylinder);
+	const TPair<UStaticMeshComponent*, FLinearColor> ArrowParts[] = {
+		{ NockedShaft.Get(), FLinearColor(0.6f, 0.55f, 0.45f) },
+		{ NockedNock.Get(), FLinearColor(0.45f, 0.1f, 0.75f) },
+	};
+	for (const TPair<UStaticMeshComponent*, FLinearColor>& Part : ArrowParts)
+	{
+		Part.Key->SetCastShadow(false);
+		Part.Key->SetVisibility(false);
+		if (ShapeMaterial)
+		{
+			Part.Key->SetMaterial(0, ShapeMaterial);
+			if (UMaterialInstanceDynamic* Tint = Part.Key->CreateDynamicMaterialInstance(0))
+			{
+				Tint->SetVectorParameterValue(TEXT("Color"), Part.Value);
+			}
+		}
+	}
+
+	UE_LOG(LogHawkeye, Log, TEXT("%s: bow %s shown (mesh %s) on %s."), *GetNameSafe(Character), *GetNameSafe(Bow),
+		*GetNameSafe(BowMesh->GetStaticMesh()), *HolsterBone.ToString());
+	UpdateBowVisual();
+}
+
+void UBowComponent::PlaceString(UStaticMeshComponent* String, const FVector& Tip, const FVector& Nock) const
+{
+	if (!String)
+	{
+		return;
+	}
+	// The engine cylinder is 100 cm along Z about its centre.
+	const FVector Span = Nock - Tip;
+	const float Length = FMath::Max(Span.Size(), 0.1f);
+	String->SetWorldLocationAndRotation((Tip + Nock) * 0.5f, FRotationMatrix::MakeFromZ(Span).Rotator());
+	String->SetWorldScale3D(FVector(StringThickness / 100.f, StringThickness / 100.f, Length / 100.f));
+}
+
+void UBowComponent::UpdateBowVisual()
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Body = Character ? Character->GetMesh() : nullptr;
+	const UBowDefinition* Bow = GetBow();
+	if (!BowMesh || !Body || !Bow)
+	{
+		return;
+	}
+
+	const bool bInHand = IsBowInHand();
+	const FName Socket = bInHand && Body->DoesSocketExist(Bow->HandSocket) ? Bow->HandSocket : HolsterBone;
+	if (BowMesh->GetAttachSocketName() != Socket)
+	{
+		BowMesh->AttachToComponent(Body, FAttachmentTransformRules::KeepWorldTransform, Socket);
+	}
+
+	// Positions come from the bones; orientation from the actor and the aim, so the bow never
+	// depends on how a bone's axes happen to be authored.
+	const FRotator ActorRotation = Character->GetActorRotation();
+	FVector Location;
+	FQuat Rotation;
+	const float Draw = GetDrawFraction();
+	if (bInHand)
+	{
+		// Up from the hand and round to the aim in the first part of the draw, then held there
+		// while the string comes back, and for the follow-through after the shot.
+		const FRotator Aim = Character->GetControlRotation();
+		const float Raise = bDrawing ? FMath::SmoothStep(0.f, 1.f, FMath::Min(1.f, Draw / RaiseByDrawFraction)) : 1.f;
+		const FQuat Lowered = FRotator(LoweredPitchDegrees, Aim.Yaw, 0.f).Quaternion();
+		const FQuat Raised = FRotator(Aim.Pitch, Aim.Yaw, DrawnCantDegrees).Quaternion();
+		Rotation = FQuat::Slerp(Lowered, Raised, Raise);
+		const FVector Hand = Body->GetSocketLocation(Socket) + Rotation.RotateVector(HandGripOffset);
+		const FVector Held = Body->GetSocketLocation(DrawShoulderBone) + Raised.RotateVector(DrawnGripOffset);
+		Location = FMath::Lerp(Hand, Held, Raise);
+	}
+	else
+	{
+		// Flat across the back: the bow's X (where an arrow would go) to the actor's right, then
+		// tipped HolsterRollDegrees about the actor's forward axis so it lies diagonally.
+		Rotation = ActorRotation.Quaternion()
+			* FQuat(FVector::ForwardVector, FMath::DegreesToRadians(HolsterRollDegrees))
+			* FRotator(0.f, 90.f, 0.f).Quaternion();
+		Location = Body->GetSocketLocation(HolsterBone) + ActorRotation.RotateVector(HolsterOffset);
+	}
+	BowMesh->SetWorldLocationAndRotation(Location, Rotation);
+
+	const FTransform BowTransform = BowMesh->GetComponentTransform();
+	const FVector Nock = BowTransform.TransformPosition(FVector(StringTip.X - StringPullAtFullDraw * Draw, 0.f, 0.f));
+	PlaceString(StringUpper, BowTransform.TransformPosition(StringTip), Nock);
+	PlaceString(StringLower, BowTransform.TransformPosition(FVector(StringTip.X, StringTip.Y, -StringTip.Z)), Nock);
+
+	// The arrow on the string, from the nock forward along the bow through the grip, while drawing.
+	const bool bShowArrow = bDrawing && NockedShaft && NockedNock;
+	if (bShowArrow)
+	{
+		const FVector Along = BowTransform.GetUnitAxis(EAxis::X);
+		PlaceString(NockedShaft, Nock, Nock + Along * NockedArrowLength);
+		NockedShaft->SetWorldScale3D(FVector(0.015f, 0.015f, NockedArrowLength / 100.f));
+		PlaceString(NockedNock, Nock - Along * 1.f, Nock + Along * 4.f);
+		NockedNock->SetWorldScale3D(FVector(0.025f, 0.025f, 0.05f));
+	}
+	for (UStaticMeshComponent* Part : { NockedShaft.Get(), NockedNock.Get() })
+	{
+		if (Part && Part->IsVisible() != bShowArrow)
+		{
+			Part->SetVisibility(bShowArrow);
+		}
+	}
+
+	// The body hides from its own camera when a wall pulls the lens in; the bow goes with it.
+	const bool bHidden = Body->bOwnerNoSee;
+	for (UStaticMeshComponent* Part : { BowMesh.Get(), StringUpper.Get(), StringLower.Get(), NockedShaft.Get(), NockedNock.Get() })
+	{
+		if (Part && Part->bOwnerNoSee != bHidden)
+		{
+			Part->SetOwnerNoSee(bHidden);
+		}
+	}
+}

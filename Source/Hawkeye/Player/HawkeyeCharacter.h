@@ -1,0 +1,1204 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Combat/MeleeComponent.h"
+#include "GameFramework/Character.h"
+#include "Player/HawkeyeMovementTypes.h"
+#include "Settings/HawkeyeSettings.h"
+#include "HawkeyeCharacter.generated.h"
+
+class UAnimSequence;
+class UBowComponent;
+class UCameraComponent;
+class UInputAction;
+class USpringArmComponent;
+class UInputMappingContext;
+class UHealthComponent;
+class UInteractionComponent;
+class UGrappleComponent;
+class UInventoryComponent;
+class UParkourComponent;
+class UPawnNoiseEmitterComponent;
+class UTakedownComponent;
+class UWeaponComponent;
+struct FInputActionValue;
+
+/**
+ * The player character, in third person: a spring arm behind and above the body that probes
+ * against the world, the camera on the end of it, and the body turning to face the way it moves
+ * (or the camera, while aiming). Aim blends the arm in to the right shoulder.
+ *
+ * Movement picks a gait every frame (walk, run, sprint, crouch, slide) from how hard the stick
+ * is pushed and for how long; every number is a property so BP_Kate can tune it. Landings are
+ * measured from the top of the arc: a long drop rolls (moving) or stumbles (standing), a
+ * controlled drop dips the camera, and a very long one costs health, never all of it.
+ *
+ * Body animation: when the mesh runs an AnimBP (BP_Kate: the Game Animation Sample's
+ * motion-matched SandboxCharacter_CMC_ABP) the AnimBP owns the body, and the idle/walk/run clip
+ * switch in LocomotionAnim.h only runs for a mesh without one. A class that carries the sample's
+ * CharacterInputState (SandboxCharacter_CMC and its children) gets our gait, crouch and aim
+ * written into it every update; see SyncGaspInputState.
+ *
+ * BP_HawkeyeCharacter is the input-wired base; BP_Kate is the playable child.
+ */
+UCLASS(Blueprintable, BlueprintType)
+class HAWKEYE_API AHawkeyeCharacter : public ACharacter
+{
+	GENERATED_BODY()
+
+public:
+	AHawkeyeCharacter();
+
+	/** The boom the camera hangs off. Rotates with the control rotation. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
+
+	/** The player's view, on the end of the boom. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UHealthComponent* GetHealthComponent() const { return HealthComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UTakedownComponent* GetTakedownComponent() const { return TakedownComponent; }
+
+	/** Hands, the melee fallback while no bow is owned. bHasWeapon is always false on the player. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UWeaponComponent* GetWeaponComponent() const;
+
+	/** The bow: draw, release, arrows and the bow's look. Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UBowComponent* GetBowComponent() const { return BowComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
+
+	/** The bow, the quiver and the keycard ring. Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
+
+	/** The grapple arrow: anchor targeting, firing and the zip. Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UGrappleComponent* GetGrappleComponent() const { return GrappleComponent; }
+
+	/** Light and heavy strikes with the bow (V). Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UMeleeComponent* GetMeleeComponent() const { return MeleeComponent; }
+
+	/** Vault, mantle and ledge grab. Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UParkourComponent* GetParkourComponent() const { return ParkourComponent; }
+
+	/**
+	 * True during any traversal move: one of ours, a hang, or the Game Animation Sample's
+	 * traversal montage. Jumping, crouching and the grapple wait for it to end.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	bool IsTraversing() const;
+
+	/** True while a grapple zip carries the character; movement input and jumping are ignored. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	bool IsZipping() const;
+
+	/**
+	 * The end of a grapple zip, through the ordinary landing path as a 0 cm landing: no damage,
+	 * and no roll (the camera dip and speed cut are for falls above RollHeight only).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Falling")
+	void NotifyGrappleLanded();
+
+	/** True once GiveKeycard(KeycardId) has been called for that id. Forwards to the inventory. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	bool HasKeycard(FName KeycardId) const;
+
+	/** Adds a keycard to the player's ring. Returns false when they already had it. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Character")
+	bool GiveKeycard(FName KeycardId);
+
+	/** Keycards picked up so far. Doors check this by id. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	TSet<FName> GetKeycards() const;
+
+	/**
+	 * Loudness the player is currently emitting, per claude-docs/gameplay-semantics.md:
+	 * 1.0 sprinting, 0.4 walking, 0 crouching or airborne.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	float GetMovementNoiseLoudness() const;
+
+	/** True while a takedown animation is playing; movement and firing are ignored. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	bool IsLockedOutByTakedown() const;
+
+	/**
+	 * Starts aiming: the camera blends in to AimCamera over the right shoulder, the body turns to
+	 * face the camera, the speed drops to WalkSpeed, and the weapon tightens its spread cone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Aim")
+	void StartAim();
+
+	/** Ends aiming. Safe to call when not aiming; sprinting calls it. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Aim")
+	void StopAim();
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Aim")
+	bool IsAiming() const { return bIsAiming; }
+
+	/** The bow started drawing: drop the sprint and aim (camera in, strafe, slower walk) while it is held. */
+	void NotifyBowDrawStarted();
+
+	/** The draw ended (released or let down): the aim goes too, unless the aim button is held. */
+	void NotifyBowDrawEnded();
+
+	/** True while the bow is being drawn. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Aim")
+	bool IsDrawingBow() const;
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	bool IsSprinting() const { return bIsSprinting; }
+
+	/** Current camera field of view. Exposed so a test or a Blueprint can read the blend. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Aim")
+	float GetCurrentFOV() const;
+
+	/** LookSensitivity, reduced by AimLookMultiplier while aiming. */
+	UFUNCTION(BlueprintPure, Category = "Input")
+	float GetEffectiveLookSensitivity() const;
+
+	/**
+	 * The yaw/pitch delta a raw look input produces. Split out of Input_Look so the sensitivity
+	 * rules can be tested without an input stack.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Input")
+	FVector2D ComputeLookDelta(FVector2D RawInput, bool bAiming) const;
+
+	/**
+	 * Yaw/pitch degrees to apply this frame for a held gamepad stick position, given
+	 * DeltaSeconds and whether the aim is held. Eased with value^1.5 so a light nudge is fine
+	 * for small aim corrections while the stick still reaches full rate at the edge. Pure and
+	 * tested so the scaling can be checked without a controller.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Input")
+	FVector2D ComputeStickLookDelta(FVector2D RawInput, float DeltaSeconds, bool bAiming) const;
+
+	// --- Camera ---------------------------------------------------------------------------------
+
+	/**
+	 * Arm length, shoulder offset and FOV the camera settles at for this aim state and camera
+	 * pitch (degrees, up positive). No blending over time. At the hip, looking up past
+	 * LookUpPitchStart shortens the arm towards LookUpArmLength, lifts the socket towards
+	 * LookUpSocketZ and the pivot by up to LookUpPivotLift, all reached at LookUpPitchFull, so a
+	 * steep look up from the street does not drive the lens into the pavement.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	FHawkeyeCameraTargets ComputeCameraTargets(bool bAiming, float Pitch = 0.f) const;
+
+	/** Pitch clamped to [CameraPitchMin, CameraPitchMax]. The player camera manager uses the same limits. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	float ClampCameraPitch(float Pitch) const { return FMath::Clamp(Pitch, CameraPitchMin, CameraPitchMax); }
+
+	/** 0 at the hip, 1 fully aimed; moves over AimBlendSeconds. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	float GetAimBlendAlpha() const { return AimAlpha; }
+
+	// --- Gait -----------------------------------------------------------------------------------
+
+	/**
+	 * Which gait these inputs ask for. Slide beats crouch beats sprint beats aim; otherwise a full
+	 * stick (or any keyboard press) runs, a medium stick runs once held for RunAfterHeldSeconds,
+	 * and a light one walks.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	EHawkeyeGait SelectGait(float InputMagnitude, float InputHeldSeconds, bool bWantsSprint, bool bCrouched,
+		bool bSliding, bool bAiming) const;
+
+	/** Top ground speed for a gait, cm/s. The slide starts at SlideSpeed and eases to CrouchSpeed. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	float GetGaitSpeed(EHawkeyeGait Gait) const;
+
+	/** The gait chosen on the last update. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	EHawkeyeGait GetGait() const { return CurrentGait; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	bool IsSliding() const { return bIsSliding; }
+
+	/**
+	 * Starts a slide: only while sprinting on the ground above SlideMinSpeed. Shrinks the capsule
+	 * to the crouched height for SlideSeconds, then stands back up. Returns true when it started.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Movement")
+	bool StartSlide();
+
+	// --- Falling --------------------------------------------------------------------------------
+
+	/**
+	 * Fraction of MaxHealth a fall of this height costs: 0 below FallDamageMinHeight, then
+	 * FallDamageMinFraction rising to FallDamageMaxFraction at FallDamageMaxHeight and capped there.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	float ComputeFallDamageFraction(float FallHeight) const;
+
+	/** Height of the last landing, from the top of the arc to the ground, cm. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	float GetLastFallHeight() const { return LastFallHeight; }
+
+	/** How far below the top of the current arc the character is, cm. 0 on the ground. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	float GetCurrentFallHeight() const;
+
+	/**
+	 * True through a landing roll or stumble (a landing from above RollHeight), and for
+	 * LandingRecoverSeconds after a controlled drop (stepped off an edge, let go of a hang or a
+	 * zip, not a jump) from above ControlledDropDipHeight.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	bool IsRecoveringFromLanding() const { return LandingState != EHawkeyeLanding::None; }
+
+	/** What the last landing turned into, while it lasts; None once it is over. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	EHawkeyeLanding GetLandingState() const { return LandingState; }
+
+	/** Seconds since the current landing roll, stumble or dip began. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	float GetLandingElapsed() const { return LandingElapsed; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	bool IsRolling() const { return LandingState == EHawkeyeLanding::Roll; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	bool IsStumbling() const { return LandingState == EHawkeyeLanding::Stumble; }
+
+	/** The first RollInputLockSeconds of a roll: move, jump, crouch and dodge input are ignored. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	bool IsLandingInputLocked() const { return IsRolling() && LandingElapsed < RollInputLockSeconds; }
+
+	/**
+	 * How much of her speed a landing leaves her: rising 0 to 1 over a stumble,
+	 * LandingSpeedMultiplier through a dip, 1 otherwise (a roll is carried by its own force).
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	float GetLandingSpeedFactor() const;
+
+	/** Camera pitch added by a roll, degrees: down to -RollCameraPitchDegrees halfway and back. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	float GetLandingCameraPitch() const;
+
+	/** The flattened direction the current (or last) roll travels. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	FVector GetRollDirection() const { return RollDirection; }
+
+	/** The current fall began as a controlled drop: off an edge, a hang or a zip, not a jump. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Falling")
+	bool IsControlledDrop() const { return bControlledDrop; }
+
+	// --- Debug ----------------------------------------------------------------------------------
+
+	/** One line for the HUD: gait, ground speed, fall height. Shown when hawkeye.DebugMovement is 1. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Debug")
+	FString GetMovementDebugText() const;
+
+	/** Reads the hawkeye.DebugMovement console variable. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Debug")
+	static bool IsMovementDebugEnabled();
+
+	/** Ends a slide before jumping: a character cannot jump while crouched. */
+	virtual void Jump() override;
+
+	// --- Game Animation Sample bridge -------------------------------------------------------------
+
+	/**
+	 * True when this class carries the Game Animation Sample's CharacterInputState struct (BP_Kate,
+	 * through SandboxCharacter_CMC). Then the sandbox graph reads its locomotion inputs from it,
+	 * owns MaxWalkSpeed and the rotation mode, and its own Blueprint input events are dropped.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Animation")
+	bool UsesGaspLocomotion() const;
+
+	/** True while the body mesh is animated by an AnimBP; the clip switch then leaves it alone. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Animation")
+	bool IsBodyDrivenByAnimBlueprint() const;
+
+	/**
+	 * Writes the current gait, crouch and aim into the sample's CharacterInputState:
+	 * WantsToSprint (sprint gait), WantsToWalk (walk gait, or aiming), WantsToStrafe and
+	 * WantsToAim (aiming), WantsToCrouch (crouched or sliding), plus FullMovementInput (any gait
+	 * above walk). No-op on a class without the struct. Public so a test can drive it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
+	void SyncGaspInputState();
+
+	/** Reads one CharacterInputState flag back by its authored name (WantsToSprint, ...). False if absent. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Animation")
+	bool GetGaspInputFlag(FName FlagName) const;
+
+	/** How many Blueprint input bindings the last possession dropped. See DropBlueprintInputBindings. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Animation")
+	int32 GetDroppedBlueprintInputBindings() const { return DroppedBlueprintInputBindings; }
+
+	// --- Melee, dodge, hit reactions -------------------------------------------------------------
+
+	/**
+	 * A tap of V: LightAttack (15, 0.1 s wind-up, 0.3 s in all). Turns her to the nearest thug in
+	 * front within SoftLockRange first. Refused mid-swing, mid-dodge, drawing, traversing or zipping.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Melee")
+	bool StartLightAttack();
+
+	/** V held HeavyHoldSeconds: HeavyAttack (35 after a 0.6 s wind-up, knocks a thug down). */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Melee")
+	bool StartHeavyAttack();
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	bool IsMeleeAttacking() const;
+
+	/**
+	 * A dash of DodgeDistance over DodgeSeconds along WorldDirection (flattened), with the health
+	 * component invulnerable for the first DodgeInvulnerableSeconds. Refused while sprinting,
+	 * airborne, traversing, zipping, in a takedown, already dodging, or within DodgeCooldownSeconds
+	 * of the last one. Ctrl tapped while moving (not sprinting) calls it with the move direction.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Dodge")
+	bool TryDodge(FVector WorldDirection);
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Dodge")
+	bool IsDodging() const { return DodgeRemaining > 0.f; }
+
+	/** True for the invulnerable part of a dodge. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Dodge")
+	bool IsDodgeInvulnerable() const { return DodgeInvulnerableRemaining > 0.f; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Dodge")
+	float GetDodgeCooldownRemaining() const { return DodgeCooldownRemaining; }
+
+	/** True for PlayerStaggerSeconds after a staggering hit (a thug's punch or bat). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	bool IsStaggered() const { return StaggerRemaining > 0.f; }
+
+	/**
+	 * 0 at or above LowHealthThreshold of max health, rising to 1 at zero: how much of the
+	 * low-health desaturation and vignette is on screen.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Health")
+	float ComputeLowHealthAlpha(float HealthPercent) const;
+
+	/** 1 the moment a hit lands on her, 0 once HitShakeSeconds have passed. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	float GetHitShakeAlpha() const { return HitShakeSeconds > 0.f ? HitShakeRemaining / HitShakeSeconds : 0.f; }
+
+	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "Hawkeye|Character")
+	void OnInteractPressed();
+
+protected:
+	//~ Begin APawn interface
+	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void Tick(float DeltaSeconds) override;
+	virtual void PawnClientRestart() override;
+	virtual void PossessedBy(AController* NewController) override;
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+	//~ End APawn interface
+
+	//~ Begin ACharacter interface
+	virtual void Landed(const FHitResult& Hit) override;
+	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
+	//~ End ACharacter interface
+
+	/** Adds DefaultMappingContext to the local player's Enhanced Input subsystem. */
+	void AddDefaultMappingContext();
+
+	// --- Input handlers -------------------------------------------------------------------------
+	void Input_Move(const FInputActionValue& Value);
+	void Input_Look(const FInputActionValue& Value);
+	void Input_SprintStarted(const FInputActionValue& Value);
+	void Input_SprintCompleted(const FInputActionValue& Value);
+	void Input_CrouchToggle(const FInputActionValue& Value);
+	void Input_FirePressed(const FInputActionValue& Value);
+	void Input_FireReleased(const FInputActionValue& Value);
+	void Input_Reload(const FInputActionValue& Value);
+	void Input_Takedown(const FInputActionValue& Value);
+	void Input_Interact(const FInputActionValue& Value);
+	void Input_AimStarted(const FInputActionValue& Value);
+	void Input_AimCompleted(const FInputActionValue& Value);
+	void Input_Slot1(const FInputActionValue& Value);
+	void Input_Slot2(const FInputActionValue& Value);
+	void Input_Slot3(const FInputActionValue& Value);
+	void Input_Slot4(const FInputActionValue& Value);
+	void Input_Slot5(const FInputActionValue& Value);
+	void Input_Slot6(const FInputActionValue& Value);
+	void Input_SlotScroll(const FInputActionValue& Value);
+	void Input_Inventory(const FInputActionValue& Value);
+	void Input_Grapple(const FInputActionValue& Value);
+	void Input_CrouchReleased(const FInputActionValue& Value);
+	void Input_MeleePressed(const FInputActionValue& Value);
+	void Input_MeleeReleased(const FInputActionValue& Value);
+
+	/** Starts Attack after turning to the soft-lock target. Shared by the light and the heavy. */
+	bool StartMelee(const FHawkeyeMeleeAttack& Attack);
+
+	/** The closest living thug within SoftLockRange and SoftLockAngleDegrees of the camera's forward. */
+	AActor* FindSoftLockTarget() const;
+
+	/** Counts the V hold; past HeavyHoldSeconds it becomes the heavy. */
+	void UpdateMeleeHold(float DeltaSeconds);
+
+	/** Counts a dodge, its invulnerability and its cooldown down. */
+	void UpdateDodge(float DeltaSeconds);
+
+	/** A Ctrl press while moving waits DodgeTapSeconds: released sooner it dodges, held it crouches. */
+	void UpdateCrouchTap(float DeltaSeconds);
+
+	/** Counts the stagger and the hit shake down. */
+	void UpdateHitReactions(float DeltaSeconds);
+
+	/** Writes the low-health desaturation and vignette onto the camera's post process. */
+	void UpdateLowHealthPostProcess();
+
+	UFUNCTION()
+	void HandleStaggered(UHealthComponent* Health, AActor* DamageInstigator);
+
+	UFUNCTION()
+	void HandleHealthChanged(UHealthComponent* Health, float NewHealth, float Delta, AActor* DamageInstigator);
+
+	UFUNCTION()
+	void HandleMeleeLanded(AActor* HitActor, float DamageDealt, FName AttackName);
+
+	/** Time back to normal after the hit stop. */
+	void EndHitStop();
+
+	/** Picks the gait and writes its speed to CharacterMovement (walking and crouched). */
+	void UpdateMaxWalkSpeed();
+
+	/** Moves the aim blend one frame and writes arm length, socket offset and FOV. */
+	void UpdateCamera(float DeltaSeconds);
+
+	/** Hides the body from its own camera while a wall has pulled the lens in to it. */
+	void UpdateBodyVisibilityForCamera();
+
+	/** Accumulates how long move input has been held; resets on the first frame without it. */
+	void UpdateMoveInputTiming(float DeltaSeconds);
+
+	/** Counts the slide down, steers it, and stands up at the end. */
+	void UpdateSlide(float DeltaSeconds);
+
+	/** Tracks the top of the arc while falling and counts the landing recovery down. */
+	void UpdateFalling(float DeltaSeconds);
+
+	/** Stands back up and restores friction. Safe when not sliding. */
+	void EndSlide();
+
+	/** Roll, stumble or dip, and fall damage, for a landing FallHeight below the top of the arc. */
+	void ApplyLanding(float FallHeight);
+
+	/**
+	 * A roll along Direction: RollDistance over RollSeconds as a root motion force, the capsule down
+	 * to RollCapsuleHalfHeight, the body tumbling once forward about the capsule centre.
+	 */
+	void StartRoll(const FVector& Direction);
+
+	/** Counts the landing state on and ends it; the roll's body tumble and capsule are handled here. */
+	void UpdateLanding(float DeltaSeconds);
+
+	/** Puts the body and capsule back after a roll and clears the landing state. */
+	void EndRoll();
+
+	/** Writes one frame of the roll's tumble onto the body mesh. */
+	void ApplyRollPose();
+
+	/** Swaps the body between IdleAnim, WalkAnim, RunAnim and FallAnim. See LocomotionAnim.h. */
+	void UpdateBodyLocomotion();
+
+	/** Aiming faces the camera; otherwise the body turns towards where it moves. */
+	void ApplyRotationMode();
+
+	/**
+	 * The sample's graph binds its own IA_Move, IA_Look, IA_Jump, IA_Sprint, IA_Crouch and IA_Aim
+	 * events, and our actions sit at the same asset paths, so they would fire twice (and a crouch
+	 * toggle would cancel itself). With the GASP bridge active every Blueprint action and key
+	 * binding added after our own is removed; C++ owns input.
+	 */
+	void DropBlueprintInputBindings();
+
+	/**
+	 * Deactivates every camera on the actor other than FollowCamera: the sample's GameplayCamera
+	 * rig (and the cine camera it spawns) and its spare CameraComponent. Our spring arm stays the
+	 * view. Cheap when there is nothing to do; run on BeginPlay, possession and every tick.
+	 */
+	void SilenceForeignCameras();
+
+	/**
+	 * Copies the tuning properties onto the boom and CharacterMovement. Run at BeginPlay so a
+	 * Blueprint child's values win over the constructor's.
+	 */
+	void ApplyTuningToComponents();
+
+	// --- Components -----------------------------------------------------------------------------
+
+	/**
+	 * Turned by the control rotation; lags behind in position and rotation; probes with a sphere on
+	 * the Camera channel and pulls in against walls. Length and offset are driven every frame.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<USpringArmComponent> CameraBoom;
+
+	/** On the end of CameraBoom. The boom does the rotating, so this does not follow the pawn. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UCameraComponent> FollowCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UHealthComponent> HealthComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UTakedownComponent> TakedownComponent;
+
+	/**
+	 * Set by Input_Takedown when it executes one, consumed by Input_Interact on the very same
+	 * key press. Takedown and Interact are bound to separate keyboard keys (F, E) but share the
+	 * gamepad Y face button; Takedown is bound first, so this is how it wins that press instead
+	 * of both firing.
+	 */
+	bool bTookDownThisPress = false;
+
+	/** Hands only: the punch while no bow is owned (bHasWeapon false). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UWeaponComponent> WeaponComponent;
+
+	/** Draw, release, arrows; the bow on her back and in her hand. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UBowComponent> BowComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UInteractionComponent> InteractionComponent;
+
+	/** The bow, a six-slot quiver (standard arrows always in slot 1) and the keycard ring. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UInventoryComponent> InventoryComponent;
+
+	/** Picks the anchor under the camera, fires the grapple arrow and runs the zip. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UGrappleComponent> GrappleComponent;
+
+	/** Light and heavy bow strikes. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UMeleeComponent> MeleeComponent;
+
+	/** Vault, mantle, ledge grab; auto while sprinting, on the jump key at any speed. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UParkourComponent> ParkourComponent;
+
+	/** What AISense_Hearing listens to. MakeNoise routes through this. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
+	TObjectPtr<UPawnNoiseEmitterComponent> NoiseEmitter;
+
+	// --- Input assets ---------------------------------------------------------------------------
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputMappingContext> DefaultMappingContext;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input", meta = (ClampMin = "0"))
+	int32 DefaultMappingPriority = 0;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> MoveAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> LookAction;
+
+	/**
+	 * The gamepad right stick. Kept separate from LookAction (mouse) so the handler can scale by
+	 * delta time and StickSensitivity: a mouse delta is already a per-frame pixel count, but a
+	 * stick reports a held position and needs an explicit rate.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> LookStickAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> JumpAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> SprintAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> CrouchAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> FireAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> AimAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> ReloadAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> TakedownAction;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> InteractAction;
+
+	/** Number key 1: standard arrows. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot1Action;
+
+	/** Number keys 2..6: the other quiver slots. An empty slot's key does nothing. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot2Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot3Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot4Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot5Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot6Action;
+
+	/** Mouse wheel. Positive is the next quiver slot, negative the previous; empty slots are skipped. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> SlotScrollAction;
+
+	/** Tab: opens the read-only inventory screen, which pauses like the pause menu does. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> InventoryAction;
+
+	/** Q: fire a grapple arrow at the marked anchor (or chain, late in a zip), whatever slot is nocked. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> GrappleAction;
+
+	/** V: tap for a light bow strike, hold for the heavy. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> MeleeAction;
+
+	// --- Melee tuning ---------------------------------------------------------------------------
+
+	/** The tap: 15 damage, lands 0.1 s in, 0.3 s in all, staggers, 20 cm lunge. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
+	FHawkeyeMeleeAttack LightAttack;
+
+	/** The hold: 35 damage after a 0.6 s wind-up, knocks a thug down, 40 cm lunge. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
+	FHawkeyeMeleeAttack HeavyAttack;
+
+	/** V held this long becomes the heavy; let go sooner and it was a tap. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float HeavyHoldSeconds = 0.4f;
+
+	/** A thug this close and this far off the camera's forward is who a swing turns to face. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float SoftLockRange = 300.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float SoftLockAngleDegrees = 60.f;
+
+	/** Real seconds the world is slowed when one of her strikes lands. Two frames at 60. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float HitStopSeconds = 0.033f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.01", ClampMax = "1.0"))
+	float HitStopTimeDilation = 0.1f;
+
+	// --- Dodge ----------------------------------------------------------------------------------
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.0"))
+	float DodgeDistance = 300.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.05"))
+	float DodgeSeconds = 0.4f;
+
+	/** The start of the dodge during which nothing can hurt her. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.0"))
+	float DodgeInvulnerableSeconds = 0.25f;
+
+	/** From the start of one dodge to the earliest the next can start. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.0"))
+	float DodgeCooldownSeconds = 0.8f;
+
+	/** A Ctrl press released within this is a dodge; held longer (or pressed standing) it crouches. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.0"))
+	float DodgeTapSeconds = 0.2f;
+
+	// --- Hit reactions --------------------------------------------------------------------------
+
+	/** Seconds a staggering hit takes her movement and attacks away. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float PlayerStaggerSeconds = 0.35f;
+
+	/** Speed she is shoved away from a staggering hit at, cm/s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float PlayerStaggerShove = 250.f;
+
+	/** How long the camera shakes when a hit lands on her. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float HitShakeSeconds = 0.2f;
+
+	/** How far the lens is thrown about by a hit, cm, at the start of the shake. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float HitShakeAmplitude = 6.f;
+
+	/** Below this fraction of max health the picture starts to drain and close in. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Health", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LowHealthThreshold = 0.4f;
+
+	/** Colour saturation at zero health (1 is normal). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Health", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LowHealthSaturation = 0.2f;
+
+	/** Vignette intensity at zero health (the engine default is 0.4). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Health", meta = (ClampMin = "0.0"))
+	float LowHealthVignette = 1.2f;
+
+	// --- Movement tuning ------------------------------------------------------------------------
+
+	/** Light stick input, and the speed while aiming. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float WalkSpeed = 250.f;
+
+	/** The default on foot. Keyboard input is always full, so the keyboard runs unless sprinting. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float RunSpeed = 500.f;
+
+	/** Sprint held. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float SprintSpeed = 700.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float CrouchSpeed = 200.f;
+
+	/** Stick deflection at or above which the character runs straight away. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FullInputThreshold = 0.9f;
+
+	/** Stick deflection below which the character always walks. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LightInputThreshold = 0.4f;
+
+	/** A medium stick breaks from walk into run after being held this long. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float RunAfterHeldSeconds = 0.2f;
+
+	/** Apex of a standing jump, cm. JumpZVelocity is derived from it and gravity at BeginPlay. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float JumpHeight = 90.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpAirControl = 0.3f;
+
+	/** Yaw the body turns at, degrees per second, towards movement or (aiming) the camera. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float TurnRateDegrees = 720.f;
+
+	/** Sprint input is held. Only moves the character at SprintSpeed while it is on its feet. */
+	UPROPERTY(BlueprintReadOnly, Category = "Hawkeye|Movement")
+	bool bIsSprinting = false;
+
+	// --- Slide ----------------------------------------------------------------------------------
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Slide", meta = (ClampMin = "0.05"))
+	float SlideSeconds = 0.7f;
+
+	/** Speed at the start of a slide; eases down to CrouchSpeed by the end. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Slide", meta = (ClampMin = "0.0"))
+	float SlideSpeed = 750.f;
+
+	/** A sprint slower than this crouches instead of sliding. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Slide", meta = (ClampMin = "0.0"))
+	float SlideMinSpeed = 350.f;
+
+	/** Ground friction while sliding; low so the slide carries. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Slide", meta = (ClampMin = "0.0"))
+	float SlideGroundFriction = 0.5f;
+
+	/** Capsule half-height while crouched or sliding, cm. Applied at BeginPlay. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Slide", meta = (ClampMin = "10.0"))
+	float CrouchedCapsuleHalfHeight = 50.f;
+
+	// --- Falling --------------------------------------------------------------------------------
+
+	/** A landing from above this height rolls: a short speed and camera dip. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float RollHeight = 400.f;
+
+	/** How long a controlled drop's dip lasts. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float LandingRecoverSeconds = 0.3f;
+
+	/** Length of a landing roll, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.01"))
+	float RollSeconds = 0.5f;
+
+	/** How far a roll carries her along the move direction, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float RollDistance = 200.f;
+
+	/** Capsule half-height through a roll, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "10.0"))
+	float RollCapsuleHalfHeight = 50.f;
+
+	/** How far the camera pitches down at the middle of a roll, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float RollCameraPitchDegrees = 8.f;
+
+	/** Input is ignored for this much of the roll, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float RollInputLockSeconds = 0.35f;
+
+	/** Landing with move input held, or faster than this, counts as moving: a roll, not a stumble. cm/s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float RollMinSpeed = 150.f;
+
+	/** The body turns once over in this much of the roll, then straightens, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.01"))
+	float RollTumbleSeconds = 0.4f;
+
+	/** Height of the body through the tumble as a fraction of its own, so the tuck clears the floor. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+	float RollTuckScale = 0.55f;
+
+	/** Landing standing still from above RollHeight: speed climbs from 0 back to a run over this, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.01"))
+	float StumbleSeconds = 0.4f;
+
+	/** A controlled drop (not a jump) landing from above this height gets the landing dip too, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float ControlledDropDipHeight = 150.f;
+
+	/** Speed multiplier for the length of a controlled drop's dip. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LandingSpeedMultiplier = 0.5f;
+
+	/** How far the camera drops at the bottom of a controlled drop's dip, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float LandingCameraDip = 30.f;
+
+	/** Falls shorter than this cost nothing. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float FallDamageMinHeight = 900.f;
+
+	/** Falls from here up cost FallDamageMaxFraction; about the tallest tenement on the block. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0"))
+	float FallDamageMaxHeight = 2500.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FallDamageMinFraction = 0.1f;
+
+	/** The cap. A fall never kills either way: damage stops one point short of the last. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Falling", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FallDamageMaxFraction = 0.6f;
+
+	// --- Camera ---------------------------------------------------------------------------------
+
+	/** Where the camera sits while not aiming: behind, above and a little right, so the body sits left of centre. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera")
+	FHawkeyeCameraTargets HipCamera = { 350.f, FVector(0.f, 70.f, 60.f), 90.f };
+
+	/** Where it sits while aiming: in close over the right shoulder. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera")
+	FHawkeyeCameraTargets AimCamera = { 180.f, FVector(0.f, 45.f, 55.f), 70.f };
+
+	/** Seconds the camera takes to travel the whole way between HipCamera and AimCamera. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float AimBlendSeconds = 0.15f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float CameraLagSpeed = 10.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float CameraRotationLagSpeed = 12.f;
+
+	/** Camera pitch (up positive) above which the hip arm starts to shorten and lift, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0", ClampMax = "89.0"))
+	float LookUpPitchStart = 20.f;
+
+	/** Camera pitch at which the hip arm is fully LookUpArmLength and LookUpSocketZ, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0", ClampMax = "89.0"))
+	float LookUpPitchFull = 60.f;
+
+	/** Hip arm length when looking steeply up, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float LookUpArmLength = 220.f;
+
+	/** Hip socket height when looking steeply up, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera")
+	float LookUpSocketZ = 110.f;
+
+	/**
+	 * World-up lift of the arm's pivot when looking steeply up, cm, blended in with the other two.
+	 * The socket offset turns with the arm, so at 50 degrees and more it hardly raises the lens;
+	 * this keeps the lens off the pavement all the way to CameraPitchMax.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera")
+	float LookUpPivotLift = 150.f;
+
+	/** Lowest the camera can look, degrees (down is negative). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "-89.0", ClampMax = "0.0"))
+	float CameraPitchMin = -70.f;
+
+	/** Highest the camera can look, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0", ClampMax = "89.0"))
+	float CameraPitchMax = 75.f;
+
+	/** Hands CameraPitchMin/Max to the player camera manager, which clamps the look input with them. */
+	void ApplyCameraPitchLimits();
+
+	/** Radius of the sphere the arm sweeps to find walls. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float CameraProbeSize = 12.f;
+
+	/**
+	 * When a wall pulls the lens closer than this to the arm's pivot, the body is hidden from the
+	 * player's view (it still casts its shadow). Otherwise backing into a tenement fills the
+	 * screen with the inside of Kate's shoulder.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float CameraHideBodyDistance = 100.f;
+
+	// --- Look -----------------------------------------------------------------------------------
+
+	/**
+	 * Multiplier on the raw Look input. The mouse mapping is 1 degree per unit, which is far
+	 * too fast to hold an aim; this is the one number to change when the mouse feels wrong.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.02"))
+	float LookSensitivity = 0.2f;
+
+	/**
+	 * The sensitivity UHawkeyeSettingsSubsystem last handed us. The subsystem wins whenever one
+	 * exists; LookSensitivity above is only the fallback for a world without a game instance,
+	 * which is every automation test.
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	float SettingsLookSensitivity = 0.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	bool bHasSettingsLookSensitivity = false;
+
+	/** LookSensitivity is multiplied by this again while aiming. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float AimLookMultiplier = 0.7f;
+
+	/** Gamepad stick full-deflection yaw rate, before StickSensitivity and the aim halving. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "1.0"))
+	float StickYawDegreesPerSecond = 180.f;
+
+	/** Gamepad stick full-deflection pitch rate, before StickSensitivity and the aim halving. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "1.0"))
+	float StickPitchDegreesPerSecond = 120.f;
+
+	/** Aiming halves the stick look rate, the same as it slows the mouse via AimLookMultiplier. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float AimStickRateMultiplier = 0.5f;
+
+	/**
+	 * The multiplier UHawkeyeSettingsSubsystem last handed us for StickSensitivity. Only the
+	 * fallback for a world without a game instance, same as SettingsLookSensitivity above.
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	float SettingsStickSensitivity = 1.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	bool bHasSettingsStickSensitivity = false;
+
+	/** Fallback StickSensitivity for a world with no settings subsystem (every automation test). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.2", ClampMax = "3.0"))
+	float StickSensitivity = 1.f;
+
+	/** Reads the current sensitivity out of the settings subsystem and subscribes to changes. */
+	void BindToSettingsSubsystem();
+
+	void UnbindFromSettingsSubsystem();
+
+	UFUNCTION()
+	void HandleSettingsChanged(FHawkeyeSettings Settings);
+
+	/** Gamepad right stick: Value is a held -1..1 position, not a per-frame delta like the mouse. */
+	void Input_LookStick(const FInputActionValue& Value);
+
+	// --- Aim ------------------------------------------------------------------------------------
+
+	UPROPERTY(BlueprintReadOnly, Category = "Hawkeye|Aim")
+	bool bIsAiming = false;
+
+	/** The aim button is held (not just the bow forcing the aim). */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Aim")
+	bool bAimInputHeld = false;
+
+	/** Walk speed multiplier while the bow is drawn, on top of the aimed walk. Non-sample characters only. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Aim", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DrawWalkSpeedMultiplier = 0.6f;
+
+	// --- Animation ------------------------------------------------------------------------------
+
+	/** Body animation while standing still. The same sequence the thugs use. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Animation")
+	TObjectPtr<UAnimSequence> IdleAnim;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Animation")
+	TObjectPtr<UAnimSequence> WalkAnim;
+
+	/** Played above RunAnimSpeedThreshold. Falls back to WalkAnim when unset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Animation")
+	TObjectPtr<UAnimSequence> RunAnim;
+
+	/** Played while falling. Falls back to the ground animation when unset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Animation")
+	TObjectPtr<UAnimSequence> FallAnim;
+
+	/** WalkAnim above this much ground speed, IdleAnim below it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Animation", meta = (ClampMin = "0.0"))
+	float WalkAnimSpeedThreshold = 20.f;
+
+	/** RunAnim above this much ground speed; between walk and run speed so each reads. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Animation", meta = (ClampMin = "0.0"))
+	float RunAnimSpeedThreshold = 375.f;
+
+	// --- Noise ----------------------------------------------------------------------------------
+
+	/** Seconds between movement noise events while moving. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Noise", meta = (ClampMin = "0.01"))
+	float NoiseIntervalSeconds = 0.5f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Noise", meta = (ClampMin = "0.0"))
+	float SprintNoiseLoudness = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Noise", meta = (ClampMin = "0.0"))
+	float WalkNoiseLoudness = 0.4f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Noise", meta = (ClampMin = "0.0"))
+	float GunshotNoiseLoudness = 3.f;
+
+	/** Timer body: emits one movement noise event if the player is making any. */
+	void EmitMovementNoise();
+
+	UFUNCTION()
+	void HandleDeath(UHealthComponent* Health, AActor* Killer);
+
+	// --- Runtime state --------------------------------------------------------------------------
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Movement")
+	EHawkeyeGait CurrentGait = EHawkeyeGait::Walk;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Slide")
+	bool bIsSliding = false;
+
+	/** Seconds of slide left. */
+	UPROPERTY(Transient)
+	float SlideRemaining = 0.f;
+
+	/** Ground direction the slide travels in, fixed when it starts. */
+	UPROPERTY(Transient)
+	FVector SlideDirection = FVector::ForwardVector;
+
+	/** GroundFriction before the slide lowered it. */
+	UPROPERTY(Transient)
+	float PreSlideGroundFriction = 8.f;
+
+	/** Length of the last move input, 0..1. Keyboard is always 1. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Movement")
+	float MoveInputMagnitude = 0.f;
+
+	/** How long move input has been held without a break. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Movement")
+	float MoveInputHeldSeconds = 0.f;
+
+	/** Set by Input_Move, cleared by the next Tick: how the tick knows the stick was let go. */
+	bool bMoveInputThisFrame = false;
+
+	/** Highest capsule Z since the character last left the ground. */
+	UPROPERTY(Transient)
+	float FallApexZ = 0.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Falling")
+	float LastFallHeight = 0.f;
+
+	UPROPERTY(Transient)
+	EHawkeyeLanding LandingState = EHawkeyeLanding::None;
+
+	UPROPERTY(Transient)
+	float LandingElapsed = 0.f;
+
+	UPROPERTY(Transient)
+	FVector RollDirection = FVector::ZeroVector;
+
+	/** The roll crouched the capsule (she was standing), so it stands her back up. */
+	bool bRollOwnsCrouch = false;
+
+	/** The crouched half-height before the roll set its own. */
+	float PreRollCrouchedHalfHeight = 0.f;
+
+	/** The body's mount on the capsule once crouched, which the tumble is built from. */
+	FVector RollMeshBaseLocation = FVector::ZeroVector;
+	FQuat RollMeshBaseRotation = FQuat::Identity;
+	FVector RollMeshBaseScale = FVector::OneVector;
+
+	/** Set when a fall starts without a jump; cleared on landing. */
+	UPROPERTY(Transient)
+	bool bControlledDrop = false;
+
+	/** Aim blend, 0 hip to 1 aimed, moved at 1 / AimBlendSeconds. */
+	UPROPERTY(Transient)
+	float AimAlpha = 0.f;
+
+	// --- Combat state ---------------------------------------------------------------------------
+
+	UPROPERTY(Transient)
+	float DodgeRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	float DodgeInvulnerableRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	float DodgeCooldownRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	float StaggerRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	float HitShakeRemaining = 0.f;
+
+	/** The world direction of the last move input, for the dodge. */
+	UPROPERTY(Transient)
+	FVector LastMoveWorldDirection = FVector::ZeroVector;
+
+private:
+	FTimerHandle NoiseTimerHandle;
+	FTimerHandle HitStopTimerHandle;
+
+	/** V is held and has not yet become a heavy. */
+	bool bMeleeHeld = false;
+	float MeleeHeldSeconds = 0.f;
+
+	/** A Ctrl press while moving, waiting to find out whether it is a tap (dodge) or a hold (crouch). */
+	bool bCrouchTapPending = false;
+	float CrouchTapHeldSeconds = 0.f;
+
+	/** The dodge turned invulnerability on, so the dodge is what turns it off. */
+	bool bDodgeOwnsInvulnerability = false;
+
+	/** The low-health alpha last written, so the post process is only touched on a change. */
+	float LastLowHealthAlpha = 0.f;
+
+	/** Action bindings SetupPlayerInputComponent made; anything after them came from a Blueprint. */
+	int32 NativeActionBindingCount = INDEX_NONE;
+
+	int32 DroppedBlueprintInputBindings = 0;
+
+	/** Logged once per actor: that the sample's graph, not our gait speeds, sets MaxWalkSpeed. */
+	bool bLoggedGaspSpeedOwnership = false;
+
+	/** Logged once per actor, the first time a foreign camera had to be switched off. */
+	bool bLoggedForeignCamera = false;
+
+	/** Set while StopAim is letting the bow down, so the draw's own end does not re-enter it. */
+	bool bStoppingAim = false;
+
+	/** Whichever of IdleAnim / WalkAnim the body is playing, so Tick only re-plays on a change. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequence> CurrentLocomotionAnim;
+};
