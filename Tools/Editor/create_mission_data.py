@@ -4,8 +4,8 @@
 
 DA_CH01_Rooftops is started on L_District_EastVillage by BP_GameMode_EastVillage, which
 generate_city.py makes; its objectives are completed by the City_Obj_* trigger volumes that
-script places on three roofs. It grants DA_Bow_Kate with 30 standard and 6 grapple arrows at the
-start, for now (create_weapon_data.py makes those, and runs first).
+script places on three roofs. It grants DA_Bow_Kate with 30 standard, 6 grapple, 2 putty, 2 bola,
+1 smoke and 1 EMP arrow at the start, for now (create_weapon_data.py makes those, and runs first).
 
 Property names come from Source/Hawkeye/Mission/MissionDefinition.h and
 Source/Hawkeye/Mission/MissionObjective.h. Note the objective id property is ``ObjectiveTag``,
@@ -72,9 +72,12 @@ CH01_OBJECTIVES = [
 ]
 
 
-# The chapter's starting quiver: the bow, then (arrow asset, count) per type.
+# The chapter's starting quiver: the bow, then (arrow asset, count) per type. The trick arrows are
+# here for testing (claude-docs/gameplay-semantics.md, "trick arrows"); explosive is left out, so
+# slot 7 starts empty.
 CH01_BOW = "DA_Bow_Kate"
-CH01_ARROWS = [("DA_Arrow_Standard", 30), ("DA_Arrow_Grapple", 6)]
+CH01_ARROWS = [("DA_Arrow_Standard", 30), ("DA_Arrow_Grapple", 6), ("DA_Arrow_Putty", 2), ("DA_Arrow_Bola", 2),
+               ("DA_Arrow_Smoke", 1), ("DA_Arrow_EMP", 1)]
 
 
 def _object_path(value):
