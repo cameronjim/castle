@@ -9,6 +9,8 @@
 class UBorder;
 class UCanvasPanel;
 class UCastleHotbarWidget;
+class UGrappleComponent;
+class UImage;
 class UInventoryComponent;
 class UOverlay;
 class UTextBlock;
@@ -97,6 +99,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD|Reticle")
 	void FlashHitMarker();
 
+	// --- Grapple marker -------------------------------------------------------------------------
+
+	/**
+	 * True while the pawn's grapple has a target and a press would fire: hidden during a zip
+	 * until the chain window opens, so the next anchor can be picked on the way in.
+	 */
+	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
+	bool IsGrappleMarkerVisible() const { return bGrappleMarkerVisible; }
+
+	/** Centre of the marker in viewport widget space, where the anchor projects to. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
+	FVector2D GetGrappleMarkerPosition() const { return GrappleMarkerPosition; }
+
+	/** The key hint under the marker, shown for the first GrappleHintUses arrows. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
+	bool IsGrappleHintVisible() const;
+
 	// --- Movement debug -------------------------------------------------------------------------
 
 	/** The debug line's text, or empty while castle.DebugMovement is 0 or there is no player. */
@@ -119,6 +138,12 @@ protected:
 
 	/** Reads aim off the pawn; the HUD has no input of its own to listen to. */
 	void PollPawnReticleState();
+
+	/** A screen-filling canvas holding the hollow diamond and its key hint. */
+	void BuildGrappleMarker(UOverlay* Root);
+
+	/** Projects the pawn's grapple target onto the screen and moves (or hides) the marker. */
+	void UpdateGrappleMarker();
 
 	/** Shows or hides the debug line and repaints it. */
 	void RefreshMovementDebug();
@@ -187,6 +212,40 @@ protected:
 	/** Seconds of hit-marker flash left to run. */
 	UPROPERTY(Transient)
 	float HitFlashRemaining = 0.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Grapple")
+	TObjectPtr<UCanvasPanel> GrappleCanvas = nullptr;
+
+	/** A square outline turned 45 degrees: a hollow diamond. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Grapple")
+	TObjectPtr<UImage> GrappleMarker = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Grapple")
+	TObjectPtr<UTextBlock> GrappleHint = nullptr;
+
+	/** The green of the old first-person crosshair: nothing else on screen is that colour. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")
+	FLinearColor GrappleMarkerColor = FLinearColor(0.22f, 1.f, 0.08f, 1.f);
+
+	/** Point to point size of the diamond, in pixels. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple", meta = (ClampMin = "2.0"))
+	float GrappleMarkerSizePixels = 14.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple", meta = (ClampMin = "0.5"))
+	float GrappleMarkerLineWidth = 2.f;
+
+	/** The hint shows until this many grapple arrows have been fired. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple", meta = (ClampMin = "0"))
+	int32 GrappleHintUses = 5;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")
+	FText GrappleHintText;
+
+	UPROPERTY(Transient)
+	bool bGrappleMarkerVisible = false;
+
+	UPROPERTY(Transient)
+	FVector2D GrappleMarkerPosition = FVector2D::ZeroVector;
 
 	/** Shown on the objective line once every required objective is done. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HUD")

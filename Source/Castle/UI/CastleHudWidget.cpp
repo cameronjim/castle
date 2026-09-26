@@ -6,9 +6,11 @@
 #include "Castle.h"
 #include "Combat/TakedownComponent.h"
 #include "Combat/WeaponComponent.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
 #include "Components/Border.h"
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
+#include "Components/Image.h"
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
 #include "Components/TextBlock.h"
@@ -18,7 +20,9 @@
 #include "Mission/MissionObjective.h"
 #include "Mission/MissionSubsystem.h"
 #include "Player/CastleCharacter.h"
+#include "Player/GrappleComponent.h"
 #include "UI/CastleHotbarWidget.h"
+#include "World/GrappleAnchor.h"
 
 TSharedRef<SWidget> UCastleHudWidget::RebuildWidget()
 {
@@ -51,6 +55,7 @@ TSharedRef<SWidget> UCastleHudWidget::RebuildWidget()
 		DebugText->SetVisibility(ESlateVisibility::Collapsed);
 
 		BuildReticle(Root);
+		BuildGrappleMarker(Root);
 
 		// The hotbar is its own widget so it can be styled and tested on its own, but it lives
 		// inside the HUD's overlay rather than being a second thing the controller manages.
@@ -121,6 +126,106 @@ void UCastleHudWidget::RefreshReticle()
 	}
 }
 
+void UCastleHudWidget::BuildGrappleMarker(UOverlay* Root)
+{
+	if (!WidgetTree || !Root)
+	{
+		return;
+	}
+
+	GrappleCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("GrappleCanvas"));
+	if (UOverlaySlot* CanvasSlot = Cast<UOverlaySlot>(Root->AddChild(GrappleCanvas)))
+	{
+		CanvasSlot->SetHorizontalAlignment(HAlign_Fill);
+		CanvasSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+
+	// A square whose diagonal is the marker size, outlined and not filled, turned onto its point.
+	const float Side = GrappleMarkerSizePixels / UE_SQRT_2;
+	FSlateBrush Brush;
+	Brush.DrawAs = ESlateBrushDrawType::RoundedBox;
+	Brush.TintColor = FSlateColor(FLinearColor::Transparent);
+	Brush.OutlineSettings = FSlateBrushOutlineSettings(0.f, FSlateColor(GrappleMarkerColor), GrappleMarkerLineWidth);
+	Brush.OutlineSettings.RoundingType = ESlateBrushRoundingType::FixedRadius;
+	Brush.ImageSize = FVector2D(Side, Side);
+
+	GrappleMarker = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("GrappleMarker"));
+	GrappleMarker->SetBrush(Brush);
+	GrappleMarker->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	GrappleMarker->SetRenderTransformAngle(45.f);
+	if (UCanvasPanelSlot* MarkerSlot = Cast<UCanvasPanelSlot>(GrappleCanvas->AddChild(GrappleMarker)))
+	{
+		MarkerSlot->SetAnchors(FAnchors(0.f, 0.f));
+		MarkerSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		MarkerSlot->SetAutoSize(false);
+		MarkerSlot->SetSize(FVector2D(Side, Side));
+	}
+
+	GrappleHint = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("GrappleHint"));
+	GrappleHint->SetColorAndOpacity(FSlateColor(GrappleMarkerColor));
+	FSlateFontInfo HintFont = GrappleHint->GetFont();
+	HintFont.Size = 12;
+	GrappleHint->SetFont(HintFont);
+	if (UCanvasPanelSlot* HintSlot = Cast<UCanvasPanelSlot>(GrappleCanvas->AddChild(GrappleHint)))
+	{
+		HintSlot->SetAnchors(FAnchors(0.f, 0.f));
+		HintSlot->SetAlignment(FVector2D(0.5f, 0.f));
+		HintSlot->SetAutoSize(true);
+	}
+
+	GrappleCanvas->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+bool UCastleHudWidget::IsGrappleHintVisible() const
+{
+	if (!bGrappleMarkerVisible)
+	{
+		return false;
+	}
+	const APlayerController* PC = GetOwningPlayer();
+	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	const UGrappleComponent* Grapple = Pawn ? Pawn->FindComponentByClass<UGrappleComponent>() : nullptr;
+	return Grapple && Grapple->GetUseCount() < GrappleHintUses;
+}
+
+void UCastleHudWidget::UpdateGrappleMarker()
+{
+	APlayerController* PC = GetOwningPlayer();
+	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	const UGrappleComponent* Grapple = Pawn ? Pawn->FindComponentByClass<UGrappleComponent>() : nullptr;
+	const AGrappleAnchor* Anchor = Grapple ? Grapple->GetTargetAnchor() : nullptr;
+
+	FVector2D Position = FVector2D::ZeroVector;
+	bGrappleMarkerVisible = Anchor && Grapple->CanChain()
+		&& UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Anchor->GetMarkerLocation(), Position, false);
+	if (bGrappleMarkerVisible)
+	{
+		GrappleMarkerPosition = Position;
+	}
+
+	if (!GrappleCanvas || !GrappleMarker || !GrappleHint)
+	{
+		return;
+	}
+	GrappleCanvas->SetVisibility(
+		bGrappleMarkerVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	if (!bGrappleMarkerVisible)
+	{
+		return;
+	}
+	if (UCanvasPanelSlot* MarkerSlot = Cast<UCanvasPanelSlot>(GrappleMarker->Slot))
+	{
+		MarkerSlot->SetPosition(Position);
+	}
+	if (UCanvasPanelSlot* HintSlot = Cast<UCanvasPanelSlot>(GrappleHint->Slot))
+	{
+		HintSlot->SetPosition(Position + FVector2D(0.f, GrappleMarkerSizePixels * 0.5f + 4.f));
+	}
+	GrappleHint->SetText(GrappleHintText);
+	GrappleHint->SetVisibility(
+		IsGrappleHintVisible() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+}
+
 FLinearColor UCastleHudWidget::GetReticleColor() const
 {
 	return HitFlashRemaining > 0.f ? HitMarkerColor : ReticleColor;
@@ -179,6 +284,7 @@ void UCastleHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSecond
 	Super::NativeTick(MyGeometry, DeltaSeconds);
 
 	PollPawnReticleState();
+	UpdateGrappleMarker();
 	RefreshMovementDebug();
 
 	if (HitFlashRemaining > 0.f)
@@ -204,6 +310,10 @@ void UCastleHudWidget::NativeConstruct()
 	if (MissionCompleteText.IsEmpty())
 	{
 		MissionCompleteText = NSLOCTEXT("Castle", "MissionComplete", "Mission complete");
+	}
+	if (GrappleHintText.IsEmpty())
+	{
+		GrappleHintText = NSLOCTEXT("Castle", "GrappleHint", "Q");
 	}
 
 	BindToGame();
