@@ -1,14 +1,17 @@
 """Create every stage-1/stage-2 starter asset, in dependency order.
 
+    0. pivot_cleanup.run_renames   BP_Guard -> BP_Thug, M_Guard* -> M_Thug* (before anyone asks)
     1. create_input_assets        IA_* and IMC_Default
     2. create_placeholder_textures T_FB01_01..06   (before the data assets that point at them)
     3. create_blueprints           BP_Castle* and WBP_Flashback (before the maps that use them)
-    3b. create_world_blueprints    WBP_Hud, BP_Pickup_*, BP_Door_Keycard, BP_Guard
-    3c. create_weapon_data         DA_Weapon_Hands/Pistol/Rifle (after the pickups they wire into)
+    3b. create_world_blueprints    WBP_Hud, BP_Pickup_Keycard, BP_Door_Keycard, BP_Thug
+    3c. create_weapon_data         DA_Weapon_Hands
     4. create_mission_data         DA_M01_CellBlockD, DA_FB01_Sunday
     5. create_sandbox_map          L_Sandbox, L_M01_CellBlockD
     6. create_room_art             procedural materials + the M01 cell/corridor art pass
-                                   (last: it dresses the map the previous step builds)
+                                   (it dresses the map the previous step builds)
+    6b. pivot_cleanup.run_deletions retire the pistol, rifle and first-person assets, then fix
+                                   up redirectors (after the maps stop referencing them)
 
 Run headless:
 
@@ -27,7 +30,9 @@ import unreal
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
 
+# (title, module, function). The function defaults to run().
 STEPS = [
+    ("pivot renames", "pivot_cleanup", "run_renames"),
     ("input assets", "create_input_assets"),
     ("placeholder textures", "create_placeholder_textures"),
     ("blueprints", "create_blueprints"),
@@ -36,7 +41,12 @@ STEPS = [
     ("mission data", "create_mission_data"),
     ("maps", "create_sandbox_map"),
     ("room art", "create_room_art"),
+    ("pivot deletions", "pivot_cleanup", "run_deletions"),
 ]
+
+# Module names to leave out of this run, comma separated, e.g. CASTLE_SKIP_STEPS=generate_city.
+SKIP_STEPS = set(
+    name.strip() for name in os.environ.get("CASTLE_SKIP_STEPS", "").split(",") if name.strip())
 
 
 def main():
@@ -44,11 +54,16 @@ def main():
     unreal.log("[Castle] ==== creating stage 1-2 starter content ====")
 
     failures = []
-    for title, module_name in STEPS:
+    for step in STEPS:
+        title, module_name = step[0], step[1]
+        function_name = step[2] if len(step) > 2 else "run"
         unreal.log("[Castle] ---- {0} ----".format(title))
+        if module_name in SKIP_STEPS:
+            c.log("skipped", title, "CASTLE_SKIP_STEPS")
+            continue
         try:
             module = __import__(module_name)
-            module.run()
+            getattr(module, function_name)()
         except Exception as exc:  # noqa: BLE001 - one broken step must not stop the rest
             failures.append(title)
             unreal.log_error(
