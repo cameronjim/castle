@@ -33,6 +33,7 @@
 #include "Tests/AutomationCommon.h"
 #include "UnrealClient.h"
 #include "World/CityLedgeSpawner.h"
+#include "World/FireEscapeLanding.h"
 #include "World/GrappleAnchor.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
@@ -49,9 +50,11 @@
  * Castle.Lap.EastVillage: from the PlayerStart, sprint 25 m out along the street and back past the
  * start (47 m in all), auto-vault City_Test_Vault (90 cm) and auto-mantle City_Test_Mantle (150 cm)
  * at a sprint, grapple to the nearest rooftop anchor, run across that roof, grapple to another
- * building and try to chain to a third before landing, look for a way down to the street (a
- * jump-key vault over the parapet, which is the only candidate move), and run back to the start
- * along the navmesh. Measures the time, how often the capsule was stopped for more than 0.5 s with
+ * building and chain on from it up to two more times before landing (preferring roofs with a fire
+ * escape), come down the fire escape of the roof she ends on (crouch at the parapet over its top
+ * landing: hang, drop, and then crouch at each landing's rail or let each drop catch the next rail,
+ * down to a last drop to the street), and run back to the start along the navmesh. Nothing
+ * teleports her after the start. Measures the time, how often the capsule was stopped for more than 0.5 s with
  * move input held, the attempts each move took, and the frame time; writes
  * Saved/Automation/lap_eastvillage.json and Saved/Screenshots/Lap/lap_{start,roof,end}.png.
  *
@@ -59,9 +62,8 @@
  * the real IA_ assets every frame (the same bindings a key press reaches). The camera is turned by
  * setting the control rotation (what the mouse does through IA_Look). The dodge is a direct
  * TryDodge call, because its input is a Ctrl tap timed against move input inside one frame.
- * The district's thugs stop thinking for the lap. If no move gets Kate off a roof, the script
- * puts her on the street below the parapet it tried, marks the lap incomplete, and carries on so
- * the return leg is still measured.
+ * The district's thugs stop thinking for the lap. If no move gets Kate off a roof, the lap stops
+ * there, incomplete, and says where and why.
  *
  * Castle.Lap.RoofFight: Kate against the RoofPair on the cross_block roof with the bow and melee;
  * must win with health above 0. Writes Saved/Automation/lap_roof_fight.json.
@@ -79,6 +81,7 @@ namespace CastleLap
 	static const TCHAR* MovePath = TEXT("/Game/Input/IA_Move.IA_Move");
 	static const TCHAR* SprintPath = TEXT("/Game/Input/IA_Sprint.IA_Sprint");
 	static const TCHAR* JumpPath = TEXT("/Game/Input/IA_Jump.IA_Jump");
+	static const TCHAR* CrouchPath = TEXT("/Game/Input/IA_Crouch.IA_Crouch");
 	static const TCHAR* GrapplePath = TEXT("/Game/Input/IA_Grapple.IA_Grapple");
 	static const TCHAR* FirePath = TEXT("/Game/Input/IA_Fire.IA_Fire");
 	static const TCHAR* MeleePath = TEXT("/Game/Input/IA_Melee.IA_Melee");
@@ -428,6 +431,13 @@ private:
 	int32 ChainPressesThisZip = 0;
 	double LastChainPress = -10.0;
 	bool bChainSearched = false;
+	// How each chain took: redirected in the air, or started from the roof moments after landing
+	// (the chain arrow still in flight when the short line ended).
+	int32 ChainMidAir = 0;
+	int32 ChainTouchAndGo = 0;
+	float TouchSeconds = 0.f;
+	float LongestTouch = 0.f;
+	TArray<FString> ChainNotes;
 	FVector RunTarget = FVector::ZeroVector;
 
 	// Descent.
@@ -435,6 +445,23 @@ private:
 	FVector ParapetDir = FVector::ForwardVector;
 	FVector StreetBelow = FVector::ZeroVector;
 	int32 DescentPhase = 0;
+	double DescentStart = -1.0;
+	double DescentEnd = -1.0;
+	FVector DescentStand = FVector::ZeroVector;
+	FVector DescentOut = FVector::ForwardVector;
+	FString DescentRoute;
+	int32 DescentHangs = 0;
+	int32 DescentCatches = 0;
+	int32 DescentLandings = 0;
+	int32 DescentRetries = 0;
+	float DescentLastDrop = 0.f;
+	double PhaseStart = -1.0;
+	bool bPushing = false;
+
+	// Fire escapes: the top landing of each roof that has one.
+	TMap<const AActor*, TWeakObjectPtr<AFireEscapeLanding>> TopLandingByRoof;
+	void IndexFireEscapes(UWorld* World);
+	TArray<TWeakObjectPtr<AActor>> ChainedRoofs;
 
 	double Now(const UWorld* World) const { return World->GetTimeSeconds(); }
 	void Enter(EStep NewStep, const UWorld* World)
@@ -468,20 +495,22 @@ private:
 
 	bool FindParapet(UWorld* World, const ACastleCharacter* Kate);
 
-	/** A capsule swept from From to Anchor's zip end meets nothing but the anchor's own building. */
-	bool ZipClear(UWorld* World, const ACastleCharacter* Kate, const FVector& From, const AGrappleAnchor* Anchor) const;
+	/** The grapple's own offline rule (launch point, hop, start and anchor supports) from From to Anchor. */
+	bool ZipClear(UWorld* World, const ACastleCharacter* Kate, const FVector& From, const AGrappleAnchor* Anchor,
+		bool bFromGround = true) const;
 
 	/**
 	 * Picks a spot on the roof Kate stands on and an anchor on another building (not in Exclude)
 	 * whose zip from that spot is clear, preferring spots across the roof from her. Sets RunTarget
 	 * and Candidates. False with a reason when there is none.
 	 */
-	bool PlanRoofGrapple(UWorld* World, const ACastleCharacter* Kate, const TArray<const AActor*>& Exclude, FString& OutNote);
+	bool PlanRoofGrapple(UWorld* World, const ACastleCharacter* Kate, const TArray<const AActor*>& Exclude, FString& OutNote,
+		bool bPreferEscape = false);
 
 	/** The search behind PlanRoofGrapple, for any roof: the best spot and anchor with a clear zip. */
 	bool FindRoofGrapple(UWorld* World, const ACastleCharacter* Kate, const AActor* Roof, float RoofZ, const FVector& Here,
 		const TArray<const AActor*>& Exclude, FVector& OutSpot, AGrappleAnchor*& OutAnchor, int32& OutSpots, int32& OutAnchors,
-		int32& OutTried, bool bRequireOnward = false) const;
+		int32& OutTried, bool bRequireOnward = false, bool bRequireEscape = false) const;
 
 	/** Whether the roof under Anchor's landing point has any clear grapple to another roof. Cached. */
 	bool RoofLeadsOn(UWorld* World, const ACastleCharacter* Kate, const AGrappleAnchor* Anchor) const;
@@ -765,28 +794,46 @@ bool FCastleLapRunner::FindParapet(UWorld* World, const ACastleCharacter* Kate)
 	return Best < BIG_NUMBER;
 }
 
-bool FCastleLapRunner::ZipClear(UWorld* World, const ACastleCharacter* Kate, const FVector& From, const AGrappleAnchor* Anchor) const
+bool FCastleLapRunner::ZipClear(UWorld* World, const ACastleCharacter* Kate, const FVector& From, const AGrappleAnchor* Anchor,
+	bool bFromGround) const
 {
-	const UCapsuleComponent* Capsule = Kate->GetCapsuleComponent();
-	const float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
-	const FVector End = Anchor->GetLandingLocation() + FVector(0.f, 0.f, HalfHeight + 2.f);
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(LapZipClear), false, Kate);
-	Params.AddIgnoredActor(Anchor);
-	// What the grapple ignores: the building under the landing point and statics round the anchor.
-	if (AActor* Under = CastleLap::BuildingUnder(World, Anchor->GetLandingLocation(), Kate))
+	(void)World;
+	return Kate->GetGrappleComponent()->IsZipClear(From, Anchor, bFromGround);
+}
+
+void FCastleLapRunner::IndexFireEscapes(UWorld* World)
+{
+	TopLandingByRoof.Reset();
+	TMap<FName, const AActor*> RoofByOsm;
+	for (TActorIterator<AActor> It(World); It; ++It)
 	{
-		Params.AddIgnoredActor(Under);
+		if (!It->Tags.Contains(CastleLap::BuildingTag))
+		{
+			continue;
+		}
+		for (const FName& Tag : It->Tags)
+		{
+			if (Tag.ToString().StartsWith(TEXT("osm:")))
+			{
+				RoofByOsm.Add(Tag, *It);
+			}
+		}
 	}
-	TArray<FOverlapResult> Overlaps;
-	World->OverlapMultiByObjectType(Overlaps, Anchor->GetActorLocation(), FQuat::Identity,
-		FCollisionObjectQueryParams(ECC_WorldStatic), FCollisionShape::MakeSphere(Kate->GetGrappleComponent()->SupportRadius), Params);
-	for (const FOverlapResult& Overlap : Overlaps)
+	for (TActorIterator<AFireEscapeLanding> It(World); It; ++It)
 	{
-		Params.AddIgnoredActor(Overlap.GetActor());
+		const FName* Osm = It->Tags.FindByPredicate([](const FName& Tag) { return Tag.ToString().StartsWith(TEXT("osm:")); });
+		const AActor* const* Roof = Osm ? RoofByOsm.Find(*Osm) : nullptr;
+		if (!Roof)
+		{
+			continue;
+		}
+		TWeakObjectPtr<AFireEscapeLanding>& Top = TopLandingByRoof.FindOrAdd(*Roof);
+		if (!Top.IsValid() || It->GetRecord().Floor > Top->GetRecord().Floor)
+		{
+			Top = *It;
+		}
 	}
-	FHitResult Hit;
-	return !World->SweepSingleByChannel(Hit, From, End, FQuat::Identity, ECC_Pawn,
-		FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius() - 1.f, HalfHeight - 1.f), Params);
+	Test->AddInfo(FString::Printf(TEXT("Lap: %d roofs have a fire escape"), TopLandingByRoof.Num()));
 }
 
 bool FCastleLapRunner::RoofLeadsOn(UWorld* World, const ACastleCharacter* Kate, const AGrappleAnchor* Anchor) const
@@ -812,7 +859,7 @@ bool FCastleLapRunner::RoofLeadsOn(UWorld* World, const ACastleCharacter* Kate, 
 
 bool FCastleLapRunner::FindRoofGrapple(UWorld* World, const ACastleCharacter* Kate, const AActor* Roof, float RoofZ, const FVector& Here,
 	const TArray<const AActor*>& Exclude, FVector& OutSpot, AGrappleAnchor*& OutAnchor, int32& OutSpots, int32& OutAnchors,
-	int32& OutTried, bool bRequireOnward) const
+	int32& OutTried, bool bRequireOnward, bool bRequireEscape) const
 {
 	const UGrappleComponent* Grapple = Kate->GetGrappleComponent();
 	const float HalfHeight = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
@@ -829,7 +876,8 @@ bool FCastleLapRunner::FindRoofGrapple(UWorld* World, const ACastleCharacter* Ka
 			continue;
 		}
 		const AActor* Under = CastleLap::BuildingUnder(World, It->GetLandingLocation(), Kate);
-		if (Under && Under != Roof && !Exclude.Contains(Under) && (!bRequireOnward || RoofLeadsOn(World, Kate, *It)))
+		if (Under && Under != Roof && !Exclude.Contains(Under) && (!bRequireEscape || TopLandingByRoof.Contains(Under))
+			&& (!bRequireOnward || RoofLeadsOn(World, Kate, *It)))
 		{
 			Anchors.Add(*It);
 		}
@@ -889,7 +937,8 @@ bool FCastleLapRunner::FindRoofGrapple(UWorld* World, const ACastleCharacter* Ka
 	return OutAnchor != nullptr;
 }
 
-bool FCastleLapRunner::PlanRoofGrapple(UWorld* World, const ACastleCharacter* Kate, const TArray<const AActor*>& Exclude, FString& OutNote)
+bool FCastleLapRunner::PlanRoofGrapple(UWorld* World, const ACastleCharacter* Kate, const TArray<const AActor*>& Exclude, FString& OutNote,
+	bool bPreferEscape)
 {
 	const AActor* Roof = Exclude.Num() ? Exclude.Last() : nullptr;
 	if (!Roof)
@@ -900,9 +949,10 @@ bool FCastleLapRunner::PlanRoofGrapple(UWorld* World, const ACastleCharacter* Ka
 	FVector Spot;
 	AGrappleAnchor* Anchor = nullptr;
 	int32 Spots = 0, Anchors = 0, Tried = 0;
-	// Prefer a roof that leads on again; take a dead end only when nothing else is clear.
+	// Prefer a roof that leads on again (or, for the last hop, one with a fire escape to come
+	// down); take a dead end only when nothing else is clear.
 	bool bFound = FindRoofGrapple(World, Kate, Roof, CastleLap::Feet(Kate).Z, Kate->GetActorLocation(), Exclude, Spot, Anchor,
-		Spots, Anchors, Tried, /*bRequireOnward=*/true);
+		Spots, Anchors, Tried, /*bRequireOnward=*/!bPreferEscape, /*bRequireEscape=*/bPreferEscape);
 	if (!bFound)
 	{
 		bFound = FindRoofGrapple(World, Kate, Roof, CastleLap::Feet(Kate).Z, Kate->GetActorLocation(), Exclude, Spot, Anchor,
@@ -966,6 +1016,13 @@ void FCastleLapRunner::SurveyRoofGrapples(UWorld* World, const ACastleCharacter*
 	}
 	Test->AddInfo(FString::Printf(TEXT("Survey: %d of %d anchored roofs within %.0f m of the start have a clear grapple to another roof"),
 		SurveyRoofsWithExit, SurveyRoofs, SurveyRadius / 100.f));
+	UE_LOG(LogTemp, Display, TEXT("[Castle] survey: %d of %d anchored roofs within %.0f m have a clear roof-to-roof zip"),
+		SurveyRoofsWithExit, SurveyRoofs, SurveyRadius / 100.f);
+	if (SurveyRoofs > 0 && SurveyRoofsWithExit * 63 < 60 * SurveyRoofs)
+	{
+		Test->AddWarning(FString::Printf(TEXT("Only %d of %d anchored roofs have a clear roof-to-roof zip; the target is 60 of 63."),
+			SurveyRoofsWithExit, SurveyRoofs));
+	}
 }
 
 void FCastleLapRunner::ChooseStreetAnchor(UWorld* World, ACastleCharacter* Kate)
@@ -1168,17 +1225,22 @@ void FCastleLapRunner::Finish(UWorld* World, APlayerController* PC, ACastleChara
 		Roofs.Add(FString::Printf(TEXT("\"%s\""), *Roof));
 	}
 	const FString Json = FString::Printf(TEXT(
-		"{\n  \"test\": \"Castle.Lap.EastVillage\",\n  \"completed\": %s,\n  \"descent_scripted\": %s,\n  \"descent_note\": \"%s\",\n"
+		"{\n  \"test\": \"Castle.Lap.EastVillage\",\n  \"completed\": %s,\n  \"teleports_after_start\": 0,\n  \"descent_failed\": %s,\n  \"descent_note\": \"%s\",\n"
+		"  \"descent_route\": \"%s\",\n  \"descent_hangs\": %d,\n  \"descent_catches\": %d,\n  \"descent_landing_stops\": %d,\n"
+		"  \"descent_last_drop_cm\": %.0f,\n  \"descent_seconds\": %.2f,\n"
 		"  \"fail_reason\": \"%s\",\n  \"total_seconds\": %.2f,\n  \"street_metres_before_vault\": %.1f,\n"
 		"  \"blocked_events\": %d,\n  \"blocked_where\": [%s],\n  \"max_attempts\": %d,\n  \"all_first_attempt\": %s,\n"
 		"  \"moves\": [\n    %s\n  ],\n  \"roofs\": [%s],\n  \"longest_chain_zips\": %d,\n"
+		"  \"chain_midair_redirects\": %d,\n  \"chain_touch_and_go\": %d,\n  \"chain_longest_touch_seconds\": %.2f,\n"
 		"  \"frames\": %d,\n  \"excluded_script_frames\": %d,\n  \"average_frame_ms\": %.2f,\n  \"worst_frame_ms\": %.2f,\n  \"worst_frame_index\": %d,\n  \"frames_over_33ms\": %d,\n"
 		"  \"ledge_spawn_load_ms\": %.1f,\n  \"ledge_spawn_total_ms\": %.1f,\n  \"anchor_spawn_ms\": %.1f,\n"
 		"  \"street_grapple_note\": \"%s\",\n  \"kate_health\": %.1f,\n  \"survey_roofs\": %d,\n  \"survey_roofs_with_clear_roof_grapple\": %d\n}\n"),
 		bCompleted ? TEXT("true") : TEXT("false"), bDescentScripted ? TEXT("true") : TEXT("false"),
-		*DescentNote.ReplaceCharWithEscapedChar(), *FailReason.ReplaceCharWithEscapedChar(), Seconds, StreetMetres,
+		*DescentNote.ReplaceCharWithEscapedChar(), *DescentRoute.ReplaceCharWithEscapedChar(), DescentHangs, DescentCatches,
+		DescentLandings, DescentLastDrop, DescentEnd > 0.0 ? DescentEnd - DescentStart : -1.0,
+		*FailReason.ReplaceCharWithEscapedChar(), Seconds, StreetMetres,
 		Meter.BlockedEvents, *FString::Join(Blocked, TEXT(", ")), MaxAttempts, bAllFirst ? TEXT("true") : TEXT("false"),
-		*FString::Join(MoveLines, TEXT(",\n    ")), *FString::Join(Roofs, TEXT(", ")), LongestChain, Meter.Frames, ExcludedFrames,
+		*FString::Join(MoveLines, TEXT(",\n    ")), *FString::Join(Roofs, TEXT(", ")), LongestChain, ChainMidAir, ChainTouchAndGo, LongestTouch, Meter.Frames, ExcludedFrames,
 		Meter.AverageMs(), Meter.WorstFrame * 1000.0, Meter.WorstFrameIndex, Meter.FramesOver33, Spawner ? Spawner->GetLoadLedgeSpawnSeconds() * 1000.f : -1.f,
 		Spawner ? Spawner->GetTotalLedgeSpawnSeconds() * 1000.f : -1.f, Spawner ? Spawner->GetAnchorSpawnSeconds() * 1000.f : -1.f,
 		*StreetGrappleNote.ReplaceCharWithEscapedChar(), Kate->GetHealthComponent()->GetCurrentHealth(), SurveyRoofs, SurveyRoofsWithExit);
@@ -1257,6 +1319,7 @@ bool FCastleLapRunner::Update()
 			return true;
 		}
 		SetThugsThinking(World, NAME_None, false);
+		IndexFireEscapes(World);
 		EnsureQuiver(Test, Kate->GetInventoryComponent());
 		Grapple->SetGrappleArrows(6);
 		Start = Ground;
@@ -1405,12 +1468,29 @@ bool FCastleLapRunner::Update()
 	case EStep::ZipOn:
 	{
 		// Chaining: from 40% along, look at an anchor on a building not yet visited; press at 70%.
+		if (!Grapple->IsZipping() && Grapple->IsArrowInFlight() && Kate->GetCharacterMovement()->IsMovingOnGround())
+		{
+			TouchSeconds += DeltaSeconds;
+		}
 		if (Grapple->IsZipping())
 		{
 			AGrappleAnchor* Current = Grapple->GetZipAnchor();
 			if (Current && Current != ZipTarget.Get() && bChainPressed)
 			{
-				// The chain took: the zip was redirected before landing.
+				// The chain took: redirected in the air, or (the arrow slower than the rest of a
+				// short line) a new zip from the roof a moment after touching down.
+				const bool bMidAir = Grapple->GetZipLaunch().Equals(Grapple->GetZipStart(), 1.f);
+				ChainMidAir += bMidAir ? 1 : 0;
+				ChainTouchAndGo += bMidAir ? 0 : 1;
+				LongestTouch = FMath::Max(LongestTouch, bMidAir ? 0.f : TouchSeconds);
+				ChainNotes.Add(FString::Printf(TEXT("%s %s"), *GetNameSafe(Current),
+					bMidAir ? TEXT("in the air") : *FString::Printf(TEXT("after %.2f s on the roof"), TouchSeconds)));
+				ChainMove.Note = FString::Join(ChainNotes, TEXT(", then "));
+				TouchSeconds = 0.f;
+				if (const AGrappleAnchor* Previous = ZipTarget.Get())
+				{
+					ChainedRoofs.Add(BuildingUnder(World, Previous->GetLandingLocation(), Kate));
+				}
 				ChainMove.bSucceeded = true;
 				ZipTarget = Current;
 				ZipsWithoutLanding = FMath::Max(ZipsWithoutLanding, 1) + 1;
@@ -1421,7 +1501,8 @@ bool FCastleLapRunner::Update()
 				ChainPressesThisZip = 0;
 				Test->AddInfo(FString::Printf(TEXT("Lap: chained to %s"), *GetNameSafe(Current)));
 			}
-			else if (!Grapple->IsArrowInFlight() && Grapple->GetZipProgress() >= 0.4f && Current && Now(World) - LastChainPress > 0.45)
+			else if (!Grapple->IsArrowInFlight() && Grapple->GetZipProgress() >= 0.4f && Current && Now(World) - LastChainPress > 0.45
+				&& FMath::Max(ZipsWithoutLanding, 1) < 3 && Step != EStep::ZipToRoof)
 			{
 				if (!ChainTarget.IsValid() && !bChainSearched)
 				{
@@ -1434,37 +1515,43 @@ bool FCastleLapRunner::Update()
 					const FVector ZipEndCentre = Grapple->ComputeZipEnd(Current);
 					const FVector PressAt = Kate->GetActorLocation()
 						+ (ZipEndCentre - Kate->GetActorLocation()) * FMath::Clamp((0.75f - Progress) / FMath::Max(1.f - Progress, 0.01f), 0.f, 1.f);
-					float Best = BIG_NUMBER;
 					int32 Blocked = 0;
-					for (TActorIterator<AGrappleAnchor> It(World); It; ++It)
+					// A roof with a fire escape first (the chain may be the last hop), then any roof.
+					for (const bool bEscapeOnly : { true, false })
 					{
-						const FVector Landing = It->GetLandingLocation();
-						const float FromEnd = FVector::Dist(End, It->GetMarkerLocation());
-						const float FromPress = FVector::Dist(PressAt, It->GetMarkerLocation());
-						if (FromEnd < 900.f || FromPress > Grapple->Range - 150.f || FromPress < Grapple->MinRange + 100.f)
+						float Best = BIG_NUMBER;
+						for (TActorIterator<AGrappleAnchor> It(World); It; ++It)
 						{
-							continue;
-						}
-						const AActor* Under = BuildingUnder(World, Landing, Kate);
-						if (!Under || Under == Across || Under == Roof1.Get())
-						{
-							continue;
-						}
-						const float Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
-							FVector::DotProduct(Dir, (Landing - End).GetSafeNormal2D()), -1.f, 1.f)));
-						if (Angle >= 90.f || Angle >= Best)
-						{
-							continue;
-						}
-						if (!ZipClear(World, Kate, PressAt, *It))
-						{
-							++Blocked;
-							continue;
-						}
-						if (Angle < Best)
-						{
+							const FVector Landing = It->GetLandingLocation();
+							const float FromEnd = FVector::Dist(End, It->GetMarkerLocation());
+							const float FromPress = FVector::Dist(PressAt, It->GetMarkerLocation());
+							if (FromEnd < 900.f || FromPress > Grapple->Range - 150.f || FromPress < Grapple->MinRange + 100.f)
+							{
+								continue;
+							}
+							const AActor* Under = BuildingUnder(World, Landing, Kate);
+							if (!Under || Under == Across || Under == Roof1.Get() || Under == Roof2.Get()
+								|| ChainedRoofs.Contains(Under) || (bEscapeOnly && !TopLandingByRoof.Contains(Under)))
+							{
+								continue;
+							}
+							const float Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
+								FVector::DotProduct(Dir, (Landing - End).GetSafeNormal2D()), -1.f, 1.f)));
+							if (Angle >= 90.f || Angle >= Best)
+							{
+								continue;
+							}
+							if (!ZipClear(World, Kate, PressAt, *It, /*bFromGround=*/false))
+							{
+								++Blocked;
+								continue;
+							}
 							Best = Angle;
 							ChainTarget = *It;
+						}
+						if (ChainTarget.IsValid())
+						{
+							break;
 						}
 					}
 					if (!ChainTarget.IsValid())
@@ -1487,6 +1574,8 @@ bool FCastleLapRunner::Update()
 					}
 				}
 			}
+			// Only time on the roof between two zips counts as a touch.
+			TouchSeconds = 0.f;
 		}
 
 		const int32 Result = WatchZip(World, Kate);
@@ -1538,16 +1627,21 @@ bool FCastleLapRunner::Update()
 			}
 			FString Note;
 			FMoveRecord& Next = bFirst ? Grapple2 : Grapple3;
-			if (PlanRoofGrapple(World, Kate, Exclude, Note))
+			if (PlanRoofGrapple(World, Kate, Exclude, Note, /*bPreferEscape=*/!bFirst))
 			{
 				AfterRun = bFirst ? EStep::GrappleAcross : EStep::GrappleOn;
 				Enter(EStep::RoofRun, World);
 			}
 			else
 			{
+				// The second roof-to-roof hop is where the geometry allows; without one she comes
+				// down from here and the lap goes on.
 				Next.Note = Note;
-				FailReason = Next.Name + TEXT(": ") + Note;
-				Test->AddWarning(TEXT("Lap: ") + FailReason);
+				if (bFirst)
+				{
+					FailReason = Next.Name + TEXT(": ") + Note;
+				}
+				Test->AddWarning(TEXT("Lap: ") + Next.Name + TEXT(": ") + Note);
 				ParapetPoint = FVector::ZeroVector;
 				DescentPhase = 0;
 				Enter(EStep::Descent, World);
@@ -1572,78 +1666,174 @@ bool FCastleLapRunner::Update()
 		break;
 
 	case EStep::Descent:
+	{
+		// Down the roof's fire escape: crouch at the parapet over its top landing (drop to hang),
+		// crouch to drop, and at each landing either catch its rail on the way down or stand on it
+		// and crouch at its rail; the last drop is to the street. Without an escape, a hang drop off
+		// the nearest parapet with a street beyond it.
 		Leg = TEXT("descent");
+		UParkourComponent* Parkour = Kate->GetParkourComponent();
+		const float FeetZ = CastleLap::Feet(Kate).Z;
 		if (DescentPhase == 0)
 		{
-			if (ParapetPoint.IsZero() && !FindParapet(World, Kate))
+			DescentStart = Now(World);
+			AActor* Roof = BuildingUnder(World, Kate->GetActorLocation() - FVector(0.f, 0.f, 88.f), Kate);
+			const TWeakObjectPtr<AFireEscapeLanding>* Top = Roof ? TopLandingByRoof.Find(Roof) : nullptr;
+			if (Top && Top->IsValid())
 			{
-				DescentNote = TEXT("no parapet with a street beyond it");
+				const AFireEscapeLanding* Landing = Top->Get();
+				DescentOut = Landing->GetActorRightVector().GetSafeNormal2D();
+				// On the roof, square behind the landing's middle: parapet (30), capsule (34), a margin.
+				const FVector Facade = Landing->GetActorLocation();
+				DescentStand = FVector(Facade.X, Facade.Y, FeetZ) - DescentOut * 110.f;
+				DescentRoute = FString::Printf(TEXT("fire escape of %s, %d landings, top at %.0f cm"), *GetNameSafe(Roof),
+					Landing->GetRecord().Floor, Landing->GetActorLocation().Z - Start.Z);
+			}
+			else if (FindParapet(World, Kate))
+			{
+				DescentOut = ParapetDir.GetSafeNormal2D();
+				DescentStand = FVector(ParapetPoint.X, ParapetPoint.Y, FeetZ) - DescentOut * 80.f;
+				DescentRoute = FString::Printf(TEXT("no fire escape on %s: hang drop off the parapet, %.0f m up"), *GetNameSafe(Roof),
+					(FeetZ - Start.Z) / 100.f);
+			}
+			else
+			{
+				DescentNote = FString::Printf(TEXT("no fire escape on %s and no parapet with a street beyond it"), *GetNameSafe(Roof));
 				bDescentScripted = true;
-				DescentPhase = 3;
+				DescentPhase = 9;
 				break;
 			}
-			const FVector Stand = ParapetPoint - ParapetDir * 70.f;
-			if (Steer(PC, Kate, Stand, false, 40.f, DeltaSeconds) || Now(World) - StepStart > 10.0)
-			{
-				StopMoving(PC);
-				PC->SetControlRotation(FRotator(-10.f, ParapetDir.Rotation().Yaw, 0.f));
-				Kate->SetActorRotation(FRotator(0.f, ParapetDir.Rotation().Yaw, 0.f));
-				DescentPhase = 1;
-				StepStart = Now(World);
-			}
+			Test->AddInfo(TEXT("Lap: descent by ") + DescentRoute);
+			DescentPhase = 1;
+			PhaseStart = Now(World);
 		}
-		else if (DescentPhase == 1)
+		if (DescentPhase == 1)
 		{
-			// The jump key at the parapet: a vault or a climb over would be the way down.
-			if (Now(World) - StepStart > 0.3)
+			// Walk to the spot behind the edge.
+			if (Steer(PC, Kate, DescentStand, false, 40.f, DeltaSeconds) || Now(World) - PhaseStart > 10.0)
 			{
-				++DescentMove.Attempts;
-				Tap(PC, JumpPath);
 				DescentPhase = 2;
-				StepStart = Now(World);
+				PhaseStart = Now(World);
 			}
 		}
 		else if (DescentPhase == 2)
 		{
-			if (Kate->IsTraversing())
+			// Push toward the edge for a moment (into the parapet or the rail), then crouch.
+			Steer(PC, Kate, FVector(DescentStand.X, DescentStand.Y, FeetZ) + DescentOut * 1000.f, false, 1.f, DeltaSeconds);
+			if (Parkour->IsBusy())
 			{
-				DescentMove.bSucceeded = true;
-				DescentMove.Note = FString::Printf(TEXT("%s over the parapet"), *UEnum::GetValueAsString(Kate->GetParkourComponent()->GetLastMove()));
-			}
-			if (Now(World) - StepStart > 1.5)
-			{
-				if (!DescentMove.bSucceeded && Kate->GetActorLocation().Z - Start.Z > 400.f)
-				{
-					if (DescentMove.Attempts < 2)
-					{
-						DescentPhase = 1;
-						StepStart = Now(World);
-						break;
-					}
-					FCastleParkourObstacle Obstacle;
-					Kate->GetParkourComponent()->DetectObstacle(Kate->GetParkourComponent()->ManualTriggerDistance, Obstacle);
-					DescentNote = FString::Printf(
-						TEXT("no move off the roof: parapet %.0f cm, far floor found %d, drop %.0f cm (jump vault allows %.0f), roof %.0f m up"),
-						Obstacle.Height, Obstacle.bClearBeyond ? 1 : 0, Obstacle.LandingDrop,
-						Kate->GetParkourComponent()->MaxVaultDrop, (CastleLap::Feet(Kate).Z - Start.Z) / 100.f);
-					DescentMove.Note = DescentNote;
-					bDescentScripted = true;
-					Test->AddWarning(TEXT("Lap: ") + DescentNote);
-				}
+				StopMoving(PC);
+				DescentMove.Attempts = FMath::Max(DescentMove.Attempts, DescentRetries + 1);
+				DescentRetries = 0;
 				DescentPhase = 3;
+				PhaseStart = Now(World);
+			}
+			else if (Now(World) - PhaseStart > 0.25 && !bPushing)
+			{
+				bPushing = true;
+				Tap(PC, CrouchPath);
+			}
+			else if (Now(World) - PhaseStart > 1.0)
+			{
+				bPushing = false;
+				PhaseStart = Now(World);
+				if (++DescentRetries >= 3)
+				{
+					FCastleParkourObstacle Edge;
+					const bool bEdge = Parkour->FindDropEdge(DescentOut, Edge);
+					DescentNote = FString::Printf(TEXT("crouch at the edge found no drop to hang three times at %s (edge probe %d, %.0f cm lip, %.0f cm drop)"),
+						*Kate->GetActorLocation().ToCompactString(), bEdge ? 1 : 0, Edge.Height, Edge.LandingDrop);
+					bDescentScripted = true;
+					DescentPhase = 9;
+				}
 			}
 		}
-		else
+		else if (DescentPhase == 3)
 		{
-			if (bDescentScripted && !StreetBelow.IsZero())
+			// Going over or hanging: once hanging, a beat, then crouch drops.
+			bPushing = false;
+			if (Parkour->IsHanging())
 			{
-				Kate->TeleportTo(StreetBelow + FVector(0.f, 0.f, Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 2.f),
-					Kate->GetActorRotation());
+				if (Now(World) - PhaseStart > 0.3)
+				{
+					++DescentHangs;
+					DescentLastDrop = FeetZ - Start.Z;
+					Tap(PC, CrouchPath);
+					DescentPhase = 4;
+					PhaseStart = Now(World);
+				}
 			}
-			WaypointIndex = -1;
-			Enter(EStep::Return, World);
+			else if (!Parkour->IsBusy() && Now(World) - PhaseStart > 2.0)
+			{
+				DescentNote = FString::Printf(TEXT("the move over the edge did not end in a hang (at %s)"), *Kate->GetActorLocation().ToCompactString());
+				bDescentScripted = true;
+				DescentPhase = 9;
+			}
+		}
+		else if (DescentPhase == 4 && Now(World) - PhaseStart > 0.15)
+		{
+			// Falling: a catch goes back to the hang; a landing on a landing crouches at its rail;
+			// the street ends the descent.
+			if (Parkour->IsBusy())
+			{
+				if (Parkour->IsHanging() || Parkour->GetActiveMove() == ECastleParkourMove::LedgeGrab)
+				{
+					++DescentCatches;
+					DescentPhase = 3;
+					PhaseStart = Now(World);
+				}
+			}
+			else if (Kate->GetCharacterMovement()->IsMovingOnGround() && Now(World) - PhaseStart > 0.2)
+			{
+				if (FeetZ - Start.Z > 200.f)
+				{
+					++DescentLandings;
+					DescentStand = FVector(Kate->GetActorLocation().X, Kate->GetActorLocation().Y, FeetZ);
+					DescentRetries = 0;
+					DescentPhase = 2;
+					PhaseStart = Now(World);
+				}
+				else
+				{
+					DescentMove.bSucceeded = true;
+					DescentEnd = Now(World);
+					DescentMove.Note = FString::Printf(TEXT("%s: %d hangs, %d catches, %d stops on a landing, last drop from %.0f cm, %.1f s"),
+						*DescentRoute, DescentHangs, DescentCatches, DescentLandings, DescentLastDrop, DescentEnd - DescentStart);
+					Test->AddInfo(TEXT("Lap: down: ") + DescentMove.Note);
+					WaypointIndex = -1;
+					Enter(EStep::Return, World);
+				}
+			}
+			else if (Now(World) - PhaseStart > 5.0)
+			{
+				DescentNote = FString::Printf(TEXT("still in the air 5 s after a drop (at %s)"), *Kate->GetActorLocation().ToCompactString());
+				bDescentScripted = true;
+				DescentPhase = 9;
+			}
+		}
+		if (DescentPhase == 9)
+		{
+			// No teleport: the lap stops here and says why.
+			DescentMove.Note = DescentNote;
+			FailReason = TEXT("descent: ") + DescentNote;
+			Test->AddWarning(TEXT("Lap: ") + FailReason);
+			Shot(Test, TEXT("lap_end.png"));
+			Finish(World, PC, Kate);
+			Enter(EStep::Done, World);
+			return false;
+		}
+		if (Now(World) - DescentStart > 45.0 && DescentPhase != 9 && Step == EStep::Descent)
+		{
+			DescentNote = FString::Printf(TEXT("descent took over 45 s (phase %d at %s)"), DescentPhase, *Kate->GetActorLocation().ToCompactString());
+			bDescentScripted = true;
+			DescentMove.Note = DescentNote;
+			FailReason = TEXT("descent: ") + DescentNote;
+			Finish(World, PC, Kate);
+			Enter(EStep::Done, World);
+			return false;
 		}
 		break;
+	}
 
 	case EStep::Return:
 		Leg = TEXT("return");
