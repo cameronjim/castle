@@ -39,6 +39,13 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   ``City_LedgeSpawner`` (ACityLedgeSpawner) spawns them at BeginPlay. Parkour test
   blocks: ``City_Test_Vault`` (90 cm) and ``City_Test_Mantle`` (150 cm) on the street by the
   PlayerStart, and three low ``City_ParkWall_<n>`` in the park.
+* fire escapes (``City_FireEscape_<id>_<floor>``): on every building 10 to 30 m tall, on the
+  longest of its edges nearest a road, a landing per floor (330 cm apart from the second floor to
+  at least 180 cm under the roof): a 240 x 90 x 8 cm slab 5 cm off the facade, 90 cm rails on
+  its outer three sides with a traversable ledge on the outer rail, and a ladder down to the
+  landing below, alternating ends. Black iron (M_SteelPainted). A building whose escape would
+  hit another building, a street lamp or another escape gets none. Data in the same props
+  asset, spawned by the same spawner.
 
 Idempotent: each mesh carries a ``CityHash`` metadata tag (hash of its source record and the
 generator version); a mesh is rebuilt only when that hash changes. Actors are found by label
@@ -1381,7 +1388,7 @@ def ensure_lamp_materials():
         MI_STREET_LAMP, emissive,
         vectors=[(m.EMISSIVE_COLOR_PARAM, LAMP_COLOR)],
         scalars=[(m.EMISSIVE_INTENSITY_PARAM, LAMP_EMISSIVE * m.EMISSIVE_INTENSITY_FACTOR)])
-    pole = m.ensure_material(m.M_STEEL_PAINTED, m._build_steel_painted)
+    pole = m.ensure_steel_painted()
     return pole, head
 
 
@@ -1664,8 +1671,169 @@ LEDGE_OUTSET = 2.0          # cm the slab stands out from the facade
 LEDGE_SLAB_HEIGHT = 400.0   # cm down from the top; covers a step up from a lower neighbour's roof
 LEDGE_SPLINE = "Ledge_1"
 
-# The ledges and the anchors are not saved in the map: generate_city writes them into a
-# UCityLedgeData and City_LedgeSpawner (ACityLedgeSpawner) spawns them at BeginPlay.
+# --------------------------------------------------------------------------------------
+# fire escapes
+# --------------------------------------------------------------------------------------
+
+FIRE_ESCAPE_PREFIX = "City_FireEscape_"
+FIRE_ESCAPE_MIN_HEIGHT_M = 10.0
+FIRE_ESCAPE_MAX_HEIGHT_M = 30.0
+FIRE_ESCAPE_FLOOR = 330.0          # cm between landings; the lowest is at the second floor
+FIRE_ESCAPE_ROOF_CLEARANCE = 180.0  # cm; the top landing's slab is at least this far under the roof
+FIRE_ESCAPE_SLAB = (240.0, 90.0, 8.0)
+FIRE_ESCAPE_GAP = 5.0              # cm between the facade and the slab
+FIRE_ESCAPE_RAIL = 90.0            # rail height above the slab
+FIRE_ESCAPE_RAIL_THICK = 6.0       # the rails' collision; the visible bars are thinner
+FIRE_ESCAPE_MIN_EDGE = 300.0       # cm; the landing plus 30 cm each side
+FIRE_ESCAPE_STREET_SLACK = 200.0   # cm; edges this much further from a road than the nearest still face it
+FIRE_ESCAPE_FACING = 0.5           # the edge's outward normal within 60 degrees of the road
+FIRE_ESCAPE_LAMP_CLEARANCE = 30.0  # cm between a landing and a lamp pole (or head)
+FIRE_ESCAPE_GAP_TO_OTHER = 10.0    # cm between two buildings' landings
+
+
+def _landing_corners(x, y, yaw, margin=0.0):
+    """The landing's footprint as four (x, y) corners: along +/- half the slab, out from the gap."""
+    ox, oy = -math.sin(math.radians(yaw)), math.cos(math.radians(yaw))   # local +Y, out of the facade
+    ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))    # local +X, along it
+    half = FIRE_ESCAPE_SLAB[0] * 0.5 + margin
+    near, far = FIRE_ESCAPE_GAP - margin, FIRE_ESCAPE_GAP + FIRE_ESCAPE_SLAB[1] + margin
+    return [(x + ux * a + ox * b, y + uy * a + oy * b) for a, b in ((-half, near), (half, near), (half, far), (-half, far))]
+
+
+def _rects_overlap(a, b):
+    """Separating-axis test for two convex quads given as corner lists."""
+    for quad in (a, b):
+        for i in range(4):
+            (x0, y0), (x1, y1) = quad[i], quad[(i + 1) % 4]
+            nx, ny = y1 - y0, x0 - x1
+            pa = [nx * px + ny * py for px, py in a]
+            pb = [nx * px + ny * py for px, py in b]
+            if max(pa) < min(pb) or max(pb) < min(pa):
+                return False
+    return True
+
+
+def _point_quad_distance(pt, quad):
+    if geo.point_in_polygon(pt, quad):
+        return 0.0
+    return closest_point_on_polyline(pt, list(quad) + [quad[0]])[0]
+
+
+def fire_escape_spots(district):
+    """[(osm id, floor, (x, y, z), yaw, ladder drop, ladder side)] in a stable order.
+
+    One escape per building FIRE_ESCAPE_MIN_HEIGHT_M to FIRE_ESCAPE_MAX_HEIGHT_M tall, on the
+    longest exterior edge whose outward normal faces a road and whose middle is within
+    FIRE_ESCAPE_STREET_SLACK of the nearest such edge's road distance. (x, y) is the edge's middle
+    on the facade line, z the slab top, yaw turns local +X along the facade and +Y out of it.
+    Landings at FIRE_ESCAPE_FLOOR, 2 x, ... up to FIRE_ESCAPE_ROOF_CLEARANCE under the roof. A
+    building whose landings would stand in another building (or its own), within
+    FIRE_ESCAPE_LAMP_CLEARANCE of a lamp, or on an earlier building's escape, gets none.
+    """
+    roads = sorted(road_paths(district), key=lambda rp: rp[0]["id"])
+    segments = [(p, q) for _rec, paths in roads for path in paths for p, q in zip(path, path[1:])]
+    buildings = []
+    for rec in sorted(district.buildings, key=lambda r: r["id"]):
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) >= 3:
+            buildings.append((rec, ring, geo.bounds(ring)))
+    lamps = [(x, y, yaw) for x, y, yaw, _shadows in lamp_spots(district)]
+
+    def inside_other(pt, own_id, below_z=None):
+        for rec, ring, (x0, y0, x1, y1) in buildings:
+            if rec["id"] == own_id:
+                continue
+            if below_z is not None and rec["height_m"] * 100.0 + PARAPET_HEIGHT < below_z:
+                continue
+            if x0 <= pt[0] <= x1 and y0 <= pt[1] <= y1 and geo.point_in_polygon(pt, ring):
+                return True
+        return False
+
+    def nearest_road(pt):
+        best = None
+        for p, q in segments:
+            d, c_pt = closest_point_on_polyline(pt, [p, q])
+            if best is None or d < best[0]:
+                best = (d, c_pt)
+        return best
+
+    placed = []   # (quads by z) of accepted landings
+    spots = []
+    for rec, ring, _box in buildings:
+        height_m = rec["height_m"]
+        if height_m < FIRE_ESCAPE_MIN_HEIGHT_M or height_m > FIRE_ESCAPE_MAX_HEIGHT_M:
+            continue
+        height_cm = height_m * 100.0
+        inward = 1.0 if geo.is_ccw(ring) else -1.0
+        n = len(ring)
+        candidates = []   # (road distance, -length, index, mid, outward, along)
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            length = math.hypot(bx - ax, by - ay)
+            if length < FIRE_ESCAPE_MIN_EDGE or not segments:
+                continue
+            ox, oy = (by - ay) / length * inward, -(bx - ax) / length * inward   # outward normal
+            ux, uy = (bx - ax) / length, (by - ay) / length
+            mx, my = (ax + bx) * 0.5, (ay + by) * 0.5
+            dist, (qx, qy) = nearest_road((mx, my))
+            if dist < 1.0 or ((qx - mx) * ox + (qy - my) * oy) / dist < FIRE_ESCAPE_FACING:
+                continue
+            outside = [(mx + ox * 150.0 + ux * t, my + oy * 150.0 + uy * t) for t in (-100.0, 0.0, 100.0)]
+            if any(inside_other(pt, rec["id"]) or geo.point_in_polygon(pt, ring) for pt in outside):
+                continue
+            candidates.append((dist, -length, i, (mx, my), (ox, oy)))
+        if not candidates:
+            continue
+        nearest = min(cand[0] for cand in candidates)
+        facing = [cand for cand in candidates if cand[0] <= nearest + FIRE_ESCAPE_STREET_SLACK]
+        facing.sort(key=lambda cand: (cand[1], cand[2]))
+        _dist, _neg, _index, (mx, my), (ox, oy) = facing[0]
+        yaw = math.degrees(math.atan2(-ox, oy))
+
+        floors = []
+        floor = 1
+        while floor * FIRE_ESCAPE_FLOOR <= height_cm - FIRE_ESCAPE_ROOF_CLEARANCE:
+            floors.append(floor)
+            floor += 1
+        if not floors:
+            continue
+        quad = _landing_corners(mx, my, yaw)
+        probe = quad + [((quad[0][0] + quad[2][0]) * 0.5, (quad[0][1] + quad[2][1]) * 0.5)]
+        blocked = any(geo.point_in_polygon(pt, ring) for pt in probe)
+        for f in floors:
+            if blocked:
+                break
+            z = f * FIRE_ESCAPE_FLOOR
+            if any(inside_other(pt, rec["id"], z - FIRE_ESCAPE_SLAB[2]) for pt in probe):
+                blocked = True
+            for lx, ly, lyaw in lamps:
+                if z - FIRE_ESCAPE_SLAB[2] <= LAMP_POLE_HEIGHT and _point_quad_distance((lx, ly), quad) < FIRE_ESCAPE_LAMP_CLEARANCE + LAMP_POLE_DIAMETER * 0.5:
+                    blocked = True
+                hx = lx + math.cos(math.radians(lyaw)) * LAMP_ARM
+                hy = ly + math.sin(math.radians(lyaw)) * LAMP_ARM
+                if abs(z - LAMP_POLE_HEIGHT) < FIRE_ESCAPE_RAIL + 50.0 and _point_quad_distance((hx, hy), quad) < FIRE_ESCAPE_LAMP_CLEARANCE + 20.0:
+                    blocked = True
+        padded = _landing_corners(mx, my, yaw, FIRE_ESCAPE_GAP_TO_OTHER * 0.5)
+        if not blocked and any(_rects_overlap(padded, other) for other in placed):
+            blocked = True
+        if blocked:
+            continue
+        placed.append(padded)
+        for f in floors:
+            drop = FIRE_ESCAPE_FLOOR if f > 1 else 0.0
+            side = 1.0 if f % 2 == 0 else -1.0
+            spots.append((rec["id"], f, (mx, my, f * FIRE_ESCAPE_FLOOR), yaw, drop, side))
+    return spots
+
+
+def fire_escape_class():
+    """AFireEscapeLanding's UClass (the spawner's property wants the class object, not the Python type)."""
+    return c.find_class("/Script/Castle.FireEscapeLanding")
+
+
+# The ledges, the anchors and the fire escapes are not saved in the map: generate_city writes
+# them into a UCityLedgeData and City_LedgeSpawner (ACityLedgeSpawner) spawns them at BeginPlay.
 CITY_PROPS_PATH = "/Game/City/EastVillage"
 CITY_PROPS_NAME = "DA_EastVillage_CityProps"
 SPAWNER_LABEL = "City_LedgeSpawner"
@@ -1837,11 +2005,14 @@ def _ledge_edge_index(label):
     return int(label.rsplit("_", 1)[1])
 
 
-def city_props_hash(ledges, anchors, ledge_cls, anchor_cls):
-    """What the props asset was written from: every ledge and anchor spot and the two classes."""
-    return geo.record_hash(GENERATOR_VERSION, "props",
-                           [[s[0], list(s[2]), s[3], list(s[4])] for s in ledges],
-                           [list(a) for a in anchors], c.safe_name(ledge_cls), c.safe_name(anchor_cls))
+def city_props_hash(ledges, anchors, ledge_cls, anchor_cls, fire_escapes=None):
+    """What the props asset was written from: every ledge, anchor and fire-escape spot and the classes."""
+    parts = [[[s[0], list(s[2]), s[3], list(s[4])] for s in ledges],
+             [list(a) for a in anchors], c.safe_name(ledge_cls), c.safe_name(anchor_cls)]
+    if fire_escapes:
+        parts.append([[f[0], f[1], list(f[2]), f[3], f[4], f[5]] for f in fire_escapes])
+        parts.append([list(FIRE_ESCAPE_SLAB), FIRE_ESCAPE_GAP, FIRE_ESCAPE_RAIL, FIRE_ESCAPE_RAIL_THICK])
+    return geo.record_hash(GENERATOR_VERSION, "props", *parts)
 
 
 def _ledge_record(spot):
@@ -1865,6 +2036,22 @@ def _anchor_record(index, spot):
     return rec
 
 
+def _fire_escape_record(spot):
+    osm, floor, (x, y, z), yaw, drop, side = spot
+    rec = unreal.CityFireEscapeRecord()
+    rec.set_editor_property("transform", unreal.Transform(
+        unreal.Vector(x, y, z), unreal.Rotator(0.0, 0.0, yaw), unreal.Vector(1.0, 1.0, 1.0)))
+    rec.set_editor_property("slab_size", unreal.Vector(*FIRE_ESCAPE_SLAB))
+    rec.set_editor_property("facade_gap", FIRE_ESCAPE_GAP)
+    rec.set_editor_property("rail_height", FIRE_ESCAPE_RAIL)
+    rec.set_editor_property("rail_thickness", FIRE_ESCAPE_RAIL_THICK)
+    rec.set_editor_property("ladder_drop", drop)
+    rec.set_editor_property("ladder_side", side)
+    rec.set_editor_property("floor", floor)
+    rec.set_editor_property("osm_id", osm)
+    return rec
+
+
 def ensure_city_props(district):
     """DA_EastVillage_CityProps: every roof-edge ledge and grapple anchor as data. Returns
     (asset, ledge class, anchor class), the asset None on failure. Saved only when its hash changes."""
@@ -1882,7 +2069,8 @@ def ensure_city_props(district):
 
     ledges = ledge_spots(district)
     anchors = anchor_spots(district)
-    want_hash = city_props_hash(ledges, anchors, ledge_cls, anchor_cls)
+    escapes = fire_escape_spots(district)
+    want_hash = city_props_hash(ledges, anchors, ledge_cls, anchor_cls, escapes)
     full = c.asset_path(CITY_PROPS_PATH, CITY_PROPS_NAME)
     asset = c.load_or_none(full)
     if asset is None:
@@ -1891,16 +2079,21 @@ def ensure_city_props(district):
         asset, _created = c.create_asset(CITY_PROPS_NAME, CITY_PROPS_PATH, data_cls, factory, quiet=True)
         if asset is None:
             return None, ledge_cls, anchor_cls
-    if str(asset.get_editor_property("source_hash")) == want_hash             and len(asset.get_editor_property("ledges")) == len(ledges)             and len(asset.get_editor_property("anchors")) == len(anchors):
-        c.log("exists", full, "{0} ledges on {1} buildings, {2} anchors on {3} roofs; hash unchanged".format(
-            len(ledges), len({s[1] for s in ledges}), len(anchors), len({a[6] for a in anchors})))
+    summary = "{0} ledges on {1} buildings, {2} anchors on {3} roofs, {4} fire-escape landings on {5} buildings".format(
+        len(ledges), len({s[1] for s in ledges}), len(anchors), len({a[6] for a in anchors}),
+        len(escapes), len({f[0] for f in escapes}))
+    if str(asset.get_editor_property("source_hash")) == want_hash \
+            and len(asset.get_editor_property("ledges")) == len(ledges) \
+            and len(asset.get_editor_property("anchors")) == len(anchors) \
+            and len(asset.get_editor_property("fire_escapes")) == len(escapes):
+        c.log("exists", full, summary + "; hash unchanged")
         return asset, ledge_cls, anchor_cls
     asset.set_editor_property("ledges", [_ledge_record(spot) for spot in ledges])
     asset.set_editor_property("anchors", [_anchor_record(i, spot) for i, spot in enumerate(anchors)])
+    asset.set_editor_property("fire_escapes", [_fire_escape_record(spot) for spot in escapes])
     asset.set_editor_property("source_hash", want_hash)
     c.save(asset)
-    c.log("updated", full, "{0} ledges on {1} buildings, {2} anchors on {3} roofs".format(
-        len(ledges), len({s[1] for s in ledges}), len(anchors), len({a[6] for a in anchors})))
+    c.log("updated", full, summary)
     return asset, ledge_cls, anchor_cls
 
 
@@ -1925,12 +2118,25 @@ def ensure_ledge_spawner(district, existing):
     spawner, n = _ensure_located(existing, SPAWNER_LABEL, spawner_cls, unreal.Vector(0.0, 0.0, 0.0), 0.0)
     changes += n
     if spawner is not None:
-        for prop, value in (("data", asset), ("ledge_class", ledge_cls), ("anchor_class", anchor_cls),
-                            ("spawn_in_editor", False)):
-            if spawner.get_editor_property(prop) != value:
+        props = [("data", asset), ("ledge_class", ledge_cls), ("anchor_class", anchor_cls), ("spawn_in_editor", False),
+                 ("fire_escape_cube", c.load_or_none(CUBE)), ("fire_escape_cylinder", c.load_or_none(CYLINDER)),
+                 ("fire_escape_material", m.ensure_steel_painted())]
+        escape_cls = fire_escape_class()
+        if escape_cls is not None:
+            props.append(("fire_escape_class", escape_cls))
+        changed = []
+        for prop, value in props:
+            have = spawner.get_editor_property(prop)
+            if have != value and not (have is not None and value is not None
+                                      and hasattr(have, "get_path_name") and hasattr(value, "get_path_name")
+                                      and have.get_path_name() == value.get_path_name()):
                 spawner.set_editor_property(prop, value)
-                changes += 1
+                changed.append(prop)
+        changes += len(changed)
         changes += _ensure_tags(spawner, ["City", "CityLedgeSpawner"])
+        if changed:
+            removed_note = ", ".join(changed)
+            c.log("updated", SPAWNER_LABEL + " properties", removed_note)
     c.log("updated" if changes else "exists", SPAWNER_LABEL,
           "spawns the props at load; {0} saved ledge/anchor actors removed".format(removed))
     return changes
