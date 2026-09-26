@@ -55,23 +55,26 @@ M_THUG_VISOR = THUG_MATERIAL_PATH + "/M_ThugVisor"
 # slot is the light trim. Both carry the HitFlash and Telegraph parameters AThugCharacter pulses.
 M_THUG_TRACKSUIT = THUG_MATERIAL_PATH + "/M_ThugTracksuit"
 M_THUG_TRIM = THUG_MATERIAL_PATH + "/M_ThugTrim"
-THUG_MATERIAL_VERSION = "tracksuit-1"     # bump to rebuild both graphs on the next run
+THUG_MATERIAL_VERSION = "tracksuit-4"     # bump to rebuild both graphs on the next run
 THUG_VERSION_TAG = "CastleVersion"
 TRACKSUIT_RED = (0.6, 0.05, 0.05)
 TRACKSUIT_STRIPE = (0.85, 0.85, 0.85)
 SKI_MASK = (0.012, 0.012, 0.012)
 MASK_BOTTOM_CM = 152.0      # bind-pose height above the feet where the black ski mask starts
-STRIPE_EDGE = 9.0           # outward normal x times lateral position, cm; above it is stripe
+STRIPE_FACING = 0.85        # how squarely a surface must face out sideways to be stripe
+STRIPE_MAX_SIDE_CM = 28.0   # further out than this is an arm (bind pose is a T), never stripe
 HIT_FLASH_COLOR = (1.0, 0.85, 0.7)
-HIT_FLASH_INTENSITY = 6.0
+HIT_FLASH_INTENSITY = 3.0
 TELEGRAPH_COLOR = (1.0, 0.04, 0.01)
-TELEGRAPH_INTENSITY = 60.0
+TELEGRAPH_INTENSITY = 3.0
 
 # The bat: the engine cylinder (100 cm tall, 100 across) scaled to 85 x 6 cm, in the right hand.
 CYLINDER_PATH = "/Engine/BasicShapes/Cylinder"
 BAT_SCALE = unreal.Vector(0.06, 0.06, 0.85)
-BAT_LOCATION = unreal.Vector(0.0, 0.0, 0.0)
-BAT_ROTATION = unreal.Rotator(0.0, 0.0, 0.0)
+# The cylinder's length (its Z) laid along hand_r's X, which on this mannequin's right side points
+# back up the arm, so the bat hangs down past the fingers, gripped at its top.
+BAT_LOCATION = unreal.Vector(-36.0, 0.0, 0.0)
+BAT_ROTATION = unreal.Rotator(0.0, -90.0, 0.0)
 
 # The template's own offsets: the mesh hangs from the capsule centre and faces +X.
 THUG_MESH_LOCATION = unreal.Vector(0.0, 0.0, -96.0)
@@ -171,16 +174,32 @@ def _pulse_emissive(material, head_mask, x=-700, y=500):
     return m.add(material, flash_rgb, tele_rgb, x + 850, y + 150)
 
 
+def _to_pixel(material, vertex_node, x, y):
+    """A MaterialExpressionVertexInterpolator fed vertex_node: its output is usable per pixel."""
+    node = m.expr(material, "MaterialExpressionVertexInterpolator", x, y, None, "VertexInterpolator")
+    m.connect(vertex_node, "", node, "VS")
+    return node
+
+
 def _build_thug_tracksuit(material):
     """Red tracksuit, light stripes down the outside of the legs and body, a black ski mask."""
-    pos = m.expr(material, "MaterialExpressionPreSkinnedPosition", -1600, -300, None, "PreSkinnedPosition")
-    nrm = m.expr(material, "MaterialExpressionPreSkinnedNormal", -1600, 0, None, "PreSkinnedNormal")
+    # Pre-skinned position and normal exist only in the vertex shader; a vertex interpolator
+    # carries them to the pixel shader so the mask and stripe edges stay crisp per pixel.
+    pos = _to_pixel(material, m.expr(
+        material, "MaterialExpressionPreSkinnedPosition", -1900, -300, None, "PreSkinnedPosition"), -1750, -300)
+    nrm = _to_pixel(material, m.expr(
+        material, "MaterialExpressionPreSkinnedNormal", -1900, 0, None, "PreSkinnedNormal"), -1750, 0)
     z = m.component_mask(material, pos, b=True, x=-1400, y=-400)
     head = m.step(material, z, MASK_BOTTOM_CM, -1200, -400, sharpness=0.5)
     px = m.component_mask(material, pos, r=True, x=-1400, y=-200)
     nx = m.component_mask(material, nrm, r=True, x=-1400, y=0)
-    outward = m.multiply(material, nx, px, -1200, -100)
-    stripe = m.step(material, outward, STRIPE_EDGE, -1000, -100, sharpness=0.5)
+    # sign(px) as px / (|px| + e): +1 on her right half, -1 on her left.
+    side_abs = m.absolute(material, px, -1250, -250)
+    side_sign = m.divide(material, px, m.add(material, side_abs, None, -1100, -250, const_b=0.01), -950, -250)
+    outward = m.multiply(material, nx, side_sign, -800, -100)
+    facing_out = m.step(material, outward, STRIPE_FACING, -650, -100, sharpness=20.0)
+    arm = m.step(material, side_abs, STRIPE_MAX_SIDE_CM, -650, 50, sharpness=0.5)
+    stripe = m.lerp(material, facing_out, None, arm, -450, -50, const_b=0.0)
 
     red = m.constant3(material, TRACKSUIT_RED, -700, -500)
     white = m.constant3(material, TRACKSUIT_STRIPE, -700, -350)
