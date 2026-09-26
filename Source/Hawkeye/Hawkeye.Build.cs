@@ -24,9 +24,19 @@ public class Hawkeye : ModuleRules
 			"SlateCore",
 			"AIModule",
 			"NavigationSystem",
-			"GameplayTasks"
+			"GameplayTasks",
+			// The partner's brain: ST_Partner runs on a StateTreeAIComponent.
+			"StateTreeModule",
+			"GameplayStateTreeModule",
+			"GameplayTags"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
+
+		// UHawkeyePartnerTreeBuilder authors ST_Partner headless through the StateTree editor API.
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeEditorModule", "PropertyBindingUtils", "UnrealEd" });
+		}
 	}
 }

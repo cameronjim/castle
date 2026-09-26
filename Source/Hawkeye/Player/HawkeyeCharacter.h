@@ -440,6 +440,45 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Quiver", meta = (ClampMin = "0.0"))
 	float QuiverWheelDeadZone = 30.f;
 
+	// --- Partner and switching (claude-docs/gameplay-semantics.md, "partner and switching") --------
+
+	/** Who this is, for the HUD and the partner's status line: "Kate" on BP_Kate, "Clint" on BP_Clint. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Character")
+	FText CharacterName;
+
+	/** CharacterName, or the actor's name when a Blueprint left it empty. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	FText GetCharacterName() const;
+
+	/**
+	 * The gait an AI controller wants while it drives this character (the partner runs to catch up,
+	 * walks when close). The player's gait comes from the stick instead; this is ignored then.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Movement")
+	void SetAIGait(EHawkeyeGait Gait) { AIGait = Gait; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	EHawkeyeGait GetAIGait() const { return AIGait; }
+
+	/** True between health reaching 0 and the partner's revive: on the ground, no input, no restart yet. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Health")
+	bool IsDowned() const { return bDowned; }
+
+	/** The partner's revive: back up with HealthFraction of max health. Does nothing unless downed. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Health")
+	void ReviveFromDown(float HealthFraction);
+
+	/**
+	 * Why control cannot leave this character right now, or empty when it can: "mid-traversal",
+	 * "mid-zip", "mid-takedown" or "down". AHawkeyePlayerController::SwitchCharacter asks this.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	FString GetSwitchBlocker() const;
+
+	/** Lets go of everything the player was holding (sprint, aim, a draw, the wheel) when control leaves. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Character")
+	void ReleaseHeldInputs();
+
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Hawkeye|Character")
 	void OnInteractPressed();
@@ -1136,6 +1175,17 @@ protected:
 
 	UFUNCTION()
 	void HandleDeath(UHealthComponent* Health, AActor* Killer);
+
+	/** Asks this character's partner for the once-a-fight revive. True when he took it on (she is down). */
+	bool TryPartnerRevive(AActor* Killer);
+
+	/** Set while waiting for the partner's revive. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Health")
+	bool bDowned = false;
+
+	/** See SetAIGait. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Movement")
+	EHawkeyeGait AIGait = EHawkeyeGait::Run;
 
 	// --- Runtime state --------------------------------------------------------------------------
 

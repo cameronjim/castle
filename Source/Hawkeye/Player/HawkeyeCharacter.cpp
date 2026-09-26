@@ -37,6 +37,7 @@
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 #include "World/InteractionComponent.h"
+#include "Partner/HawkeyePartnerController.h"
 #include "Combat/ArrowDefinition.h"
 #include "UI/HawkeyeHudWidget.h"
 #include "UI/QuiverWheelMath.h"
@@ -294,6 +295,12 @@ void AHawkeyeCharacter::EmitMovementNoise()
 
 void AHawkeyeCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 {
+	// Once a fight the partner gets her back up; the mission only restarts when he cannot.
+	if (TryPartnerRevive(Killer))
+	{
+		return;
+	}
+
 	UE_LOG(LogHawkeye, Log, TEXT("%s died (killer: %s); restarting the mission."),
 		*GetName(), *GetNameSafe(Killer));
 
@@ -301,6 +308,81 @@ void AHawkeyeCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer
 	{
 		GameMode->RestartMission();
 	}
+}
+
+bool AHawkeyeCharacter::TryPartnerRevive(AActor* Killer)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+	for (TActorIterator<AHawkeyePartnerController> It(World); It; ++It)
+	{
+		if (It->GetLeader() == this && It->RequestRevive(this))
+		{
+			bDowned = true;
+			StopAim();
+			Crouch();
+			UE_LOG(LogHawkeye, Log, TEXT("%s is down (killer: %s); %s is coming to revive."), *GetName(),
+				*GetNameSafe(Killer), *GetNameSafe(It->GetPawn()));
+			return true;
+		}
+	}
+	return false;
+}
+
+void AHawkeyeCharacter::ReviveFromDown(float HealthFraction)
+{
+	if (!bDowned || !HealthComponent)
+	{
+		return;
+	}
+	bDowned = false;
+	HealthComponent->Revive(HealthComponent->GetMaxHealth() * FMath::Clamp(HealthFraction, 0.01f, 1.f));
+	UnCrouch();
+	UpdateMaxWalkSpeed();
+	UE_LOG(LogHawkeye, Log, TEXT("%s: revived at %.0f health."), *GetName(), HealthComponent->GetCurrentHealth());
+}
+
+FText AHawkeyeCharacter::GetCharacterName() const
+{
+	return CharacterName.IsEmpty() ? FText::FromString(GetName()) : CharacterName;
+}
+
+FString AHawkeyeCharacter::GetSwitchBlocker() const
+{
+	if (bDowned || (HealthComponent && !HealthComponent->IsAlive()))
+	{
+		return TEXT("down");
+	}
+	if (IsZipping())
+	{
+		return TEXT("mid-zip");
+	}
+	if (IsLockedOutByTakedown())
+	{
+		return TEXT("mid-takedown");
+	}
+	if (IsTraversing())
+	{
+		return TEXT("mid-traversal");
+	}
+	return FString();
+}
+
+void AHawkeyeCharacter::ReleaseHeldInputs()
+{
+	bIsSprinting = false;
+	bAimInputHeld = false;
+	bMeleeHeld = false;
+	bCrouchTapPending = false;
+	bInventoryKeyHeld = false;
+	MoveInputMagnitude = 0.f;
+	MoveInputHeldSeconds = 0.f;
+	CloseQuiverWheel(/*bSelect=*/false);
+	StopAim();
+	UpdateMaxWalkSpeed();
 }
 
 bool AHawkeyeCharacter::HasKeycard(FName KeycardId) const
@@ -783,7 +865,8 @@ void AHawkeyeCharacter::Input_Move(const FInputActionValue& Value)
 {
 	const FVector2D MoveInput = Value.Get<FVector2D>();
 	const bool bParkourLock = ParkourComponent && ParkourComponent->IsLockingInput();
-	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping() || bParkourLock)
+	const bool bDead = HealthComponent && !HealthComponent->IsAlive();
+	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping() || bParkourLock || bDead)
 	{
 		return;
 	}
@@ -1134,7 +1217,11 @@ void AHawkeyeCharacter::UpdateMaxWalkSpeed()
 		return;
 	}
 
-	CurrentGait = SelectGait(MoveInputMagnitude, MoveInputHeldSeconds, bIsSprinting, bIsCrouched, bIsSliding, bIsAiming);
+	// An AI controller (the partner) has no stick: it names the gait it wants instead.
+	const bool bAIDriven = Controller && !Controller->IsPlayerController();
+	CurrentGait = bAIDriven && !bIsCrouched && !bIsSliding && !bIsAiming
+		? AIGait
+		: SelectGait(MoveInputMagnitude, MoveInputHeldSeconds, bIsSprinting, bIsCrouched, bIsSliding, bIsAiming);
 	float Speed = GetGaitSpeed(CurrentGait);
 	if (CurrentGait == EHawkeyeGait::Slide && SlideSeconds > 0.f)
 	{
@@ -1457,7 +1544,7 @@ bool AHawkeyeCharacter::StartHeavyAttack()
 bool AHawkeyeCharacter::StartMelee(const FHawkeyeMeleeAttack& Attack)
 {
 	if (!MeleeComponent || MeleeComponent->IsAttacking() || IsLockedOutByTakedown() || IsZipping()
-		|| IsTraversing() || IsDodging() || IsStaggered() || IsDrawingBow())
+		|| IsTraversing() || IsDodging() || IsStaggered() || IsDrawingBow() || bDowned)
 	{
 		return false;
 	}
@@ -1749,7 +1836,7 @@ void AHawkeyeCharacter::EndSlide()
 
 void AHawkeyeCharacter::Jump()
 {
-	if (IsLandingInputLocked())
+	if (IsLandingInputLocked() || bDowned)
 	{
 		return;
 	}
@@ -2120,7 +2207,7 @@ bool AHawkeyeCharacter::IsLockedOutByTakedown() const
 
 void AHawkeyeCharacter::Input_FirePressed(const FInputActionValue& /*Value*/)
 {
-	if (bQuiverWheelOpen || IsLockedOutByTakedown() || IsMeleeAttacking() || IsDodging() || IsStaggered())
+	if (bQuiverWheelOpen || IsLockedOutByTakedown() || IsMeleeAttacking() || IsDodging() || IsStaggered() || bDowned)
 	{
 		return;
 	}
