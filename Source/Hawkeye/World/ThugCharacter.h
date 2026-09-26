@@ -11,7 +11,11 @@
 
 class APickupActor;
 class UAnimSequence;
+class UBowComponent;
+class UEnvQuery;
 class UHealthComponent;
+class UPointLightComponent;
+class UStateTree;
 class UMaterialInstanceDynamic;
 class UStaticMesh;
 class UStaticMeshComponent;
@@ -29,22 +33,24 @@ enum class EThugAlertState : uint8
 	Alerted
 };
 
-/** What a thug fights with. Only the Pistol thug shoots; Fists and Bat rush in and swing. */
+/** What a thug fights with. Fists and Bat rush in and swing; Pistol and Bow keep their distance. */
 UENUM(BlueprintType)
 enum class EThugWeapon : uint8
 {
 	Fists,
 	Bat,
-	/** The gunner: keeps the hitscan pistol, 12 a hit. */
-	Pistol
+	/** The gunner: hitscan pistol, 3-shot bursts of 12 after a 0.8 s telegraph, takes cover. */
+	Pistol,
+	/** Barney's archer (BP_Archer): his own UBowComponent, keeps 1500 to 2500 cm, relocates by zip. */
+	Bow
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAlertStateChangedSignature, EThugAlertState, OldState, EThugAlertState, NewState);
 
 /**
- * A Tracksuit thug: 100 HP, a weapon (fists, a bat or the gunner's pistol), an alert state, and a
- * body that drops what it was carrying. Punches and arrows stagger him, Kate's heavy knocks him
- * down for KnockdownSeconds, and he ragdolls when he dies. TODO(stage3): archer and heavy variants.
+ * A Tracksuit thug: 100 HP, a weapon (fists, a bat, the gunner's pistol or an archer's bow), an alert
+ * state, and a body that drops what it was carrying. Punches and arrows stagger him, Kate's heavy
+ * knocks him down for KnockdownSeconds, and he ragdolls when he dies. TODO(stage3): the heavy.
  *
  * AThugAIController drives the state; this class owns the state itself so a Blueprint, a
  * takedown or a bullet can all read and change it without knowing about the controller.
@@ -86,6 +92,70 @@ public:
 	/** True for the Pistol thug: he keeps his distance and shoots instead of rushing. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
 	bool IsGunner() const { return Weapon == EThugWeapon::Pistol; }
+
+	/** True for the Bow thug (BP_Archer): he keeps range, draws with BowComponent, relocates by zip. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
+	bool IsArcher() const { return Weapon == EThugWeapon::Bow; }
+
+	/** The archer's bow. Present on every thug and inert until it has OwnBow (BP_Archer sets it). */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	UBowComponent* GetBowComponent() const { return BowComponent; }
+
+	/**
+	 * ST_Thug: the brain's StateTree, built headless by UHawkeyeThugTreeBuilder. AThugAIController runs
+	 * it when set; without one (tests, a thug spawned from C++) the controller picks modes in C++.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|AI")
+	TObjectPtr<UStateTree> ThugStateTree;
+
+	/** EQS_CoverPoints: the gunner's cover search. Without one the controller rings candidates in C++. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|AI")
+	TObjectPtr<UEnvQuery> CoverQuery;
+
+	// --- Weapon look and telegraph ------------------------------------------------------------------
+
+	/**
+	 * The gunner raises his pistol toward AimPoint (the telegraph and the burst) or lowers it to his
+	 * side. No animation exists, so the pistol floats out in front of the right shoulder, as the bow does.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Combat")
+	void SetWeaponRaised(bool bRaised, FVector AimPoint);
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
+	bool IsWeaponRaised() const { return bWeaponRaised; }
+
+	/** The glint on the muzzle (gunner) or on the nocked arrow's tip (archer) that says a shot is coming. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Combat")
+	void SetTelegraphGlint(bool bOn);
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
+	bool IsTelegraphGlintOn() const { return bGlintOn; }
+
+	/** Where the glint sits now: the pistol's muzzle or the arrow tip. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
+	FVector GetGlintLocation() const;
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Components")
+	UPointLightComponent* GetTelegraphLight() const { return TelegraphLight; }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Components")
+	UStaticMeshComponent* GetPistolComponent() const { return PistolComponent; }
+
+	/** Glint colour for the gunner's muzzle. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FLinearColor PistolGlintColor = FLinearColor(1.f, 0.85f, 0.55f);
+
+	/** Glint colour for the archer's arrow tip: Barney's purple. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FLinearColor BowGlintColor = FLinearColor(0.6f, 0.15f, 1.f);
+
+	/** The glint light's brightness, lumens. Small: a glint, not a lamp. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat", meta = (ClampMin = "0.0"))
+	float GlintLumens = 60.f;
+
+	/** Raised pistol position from the right upper arm, in the aim frame (X along the aim), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FVector PistolRaisedOffset = FVector(55.f, 4.f, -6.f);
 
 	/** The swing for his weapon: BatAttack for a Bat thug, FistsAttack otherwise. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
@@ -347,6 +417,12 @@ protected:
 	UFUNCTION()
 	void HandleHealthChanged(UHealthComponent* Health, float NewHealth, float Delta, AActor* DamageInstigator);
 
+	/** Places the pistol (raised or lowered) and hides it for anyone but the gunner. Called from Tick. */
+	void UpdatePistolPose();
+
+	/** Moves the glint to the muzzle or the arrow tip. Called from Tick. */
+	void UpdateTelegraphGlint();
+
 	/** One dynamic material instance per slot, so his flashes are his alone. Runs at BeginPlay. */
 	void CreateBodyMaterials();
 
@@ -398,6 +474,23 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
 	TObjectPtr<UMeleeComponent> MeleeComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
+	TObjectPtr<UBowComponent> BowComponent;
+
+	/** The gunner's pistol: a dark slide with a grip under it (engine cubes). Hidden for anyone else. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
+	TObjectPtr<UStaticMeshComponent> PistolComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
+	TObjectPtr<UStaticMeshComponent> PistolGrip;
+
+	/** The telegraph glint: a small glowing bead plus a point light, off until a shot is coming. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
+	TObjectPtr<UStaticMeshComponent> GlintMesh;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
+	TObjectPtr<UPointLightComponent> TelegraphLight;
+
 	/** The bat, in the right hand. Empty and hidden unless Weapon is Bat. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
 	TObjectPtr<UStaticMeshComponent> HeldWeaponComponent;
@@ -431,6 +524,11 @@ protected:
 private:
 	/** Seconds of stagger left. */
 	float StaggerRemaining = 0.f;
+
+	bool bWeaponRaised = false;
+	FVector WeaponAimPoint = FVector::ZeroVector;
+	bool bGlintOn = false;
+	bool bGlintTinted = false;
 
 	bool bKnockedDown = false;
 	bool bKnockdownRagdoll = false;

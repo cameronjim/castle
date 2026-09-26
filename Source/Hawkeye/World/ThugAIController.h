@@ -6,11 +6,14 @@
 #include "AIController.h"
 #include "Perception/AIPerceptionTypes.h"
 #include "World/ThugCharacter.h"
+#include "World/ThugTypes.h"
 #include "ThugAIController.generated.h"
 
+class AGrappleAnchor;
 class UAIPerceptionComponent;
 class UAISenseConfig_Hearing;
 class UAISenseConfig_Sight;
+class UStateTreeAIComponent;
 
 /** Where a stimulus came from, so tests can drive the state machine without a perception system. */
 UENUM(BlueprintType)
@@ -21,18 +24,28 @@ enum class EStimulusKind : uint8
 };
 
 /**
- * Thug brain. A plain C++ state machine on a 0.25 s think timer plus perception callbacks -
- * no behavior tree, because three states that a test can drive directly is worth more right now
- * than a tree nobody can assert on. Stage 3 replaces this with BT_Thug.
+ * Thug brain. The senses (perception, the archer's own sight check, smoke, the squad alert, the
+ * clocks that move Calm, Suspicious and Alerted) run on a 0.25 s think timer. What he does is one
+ * EThugMode at a time, chosen by a StateTree (the pawn's ThugStateTree, ST_Thug, built headless by
+ * UHawkeyeThugTreeBuilder in the partner's pattern): a state per mode in priority order, each entered
+ * on a FHawkeyeThugNeedCondition and running a FHawkeyeThugModeTask that calls RunMode. Without a tree
+ * (tests, a thug spawned from C++) Think picks the mode itself with ChooseMode, in the same order.
  *
- * Calm       patrol PatrolPoints, waiting PatrolWaitSeconds at each
- * Suspicious walk to the last stimulus, wait InvestigateSeconds, back to Calm
- * Alerted    by weapon. The gunner (EThugWeapon::Pistol) faces the player and fires every
- *            FireInterval inside EngageRange, closing in otherwise. Fists and Bat rush in at
- *            RushSpeed; inside MeleeEngageRange (250) they wind up a swing and keep closing to
- *            MeleeCloseDistance (120), swing again after MeleeCooldownSeconds, and back off
- *            MeleeBackOffDistance after every MeleeSwingsBeforeBackOff swings.
- *            Drops to Suspicious after LoseTargetSeconds with no perception.
+ * Patrol      Calm: PatrolPoints, waiting PatrolWaitSeconds at each
+ * Investigate Suspicious: walk to the last stimulus, wait InvestigateSeconds, back to Calm
+ * Attack      Alerted, by weapon. Fists and Bat rush in at RushSpeed; inside MeleeEngageRange (250)
+ *             they wind up a swing, close to MeleeCloseDistance, swing again after
+ *             MeleeCooldownSeconds, and back off after MeleeSwingsBeforeBackOff swings. The gunner
+ *             fires 3-shot bursts after a 0.8 s telegraph and ducks into cover after a burst or when
+ *             aimed at. The archer draws for 1.2 s and looses with lead at the chest.
+ * Cover       the gunner at a cover point (EQS_CoverPoints, or a C++ ring of candidates): hides,
+ *             peeks for a burst, and relocates every RelocateSeconds.
+ * Reposition  the gunner backing off to RetreatToDistance when she is inside RetreatTriggerDistance;
+ *             the archer zipping to another roof's grapple anchor when she is inside ArcherCloseRange.
+ *
+ * Alerted drops to Suspicious after LoseTargetSeconds with no perception. Going Alerted tells the
+ * squad: after SquadAlertDelay, thugs within SquadAlertRadius with a line of sight to him turn
+ * Suspicious toward where he last had her.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API AThugAIController : public AAIController
@@ -70,17 +83,99 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.0"))
 	float LoseTargetSeconds = 5.f;
 
-	/** Seconds between shots while Alerted. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.01"))
-	float FireInterval = 0.9f;
-
 	/** Half-angle of the random cone the thug's shots are scattered into. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.0"))
-	float AimSpreadDegrees = 6.f;
+	float AimSpreadDegrees = 4.f;
 
 	/** Inside this the thug shoots instead of closing the distance. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.0"))
 	float EngageRange = 1200.f;
+
+	// --- Gunner --------------------------------------------------------------------------------------
+
+	/** The telegraph (0.8 s, pistol raised, glint) and the burst (3 shots 0.25 s apart). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner")
+	FHawkeyeBurstClock Burst;
+
+	/** Between the end of one burst and the next telegraph when he stays in the open, seconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "0.0"))
+	float BurstPauseSeconds = 1.f;
+
+	/** Shots since he last took cover that send him back to it. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "1"))
+	int32 ShotsBeforeCover = 3;
+
+	/** How far he looks for a cover point, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "0.0"))
+	float CoverSearchRadius = 800.f;
+
+	/** At the cover point this long before he peeks, seconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "0.0"))
+	float CoverHideSeconds = 1.2f;
+
+	/** After this long at one cover point he moves to another, seconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "0.0"))
+	float RelocateSeconds = 6.f;
+
+	/** She closes inside this and he backs off, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "0.0"))
+	float RetreatTriggerDistance = 300.f;
+
+	/** Where he backs off to, cm from her. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "0.0"))
+	float RetreatToDistance = 600.f;
+
+	/** The longest a retreat lasts, arrived or not, seconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "0.0"))
+	float RetreatMaxSeconds = 3.f;
+
+	/** Her aim (camera forward while aiming or drawing) within this of his chest counts as aimed at him, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Gunner", meta = (ClampMin = "0.0"))
+	float AimedAtToleranceDegrees = 6.f;
+
+	// --- Archer --------------------------------------------------------------------------------------
+
+	/** He only fights when she is this close and in his line of sight, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
+	float ArcherAggroRange = 3000.f;
+
+	/** The near edge of the band he keeps, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
+	float ArcherMinRange = 1500.f;
+
+	/** The far edge of the band, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
+	float ArcherMaxRange = 2500.f;
+
+	/** She closes inside this and he zips to another roof, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
+	float ArcherCloseRange = 800.f;
+
+	/** Between one arrow and the next draw, seconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
+	float ArcherShotCooldownSeconds = 2.f;
+
+	/** Between one relocation and the next, seconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
+	float ArcherRelocateCooldownSeconds = 5.f;
+
+	/** The zip's speed, cm/s: the partner's grapple zip speed. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "1.0"))
+	float ArcherZipSpeed = 1800.f;
+
+	/** How far above her capsule centre he aims: the chest, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer")
+	float ChestHeight = 30.f;
+
+	// --- Squad ---------------------------------------------------------------------------------------
+
+	/** After going Alerted, this long before the squad hears about it, seconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Squad", meta = (ClampMin = "0.0"))
+	float SquadAlertDelay = 1.5f;
+
+	/** Thugs this close, with a line of sight to him, are told, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Squad", meta = (ClampMin = "0.0"))
+	float SquadAlertRadius = 1500.f;
 
 	// --- Melee rush (Fists and Bat) --------------------------------------------------------------
 
@@ -207,6 +302,112 @@ public:
 	/** True for a character crouched inside a smoke cloud: undetectable by sight or sound. */
 	static bool IsHiddenInSmoke(const AActor* Actor);
 
+	// --- Modes (the StateTree asks these) ------------------------------------------------------------
+
+	/** Whether Mode's reason to run exists now. Patrol always does. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Modes")
+	bool HasNeed(EThugMode Mode) const;
+
+	/** The first mode with a need, in priority order: Stunned, Reposition, Cover, Attack, Investigate, Patrol. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Modes")
+	EThugMode ChooseMode() const;
+
+	/** One step of Mode, DeltaSeconds long. The StateTree task calls it every tick; so does the fallback. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Modes")
+	void RunMode(EThugMode Mode, float DeltaSeconds);
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Modes")
+	EThugMode GetMode() const { return CurrentMode; }
+
+	/** True while ST_Thug is running this controller. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Modes")
+	bool IsUsingStateTree() const;
+
+	/** Any hit that cost him health: a burst or a draw in progress is broken. The thug calls it. */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void NotifyDamaged(AActor* By);
+
+	/** A squad mate went Alerted and can see him: Suspicious toward Location unless he is already Alerted. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Squad")
+	void ReceiveSquadAlert(FVector Location, AThugCharacter* From);
+
+	/** Seconds until this thug's squad alert goes out; below 0 when none is pending. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Squad")
+	float GetSquadAlertRemaining() const { return bSquadAlertPending ? SquadAlertRemaining : -1.f; }
+
+	// --- Gunner state --------------------------------------------------------------------------------
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	EGunnerPhase GetGunnerPhase() const { return GunnerPhase; }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	bool IsTelegraphing() const { return Burst.IsTelegraphing(); }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	bool IsBursting() const { return Burst.IsActive(); }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	bool HasCoverPoint() const { return bHasCover; }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	FVector GetCoverPoint() const { return CoverPoint; }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	bool IsRetreating() const { return bRetreating; }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	FVector GetRetreatGoal() const { return RetreatGoal; }
+
+	/** True when the player was aiming at him at the last think. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	bool IsAimedAt() const { return bAimedAt; }
+
+	/**
+	 * The nearest point within CoverSearchRadius that the line from Threat does not reach, through
+	 * the pawn's CoverQuery (EQS) when there is one and the EQS manager exists, otherwise rings of
+	 * candidates in C++. Points within 200 cm of Avoid (the cover he is leaving) are skipped.
+	 */
+	bool FindCoverPoint(const FVector& Threat, FVector& OutPoint, const FVector* Avoid = nullptr) const;
+
+	// --- Archer state --------------------------------------------------------------------------------
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Archer")
+	bool IsZipping() const { return bZipping; }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Archer")
+	FVector GetZipEnd() const { return ZipTo; }
+
+	/** Arrows this archer has loosed. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Archer")
+	int32 GetArrowsLoosed() const;
+
+	// --- Rules (pure, tested) ------------------------------------------------------------------------
+
+	/** Whether a view from ViewLocation along ViewDirection points within ToleranceDegrees of Point. */
+	static bool IsAimedAtPoint(const FVector& ViewLocation, const FVector& ViewDirection, const FVector& Point,
+		float ToleranceDegrees);
+
+	/**
+	 * Where to aim an arrow of ProjectileSpeed from From so it meets a target at TargetLocation moving
+	 * at TargetVelocity: the intercept point, raised by the drop gravity (GravityZ, negative) causes
+	 * over the flight. Falls back to the target itself when no intercept exists.
+	 */
+	static FVector ComputeLeadAimPoint(const FVector& From, const FVector& TargetLocation, const FVector& TargetVelocity,
+		float ProjectileSpeed, float GravityZ);
+
+	/** Hold, step back, approach or relocate for an archer Distance (2D) from his target. */
+	static EArcherRangeAction ChooseArcherRangeAction(float Distance, float CloseRange, float MinRange, float MaxRange);
+
+	/**
+	 * The gunner's retreat: true when Player is inside TriggerDistance (2D) of Thug, with OutGoal
+	 * RetreatDistance from Player on the line from her through him.
+	 */
+	static bool ComputeRetreatGoal(const FVector& Thug, const FVector& Player, float TriggerDistance, float RetreatDistance,
+		FVector& OutGoal);
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug")
+	TObjectPtr<UStateTreeAIComponent> StateTreeComponent;
+
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void OnUnPossess() override;
@@ -244,8 +445,56 @@ protected:
 	/** One shot at TargetActor through the thug's weapon, scattered by AimSpreadDegrees. */
 	void FireAtTarget();
 
-	/** The gunner's Alerted step: close to EngageRange, then stand and shoot. */
+	/** The gunner's Attack step: close to EngageRange, then telegraph and burst; to cover after a burst. */
 	void TickGunner(float DeltaSeconds, const FVector& ToTarget);
+
+	/** The gunner's Cover step: to the cover point, hide, then peek or relocate. */
+	void TickGunnerCover(float DeltaSeconds);
+
+	/** The gunner's Reposition step: back off to RetreatToDistance. */
+	void TickGunnerRetreat(float DeltaSeconds);
+
+	/** Picks a cover point away from the target and goes to it. False (and stays out) when there is none. */
+	bool BeginCover(const TCHAR* Why, const FVector* Avoid = nullptr);
+
+	/** The nearest spot beside CoverPoint with a line on the target, or CoverPoint itself. */
+	FVector FindPeekPoint() const;
+
+	/** Stops a burst in progress: glint off, pistol down. */
+	void CancelBurst(const TCHAR* Why);
+
+	/** The archer's Attack step: keep the band, draw, loose with lead. */
+	void TickArcher(float DeltaSeconds, const FVector& ToTarget);
+
+	/** The archer's Reposition step: the zip in flight. */
+	void TickArcherZip(float DeltaSeconds);
+
+	/** A zip to the anchor whose landing is best for the band. False when there is none. */
+	bool StartArcherRelocation(const TCHAR* Why);
+
+	/** Lets the string down without shooting. */
+	void CancelArcherDraw(const TCHAR* Why);
+
+	/** The archer's own sight: she is within ArcherAggroRange and nothing is in the way. Think runs it. */
+	void UpdateArcherSight();
+
+	/** The gunner's read of whether she is aiming at him. Think runs it. */
+	void UpdateAimedAt();
+
+	/** Counts the squad alert down and sends it. Think runs it. */
+	void UpdateSquadAlert(float DeltaSeconds);
+
+	/** A clear line from this pawn's eyes to Point, ignoring IgnoreActor. */
+	bool HasLineTo(const FVector& Point, const AActor* IgnoreActor) const;
+
+	/** Leaving one mode for another: drop what the old one was holding. */
+	void EnterMode(EThugMode NewMode);
+
+	/** The player's pawn, for the archer's sight when no target is set yet. */
+	APawn* FindPlayerPawn() const;
+
+	/** World seconds. */
+	double GetNowSeconds() const;
 
 	/** The Fists and Bat Alerted step: rush, wind up inside MeleeEngageRange, swing, back off. */
 	void TickMeleeRush(float DeltaSeconds, const FVector& ToTarget);
@@ -255,6 +504,12 @@ protected:
 
 	/** RushSpeed while Alerted with a melee weapon, the pawn's own walking speed otherwise. */
 	void ApplyMoveSpeed();
+
+	/** The EQS half of FindCoverPoint. False when there is no query or no manager, or nothing passed. */
+	bool FindCoverPointEqs(FVector& OutPoint, const FVector* Avoid) const;
+
+	/** The C++ half: three rings of twelve candidates, kept where the line from Threat is blocked. */
+	bool FindCoverPointRing(const FVector& Threat, FVector& OutPoint, const FVector* Avoid) const;
 
 	void SetState(EThugAlertState NewState);
 
@@ -293,7 +548,6 @@ private:
 	float UnseenSeconds = 0.f;
 	float InvestigateElapsed = 0.f;
 	float PatrolWaitElapsed = 0.f;
-	float TimeSinceLastShot = 0.f;
 	bool bPatrolWaiting = false;
 
 	/** Latches after the first failed move so a broken navmesh logs once, not four times a second. */
@@ -310,6 +564,39 @@ private:
 
 	/** The pawn's own MaxWalkSpeed, read at possession; the rush speed is laid over it. */
 	float BaseWalkSpeed = 300.f;
+
+	EThugMode CurrentMode = EThugMode::Patrol;
+
+	/** Gunner state. */
+	EGunnerPhase GunnerPhase = EGunnerPhase::Open;
+	int32 ShotsSinceCover = 0;
+	float BurstPauseRemaining = 0.f;
+	bool bHasCover = false;
+	FVector CoverPoint = FVector::ZeroVector;
+	FVector PeekPoint = FVector::ZeroVector;
+	float CoverElapsed = 0.f;
+	float HideElapsed = 0.f;
+	bool bAimedAt = false;
+	bool bLoggedJamHold = false;
+	/** A failed cover search is not repeated before this world time. */
+	double NextCoverSearchSeconds = -1.0;
+	bool bRetreating = false;
+	FVector RetreatGoal = FVector::ZeroVector;
+	float RetreatElapsed = 0.f;
+
+	/** Archer state. */
+	double LastArrowSeconds = -100.0;
+	double LastRelocateSeconds = -100.0;
+	bool bZipping = false;
+	FVector ZipFrom = FVector::ZeroVector;
+	FVector ZipTo = FVector::ZeroVector;
+	float ZipElapsed = 0.f;
+	float ZipSeconds = 0.f;
+	bool bLoggedNoAnchor = false;
+
+	/** Squad alert. */
+	bool bSquadAlertPending = false;
+	float SquadAlertRemaining = 0.f;
 
 	FTimerHandle ThinkTimerHandle;
 };

@@ -3,14 +3,24 @@
 #include "World/ThugAIController.h"
 
 #include "Hawkeye.h"
+#include "Camera/CameraComponent.h"
 #include "Combat/ArrowEffects/ArrowEffectsSubsystem.h"
+#include "Combat/BowComponent.h"
+#include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
 #include "Combat/WeaponComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/StateTreeAIComponent.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
+#include "EnvironmentQuery/EnvQuery.h"
+#include "EnvironmentQuery/EnvQueryManager.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "Perception/AIPerceptionComponent.h"
@@ -18,7 +28,20 @@
 #include "Perception/AISense_Sight.h"
 #include "Perception/AISenseConfig_Hearing.h"
 #include "Perception/AISenseConfig_Sight.h"
+#include "Player/HawkeyeCharacter.h"
+#include "StateTree.h"
 #include "TimerManager.h"
+#include "World/GrappleAnchor.h"
+
+namespace HawkeyeThugBrain
+{
+	/** Eye height above the capsule centre for line checks, cm. */
+	static constexpr float EyeHeight = 60.f;
+	/** A cover point this close to the one he is leaving is the same cover, cm. */
+	static constexpr float SameCoverDistance = 200.f;
+	/** Close enough to a move goal to count as there, cm. */
+	static constexpr float ArriveDistance = 90.f;
+}
 
 AThugAIController::AThugAIController()
 {
@@ -47,7 +70,100 @@ AThugAIController::AThugAIController()
 	ThugPerception->SetDominantSense(SightConfig->GetSenseImplementation());
 
 	SetPerceptionComponent(*ThugPerception);
+
+	StateTreeComponent = CreateDefaultSubobject<UStateTreeAIComponent>(TEXT("StateTreeComponent"));
+	// Started in OnPossess, once there is a pawn to read the tree from.
+	StateTreeComponent->SetStartLogicAutomatically(false);
 }
+
+// --- Rules -----------------------------------------------------------------------------------------
+
+bool AThugAIController::IsAimedAtPoint(const FVector& ViewLocation, const FVector& ViewDirection, const FVector& Point,
+	float ToleranceDegrees)
+{
+	const FVector To = (Point - ViewLocation).GetSafeNormal();
+	const FVector Forward = ViewDirection.GetSafeNormal();
+	if (To.IsNearlyZero() || Forward.IsNearlyZero())
+	{
+		return false;
+	}
+	return FVector::DotProduct(To, Forward) >= FMath::Cos(FMath::DegreesToRadians(ToleranceDegrees));
+}
+
+FVector AThugAIController::ComputeLeadAimPoint(const FVector& From, const FVector& TargetLocation,
+	const FVector& TargetVelocity, float ProjectileSpeed, float GravityZ)
+{
+	if (ProjectileSpeed <= KINDA_SMALL_NUMBER)
+	{
+		return TargetLocation;
+	}
+	// |D + V t| = s t  ->  (V.V - s^2) t^2 + 2 (D.V) t + D.D = 0, smallest positive root.
+	const FVector D = TargetLocation - From;
+	const double A = FVector::DotProduct(TargetVelocity, TargetVelocity) - static_cast<double>(ProjectileSpeed) * ProjectileSpeed;
+	const double B = 2.0 * FVector::DotProduct(D, TargetVelocity);
+	const double C = FVector::DotProduct(D, D);
+	double T = -1.0;
+	if (FMath::Abs(A) < 1e-6)
+	{
+		T = FMath::Abs(B) > 1e-6 ? -C / B : -1.0;
+	}
+	else
+	{
+		const double Disc = B * B - 4.0 * A * C;
+		if (Disc >= 0.0)
+		{
+			const double Root = FMath::Sqrt(Disc);
+			const double T1 = (-B - Root) / (2.0 * A);
+			const double T2 = (-B + Root) / (2.0 * A);
+			const double Lo = FMath::Min(T1, T2);
+			const double Hi = FMath::Max(T1, T2);
+			T = Lo > 0.0 ? Lo : Hi;
+		}
+	}
+	if (T <= 0.0)
+	{
+		return TargetLocation;
+	}
+	// Gravity pulls the arrow down 0.5 g t^2 over the flight; aim that much higher.
+	return TargetLocation + TargetVelocity * T + FVector(0.f, 0.f, -0.5 * GravityZ * T * T);
+}
+
+EArcherRangeAction AThugAIController::ChooseArcherRangeAction(float Distance, float CloseRange, float MinRange, float MaxRange)
+{
+	if (Distance < CloseRange)
+	{
+		return EArcherRangeAction::Relocate;
+	}
+	if (Distance < MinRange)
+	{
+		return EArcherRangeAction::StepBack;
+	}
+	if (Distance > MaxRange)
+	{
+		return EArcherRangeAction::Approach;
+	}
+	return EArcherRangeAction::Hold;
+}
+
+bool AThugAIController::ComputeRetreatGoal(const FVector& Thug, const FVector& Player, float TriggerDistance,
+	float RetreatDistance, FVector& OutGoal)
+{
+	const FVector Offset = Thug - Player;
+	if (Offset.Size2D() >= TriggerDistance)
+	{
+		OutGoal = Thug;
+		return false;
+	}
+	FVector Away = Offset.GetSafeNormal2D();
+	if (Away.IsNearlyZero())
+	{
+		Away = FVector(1.f, 0.f, 0.f);
+	}
+	OutGoal = FVector(Player.X, Player.Y, Thug.Z) + Away * RetreatDistance;
+	return true;
+}
+
+// --- Possession ------------------------------------------------------------------------------------
 
 void AThugAIController::OnPossess(APawn* InPawn)
 {
@@ -61,13 +177,24 @@ void AThugAIController::OnPossess(APawn* InPawn)
 
 	LastStimulusLocation = InPawn ? InPawn->GetActorLocation() : FVector::ZeroVector;
 
-	if (const AThugCharacter* Thug = GetThug())
+	AThugCharacter* Thug = GetThug();
+	if (Thug)
 	{
 		if (const UCharacterMovementComponent* Movement = Thug->GetCharacterMovement())
 		{
 			BaseWalkSpeed = Movement->MaxWalkSpeed;
 		}
 	}
+
+	if (Thug && Thug->ThugStateTree && StateTreeComponent)
+	{
+		StateTreeComponent->SetStateTree(Thug->ThugStateTree);
+		StateTreeComponent->StartLogic();
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: driving %s (%s, cover %s)."), *GetName(), *GetNameSafe(InPawn),
+		IsUsingStateTree() ? *FString::Printf(TEXT("StateTree %s"), *GetNameSafe(Thug ? Thug->ThugStateTree : nullptr))
+			: TEXT("C++ mode selection, no StateTree"),
+		Thug && Thug->CoverQuery ? *FString::Printf(TEXT("EQS %s"), *GetNameSafe(Thug->CoverQuery)) : TEXT("C++ ring"));
 
 	if (UWorld* World = GetWorld(); World && bThinkingEnabled)
 	{
@@ -88,6 +215,8 @@ void AThugAIController::SetThinkingEnabled(bool bEnabled)
 	if (!bEnabled)
 	{
 		StopMovement();
+		CancelBurst(TEXT("thinking off"));
+		CancelArcherDraw(TEXT("thinking off"));
 		if (World)
 		{
 			World->GetTimerManager().ClearTimer(ThinkTimerHandle);
@@ -106,6 +235,10 @@ void AThugAIController::OnUnPossess()
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(ThinkTimerHandle);
+	}
+	if (StateTreeComponent && StateTreeComponent->IsRunning())
+	{
+		StateTreeComponent->StopLogic(TEXT("Unpossessed"));
 	}
 
 	if (ThugPerception)
@@ -138,6 +271,24 @@ EThugAlertState AThugAIController::GetAlertState() const
 	return Thug ? Thug->GetAlertState() : EThugAlertState::Calm;
 }
 
+bool AThugAIController::IsUsingStateTree() const
+{
+	return StateTreeComponent && StateTreeComponent->IsRunning();
+}
+
+double AThugAIController::GetNowSeconds() const
+{
+	const UWorld* World = GetWorld();
+	return World ? World->GetTimeSeconds() : 0.0;
+}
+
+int32 AThugAIController::GetArrowsLoosed() const
+{
+	const AThugCharacter* Thug = GetThug();
+	const UBowComponent* Bow = Thug ? Thug->GetBowComponent() : nullptr;
+	return Bow ? Bow->GetArrowsLoosed() : 0;
+}
+
 void AThugAIController::SetState(EThugAlertState NewState)
 {
 	AThugCharacter* Thug = GetThug();
@@ -158,8 +309,23 @@ void AThugAIController::SetState(EThugAlertState NewState)
 	bBackingOff = false;
 	SwingsSinceBackOff = 0;
 
-	if (NewState != EThugAlertState::Alerted)
+	CancelBurst(TEXT("alert state changed"));
+	GunnerPhase = EGunnerPhase::Open;
+	bHasCover = false;
+	ShotsSinceCover = 0;
+	BurstPauseRemaining = 0.f;
+	bRetreating = false;
+
+	if (NewState == EThugAlertState::Alerted)
 	{
+		// The squad hears about it after SquadAlertDelay (claude-docs/gameplay-semantics.md).
+		bSquadAlertPending = true;
+		SquadAlertRemaining = SquadAlertDelay;
+	}
+	else
+	{
+		bSquadAlertPending = false;
+		CancelArcherDraw(TEXT("no longer alerted"));
 		StopMovement();
 	}
 	ApplyMoveSpeed();
@@ -173,9 +339,11 @@ void AThugAIController::ApplyMoveSpeed()
 	{
 		return;
 	}
-	const bool bRush = Thug->IsAlerted() && !Thug->IsGunner();
+	const bool bRush = Thug->IsAlerted() && !Thug->IsGunner() && !Thug->IsArcher();
 	Movement->MaxWalkSpeed = bRush ? RushSpeed : BaseWalkSpeed;
 }
+
+// --- Senses ----------------------------------------------------------------------------------------
 
 void AThugAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 {
@@ -185,6 +353,12 @@ void AThugAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus
 	}
 
 	const bool bIsSight = Stimulus.Type == UAISense::GetSenseID<UAISense_Sight>();
+	// The archer's eyes are his own check (ArcherAggroRange, any direction); perception's cone is not.
+	const AThugCharacter* Thug = GetThug();
+	if (bIsSight && Thug && Thug->IsArcher())
+	{
+		return;
+	}
 	// Crouched in the smoke she is not there, to eyes or ears.
 	const bool bSensed = Stimulus.WasSuccessfullySensed() && !IsHiddenInSmoke(Actor);
 	if (bSensed)
@@ -258,6 +432,146 @@ void AThugAIController::ReportStimulus(EStimulusKind Kind, FVector Location, boo
 	}
 }
 
+APawn* AThugAIController::FindPlayerPawn() const
+{
+	const UWorld* World = GetWorld();
+	const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	return PC ? PC->GetPawn() : nullptr;
+}
+
+bool AThugAIController::HasLineTo(const FVector& Point, const AActor* IgnoreActor) const
+{
+	const APawn* Me = GetPawn();
+	const UWorld* World = GetWorld();
+	if (!Me || !World)
+	{
+		return false;
+	}
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ThugLine), false, Me);
+	if (IgnoreActor)
+	{
+		Params.AddIgnoredActor(IgnoreActor);
+	}
+	const FVector Eye = Me->GetActorLocation() + FVector(0.f, 0.f, HawkeyeThugBrain::EyeHeight);
+	return !World->LineTraceTestByChannel(Eye, Point, ECC_Visibility, Params);
+}
+
+void AThugAIController::UpdateArcherSight()
+{
+	AActor* Candidate = IsValid(TargetActor) ? TargetActor.Get() : FindPlayerPawn();
+	const APawn* Me = GetPawn();
+	if (!Candidate || !Me)
+	{
+		return;
+	}
+	const FVector Chest = Candidate->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	const bool bInRange = FVector::Dist(Candidate->GetActorLocation(), Me->GetActorLocation()) <= ArcherAggroRange;
+	const bool bVisible = bInRange && !IsHiddenInSmoke(Candidate) && HasLineTo(Chest, Candidate);
+	if (bVisible)
+	{
+		TargetActor = Candidate;
+	}
+	ReportStimulus(EStimulusKind::Sight, Candidate->GetActorLocation(), bVisible);
+}
+
+void AThugAIController::UpdateAimedAt()
+{
+	bAimedAt = false;
+	const AHawkeyeCharacter* Player = Cast<AHawkeyeCharacter>(TargetActor);
+	const APawn* Me = GetPawn();
+	if (!Player || !Me || !(Player->IsAiming() || Player->IsDrawingBow()))
+	{
+		return;
+	}
+	const UCameraComponent* Camera = Player->GetFollowCamera();
+	const FVector View = Camera ? Camera->GetComponentLocation() : Player->GetPawnViewLocation();
+	const FVector Forward = Camera ? Camera->GetForwardVector() : Player->GetControlRotation().Vector();
+	bAimedAt = IsAimedAtPoint(View, Forward, Me->GetActorLocation() + FVector(0.f, 0.f, 20.f), AimedAtToleranceDegrees);
+}
+
+void AThugAIController::UpdateSquadAlert(float DeltaSeconds)
+{
+	if (!bSquadAlertPending)
+	{
+		return;
+	}
+	SquadAlertRemaining -= DeltaSeconds;
+	if (SquadAlertRemaining > 0.f)
+	{
+		return;
+	}
+	bSquadAlertPending = false;
+	AThugCharacter* Me = GetThug();
+	UWorld* World = GetWorld();
+	if (!Me || !World || !Me->IsAlerted())
+	{
+		return;
+	}
+	const FVector Where = IsValid(TargetActor) ? TargetActor->GetActorLocation() : LastStimulusLocation;
+	const FVector MyEye = Me->GetActorLocation() + FVector(0.f, 0.f, HawkeyeThugBrain::EyeHeight);
+	int32 Told = 0;
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
+	{
+		AThugCharacter* Other = *It;
+		const UHealthComponent* Health = Other ? Other->GetHealthComponent() : nullptr;
+		if (Other == Me || !Health || !Health->IsAlive() || Other->IsLimp() || Other->IsAlerted()
+			|| FVector::Dist(Other->GetActorLocation(), Me->GetActorLocation()) > SquadAlertRadius)
+		{
+			continue;
+		}
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(ThugSquad), false, Me);
+		Params.AddIgnoredActor(Other);
+		const FVector OtherEye = Other->GetActorLocation() + FVector(0.f, 0.f, HawkeyeThugBrain::EyeHeight);
+		if (World->LineTraceTestByChannel(MyEye, OtherEye, ECC_Visibility, Params))
+		{
+			continue;
+		}
+		if (AThugAIController* Brain = Cast<AThugAIController>(Other->GetController()))
+		{
+			Brain->ReceiveSquadAlert(Where, Me);
+			++Told;
+		}
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: squad alert after %.1f s: %d thug(s) within %.0f cm with a line to him."),
+		*Me->GetName(), SquadAlertDelay, Told, SquadAlertRadius);
+}
+
+void AThugAIController::ReceiveSquadAlert(FVector Location, AThugCharacter* From)
+{
+	AThugCharacter* Thug = GetThug();
+	if (!Thug || Thug->IsAlerted())
+	{
+		return;
+	}
+	LastStimulusLocation = Location;
+	InvestigateElapsed = 0.f;
+	if (Thug->GetAlertState() == EThugAlertState::Calm)
+	{
+		SetState(EThugAlertState::Suspicious);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: squad alert from %s, suspicious toward %s."), *Thug->GetName(), *GetNameSafe(From),
+		*Location.ToCompactString());
+}
+
+void AThugAIController::NotifyDamaged(AActor* By)
+{
+	const AThugCharacter* Thug = GetThug();
+	if (!Thug)
+	{
+		return;
+	}
+	if (Burst.IsActive())
+	{
+		CancelBurst(*FString::Printf(TEXT("hit by %s"), *GetNameSafe(By)));
+	}
+	if (Thug->GetBowComponent() && Thug->GetBowComponent()->IsDrawing())
+	{
+		CancelArcherDraw(*FString::Printf(TEXT("hit by %s"), *GetNameSafe(By)));
+	}
+}
+
+// --- Think -----------------------------------------------------------------------------------------
+
 void AThugAIController::TickThink()
 {
 	Think(ThinkIntervalSeconds);
@@ -271,24 +585,25 @@ void AThugAIController::Think(float DeltaSeconds)
 		if (JamRemaining <= 0.f)
 		{
 			UE_LOG(LogHawkeye, Log, TEXT("%s: pistol unjammed."), *GetName());
+			bLoggedJamHold = false;
 		}
 	}
+	UpdateSquadAlert(DeltaSeconds);
 
 	AThugCharacter* Thug = GetThug();
-	// A hit reaction, a knockdown or the putty owns him for its length: no moving, no attacking.
-	if (!Thug || Thug->IsIncapacitated() || bHeld)
+	if (!Thug || HasNeed(EThugMode::Stunned))
 	{
+		if (!IsUsingStateTree())
+		{
+			RunMode(EThugMode::Stunned, DeltaSeconds);
+		}
 		return;
 	}
 
-	if (const UHealthComponent* Health = Thug->GetHealthComponent())
+	if (Thug->IsArcher())
 	{
-		if (!Health->IsAlive())
-		{
-			return;
-		}
+		UpdateArcherSight();
 	}
-
 	UpdateBlinded();
 	bSeesTarget = bPerceivesTarget && !bBlinded;
 
@@ -308,20 +623,135 @@ void AThugAIController::Think(float DeltaSeconds)
 	{
 		SetState(EThugAlertState::Alerted);
 	}
-
-	switch (Thug->GetAlertState())
+	if (Thug->IsAlerted() && UnseenSeconds >= LoseTargetSeconds)
 	{
-	case EThugAlertState::Calm:
-		TickCalm(DeltaSeconds);
+		SetState(EThugAlertState::Suspicious);
+	}
+	if (Thug->IsGunner())
+	{
+		UpdateAimedAt();
+	}
+
+	if (!IsUsingStateTree())
+	{
+		RunMode(ChooseMode(), DeltaSeconds);
+	}
+}
+
+bool AThugAIController::HasNeed(EThugMode Mode) const
+{
+	const AThugCharacter* Thug = GetThug();
+	const UHealthComponent* Health = Thug ? Thug->GetHealthComponent() : nullptr;
+	const bool bStunned = !Thug || !bThinkingEnabled || bHeld || Thug->IsIncapacitated() || Thug->IsLimp()
+		|| (Health && !Health->IsAlive());
+	if (Mode == EThugMode::Stunned)
+	{
+		return bStunned;
+	}
+	if (bStunned)
+	{
+		return false;
+	}
+	const bool bAlerted = Thug->IsAlerted();
+	const bool bEngaged = bAlerted && IsValid(TargetActor) && !bBlinded;
+	switch (Mode)
+	{
+	case EThugMode::Reposition:
+		if (!bEngaged && !bZipping)
+		{
+			return false;
+		}
+		if (Thug->IsArcher())
+		{
+			return bZipping;
+		}
+		if (Thug->IsGunner())
+		{
+			return bRetreating
+				|| FVector::Dist2D(TargetActor->GetActorLocation(), Thug->GetActorLocation()) < RetreatTriggerDistance;
+		}
+		return false;
+	case EThugMode::Cover:
+		return bEngaged && Thug->IsGunner() && GunnerPhase == EGunnerPhase::Covering && bHasCover;
+	case EThugMode::Attack:
+		return bAlerted;
+	case EThugMode::Investigate:
+		return Thug->GetAlertState() == EThugAlertState::Suspicious;
+	case EThugMode::Patrol:
+	default:
+		return true;
+	}
+}
+
+EThugMode AThugAIController::ChooseMode() const
+{
+	static const EThugMode Order[] = {
+		EThugMode::Stunned, EThugMode::Reposition, EThugMode::Cover, EThugMode::Attack, EThugMode::Investigate,
+	};
+	for (const EThugMode Mode : Order)
+	{
+		if (HasNeed(Mode))
+		{
+			return Mode;
+		}
+	}
+	return EThugMode::Patrol;
+}
+
+void AThugAIController::EnterMode(EThugMode NewMode)
+{
+	const EThugMode Old = CurrentMode;
+	CurrentMode = NewMode;
+	UE_LOG(LogHawkeye, Verbose, TEXT("%s: mode %s -> %s."), *GetName(), *UEnum::GetValueAsString(Old),
+		*UEnum::GetValueAsString(NewMode));
+	if (NewMode == EThugMode::Stunned)
+	{
+		CancelBurst(TEXT("stunned"));
+		CancelArcherDraw(TEXT("stunned"));
+	}
+	if (Old == EThugMode::Attack && NewMode != EThugMode::Attack)
+	{
+		CancelArcherDraw(TEXT("left the attack"));
+	}
+}
+
+void AThugAIController::RunMode(EThugMode Mode, float DeltaSeconds)
+{
+	if (Mode != CurrentMode)
+	{
+		EnterMode(Mode);
+	}
+	switch (Mode)
+	{
+	case EThugMode::Stunned:
 		break;
-	case EThugAlertState::Suspicious:
+	case EThugMode::Reposition:
+		if (const AThugCharacter* Thug = GetThug(); Thug && Thug->IsArcher())
+		{
+			TickArcherZip(DeltaSeconds);
+		}
+		else
+		{
+			TickGunnerRetreat(DeltaSeconds);
+		}
+		break;
+	case EThugMode::Cover:
+		TickGunnerCover(DeltaSeconds);
+		break;
+	case EThugMode::Attack:
+		TickAlerted(DeltaSeconds);
+		break;
+	case EThugMode::Investigate:
 		TickSuspicious(DeltaSeconds);
 		break;
-	case EThugAlertState::Alerted:
-		TickAlerted(DeltaSeconds);
+	case EThugMode::Patrol:
+	default:
+		TickCalm(DeltaSeconds);
 		break;
 	}
 }
+
+// --- Calm and Suspicious ---------------------------------------------------------------------------
 
 void AThugAIController::TickCalm(float DeltaSeconds)
 {
@@ -411,23 +841,27 @@ void AThugAIController::ReportMoveResult(EPathFollowingRequestResult::Type Resul
 
 void AThugAIController::TickSuspicious(float DeltaSeconds)
 {
-	if (GetMoveStatus() == EPathFollowingStatus::Moving)
+	AThugCharacter* Thug = GetThug();
+	if (!Thug)
 	{
 		return;
 	}
-
-	const AThugCharacter* Thug = GetThug();
-	const float DistanceSq = Thug
-		? FVector::DistSquared2D(Thug->GetActorLocation(), LastStimulusLocation)
-		: 0.f;
-
-	if (DistanceSq > FMath::Square(120.f))
+	// An archer holds his roof: he turns to the noise instead of walking off to it.
+	if (Thug->IsArcher())
+	{
+		FaceTarget(Thug, LastStimulusLocation - Thug->GetActorLocation());
+	}
+	else if (GetMoveStatus() == EPathFollowingStatus::Moving)
+	{
+		return;
+	}
+	else if (FVector::DistSquared2D(Thug->GetActorLocation(), LastStimulusLocation) > FMath::Square(120.f))
 	{
 		RequestMoveToLocation(LastStimulusLocation, /*AcceptanceRadius=*/60.f);
 		return;
 	}
 
-	// Standing on the noise with nothing to show for it.
+	// Standing on the noise (or facing it) with nothing to show for it.
 	InvestigateElapsed += DeltaSeconds;
 	if (InvestigateElapsed >= InvestigateSeconds)
 	{
@@ -435,17 +869,13 @@ void AThugAIController::TickSuspicious(float DeltaSeconds)
 	}
 }
 
+// --- Alerted ---------------------------------------------------------------------------------------
+
 void AThugAIController::TickAlerted(float DeltaSeconds)
 {
 	AThugCharacter* Thug = GetThug();
 	if (!Thug)
 	{
-		return;
-	}
-
-	if (UnseenSeconds >= LoseTargetSeconds)
-	{
-		SetState(EThugAlertState::Suspicious);
 		return;
 	}
 
@@ -460,6 +890,8 @@ void AThugAIController::TickAlerted(float DeltaSeconds)
 	if (bBlinded)
 	{
 		StopMovement();
+		CancelBurst(TEXT("blinded"));
+		CancelArcherDraw(TEXT("blinded"));
 		return;
 	}
 
@@ -476,31 +908,592 @@ void AThugAIController::TickAlerted(float DeltaSeconds)
 	{
 		TickGunner(DeltaSeconds, ToTarget);
 	}
+	else if (Thug->IsArcher())
+	{
+		TickArcher(DeltaSeconds, ToTarget);
+	}
 	else
 	{
 		TickMeleeRush(DeltaSeconds, ToTarget);
 	}
 }
 
+// --- Gunner ----------------------------------------------------------------------------------------
+
+void AThugAIController::CancelBurst(const TCHAR* Why)
+{
+	AThugCharacter* Thug = GetThug();
+	if (Burst.IsActive())
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: burst broken (%s) after %d shot(s)."), *GetNameSafe(Thug), Why,
+			Burst.GetShotsFired());
+	}
+	Burst.Cancel();
+	if (Thug)
+	{
+		Thug->SetTelegraphGlint(false);
+		if (Thug->IsGunner())
+		{
+			Thug->SetWeaponRaised(false, FVector::ZeroVector);
+		}
+	}
+}
+
 void AThugAIController::TickGunner(float DeltaSeconds, const FVector& ToTarget)
 {
-	TimeSinceLastShot += DeltaSeconds;
-
-	if (ToTarget.Size2D() > EngageRange)
+	AThugCharacter* Thug = GetThug();
+	if (!Thug)
 	{
+		return;
+	}
+	BurstPauseRemaining = FMath::Max(0.f, BurstPauseRemaining - DeltaSeconds);
+
+	if (ToTarget.Size2D() > EngageRange && GunnerPhase != EGunnerPhase::Peeking)
+	{
+		CancelBurst(TEXT("out of range"));
 		RequestMoveToActor(TargetActor, /*AcceptanceRadius=*/EngageRange * 0.8f);
 		return;
 	}
 
-	StopMovement();
-	FaceTarget(GetThug(), ToTarget);
-
-	if (TimeSinceLastShot >= FireInterval)
+	// Stepping out to the peek spot first.
+	if (GunnerPhase == EGunnerPhase::Peeking && !Burst.IsActive()
+		&& FVector::Dist2D(Thug->GetActorLocation(), PeekPoint) > HawkeyeThugBrain::ArriveDistance)
 	{
-		TimeSinceLastShot = 0.f;
+		if (GetMoveStatus() != EPathFollowingStatus::Moving)
+		{
+			RequestMoveToLocation(PeekPoint, 40.f);
+		}
+		return;
+	}
+
+	StopMovement();
+	FaceTarget(Thug, ToTarget);
+	const FVector Chest = TargetActor->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+
+	// Aimed at while out in the open: he ducks, if there is anywhere to duck to. A peek is committed.
+	if (bAimedAt && GunnerPhase == EGunnerPhase::Open && BeginCover(TEXT("aimed at")))
+	{
+		return;
+	}
+
+	if (!Burst.IsActive())
+	{
+		if (IsJammed())
+		{
+			if (!bLoggedJamHold)
+			{
+				bLoggedJamHold = true;
+				UE_LOG(LogHawkeye, Log, TEXT("%s: jammed, holds fire (%.1f s left)."), *Thug->GetName(), JamRemaining);
+			}
+			Thug->SetWeaponRaised(false, Chest);
+			return;
+		}
+		if (BurstPauseRemaining > 0.f)
+		{
+			return;
+		}
+		Burst.Start();
+		Thug->SetWeaponRaised(true, Chest);
+		Thug->SetTelegraphGlint(true);
+		UE_LOG(LogHawkeye, Log, TEXT("%s: raises his pistol at %s from %.0f cm: %.1f s telegraph, then %d shots."),
+			*Thug->GetName(), *GetNameSafe(TargetActor), ToTarget.Size(), Burst.TelegraphSeconds, Burst.ShotsPerBurst);
+		return;
+	}
+
+	Thug->SetWeaponRaised(true, Chest);
+	const int32 Shots = Burst.Advance(DeltaSeconds);
+	if (!Burst.IsTelegraphing())
+	{
+		Thug->SetTelegraphGlint(false);
+	}
+	for (int32 Shot = 0; Shot < Shots; ++Shot)
+	{
 		FireAtTarget();
+		++ShotsSinceCover;
+	}
+	if (Burst.IsActive())
+	{
+		return;
+	}
+
+	// The burst is over.
+	Thug->SetWeaponRaised(false, Chest);
+	BurstPauseRemaining = BurstPauseSeconds;
+	const bool bWasPeeking = GunnerPhase == EGunnerPhase::Peeking;
+	if (ShotsSinceCover >= ShotsBeforeCover)
+	{
+		if (bWasPeeking && bHasCover)
+		{
+			// Back behind the same cover.
+			GunnerPhase = EGunnerPhase::Covering;
+			HideElapsed = 0.f;
+			RequestMoveToLocation(CoverPoint, 40.f);
+			UE_LOG(LogHawkeye, Log, TEXT("%s: back into cover after %d shots."), *Thug->GetName(), ShotsSinceCover);
+			ShotsSinceCover = 0;
+		}
+		else if (!BeginCover(TEXT("fired a burst")))
+		{
+			ShotsSinceCover = 0;
+		}
 	}
 }
+
+bool AThugAIController::BeginCover(const TCHAR* Why, const FVector* Avoid)
+{
+	AThugCharacter* Thug = GetThug();
+	if (!Thug || !IsValid(TargetActor))
+	{
+		return false;
+	}
+	// Searching is dozens of traces; a failed search waits a second before the next.
+	const double Now = GetNowSeconds();
+	if (Now < NextCoverSearchSeconds)
+	{
+		return false;
+	}
+	FVector Point;
+	if (!FindCoverPoint(TargetActor->GetActorLocation(), Point, Avoid))
+	{
+		NextCoverSearchSeconds = Now + 1.0;
+		UE_LOG(LogHawkeye, Verbose, TEXT("%s: no cover within %.0f cm (%s); stays out."), *Thug->GetName(),
+			CoverSearchRadius, Why);
+		return false;
+	}
+	CancelBurst(Why);
+	bHasCover = true;
+	CoverPoint = Point;
+	CoverElapsed = 0.f;
+	HideElapsed = 0.f;
+	ShotsSinceCover = 0;
+	GunnerPhase = EGunnerPhase::Covering;
+	RequestMoveToLocation(CoverPoint, 40.f);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: takes cover (%s) at %s, %.0f cm away, out of %s's line."), *Thug->GetName(), Why,
+		*CoverPoint.ToCompactString(), FVector::Dist2D(CoverPoint, Thug->GetActorLocation()), *GetNameSafe(TargetActor));
+	return true;
+}
+
+void AThugAIController::TickGunnerCover(float DeltaSeconds)
+{
+	AThugCharacter* Thug = GetThug();
+	if (!Thug || !IsValid(TargetActor))
+	{
+		return;
+	}
+	CoverElapsed += DeltaSeconds;
+	Thug->SetWeaponRaised(false, FVector::ZeroVector);
+	if (FVector::Dist2D(Thug->GetActorLocation(), CoverPoint) > HawkeyeThugBrain::ArriveDistance)
+	{
+		if (GetMoveStatus() != EPathFollowingStatus::Moving)
+		{
+			RequestMoveToLocation(CoverPoint, 40.f);
+		}
+		// Never stuck on the way: after the relocation time he gives up on this one.
+		if (CoverElapsed < RelocateSeconds)
+		{
+			return;
+		}
+	}
+	FaceTarget(Thug, TargetActor->GetActorLocation() - Thug->GetActorLocation());
+	HideElapsed += DeltaSeconds;
+	if (HideElapsed < CoverHideSeconds)
+	{
+		return;
+	}
+	// Every RelocateSeconds a new cover point; otherwise a peek from this one.
+	if (CoverElapsed >= RelocateSeconds)
+	{
+		const FVector Old = CoverPoint;
+		if (BeginCover(TEXT("relocating"), &Old))
+		{
+			UE_LOG(LogHawkeye, Log, TEXT("%s: relocates after %.1f s at %s."), *Thug->GetName(), RelocateSeconds,
+				*Old.ToCompactString());
+			return;
+		}
+		CoverElapsed = 0.f;
+	}
+	PeekPoint = FindPeekPoint();
+	GunnerPhase = EGunnerPhase::Peeking;
+	HideElapsed = 0.f;
+	RequestMoveToLocation(PeekPoint, 40.f);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: peeks from cover at %s."), *Thug->GetName(), *PeekPoint.ToCompactString());
+}
+
+FVector AThugAIController::FindPeekPoint() const
+{
+	UWorld* World = GetWorld();
+	const APawn* Me = GetPawn();
+	if (!World || !Me || !IsValid(TargetActor))
+	{
+		return CoverPoint;
+	}
+	const UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+	const FVector Chest = TargetActor->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ThugPeek), false, Me);
+	Params.AddIgnoredActor(TargetActor);
+	for (const float Radius : { 100.f, 180.f, 260.f })
+	{
+		for (int32 Step = 0; Step < 8; ++Step)
+		{
+			FVector Candidate = CoverPoint + FRotator(0.f, Step * 45.f, 0.f).Vector() * Radius;
+			FNavLocation OnNav;
+			if (Nav && Nav->ProjectPointToNavigation(Candidate, OnNav, FVector(60.f, 60.f, 200.f)))
+			{
+				Candidate = OnNav.Location + FVector(0.f, 0.f, 90.f);
+			}
+			if (!World->LineTraceTestByChannel(Candidate + FVector(0.f, 0.f, HawkeyeThugBrain::EyeHeight), Chest,
+					ECC_Visibility, Params))
+			{
+				return Candidate;
+			}
+		}
+	}
+	return CoverPoint;
+}
+
+void AThugAIController::TickGunnerRetreat(float DeltaSeconds)
+{
+	AThugCharacter* Thug = GetThug();
+	if (!Thug || !IsValid(TargetActor))
+	{
+		bRetreating = false;
+		return;
+	}
+	const FVector Player = TargetActor->GetActorLocation();
+	if (!bRetreating)
+	{
+		FVector Goal;
+		if (!ComputeRetreatGoal(Thug->GetActorLocation(), Player, RetreatTriggerDistance, RetreatToDistance, Goal))
+		{
+			return;
+		}
+		// Somewhere he can stand: on a roof the straight line may run off the edge.
+		FNavLocation OnNav;
+		const UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(GetWorld());
+		if (Nav && Nav->ProjectPointToNavigation(Goal, OnNav, FVector(200.f, 200.f, 250.f)))
+		{
+			Goal = OnNav.Location;
+		}
+		CancelBurst(TEXT("backing off"));
+		GunnerPhase = EGunnerPhase::Open;
+		bHasCover = false;
+		bRetreating = true;
+		RetreatGoal = Goal;
+		RetreatElapsed = 0.f;
+		RequestMoveToLocation(RetreatGoal, 40.f);
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %s closed to %.0f cm; backs off to %.0f cm (%s)."), *Thug->GetName(),
+			*GetNameSafe(TargetActor), FVector::Dist2D(Player, Thug->GetActorLocation()), RetreatToDistance,
+			*RetreatGoal.ToCompactString());
+		return;
+	}
+	RetreatElapsed += DeltaSeconds;
+	const float Distance = FVector::Dist2D(Player, Thug->GetActorLocation());
+	const bool bArrived = FVector::Dist2D(Thug->GetActorLocation(), RetreatGoal) <= HawkeyeThugBrain::ArriveDistance;
+	if (Distance >= RetreatToDistance - 50.f || bArrived || RetreatElapsed >= RetreatMaxSeconds)
+	{
+		bRetreating = false;
+		StopMovement();
+		UE_LOG(LogHawkeye, Log, TEXT("%s: done backing off, %.0f cm from %s."), *Thug->GetName(), Distance,
+			*GetNameSafe(TargetActor));
+	}
+}
+
+bool AThugAIController::FindCoverPoint(const FVector& Threat, FVector& OutPoint, const FVector* Avoid) const
+{
+	if (FindCoverPointEqs(OutPoint, Avoid))
+	{
+		return true;
+	}
+	return FindCoverPointRing(Threat, OutPoint, Avoid);
+}
+
+bool AThugAIController::FindCoverPointEqs(FVector& OutPoint, const FVector* Avoid) const
+{
+	AThugCharacter* Thug = GetThug();
+	UWorld* World = GetWorld();
+	UEnvQueryManager* Manager = World ? UEnvQueryManager::GetCurrent(World) : nullptr;
+	if (!Thug || !Thug->CoverQuery || !Manager || !IsValid(TargetActor))
+	{
+		return false;
+	}
+	// EQS_CoverPoints: a donut around him, filtered by a trace from the target (ThugTarget context),
+	// scored nearest first. All matching, so the cover he is leaving can be skipped.
+	FEnvQueryRequest Request(Thug->CoverQuery, Thug);
+	const TSharedPtr<FEnvQueryResult> Result = Manager->RunInstantQuery(Request, EEnvQueryRunMode::AllMatching);
+	if (!Result.IsValid() || !Result->IsSuccessful())
+	{
+		return false;
+	}
+	for (int32 Index = 0; Index < Result->Items.Num(); ++Index)
+	{
+		const FVector Point = Result->GetItemAsLocation(Index) + FVector(0.f, 0.f, 90.f);
+		if (Avoid && FVector::Dist2D(Point, *Avoid) < HawkeyeThugBrain::SameCoverDistance)
+		{
+			continue;
+		}
+		OutPoint = Point;
+		return true;
+	}
+	return false;
+}
+
+bool AThugAIController::FindCoverPointRing(const FVector& Threat, FVector& OutPoint, const FVector* Avoid) const
+{
+	const APawn* Me = GetPawn();
+	UWorld* World = GetWorld();
+	if (!Me || !World)
+	{
+		return false;
+	}
+	// The partner's EQS-shaped search, without an asset: rings of candidates, kept where the
+	// shooter's line is blocked and the spot itself is open.
+	const UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(ThugCover), false, Me);
+	if (IsValid(TargetActor))
+	{
+		Params.AddIgnoredActor(TargetActor);
+	}
+	const FVector Eye = Threat + FVector(0.f, 0.f, HawkeyeThugBrain::EyeHeight);
+	const float Radius = Me->GetSimpleCollisionRadius() * 0.8f;
+	for (const float Ring : { CoverSearchRadius * 0.4f, CoverSearchRadius * 0.7f, CoverSearchRadius })
+	{
+		float BestDistance = TNumericLimits<float>::Max();
+		bool bFound = false;
+		for (int32 Step = 0; Step < 12; ++Step)
+		{
+			FVector Candidate = Me->GetActorLocation() + FRotator(0.f, Step * 30.f, 0.f).Vector() * Ring;
+			FNavLocation OnNav;
+			if (Nav && Nav->ProjectPointToNavigation(Candidate, OnNav, FVector(100.f, 100.f, 250.f)))
+			{
+				Candidate = OnNav.Location + FVector(0.f, 0.f, 90.f);
+			}
+			if (Avoid && FVector::Dist2D(Candidate, *Avoid) < HawkeyeThugBrain::SameCoverDistance)
+			{
+				continue;
+			}
+			// Inside a wall is not cover.
+			if (World->OverlapBlockingTestByChannel(Candidate, FQuat::Identity, ECC_Visibility,
+					FCollisionShape::MakeSphere(Radius), Params))
+			{
+				continue;
+			}
+			if (!World->LineTraceTestByChannel(Eye, Candidate, ECC_Visibility, Params))
+			{
+				continue;
+			}
+			const float Distance = FVector::Dist2D(Candidate, Me->GetActorLocation());
+			if (Distance < BestDistance)
+			{
+				BestDistance = Distance;
+				OutPoint = Candidate;
+				bFound = true;
+			}
+		}
+		if (bFound)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+// --- Archer ----------------------------------------------------------------------------------------
+
+void AThugAIController::CancelArcherDraw(const TCHAR* Why)
+{
+	AThugCharacter* Thug = GetThug();
+	UBowComponent* Bow = Thug ? Thug->GetBowComponent() : nullptr;
+	if (!Bow || !Thug->IsArcher())
+	{
+		return;
+	}
+	if (Bow->IsDrawing())
+	{
+		Bow->CancelDraw();
+		UE_LOG(LogHawkeye, Log, TEXT("%s: draw broken (%s)."), *Thug->GetName(), Why);
+		// A broken draw still costs him the cooldown before the next.
+		LastArrowSeconds = GetNowSeconds();
+	}
+	Thug->SetTelegraphGlint(false);
+}
+
+void AThugAIController::TickArcher(float DeltaSeconds, const FVector& ToTarget)
+{
+	AThugCharacter* Thug = GetThug();
+	UBowComponent* Bow = Thug ? Thug->GetBowComponent() : nullptr;
+	const UBowDefinition* BowDef = Bow ? Bow->GetBow() : nullptr;
+	if (!Bow || !BowDef)
+	{
+		return;
+	}
+	const double Now = GetNowSeconds();
+	const float Distance = ToTarget.Size2D();
+
+	// The band: inside ArcherCloseRange he leaves the roof; out past the far edge he looks for a nearer one.
+	const EArcherRangeAction Action = ChooseArcherRangeAction(Distance, ArcherCloseRange, ArcherMinRange, ArcherMaxRange);
+	const bool bCanRelocate = Now - LastRelocateSeconds >= ArcherRelocateCooldownSeconds;
+	if ((Action == EArcherRangeAction::Relocate || (Action == EArcherRangeAction::Approach && Distance > ArcherAggroRange))
+		&& bCanRelocate && StartArcherRelocation(Action == EArcherRangeAction::Relocate ? TEXT("she closed in") : TEXT("out of range")))
+	{
+		return;
+	}
+	if (Action == EArcherRangeAction::StepBack && !Bow->IsDrawing() && GetMoveStatus() != EPathFollowingStatus::Moving)
+	{
+		const FVector Away = -ToTarget.GetSafeNormal2D();
+		FNavLocation Spot;
+		const UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(GetWorld());
+		const float Step = FMath::Min(ArcherMinRange - Distance + 100.f, 400.f);
+		if (Nav && Nav->ProjectPointToNavigation(Thug->GetActorLocation() + Away * Step, Spot, FVector(50.f, 50.f, 150.f))
+			&& FVector::Dist2D(Spot.Location, Thug->GetActorLocation()) > 100.f)
+		{
+			RequestMoveToLocation(Spot.Location, 30.f);
+			UE_LOG(LogHawkeye, Verbose, TEXT("%s: steps back %.0f cm to keep %.0f cm."), *Thug->GetName(), Step, ArcherMinRange);
+			return;
+		}
+	}
+	if (GetMoveStatus() == EPathFollowingStatus::Moving && !Bow->IsDrawing())
+	{
+		return;
+	}
+	StopMovement();
+	FaceTarget(Thug, ToTarget);
+
+	// Lead on her velocity, at the chest, allowing for the drop.
+	const FVector Chest = TargetActor->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	const UWorld* World = GetWorld();
+	const float GravityZ = World ? World->GetGravityZ() : -980.f;
+	const FVector Aim = ComputeLeadAimPoint(Bow->GetArrowSpawnLocation(), Chest, TargetActor->GetVelocity(),
+		BowDef->MaxSpeed, GravityZ);
+	FRotator AimRotation = (Aim - Thug->GetPawnViewLocation()).Rotation();
+	AimRotation.Roll = 0.f;
+	SetControlRotation(AimRotation);
+	Bow->SetAimOverride(Aim);
+
+	const bool bLine = HasLineTo(Chest, TargetActor);
+	if (!Bow->IsDrawing())
+	{
+		if (!bLine || Now - LastArrowSeconds < ArcherShotCooldownSeconds)
+		{
+			return;
+		}
+		if (Bow->StartDraw())
+		{
+			Thug->SetTelegraphGlint(true);
+			UE_LOG(LogHawkeye, Log, TEXT("%s: the bowstring creaks: drawing on %s at %.0f cm (%.1f s)."), *Thug->GetName(),
+				*GetNameSafe(TargetActor), ToTarget.Size(), BowDef->FullDrawSeconds);
+		}
+		return;
+	}
+	if (!bLine)
+	{
+		CancelArcherDraw(TEXT("lost his line"));
+		return;
+	}
+	if (Bow->GetDrawElapsed() + KINDA_SMALL_NUMBER >= BowDef->FullDrawSeconds)
+	{
+		Thug->SetTelegraphGlint(false);
+		if (Bow->ReleaseDraw())
+		{
+			LastArrowSeconds = Now;
+			UE_LOG(LogHawkeye, Log, TEXT("%s: looses at %s, leading %.0f cm for her speed %.0f cm/s."), *Thug->GetName(),
+				*GetNameSafe(TargetActor), FVector::Dist(Aim, Chest), TargetActor->GetVelocity().Size());
+		}
+	}
+}
+
+bool AThugAIController::StartArcherRelocation(const TCHAR* Why)
+{
+	AThugCharacter* Thug = GetThug();
+	UWorld* World = GetWorld();
+	if (!Thug || !World || !IsValid(TargetActor))
+	{
+		return false;
+	}
+	const FVector Player = TargetActor->GetActorLocation();
+	const FVector Chest = Player + FVector(0.f, 0.f, ChestHeight);
+	const float HalfHeight = Thug->GetCapsuleComponent() ? Thug->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 96.f;
+	AGrappleAnchor* Best = nullptr;
+	FVector BestLanding = FVector::ZeroVector;
+	float BestScore = TNumericLimits<float>::Max();
+	const float Middle = (ArcherMinRange + ArcherMaxRange) * 0.5f;
+	for (TActorIterator<AGrappleAnchor> It(World); It; ++It)
+	{
+		const FVector Landing = It->GetLandingLocation() + FVector(0.f, 0.f, HalfHeight + 2.f);
+		const float ToPlayer = FVector::Dist2D(Landing, Player);
+		const float FromMe = FVector::Dist(Landing, Thug->GetActorLocation());
+		if (ToPlayer < ArcherMinRange || ToPlayer > ArcherMaxRange || FromMe < 600.f || FromMe > 4000.f)
+		{
+			continue;
+		}
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(ArcherAnchor), false, Thug);
+		Params.AddIgnoredActor(TargetActor);
+		Params.AddIgnoredActor(*It);
+		if (World->LineTraceTestByChannel(Landing + FVector(0.f, 0.f, HawkeyeThugBrain::EyeHeight), Chest, ECC_Visibility, Params))
+		{
+			continue;
+		}
+		// Near the middle of the band, and not far to go.
+		const float Score = FMath::Abs(ToPlayer - Middle) + FromMe * 0.25f;
+		if (Score < BestScore)
+		{
+			BestScore = Score;
+			Best = *It;
+			BestLanding = Landing;
+		}
+	}
+	LastRelocateSeconds = GetNowSeconds();
+	if (!Best)
+	{
+		if (!bLoggedNoAnchor)
+		{
+			bLoggedNoAnchor = true;
+			UE_LOG(LogHawkeye, Log, TEXT("%s: wants to relocate (%s) but no anchor lands %.0f to %.0f cm from %s with a line."),
+				*Thug->GetName(), Why, ArcherMinRange, ArcherMaxRange, *GetNameSafe(TargetActor));
+		}
+		return false;
+	}
+	CancelArcherDraw(TEXT("relocating"));
+	StopMovement();
+	bZipping = true;
+	ZipFrom = Thug->GetActorLocation();
+	ZipTo = BestLanding;
+	ZipElapsed = 0.f;
+	ZipSeconds = FMath::Max(FVector::Dist(ZipFrom, ZipTo) / ArcherZipSpeed, 0.1f);
+	if (UCharacterMovementComponent* Movement = Thug->GetCharacterMovement())
+	{
+		Movement->StopMovementImmediately();
+		Movement->SetMovementMode(MOVE_Flying);
+	}
+	// Teleport-zip: a straight kinematic line, no grapple component on a thug. Logged as such.
+	UE_LOG(LogHawkeye, Log, TEXT("%s: relocates (%s): teleport-zip to anchor %s, %.0f cm in %.2f s, landing %.0f cm from %s."),
+		*Thug->GetName(), Why, *Best->GetName(), FVector::Dist(ZipFrom, ZipTo), ZipSeconds,
+		FVector::Dist2D(ZipTo, Player), *GetNameSafe(TargetActor));
+	return true;
+}
+
+void AThugAIController::TickArcherZip(float DeltaSeconds)
+{
+	AThugCharacter* Thug = GetThug();
+	if (!Thug || !bZipping)
+	{
+		bZipping = false;
+		return;
+	}
+	ZipElapsed += DeltaSeconds;
+	const float Alpha = FMath::Clamp(ZipElapsed / ZipSeconds, 0.f, 1.f);
+	Thug->SetActorLocation(FMath::Lerp(ZipFrom, ZipTo, Alpha), false, nullptr, ETeleportType::TeleportPhysics);
+	if (Alpha < 1.f)
+	{
+		return;
+	}
+	bZipping = false;
+	if (UCharacterMovementComponent* Movement = Thug->GetCharacterMovement())
+	{
+		Movement->SetMovementMode(MOVE_Walking);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: landed at %s."), *Thug->GetName(), *ZipTo.ToCompactString());
+}
+
+// --- Melee -----------------------------------------------------------------------------------------
 
 void AThugAIController::TickMeleeRush(float DeltaSeconds, const FVector& ToTarget)
 {
@@ -617,7 +1610,8 @@ void AThugAIController::FireAtTarget()
 	}
 
 	// Scatter the shot by rotating the aim inside a cone; the weapon traces the control rotation.
-	const FVector AimDirection = (TargetActor->GetActorLocation() - Thug->GetPawnViewLocation()).GetSafeNormal();
+	const FVector Chest = TargetActor->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	const FVector AimDirection = (Chest - Thug->GetPawnViewLocation()).GetSafeNormal();
 	const FVector Scattered = FMath::VRandCone(AimDirection, FMath::DegreesToRadians(AimSpreadDegrees));
 
 	FRotator AimRotation = Scattered.Rotation();
@@ -639,6 +1633,8 @@ void AThugAIController::SetHeld(bool bInHeld)
 	if (bHeld)
 	{
 		StopMovement();
+		CancelBurst(TEXT("held by putty"));
+		CancelArcherDraw(TEXT("held by putty"));
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s."), *GetName(),
 		bHeld ? TEXT("held by putty, AI paused") : TEXT("putty released, AI resumes"));
@@ -655,6 +1651,7 @@ void AThugAIController::Jam(float Seconds)
 	if (!bWasJammed)
 	{
 		UE_LOG(LogHawkeye, Log, TEXT("%s: pistol jammed for %.1f s."), *GetName(), Seconds);
+		CancelBurst(TEXT("jammed"));
 	}
 }
 

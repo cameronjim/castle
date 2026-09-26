@@ -5,10 +5,13 @@
 #include "AIController.h"
 #include "Animation/AnimSequence.h"
 #include "Hawkeye.h"
+#include "Combat/ArrowProjectile.h"
+#include "Combat/BowComponent.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/PointLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -16,6 +19,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "PhysicsEngine/PhysicsAsset.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Player/LocomotionAnim.h"
 #include "World/PickupActor.h"
 #include "World/ThugAIController.h"
@@ -40,7 +44,8 @@ AThugCharacter::AThugCharacter()
 	WeaponComponent->MagazineSize = 12;
 	WeaponComponent->CurrentAmmo = 12;
 	WeaponComponent->ReserveAmmo = 120;
-	WeaponComponent->FireRate = 180.f;
+	// Fast enough for the burst's 0.25 s spacing; the burst clock, not the weapon, sets the rhythm.
+	WeaponComponent->FireRate = 300.f;
 	WeaponComponent->Range = 4000.f;
 
 	// A thug's swing never lands on the thug beside him.
@@ -85,6 +90,48 @@ AThugCharacter::AThugCharacter()
 	HeldWeaponComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	HeldWeaponComponent->SetCanEverAffectNavigation(false);
 	HeldWeaponComponent->SetVisibility(false);
+
+	// The archer's bow. Inert (no mesh, no draw) on every thug until OwnBow is set.
+	BowComponent = CreateDefaultSubobject<UBowComponent>(TEXT("BowComponent"));
+
+	// The gunner's pistol and the telegraph glint: engine shapes, so a thug needs no art for them.
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));
+	static ConstructorHelpers::FObjectFinder<UStaticMesh> Sphere(TEXT("/Engine/BasicShapes/Sphere.Sphere"));
+	auto MakeProp = [this](const TCHAR* Name, UStaticMesh* PropMesh, USceneComponent* Parent)
+	{
+		UStaticMeshComponent* Part = CreateDefaultSubobject<UStaticMeshComponent>(Name);
+		Part->SetupAttachment(Parent);
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Part->SetCanEverAffectNavigation(false);
+		Part->SetCastShadow(false);
+		Part->SetVisibility(false);
+		if (PropMesh)
+		{
+			Part->SetStaticMesh(PropMesh);
+		}
+		return Part;
+	};
+	// Slide 20 x 3.5 x 4 cm along the pistol's X; the grip hangs under its back half.
+	PistolComponent = MakeProp(TEXT("Pistol"), Cube.Succeeded() ? Cube.Object : nullptr, GetCapsuleComponent());
+	PistolComponent->SetUsingAbsoluteLocation(true);
+	PistolComponent->SetUsingAbsoluteRotation(true);
+	PistolComponent->SetWorldScale3D(FVector(0.2f, 0.035f, 0.04f));
+	PistolGrip = MakeProp(TEXT("PistolGrip"), Cube.Succeeded() ? Cube.Object : nullptr, PistolComponent);
+	PistolGrip->SetRelativeLocationAndRotation(FVector(-0.3f, 0.f, -1.6f), FRotator(-15.f, 0.f, 0.f));
+	PistolGrip->SetRelativeScale3D(FVector(0.18f, 0.9f, 2.6f));
+
+	GlintMesh = MakeProp(TEXT("Glint"), Sphere.Succeeded() ? Sphere.Object : nullptr, GetCapsuleComponent());
+	GlintMesh->SetUsingAbsoluteLocation(true);
+	GlintMesh->SetWorldScale3D(FVector(0.05f));
+	TelegraphLight = CreateDefaultSubobject<UPointLightComponent>(TEXT("TelegraphLight"));
+	TelegraphLight->SetupAttachment(GlintMesh);
+	TelegraphLight->SetUsingAbsoluteScale(true);
+	TelegraphLight->SetMobility(EComponentMobility::Movable);
+	TelegraphLight->SetIntensityUnits(ELightUnits::Lumens);
+	TelegraphLight->SetIntensity(GlintLumens);
+	TelegraphLight->SetAttenuationRadius(150.f);
+	TelegraphLight->SetCastShadows(false);
+	TelegraphLight->SetVisibility(false);
 
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
@@ -147,6 +194,8 @@ void AThugCharacter::Tick(float DeltaSeconds)
 	{
 		return;
 	}
+	UpdatePistolPose();
+	UpdateTelegraphGlint();
 
 	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
 	UpdateKnockdown(DeltaSeconds);
@@ -277,11 +326,119 @@ void AThugCharacter::UpdateMaterialPulse(float DeltaSeconds)
 	}
 }
 
-void AThugCharacter::HandleHealthChanged(UHealthComponent* /*Health*/, float /*NewHealth*/, float Delta, AActor* /*DamageInstigator*/)
+void AThugCharacter::HandleHealthChanged(UHealthComponent* Health, float /*NewHealth*/, float Delta, AActor* DamageInstigator)
 {
-	if (Delta < 0.f)
+	if (Delta >= 0.f)
 	{
-		FlashHit();
+		return;
+	}
+	FlashHit();
+	// Any hit breaks a gunner's burst or an archer's draw: hitting first is the counter.
+	if (Health && Health->IsAlive())
+	{
+		if (AThugAIController* Brain = Cast<AThugAIController>(GetController()))
+		{
+			Brain->NotifyDamaged(DamageInstigator);
+		}
+	}
+}
+
+void AThugCharacter::SetWeaponRaised(bool bRaised, FVector AimPoint)
+{
+	bWeaponRaised = bRaised;
+	WeaponAimPoint = AimPoint;
+}
+
+void AThugCharacter::SetTelegraphGlint(bool bOn)
+{
+	if (bGlintOn == bOn)
+	{
+		return;
+	}
+	bGlintOn = bOn;
+	UpdateTelegraphGlint();
+}
+
+FVector AThugCharacter::GetGlintLocation() const
+{
+	if (IsArcher() && BowComponent && BowComponent->IsDrawing())
+	{
+		return BowComponent->GetNockedArrowTip();
+	}
+	if (PistolComponent)
+	{
+		// The slide's front face: the engine cube is 100 cm about its centre.
+		const FTransform Pistol = PistolComponent->GetComponentTransform();
+		return Pistol.TransformPosition(FVector(56.f, 0.f, 0.f));
+	}
+	return GetActorLocation();
+}
+
+void AThugCharacter::UpdatePistolPose()
+{
+	if (!PistolComponent)
+	{
+		return;
+	}
+	const bool bShow = IsGunner() && !bLimp;
+	if (PistolComponent->IsVisible() != bShow)
+	{
+		PistolComponent->SetVisibility(bShow, /*bPropagateToChildren=*/true);
+	}
+	USkeletalMeshComponent* Body = GetMesh();
+	if (!bShow)
+	{
+		return;
+	}
+	const FName Hand(TEXT("hand_r"));
+	const FName Shoulder(TEXT("upperarm_r"));
+	const bool bHasBones = Body && Body->DoesSocketExist(Hand) && Body->DoesSocketExist(Shoulder);
+	const FVector HandPoint = bHasBones ? Body->GetSocketLocation(Hand) : GetActorTransform().TransformPosition(FVector(20.f, 25.f, -5.f));
+	if (bWeaponRaised)
+	{
+		const FVector ShoulderPoint = bHasBones ? Body->GetSocketLocation(Shoulder) : GetActorTransform().TransformPosition(FVector(0.f, 20.f, 50.f));
+		FRotator Aim = (WeaponAimPoint - ShoulderPoint).Rotation();
+		Aim.Roll = 0.f;
+		PistolComponent->SetWorldLocationAndRotation(ShoulderPoint + Aim.RotateVector(PistolRaisedOffset), Aim);
+		return;
+	}
+	// At his side, pointing down and forward.
+	PistolComponent->SetWorldLocationAndRotation(HandPoint, FRotator(-60.f, GetActorRotation().Yaw, 0.f));
+}
+
+void AThugCharacter::UpdateTelegraphGlint()
+{
+	if (!GlintMesh || !TelegraphLight)
+	{
+		return;
+	}
+	const bool bShow = bGlintOn && !bLimp;
+	if (bShow && !bGlintTinted)
+	{
+		// The nock material glows in its Color; the plain shape material when it has not been built.
+		bGlintTinted = true;
+		const TSoftObjectPtr<UMaterialInterface> Glow{ FSoftObjectPath(AArrowProjectile::DefaultNockMaterialPath) };
+		if (UMaterialInterface* Loaded = Glow.LoadSynchronous())
+		{
+			GlintMesh->SetMaterial(0, Loaded);
+		}
+		const FLinearColor Color = IsArcher() ? BowGlintColor : PistolGlintColor;
+		if (UMaterialInstanceDynamic* Tint = GlintMesh->CreateDynamicMaterialInstance(0))
+		{
+			Tint->SetVectorParameterValue(TEXT("Color"), Color);
+		}
+		TelegraphLight->SetLightColor(Color);
+		TelegraphLight->SetIntensity(GlintLumens);
+		GlintMesh->SetWorldScale3D(FVector(IsArcher() ? 0.06f : 0.04f));
+	}
+	if (GlintMesh->IsVisible() != bShow)
+	{
+		GlintMesh->SetVisibility(bShow);
+		TelegraphLight->SetVisibility(bShow);
+	}
+	if (bShow)
+	{
+		GlintMesh->SetWorldLocation(GetGlintLocation());
 	}
 }
 
@@ -680,6 +837,15 @@ void AThugCharacter::GoLimp(AActor* Killer)
 	if (MeleeComponent)
 	{
 		MeleeComponent->CancelAttack();
+	}
+	if (BowComponent)
+	{
+		BowComponent->CancelDraw();
+	}
+	SetTelegraphGlint(false);
+	if (PistolComponent)
+	{
+		PistolComponent->SetVisibility(false, true);
 	}
 	bKnockedDown = false;
 	FinishGetUp();
