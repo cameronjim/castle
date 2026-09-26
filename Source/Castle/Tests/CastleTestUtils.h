@@ -7,6 +7,7 @@
 #include "Combat/WeaponDefinition.h"
 #include "CastlePlayerController.h"
 #include "Combat/Takedownable.h"
+#include "InputActionValue.h"
 #include "Player/CastleCharacter.h"
 #include "Settings/CastleSettings.h"
 #include "World/ThugCharacter.h"
@@ -303,6 +304,23 @@ public:
 	float TestLookSensitivity() const { return LookSensitivity; }
 	float TestAimLookMultiplier() const { return AimLookMultiplier; }
 	bool TestHasSettingsSensitivity() const { return bHasSettingsLookSensitivity; }
+
+	float TestStickSensitivity() const { return StickSensitivity; }
+	bool TestHasSettingsStickSensitivity() const { return bHasSettingsStickSensitivity; }
+	float TestStickYawDegreesPerSecond() const { return StickYawDegreesPerSecond; }
+	float TestStickPitchDegreesPerSecond() const { return StickPitchDegreesPerSecond; }
+	float TestAimStickRateMultiplier() const { return AimStickRateMultiplier; }
+
+	/**
+	 * Stands in for Input_Takedown having (or not having) executed a takedown this press,
+	 * without a real physical sweep - the sweep and the angle/tag/veto rules are covered by
+	 * Castle.Takedown.*. This is only for the takedown-before-interact ordering.
+	 */
+	void TestSetTookDownThisPress(bool bValue) { bTookDownThisPress = bValue; }
+	bool TestTookDownThisPress() const { return bTookDownThisPress; }
+
+	/** Stands in for the gamepad's shared Y button firing Input_Interact after Input_Takedown. */
+	void TestFireInputInteract() { Input_Interact(FInputActionValue()); }
 };
 
 /**
