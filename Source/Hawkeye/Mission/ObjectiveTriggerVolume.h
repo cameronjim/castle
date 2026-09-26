@@ -8,7 +8,7 @@
 
 /**
  * Drop in a level, set ObjectiveId, and the matching mission objective completes
- * when the player pawn walks in.
+ * when the player pawn walks in. Its centre is where the HUD's objective marker points.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API AObjectiveTriggerVolume : public ATriggerBox
@@ -35,7 +35,9 @@ public:
 	void OnObjectiveTriggered(AActor* TriggeringActor);
 
 protected:
+	/** Also registers the volume's centre as ObjectiveId's marker point, so data assets need no coordinates. */
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UFUNCTION()
 	void HandleActorBeginOverlap(AActor* OverlappedActor, AActor* OtherActor);

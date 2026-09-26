@@ -38,6 +38,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective")
 	bool bOptional = false;
 
+	/**
+	 * Use WorldLocation as the HUD marker's point. Leave off for objectives completed by an
+	 * AObjectiveTriggerVolume: the volume registers its own centre at BeginPlay.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective|Marker")
+	bool bHasWorldLocation = false;
+
+	/** Where the HUD marker and compass point for this objective, in world space (cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective|Marker", meta = (EditCondition = "bHasWorldLocation"))
+	FVector WorldLocation = FVector::ZeroVector;
+
+	/**
+	 * A placed actor whose location the marker follows, found by its label (editor builds), its
+	 * name or one of its tags. Used when bHasWorldLocation is off; wins over a registered volume.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective|Marker")
+	FName MarkerActorLabel;
+
 	/** Runtime completion state. */
 	UPROPERTY(BlueprintReadOnly, Category = "Objective")
 	bool bCompleted = false;

@@ -4,6 +4,7 @@
 
 #include "Hawkeye.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Mission/MissionDefinition.h"
 #include "Mission/MissionObjective.h"
 
@@ -40,6 +41,8 @@ void UMissionSubsystem::Deinitialize()
 		Tracker->Reset();
 		Tracker = nullptr;
 	}
+	MarkerActorCache.Reset();
+	MissingMarkerLabels.Reset();
 
 	Super::Deinitialize();
 }
@@ -100,4 +103,75 @@ UMissionObjective* UMissionSubsystem::GetCurrentObjective() const
 bool UMissionSubsystem::IsMissionComplete() const
 {
 	return Tracker && Tracker->IsMissionComplete();
+}
+
+void UMissionSubsystem::RegisterObjectiveLocation(FName ObjectiveId, FVector Location)
+{
+	if (Tracker)
+	{
+		Tracker->RegisterObjectiveLocation(ObjectiveId, Location);
+	}
+}
+
+void UMissionSubsystem::UnregisterObjectiveLocation(FName ObjectiveId)
+{
+	if (Tracker)
+	{
+		Tracker->UnregisterObjectiveLocation(ObjectiveId);
+	}
+}
+
+bool UMissionSubsystem::GetCurrentObjectiveLocation(FVector& OutLocation) const
+{
+	const UMissionObjective* Objective = GetCurrentObjective();
+	if (!Objective)
+	{
+		return false;
+	}
+	if (!Objective->bHasWorldLocation && !Objective->MarkerActorLabel.IsNone())
+	{
+		if (const AActor* Marker = FindMarkerActor(Objective->MarkerActorLabel))
+		{
+			OutLocation = Marker->GetActorLocation();
+			return true;
+		}
+	}
+	return Tracker && Tracker->GetCurrentObjectiveLocation(OutLocation);
+}
+
+AActor* UMissionSubsystem::FindMarkerActor(FName Label) const
+{
+	if (const TWeakObjectPtr<AActor>* Cached = MarkerActorCache.Find(Label))
+	{
+		if (Cached->IsValid())
+		{
+			return Cached->Get();
+		}
+	}
+
+	UWorld* World = GetWorld();
+	if (!World || MissingMarkerLabels.Contains(Label))
+	{
+		return nullptr;
+	}
+	const FString LabelString = Label.ToString();
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		AActor* Actor = *It;
+#if WITH_EDITOR
+		const bool bLabelMatches = Actor->GetActorLabel(false) == LabelString;
+#else
+		const bool bLabelMatches = false;
+#endif
+		if (bLabelMatches || Actor->GetFName() == Label || Actor->Tags.Contains(Label))
+		{
+			MarkerActorCache.Add(Label, Actor);
+			return Actor;
+		}
+	}
+
+	UE_LOG(LogHawkeye, Warning, TEXT("%s: no actor labelled, named or tagged '%s' for an objective marker."),
+		*GetNameSafe(this), *LabelString);
+	MissingMarkerLabels.Add(Label);
+	return nullptr;
 }

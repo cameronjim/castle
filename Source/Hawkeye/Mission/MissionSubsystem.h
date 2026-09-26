@@ -55,6 +55,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Mission")
 	bool IsMissionComplete() const;
 
+	/** Records Location as ObjectiveId's marker point. AObjectiveTriggerVolume calls this at BeginPlay. */
+	UFUNCTION(BlueprintCallable, Category = "Mission|Marker")
+	void RegisterObjectiveLocation(FName ObjectiveId, FVector Location);
+
+	UFUNCTION(BlueprintCallable, Category = "Mission|Marker")
+	void UnregisterObjectiveLocation(FName ObjectiveId);
+
+	/**
+	 * Where the HUD marker points for the current objective: its WorldLocation when set, else the
+	 * actor named by its MarkerActorLabel, else the point a volume registered for its id.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
+	bool GetCurrentObjectiveLocation(FVector& OutLocation) const;
+
 	UPROPERTY(BlueprintAssignable, Category = "Mission")
 	FOnMissionStartedSignature OnMissionStarted;
 
@@ -85,6 +99,15 @@ protected:
 	UFUNCTION()
 	void HandleFlashbackRequested(UFlashbackDefinition* Flashback);
 
+	/** The placed actor whose label, name or tag is Label; cached, since the district has thousands. */
+	AActor* FindMarkerActor(FName Label) const;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UMissionTracker> Tracker = nullptr;
+
+	/** Label -> actor, filled on first lookup. A stale entry is looked up again. */
+	mutable TMap<FName, TWeakObjectPtr<AActor>> MarkerActorCache;
+
+	/** Labels already searched for and not found, so a typo warns once instead of every frame. */
+	mutable TSet<FName> MissingMarkerLabels;
 };

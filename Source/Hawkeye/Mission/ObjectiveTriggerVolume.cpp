@@ -18,6 +18,21 @@ void AObjectiveTriggerVolume::BeginPlay()
 	Super::BeginPlay();
 
 	OnActorBeginOverlap.AddDynamic(this, &AObjectiveTriggerVolume::HandleActorBeginOverlap);
+
+	if (UMissionSubsystem* MissionSubsystem = UMissionSubsystem::Get(this); MissionSubsystem && !ObjectiveId.IsNone())
+	{
+		MissionSubsystem->RegisterObjectiveLocation(ObjectiveId, GetActorLocation());
+	}
+}
+
+void AObjectiveTriggerVolume::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UMissionSubsystem* MissionSubsystem = UMissionSubsystem::Get(this); MissionSubsystem && !ObjectiveId.IsNone())
+	{
+		MissionSubsystem->UnregisterObjectiveLocation(ObjectiveId);
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void AObjectiveTriggerVolume::HandleActorBeginOverlap(AActor* /*OverlappedActor*/, AActor* OtherActor)

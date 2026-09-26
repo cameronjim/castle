@@ -92,6 +92,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Mission")
 	bool IsMissionComplete() const { return bMissionComplete; }
 
+	/**
+	 * Records Location as the marker point for ObjectiveId. Kept across StartMission and
+	 * AbortMission, because placed volumes register at BeginPlay, before or after the mission
+	 * starts. A second call for the same id replaces the first.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Mission|Marker")
+	void RegisterObjectiveLocation(FName ObjectiveId, FVector Location);
+
+	UFUNCTION(BlueprintCallable, Category = "Mission|Marker")
+	void UnregisterObjectiveLocation(FName ObjectiveId);
+
+	/** The point registered for ObjectiveId, if any. */
+	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
+	bool GetRegisteredObjectiveLocation(FName ObjectiveId, FVector& OutLocation) const;
+
+	/**
+	 * The current objective's marker point: its own WorldLocation when bHasWorldLocation is set,
+	 * otherwise the point registered for its id. False when there is no current objective or
+	 * neither exists. (A MarkerActorLabel needs a world; UMissionSubsystem resolves that.)
+	 */
+	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
+	bool GetCurrentObjectiveLocation(FVector& OutLocation) const;
+
 	/** Drops every binding and all state; the subsystem calls this on Deinitialize. */
 	void Reset();
 
@@ -107,4 +130,8 @@ private:
 	TArray<TObjectPtr<UMissionObjective>> ActiveObjectives;
 
 	bool bMissionComplete = false;
+
+	/** Marker points by objective id, registered by placed volumes. */
+	UPROPERTY(Transient)
+	TMap<FName, FVector> RegisteredLocations;
 };

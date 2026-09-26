@@ -193,6 +193,46 @@ bool UMissionTracker::AreRequiredObjectivesComplete() const
 	return GetCurrentObjective() == nullptr;
 }
 
+void UMissionTracker::RegisterObjectiveLocation(FName ObjectiveId, FVector Location)
+{
+	if (ObjectiveId.IsNone())
+	{
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: RegisterObjectiveLocation with no objective id."), *GetNameSafe(this));
+		return;
+	}
+	RegisteredLocations.Add(ObjectiveId, Location);
+}
+
+void UMissionTracker::UnregisterObjectiveLocation(FName ObjectiveId)
+{
+	RegisteredLocations.Remove(ObjectiveId);
+}
+
+bool UMissionTracker::GetRegisteredObjectiveLocation(FName ObjectiveId, FVector& OutLocation) const
+{
+	if (const FVector* Found = RegisteredLocations.Find(ObjectiveId))
+	{
+		OutLocation = *Found;
+		return true;
+	}
+	return false;
+}
+
+bool UMissionTracker::GetCurrentObjectiveLocation(FVector& OutLocation) const
+{
+	const UMissionObjective* Objective = GetCurrentObjective();
+	if (!Objective)
+	{
+		return false;
+	}
+	if (Objective->bHasWorldLocation)
+	{
+		OutLocation = Objective->WorldLocation;
+		return true;
+	}
+	return GetRegisteredObjectiveLocation(Objective->ObjectiveId, OutLocation);
+}
+
 void UMissionTracker::Reset()
 {
 	OnMissionStarted.Clear();
@@ -201,4 +241,5 @@ void UMissionTracker::Reset()
 	OnFlashbackRequested.Clear();
 
 	AbortMission();
+	RegisteredLocations.Reset();
 }
