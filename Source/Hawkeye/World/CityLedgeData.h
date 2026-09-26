@@ -6,6 +6,9 @@
 #include "Engine/DataAsset.h"
 #include "CityLedgeData.generated.h"
 
+class UMaterialInterface;
+class UStaticMesh;
+
 /** One hidden traversable ledge block along a roof edge: BP_TraversableBlock at Transform. */
 USTRUCT(BlueprintType)
 struct HAWKEYE_API FCityLedgeRecord
@@ -94,8 +97,40 @@ struct HAWKEYE_API FCityFireEscapeRecord
 };
 
 /**
+ * One kind of street or rooftop clutter (water towers, HVAC boxes, hydrants, parked cars...):
+ * every instance of one mesh in one material, drawn by ACityLedgeSpawner as one hierarchical
+ * instanced mesh. Tools/Editor/generate_city.py decides where they go (rules in its docstring).
+ */
+USTRUCT(BlueprintType)
+struct HAWKEYE_API FCityClutterGroup
+{
+	GENERATED_BODY()
+
+	/** What this is, e.g. WaterTower, ParkedCar_Black; also the component's name. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	FName Kind;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TObjectPtr<UStaticMesh> Mesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TObjectPtr<UMaterialInterface> Material;
+
+	/** Blocks pawns and physics (not the visibility, camera or traversable traces). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	bool bCollision = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	bool bCastShadow = true;
+
+	/** World transforms. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TArray<FTransform> Instances;
+};
+
+/**
  * The generated district's many small actors, as data instead of saved actors: every roof-edge
- * traversable ledge, every grapple anchor and every fire-escape landing. Tools/Editor/generate_city.py writes it
+ * traversable ledge, every grapple anchor, every fire-escape landing and the clutter. Tools/Editor/generate_city.py writes it
  * (DA_EastVillage_CityProps) and ACityLedgeSpawner spawns the actors at load. Saved as actors
  * they made the district map 72 MB.
  */
@@ -113,6 +148,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
 	TArray<FCityFireEscapeRecord> FireEscapes;
+
+	/** Street and rooftop clutter, one instanced mesh per group. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TArray<FCityClutterGroup> Clutter;
 
 	/** Hash of the generator inputs that produced the arrays; a rerun with the same hash saves nothing. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")

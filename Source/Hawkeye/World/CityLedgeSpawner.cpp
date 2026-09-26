@@ -71,6 +71,16 @@ int32 ACityLedgeSpawner::GetFireEscapeInstanceCount() const
 		+ (FireEscapeCylinders ? FireEscapeCylinders->GetInstanceCount() : 0);
 }
 
+int32 ACityLedgeSpawner::GetClutterInstanceCount() const
+{
+	int32 Count = 0;
+	for (const UHierarchicalInstancedStaticMeshComponent* Instances : ClutterComponents)
+	{
+		Count += Instances ? Instances->GetInstanceCount() : 0;
+	}
+	return Count;
+}
+
 void ACityLedgeSpawner::BeginPlay()
 {
 	Super::BeginPlay();
@@ -84,14 +94,15 @@ void ACityLedgeSpawner::BeginPlay()
 
 	const double Start = FPlatformTime::Seconds();
 	SpawnFireEscapeVisuals();
+	SpawnClutter();
 	QueueLedges(FindFocus());
 	SpawnQueuedLedges(ImmediateRadius, TNumericLimits<double>::Max());
 	LoadLedgeSeconds = static_cast<float>(FPlatformTime::Seconds() - Start);
 	TotalLedgeSeconds = LoadLedgeSeconds;
 
-	UE_LOG(LogHawkeye, Log, TEXT("%s: at load %d anchors in %.0f ms, %d of %d ledges and %d of %d fire-escape landings (%d parts) within %.0f m in %.0f ms; the rest at %.1f ms a frame"),
-		*GetName(), SpawnedAnchors.Num(), AnchorSeconds * 1000.f, SpawnedLedges.Num(), Data->Ledges.Num(),
-		SpawnedFireEscapes.Num(), Data->FireEscapes.Num(), GetFireEscapeInstanceCount(),
+	UE_LOG(LogHawkeye, Log, TEXT("%s: at load %d anchors in %.0f ms, %d clutter instances in %d groups, %d of %d ledges and %d of %d fire-escape landings (%d parts) within %.0f m in %.0f ms; the rest at %.1f ms a frame"),
+		*GetName(), SpawnedAnchors.Num(), AnchorSeconds * 1000.f, GetClutterInstanceCount(), ClutterComponents.Num(),
+		SpawnedLedges.Num(), Data->Ledges.Num(), SpawnedFireEscapes.Num(), Data->FireEscapes.Num(), GetFireEscapeInstanceCount(),
 		ImmediateRadius / 100.f, LoadLedgeSeconds * 1000.f, FrameBudgetMs);
 	SetActorTickEnabled(!IsSpawnComplete());
 }
@@ -326,6 +337,51 @@ void ACityLedgeSpawner::SpawnFireEscapeVisuals()
 	FireEscapeCylinders->AddInstances(Cylinders, /*bShouldReturnIndices=*/false, /*bWorldSpace=*/true);
 }
 
+void ACityLedgeSpawner::SpawnClutter()
+{
+	if (!Data || Data->Clutter.Num() == 0 || ClutterComponents.Num() > 0)
+	{
+		return;
+	}
+	for (const FCityClutterGroup& Group : Data->Clutter)
+	{
+		if (!Group.Mesh || Group.Instances.Num() == 0)
+		{
+			continue;
+		}
+		const FName Name = MakeUniqueObjectName(this, UHierarchicalInstancedStaticMeshComponent::StaticClass(),
+			FName(*FString::Printf(TEXT("Clutter_%s"), *Group.Kind.ToString())));
+		UHierarchicalInstancedStaticMeshComponent* Instances = NewObject<UHierarchicalInstancedStaticMeshComponent>(
+			this, Name, RF_Transient);
+		Instances->SetMobility(EComponentMobility::Static);
+		Instances->SetStaticMesh(Group.Mesh);
+		if (Group.Material)
+		{
+			Instances->SetMaterial(0, Group.Material);
+		}
+		if (Group.bCollision)
+		{
+			Instances->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			Instances->SetCollisionObjectType(ECC_WorldStatic);
+			Instances->SetCollisionResponseToAllChannels(ECR_Block);
+			// Traces that aim, frame or find ledges look straight through it.
+			Instances->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
+			Instances->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+			Instances->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Ignore);
+		}
+		else
+		{
+			Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
+		Instances->SetCanEverAffectNavigation(false);
+		Instances->SetCastShadow(Group.bCastShadow);
+		Instances->SetupAttachment(RootComponent);
+		Instances->RegisterComponent();
+		Instances->AddInstances(Group.Instances, /*bShouldReturnIndices=*/false, /*bWorldSpace=*/true);
+		ClutterComponents.Add(Instances);
+	}
+}
+
 void ACityLedgeSpawner::SpawnQueued(int32 Entry)
 {
 	if (!Data)
@@ -451,6 +507,7 @@ int32 ACityLedgeSpawner::SpawnAll()
 
 	const double Start = FPlatformTime::Seconds();
 	SpawnFireEscapeVisuals();
+	SpawnClutter();
 	if (!bLedgesQueued)
 	{
 		QueueLedges(FindFocus());
@@ -503,6 +560,14 @@ void ACityLedgeSpawner::DestroySpawned()
 			Instances->DestroyComponent();
 		}
 	}
+	for (UHierarchicalInstancedStaticMeshComponent* Instances : ClutterComponents)
+	{
+		if (IsValid(Instances))
+		{
+			Instances->DestroyComponent();
+		}
+	}
+	ClutterComponents.Reset();
 	FireEscapeCubes = nullptr;
 	FireEscapeCylinders = nullptr;
 	SpawnedFireEscapes.Reset();

@@ -36,6 +36,11 @@ struct FCityLedgeRecord;
  * block on its outer rail (City_FireEscapeLedge_...), queued nearest first with the roof ledges.
  * Their visible bars are instances in two transient instanced-mesh components (cube and
  * cylinder, FireEscapeMaterial), all added at once; they are never saved with the map.
+ *
+ * Clutter: every FCityClutterGroup becomes one transient hierarchical instanced mesh (water towers,
+ * HVAC boxes, chimneys, hydrants, bins, bags, scaffolding, parked cars), added at once at load. A
+ * group with bCollision blocks pawns and physics but ignores the visibility, camera and traversable
+ * traces, and none of them affect navigation.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API ACityLedgeSpawner : public AActor
@@ -119,6 +124,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "City")
 	TArray<AActor*> GetSpawnedFireEscapeLedges() const { return TArray<AActor*>(SpawnedFireEscapeLedges); }
 
+	/** Clutter instances drawn, all groups together. */
+	UFUNCTION(BlueprintPure, Category = "City")
+	int32 GetClutterInstanceCount() const;
+
+	/** The clutter components, one per FCityClutterGroup, in the data's order. */
+	UFUNCTION(BlueprintPure, Category = "City")
+	TArray<UHierarchicalInstancedStaticMeshComponent*> GetClutterComponents() const
+	{
+		return TArray<UHierarchicalInstancedStaticMeshComponent*>(ClutterComponents);
+	}
+
 	/** Visible fire-escape parts drawn (cube and cylinder instances together). */
 	UFUNCTION(BlueprintPure, Category = "City")
 	int32 GetFireEscapeInstanceCount() const;
@@ -166,6 +182,9 @@ protected:
 	/** Adds every fire escape's visible parts as instances, once. */
 	void SpawnFireEscapeVisuals();
 
+	/** One instanced mesh per clutter group, once. */
+	void SpawnClutter();
+
 	/** The ledge class at Transform, trace-only, tagged; Label in an editor world. */
 	AActor* SpawnLedgeActor(const FTransform& Transform, const TArray<FName>& LedgeTags, const FString& Label);
 
@@ -192,6 +211,9 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UHierarchicalInstancedStaticMeshComponent> FireEscapeCylinders;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> ClutterComponents;
 
 	/** Indices into Data->Ledges, nearest first, and how far down the list spawning has got. */
 	TArray<int32> LedgeQueue;
