@@ -241,9 +241,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
 	float GetCurrentFallHeight() const;
 
-	/** True for LandingRecoverSeconds after a landing from above RollHeight. */
+	/**
+	 * True for LandingRecoverSeconds after a landing from above RollHeight, or from above
+	 * ControlledDropDipHeight when the fall was a controlled drop (stepped off an edge, let go of
+	 * a hang or a zip) rather than a jump.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
 	bool IsRecoveringFromLanding() const { return LandingRecoverRemaining > 0.f; }
+
+	/** The current fall began as a controlled drop: off an edge, a hang or a zip, not a jump. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	bool IsControlledDrop() const { return bControlledDrop; }
 
 	// --- Debug ----------------------------------------------------------------------------------
 
@@ -747,6 +755,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
 	float LandingRecoverSeconds = 0.3f;
 
+	/** A controlled drop (not a jump) landing from above this height gets the landing dip too, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float ControlledDropDipHeight = 150.f;
+
 	/** Speed multiplier for the length of the roll. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float LandingSpeedMultiplier = 0.5f;
@@ -968,6 +980,10 @@ protected:
 
 	UPROPERTY(Transient)
 	float LandingRecoverRemaining = 0.f;
+
+	/** Set when a fall starts without a jump; cleared on landing. */
+	UPROPERTY(Transient)
+	bool bControlledDrop = false;
 
 	/** Aim blend, 0 hip to 1 aimed, moved at 1 / AimBlendSeconds. */
 	UPROPERTY(Transient)

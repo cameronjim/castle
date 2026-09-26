@@ -1140,6 +1140,20 @@ void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 		ParkourComponent->DropFromHang();
 		return;
 	}
+	// Mid-zip it lets go of the line.
+	if (IsZipping())
+	{
+		UE_LOG(LogCastle, Log, TEXT("%s: crouch cancels the zip"), *GetNameSafe(this));
+		GrappleComponent->CancelZip();
+		return;
+	}
+	// Moving toward a roof or landing edge, it goes over to the hang.
+	if (ParkourComponent && !bIsSliding && !IsTraversing() && MoveInputMagnitude > 0.f
+		&& ParkourComponent->TryDropToHang(LastMoveWorldDirection, TEXT("crouch toward the edge")))
+	{
+		bCrouchTapPending = false;
+		return;
+	}
 	// The slide stands itself up; a second press mid-slide is not a crouch. Nor is one mid-zip.
 	if (bIsSliding || IsZipping() || IsTraversing())
 	{
@@ -1543,6 +1557,9 @@ void ACastleCharacter::Jump()
 {
 	if (IsZipping())
 	{
+		// The jump key lets go of the line; the catch rule still applies on the way down.
+		UE_LOG(LogCastle, Log, TEXT("%s: jump cancels the zip"), *GetNameSafe(this));
+		GrappleComponent->CancelZip();
 		return;
 	}
 	if (ParkourComponent)
@@ -1563,6 +1580,11 @@ void ACastleCharacter::Jump()
 		{
 			return;
 		}
+		// Nothing ahead, an edge behind: down to the hang on it.
+		if (ParkourComponent->TryDropToHang(-GetActorForwardVector(), TEXT("jump facing away from the edge")))
+		{
+			return;
+		}
 	}
 	EndSlide();
 	Super::Jump();
@@ -1578,6 +1600,15 @@ void ACastleCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uin
 		// Measured from the top of the arc, so a jump off a roof counts its rise as well.
 		FallApexZ = GetActorLocation().Z;
 		EndSlide();
+		// Not rising: stepped off an edge, let go of a hang, or let go of a zip.
+		bControlledDrop = Movement->Velocity.Z <= 0.f
+			&& (PrevMovementMode == MOVE_Walking || PrevMovementMode == MOVE_NavWalking || PrevMovementMode == MOVE_Flying);
+		if (bControlledDrop)
+		{
+			UE_LOG(LogCastle, Log, TEXT("%s: controlled drop from %s at feet %.0f"), *GetNameSafe(this),
+				PrevMovementMode == MOVE_Flying ? TEXT("a hang or a zip") : TEXT("an edge"),
+				GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+		}
 	}
 }
 
@@ -1639,6 +1670,12 @@ void ACastleCharacter::ApplyLanding(float FallHeight)
 		// TODO(stage2): the parkour step swaps this for a real roll (moving) or stumble (standing).
 		LandingRecoverRemaining = LandingRecoverSeconds;
 	}
+	else if (bControlledDrop && FallHeight > ControlledDropDipHeight)
+	{
+		LandingRecoverRemaining = LandingRecoverSeconds;
+		UE_LOG(LogCastle, Log, TEXT("%s: controlled drop landed from %.0f cm: landing dip"), *GetNameSafe(this), FallHeight);
+	}
+	bControlledDrop = false;
 
 	const float Fraction = ComputeFallDamageFraction(FallHeight);
 	if (Fraction > 0.f && HealthComponent && HealthComponent->IsAlive())
