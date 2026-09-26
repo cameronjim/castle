@@ -1,7 +1,12 @@
 """Create the player-framework Blueprints and wire their class defaults.
 
     /Game/Blueprints/Player/BP_CastleCharacter        parent ACastleCharacter
-    /Game/Blueprints/Player/BP_Kate                   parent BP_CastleCharacter (170 cm, purple suit)
+    /Game/Blueprints/SandboxCharacter_CMC             reparented onto BP_CastleCharacter (the
+                                                      Game Animation Sample's character; see
+                                                      import_gasp.py)
+    /Game/Blueprints/Player/BP_Kate                   parent SandboxCharacter_CMC (170 cm, purple
+                                                      suit, UEFN mannequin, motion-matched ABP);
+                                                      BP_CastleCharacter when the sample is absent
     /Game/Characters/Kate/M_KateSuit, M_KateSuitDark  her stand-in materials
     /Game/Blueprints/Player/BP_CastlePlayerController parent ACastlePlayerController
     /Game/Blueprints/Player/BP_CastleGameMode         parent ACastleGameMode
@@ -61,6 +66,14 @@ KATE_SUIT_ROUGHNESS = 0.6
 KATE_CAPSULE_RADIUS = 30.0
 KATE_CAPSULE_HALF_HEIGHT = 85.0
 KATE_MESH_SCALE = 0.93
+
+# The Game Animation Sample's CharacterMovement character and its motion-matched AnimBP, copied
+# in by import_gasp.py. SandboxCharacter_CMC is reparented onto BP_CastleCharacter so our systems,
+# input and camera sit under its graph; BP_Kate derives from it and wears its UEFN mannequin.
+GASP_CHARACTER_PATH = "/Game/Blueprints"
+GASP_CHARACTER = "SandboxCharacter_CMC"
+GASP_ANIM_BP = "SandboxCharacter_CMC_ABP"
+GASP_MESH = "/Game/Characters/UEFN_Mannequin/Meshes/SKM_UEFN_Mannequin"
 
 # ACastleCharacter input property name -> IA asset name.
 # Pause lives on ACastlePlayerController, not the pawn, so that Escape still works when the
@@ -357,7 +370,75 @@ def set_material_slot(component, slot, material, context):
         return False
 
 
-def configure_kate(bp):
+def parent_class_name(bp):
+    """Name of a Blueprint's parent class (e.g. BP_CastleCharacter_C), or ''."""
+    try:
+        parent = unreal.BlueprintEditorLibrary.get_blueprint_parent_class(bp)
+        return parent.get_name() if parent is not None else ""
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("parent of " + bp.get_name(), exc)
+        return ""
+
+
+def ensure_parent(bp, context, parent_class):
+    """Reparent bp onto parent_class unless it is already there. Compiles and saves on a change."""
+    if bp is None or parent_class is None:
+        return False
+    wanted = c.class_name(parent_class)
+    current = parent_class_name(bp)
+    if current == wanted:
+        return False
+    try:
+        unreal.BlueprintEditorLibrary.reparent_blueprint(bp, parent_class)
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("reparent " + context, exc)
+        return False
+    c.compile_blueprint(bp)
+    c.save(bp)
+    c.log("updated", context, "parent {0} -> {1}".format(current or "?", wanted))
+    return True
+
+
+def gasp_character():
+    """SandboxCharacter_CMC reparented onto BP_CastleCharacter, or None without the sample."""
+    full = c.asset_path(GASP_CHARACTER_PATH, GASP_CHARACTER)
+    if not c.exists(full):
+        c.log("skipped", full, "Game Animation Sample not imported; BP_Kate keeps the clip switch")
+        return None
+    bp = c.load_or_none(full)
+    base = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    if bp is None or base is None:
+        c.log("FAILED", full, "could not load it or BP_CastleCharacter_C")
+        return None
+    if not ensure_parent(bp, full, base):
+        c.log("exists", full, "parent already BP_CastleCharacter_C")
+    return bp
+
+
+def configure_kate_body(body, gasp):
+    """The UEFN mannequin and the sample's AnimBP on BP_Kate's Mesh when the sample is in.
+
+    Set explicitly: a reparent keeps the old CDO's mesh values, so BP_Kate would otherwise carry
+    on with the UE4 mannequin and no AnimBP.
+    """
+    if gasp is None or body is None:
+        return []
+    changed = []
+    mesh = c.load_or_none(GASP_MESH)
+    anim_class = c.load_generated_class(GASP_CHARACTER_PATH, GASP_ANIM_BP)
+    if mesh is not None and component_asset(body, "skeletal_mesh_asset") != mesh:
+        body.set_skeletal_mesh_asset(mesh)
+        changed.append("mesh " + mesh.get_name())
+    if body.get_editor_property("animation_mode") != unreal.AnimationMode.ANIMATION_BLUEPRINT:
+        body.set_editor_property("animation_mode", unreal.AnimationMode.ANIMATION_BLUEPRINT)
+        changed.append("animation mode")
+    if anim_class is not None and body.get_editor_property("anim_class") != anim_class:
+        body.set_editor_property("anim_class", anim_class)
+        changed.append("anim class " + anim_class.get_name())
+    return changed
+
+
+def configure_kate(bp, gasp=None):
     """Capsule 170 cm tall, the mannequin scaled to it, purple suit. Saves only on a change."""
     if bp is None:
         return
@@ -380,11 +461,15 @@ def configure_kate(bp):
             ("relative_location", unreal.Vector(0.0, 0.0, -KATE_CAPSULE_HALF_HEIGHT)),
             ("relative_scale3d", unreal.Vector(KATE_MESH_SCALE, KATE_MESH_SCALE, KATE_MESH_SCALE)),
         ], KATE_NAME + ".Mesh")
-        # The UE4 mannequin has two slots: the body (head included) and the chest logo patch.
-        if set_material_slot(body, 0, suit, KATE_NAME + ".Mesh"):
-            changed.append("material 0")
-        if set_material_slot(body, 1, suit_dark, KATE_NAME + ".Mesh"):
-            changed.append("material 1")
+        changed += configure_kate_body(body, gasp)
+        # Slot 0 is the body in the suit, slot 1 the darker trim; any further slots wear the suit.
+        try:
+            slots = max(2, int(body.get_num_materials()))
+        except Exception:  # noqa: BLE001
+            slots = 2
+        for slot in range(slots):
+            if set_material_slot(body, slot, suit_dark if slot == 1 else suit, KATE_NAME + ".Mesh"):
+                changed.append("material {0}".format(slot))
     else:
         c.log("skipped", context, "no mesh component")
 
@@ -461,14 +546,21 @@ def run():
 
     # --- BP_Kate --------------------------------------------------------------------------
     # After the base is compiled and saved, so its generated class exists to derive from.
+    # With the Game Animation Sample imported, Kate derives from its sandbox character (itself
+    # reparented onto BP_CastleCharacter): BP_Kate -> SandboxCharacter_CMC -> BP_CastleCharacter.
     bp_kate = None
     if bp_character is not None:
-        kate_parent = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+        gasp = gasp_character()
+        if gasp is not None:
+            kate_parent = c.load_generated_class(GASP_CHARACTER_PATH, GASP_CHARACTER)
+        else:
+            kate_parent = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
         bp_kate, kate_created = make_blueprint(KATE_NAME, PLAYER_PATH, kate_parent, bp_factories)
         if bp_kate is not None and kate_created:
             c.compile_blueprint(bp_kate)
             c.save(bp_kate)
-        configure_kate(bp_kate)
+        ensure_parent(bp_kate, c.asset_path(PLAYER_PATH, KATE_NAME), kate_parent)
+        configure_kate(bp_kate, gasp)
 
     # --- BP_CastlePlayerController ------------------------------------------------------
     if bp_controller is not None:

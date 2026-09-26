@@ -3,6 +3,9 @@
     0. pivot_cleanup.run_renames   BP_Guard -> BP_Thug, M_Guard* -> M_Thug* (before anyone asks)
     1. create_input_assets        IA_* and IMC_Default
     2. create_placeholder_textures T_FB01_01..06   (before the data assets that point at them)
+    2b. import_gasp                the Game Animation Sample's sandbox character, AnimBP and
+                                   UEFN mannequin, copied from the local GASP install (skipped
+                                   when the sample is not installed; before BP_Kate derives from it)
     3. create_blueprints           BP_Castle* and WBP_Flashback (before the maps that use them)
     3b. create_world_blueprints    WBP_Hud, BP_Pickup_Keycard, BP_Door_Keycard, BP_Thug
     3c. create_weapon_data         DA_Weapon_Hands
@@ -38,6 +41,7 @@ STEPS = [
     ("pivot renames", "pivot_cleanup", "run_renames"),
     ("input assets", "create_input_assets"),
     ("placeholder textures", "create_placeholder_textures"),
+    ("gasp import", "import_gasp"),
     ("blueprints", "create_blueprints"),
     ("world blueprints", "create_world_blueprints"),
     ("weapon data", "create_weapon_data"),

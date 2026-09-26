@@ -411,7 +411,11 @@ def check_third_person():
 
 
 def check_kate():
-    """BP_Kate: a BP_CastleCharacter child, 170 cm capsule, mannequin in the purple suit."""
+    """BP_Kate: a BP_CastleCharacter descendant, 170 cm capsule, mannequin in the purple suit.
+
+    With the Game Animation Sample imported her parent is SandboxCharacter_CMC (itself on
+    BP_CastleCharacter); verify_gasp.py checks that chain and the AnimBP in detail.
+    """
     say("---- BP_Kate ----")
 
     bp = c.load_or_none(c.asset_path(PLAYER_PATH, "BP_Kate"))
@@ -428,8 +432,8 @@ def check_kate():
     except Exception:  # noqa: BLE001
         parent = None
     say("  parent_class                 = {0}".format(parent))
-    if "BP_CastleCharacter" not in str(parent or ""):
-        fail("BP_Kate's parent is {0}, expected BP_CastleCharacter".format(parent))
+    if not any(name in str(parent or "") for name in ("BP_CastleCharacter", "SandboxCharacter_CMC")):
+        fail("BP_Kate's parent is {0}, expected SandboxCharacter_CMC or BP_CastleCharacter".format(parent))
 
     cdo = unreal.get_default_object(cls)
     capsule = prop(cdo, "capsule_component")
