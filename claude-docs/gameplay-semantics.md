@@ -187,6 +187,19 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Objective ids are `FName`, unique within a mission, lowercase snake_case
   (`find_weapon`, `reach_stairwell`). Reusing an id across missions is fine.
 
+## Objective markers and compass (specified 2026-09-26)
+- An objective trigger volume registers its centre with the tracker for its id at
+  BeginPlay; a data asset never needs coordinates. `GetCurrentObjectiveLocation` returns
+  the current objective's point if it has one.
+- The HUD shows a cream diamond marker projected onto the current objective with the
+  distance in metres under it, clamped to the screen edge with an arrow when off-screen,
+  hidden within 3 m. A 400 px compass strip at the top centre shows ticks every 15
+  degrees, N/E/S/W, and the objective's bearing.
+- Completing an objective shows a 2 s "Objective complete" toast; the next objective
+  shows a 2 s "New objective" toast.
+- CH01's rooftop objectives each get a 1 m beacon with a purple emissive top and a 300 lm
+  purple point light so the roof reads from the street at night.
+
 ## Flashback
 - `Play(Definition)` with a null definition or zero slides finishes immediately and
   fires `OnFlashbackFinished` once. It never leaves the game paused.
