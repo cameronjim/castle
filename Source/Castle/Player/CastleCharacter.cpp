@@ -867,6 +867,7 @@ FCastleCameraTargets ACastleCharacter::ComputeCameraTargets(bool bAiming, float 
 		: (Pitch >= LookUpPitchFull ? 1.f : 0.f);
 	Targets.ArmLength = FMath::Lerp(HipCamera.ArmLength, LookUpArmLength, Alpha);
 	Targets.SocketOffset.Z = FMath::Lerp(HipCamera.SocketOffset.Z, LookUpSocketZ, Alpha);
+	Targets.PivotLift = FMath::Lerp(HipCamera.PivotLift, LookUpPivotLift, Alpha);
 	return Targets;
 }
 
@@ -898,6 +899,7 @@ void ACastleCharacter::UpdateCamera(float DeltaSeconds)
 	{
 		CameraBoom->TargetArmLength = Blend.ArmLength;
 		CameraBoom->SocketOffset = Blend.SocketOffset;
+		CameraBoom->TargetOffset = FVector(0.f, 0.f, Blend.PivotLift);
 	}
 	if (FollowCamera)
 	{

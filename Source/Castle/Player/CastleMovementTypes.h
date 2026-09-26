@@ -117,8 +117,8 @@ struct CASTLE_API FCastleCameraTargets
 
 	FCastleCameraTargets() = default;
 
-	FCastleCameraTargets(float InArmLength, const FVector& InSocketOffset, float InFieldOfView)
-		: ArmLength(InArmLength), SocketOffset(InSocketOffset), FieldOfView(InFieldOfView)
+	FCastleCameraTargets(float InArmLength, const FVector& InSocketOffset, float InFieldOfView, float InPivotLift = 0.f)
+		: ArmLength(InArmLength), SocketOffset(InSocketOffset), FieldOfView(InFieldOfView), PivotLift(InPivotLift)
 	{
 	}
 
@@ -134,6 +134,10 @@ struct CASTLE_API FCastleCameraTargets
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera", meta = (ClampMin = "10.0", ClampMax = "170.0"))
 	float FieldOfView = 90.f;
 
+	/** World-up lift of the arm's pivot, cm (the spring arm's TargetOffset.Z). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float PivotLift = 0.f;
+
 	/** Straight blend between two targets; Alpha 0 is A, 1 is B. */
 	static FCastleCameraTargets Lerp(const FCastleCameraTargets& A, const FCastleCameraTargets& B, float Alpha)
 	{
@@ -141,6 +145,7 @@ struct CASTLE_API FCastleCameraTargets
 		Out.ArmLength = FMath::Lerp(A.ArmLength, B.ArmLength, Alpha);
 		Out.SocketOffset = FMath::Lerp(A.SocketOffset, B.SocketOffset, Alpha);
 		Out.FieldOfView = FMath::Lerp(A.FieldOfView, B.FieldOfView, Alpha);
+		Out.PivotLift = FMath::Lerp(A.PivotLift, B.PivotLift, Alpha);
 		return Out;
 	}
 };

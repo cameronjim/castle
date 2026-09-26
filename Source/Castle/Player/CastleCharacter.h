@@ -160,9 +160,9 @@ public:
 	/**
 	 * Arm length, shoulder offset and FOV the camera settles at for this aim state and camera
 	 * pitch (degrees, up positive). No blending over time. At the hip, looking up past
-	 * LookUpPitchStart shortens the arm towards LookUpArmLength and lifts the socket towards
-	 * LookUpSocketZ, both reached at LookUpPitchFull, so a steep look up from the street does not
-	 * drive the lens into the pavement.
+	 * LookUpPitchStart shortens the arm towards LookUpArmLength, lifts the socket towards
+	 * LookUpSocketZ and the pivot by up to LookUpPivotLift, all reached at LookUpPitchFull, so a
+	 * steep look up from the street does not drive the lens into the pavement.
 	 */
 	UFUNCTION(BlueprintPure, Category = "Castle|Camera")
 	FCastleCameraTargets ComputeCameraTargets(bool bAiming, float Pitch = 0.f) const;
@@ -597,6 +597,14 @@ protected:
 	/** Hip socket height when looking steeply up, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera")
 	float LookUpSocketZ = 110.f;
+
+	/**
+	 * World-up lift of the arm's pivot when looking steeply up, cm, blended in with the other two.
+	 * The socket offset turns with the arm, so at 50 degrees and more it hardly raises the lens;
+	 * this keeps the lens off the pavement all the way to CameraPitchMax.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera")
+	float LookUpPivotLift = 150.f;
 
 	/** Lowest the camera can look, degrees (down is negative). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "-89.0", ClampMax = "0.0"))

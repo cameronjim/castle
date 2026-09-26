@@ -66,17 +66,20 @@ bool FCastleCameraLookUp::RunTest(const FString& Parameters)
 		float Pitch;
 		float Arm;
 		float SocketZ;
+		float Lift;
 	};
-	// 350 / 60 up to +20 degrees, a straight blend to 220 / 110 at +60, held beyond.
+	// 350 / 60 / 0 up to +20 degrees, a straight blend to 220 / 110 / 150 at +60, held beyond.
 	const FCase Cases[] = {
-		{ -40.f, 350.f, 60.f }, { 0.f, 350.f, 60.f }, { 20.f, 350.f, 60.f }, { 30.f, 317.5f, 72.5f },
-		{ 40.f, 285.f, 85.f }, { 60.f, 220.f, 110.f }, { 75.f, 220.f, 110.f },
+		{ -40.f, 350.f, 60.f, 0.f }, { 0.f, 350.f, 60.f, 0.f }, { 20.f, 350.f, 60.f, 0.f },
+		{ 30.f, 317.5f, 72.5f, 37.5f }, { 40.f, 285.f, 85.f, 75.f }, { 60.f, 220.f, 110.f, 150.f },
+		{ 75.f, 220.f, 110.f, 150.f },
 	};
 	for (const FCase& Case : Cases)
 	{
 		const FCastleCameraTargets Hip = Kate->ComputeCameraTargets(false, Case.Pitch);
 		TestEqual(FString::Printf(TEXT("Arm at %.0f degrees"), Case.Pitch), Hip.ArmLength, Case.Arm, 0.01f);
 		TestEqual(FString::Printf(TEXT("Socket Z at %.0f degrees"), Case.Pitch), static_cast<float>(Hip.SocketOffset.Z), Case.SocketZ, 0.01f);
+		TestEqual(FString::Printf(TEXT("Pivot lift at %.0f degrees"), Case.Pitch), Hip.PivotLift, Case.Lift, 0.01f);
 		TestEqual(FString::Printf(TEXT("Shoulder offset unchanged at %.0f degrees"), Case.Pitch), static_cast<float>(Hip.SocketOffset.Y), 70.f);
 		TestEqual(FString::Printf(TEXT("FOV unchanged at %.0f degrees"), Case.Pitch), Hip.FieldOfView, 90.f);
 	}
