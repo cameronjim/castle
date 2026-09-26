@@ -224,7 +224,7 @@ def check_ledges(district, actors):
     check(not visible, "ledge blocks are hidden", ", ".join(visible[:5]))
     check(not bad_collision, "ledge blocks block only the Traversable channel (not Pawn)", ", ".join(bad_collision[:5]))
 
-    blocks = gen.test_block_spots(district)
+    blocks = gen.test_block_spots(district, actors)
     missing = [s[0] for s in blocks if s[0] not in actors]
     check(not missing, "parkour test blocks present ({0})".format(", ".join(
         "{0} {1:.0f} cm".format(s[0], s[4][2] * 100.0) for s in blocks)), ", ".join(missing))
@@ -237,7 +237,8 @@ def check_ledges(district, actors):
         top = box_origin.z + extent.z
         if abs(top - (origin[2] + scale[2] * 100.0)) > 1.0:
             wrong_height.append("{0} top {1:.1f}".format(label, top))
-    check(not wrong_height, "parkour test blocks stand at their heights within 1 cm", "; ".join(wrong_height))
+    check(not wrong_height, "parkour test blocks stand their heights above the ground under them, within 1 cm",
+          "; ".join(wrong_height))
 
 
 def run():

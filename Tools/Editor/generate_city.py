@@ -1674,18 +1674,74 @@ def ensure_ledges(district, existing):
     return changes + removed
 
 
-def test_block_spots(district):
-    """[(label, tag, origin, yaw, scale)] for the street test blocks and the park walls."""
+_GROUND_PREFIXES = (ROAD_PREFIX, SIDEWALK_PREFIX, PARK_PREFIX, GROUND_LABEL)
+_GROUND_MESHES = {}
+
+
+def _mesh_top_under(actor, x, y):
+    """World Z where a ray straight down at (x, y) first meets actor's static mesh, or None.
+
+    A commandlet's editor world has no physics scene, so a collision trace always misses; this
+    casts against the mesh triangles with Geometry Script, like verify_city's MeshProbe."""
+    static_mesh = actor.get_editor_property("static_mesh_component").get_editor_property("static_mesh")
+    if static_mesh is None:
+        return None
+    key = static_mesh.get_path_name()
+    if key not in _GROUND_MESHES:
+        mesh = unreal.DynamicMesh()
+        unreal.GeometryScript_AssetUtils.copy_mesh_from_static_mesh_v2(
+            static_mesh, mesh, unreal.GeometryScriptCopyMeshFromAssetOptions(), unreal.GeometryScriptMeshReadLOD(), True)
+        result = unreal.GeometryScript_MeshSpatial.build_bvh_for_mesh(mesh)
+        bvh = next((r for r in (result if isinstance(result, tuple) else (result,))
+                    if isinstance(r, unreal.GeometryScriptDynamicMeshBVH)), None)
+        _GROUND_MESHES[key] = (mesh, bvh)
+    mesh, bvh = _GROUND_MESHES[key]
+    if bvh is None:
+        return None
+    top = 5000.0
+    origin = unreal.Vector(x, y, top) - actor.get_actor_location()
+    result = unreal.GeometryScript_MeshSpatial.find_nearest_ray_intersection_with_mesh(
+        mesh, bvh, origin, unreal.Vector(0.0, 0.0, -1.0), unreal.GeometryScriptSpatialQueryOptions())
+    hit = next((r for r in (result if isinstance(result, tuple) else (result,))
+                if isinstance(r, unreal.GeometryScriptRayHitResult)), None)
+    if hit is None or not hit.hit:
+        return None
+    return top - hit.ray_parameter
+
+
+def ground_z(x, y, fallback, existing):
+    """Top of the street, sidewalk, park or ground slab under (x, y); fallback when none is. The
+    kerbs make a guessed height wrong by the 13 cm between road and sidewalk."""
+    best = None
+    for label, actor in existing.items():
+        if not label.startswith(_GROUND_PREFIXES):
+            continue
+        origin, extent = actor.get_actor_bounds(False)
+        if abs(x - origin.x) > extent.x or abs(y - origin.y) > extent.y:
+            continue
+        z = _mesh_top_under(actor, x, y)
+        if z is not None and (best is None or z > best):
+            best = z
+    return best if best is not None else fallback
+
+
+def test_block_spots(district, existing=None):
+    """[(label, tag, origin, yaw, scale)] for the street test blocks and the park walls. With
+    ``existing`` (label -> actor) each block stands on the ground traced under its centre."""
     loc, rot = player_start_transform(district)
     yaw = rot.yaw
     across = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))    # out of the park, across the street
     along = (-across[1], across[0])                                          # along the street: local +Y
+    def base(x, y, fallback):
+        return ground_z(x, y, fallback, existing) if existing is not None else fallback
+
     spots = []
     for label, tag, offset, width, depth, height in TEST_BLOCKS:
         cx, cy = loc.x + along[0] * offset, loc.y + along[1] * offset
         ox = cx - across[0] * width * 0.5 - along[0] * depth * 0.5
         oy = cy - across[1] * width * 0.5 - along[1] * depth * 0.5
-        spots.append((label, tag, (ox, oy, ROAD_TOP), yaw, (width / 100.0, depth / 100.0, height / 100.0)))
+        spots.append((label, tag, (ox, oy, base(cx, cy, ROAD_TOP)), yaw,
+                      (width / 100.0, depth / 100.0, height / 100.0)))
 
     park = district.parks[0] if district.parks else None
     if park is not None:
@@ -1701,7 +1757,7 @@ def test_block_spots(district):
             px, py = edge[0] + inward[0] * distance, edge[1] + inward[1] * distance
             ox = px - xaxis[0] * width * 0.5 - inward[0] * depth * 0.5
             oy = py - xaxis[1] * width * 0.5 - inward[1] * depth * 0.5
-            spots.append((PARK_WALL_PREFIX + str(i), "CityParkWall", (ox, oy, PARK_TOP), wall_yaw,
+            spots.append((PARK_WALL_PREFIX + str(i), "CityParkWall", (ox, oy, base(px, py, PARK_TOP)), wall_yaw,
                           (width / 100.0, depth / 100.0, height / 100.0)))
     return spots
 
@@ -1713,13 +1769,13 @@ def ensure_test_blocks(district, existing):
     if cls is None:
         c.log("FAILED", "parkour test blocks", "BP_TraversableBlock not found")
         return 0
-    spots = test_block_spots(district)
+    spots = test_block_spots(district, existing)
     changes = 0
     for label, tag, origin, yaw, scale in spots:
         changes += _ensure_block(existing, label, cls, origin, yaw, scale, ["City", "CityParkour", tag], True, False)
     c.log("updated" if changes else "exists", "parkour test blocks",
           "{0} blocks: {1}".format(len(spots), ", ".join(
-              "{0} {1:.0f} cm".format(s[0], s[4][2] * 100.0) for s in spots)))
+              "{0} {1:.0f} cm on z {2:.0f}".format(s[0], s[4][2] * 100.0, s[2][2]) for s in spots)))
     return changes
 
 
