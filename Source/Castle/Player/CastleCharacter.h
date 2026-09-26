@@ -32,8 +32,11 @@ struct FInputActionValue;
  * measured from the top of the arc: a long drop dips speed and camera (the roll placeholder)
  * and a very long one costs health, never all of it.
  *
- * TODO(stage2): body animation is the idle/walk/run helper in LocomotionAnim.h until the Game
- * Animation Sample's motion-matched locomotion replaces it.
+ * Body animation: when the mesh runs an AnimBP (BP_Kate: the Game Animation Sample's
+ * motion-matched SandboxCharacter_CMC_ABP) the AnimBP owns the body, and the idle/walk/run clip
+ * switch in LocomotionAnim.h only runs for a mesh without one. A class that carries the sample's
+ * CharacterInputState (SandboxCharacter_CMC and its children) gets our gait, crouch and aim
+ * written into it every update; see SyncGaspInputState.
  *
  * BP_CastleCharacter is the input-wired base; BP_Kate is the playable child.
  */
@@ -213,6 +216,37 @@ public:
 	/** Ends a slide before jumping: a character cannot jump while crouched. */
 	virtual void Jump() override;
 
+	// --- Game Animation Sample bridge -------------------------------------------------------------
+
+	/**
+	 * True when this class carries the Game Animation Sample's CharacterInputState struct (BP_Kate,
+	 * through SandboxCharacter_CMC). Then the sandbox graph reads its locomotion inputs from it,
+	 * owns MaxWalkSpeed and the rotation mode, and its own Blueprint input events are dropped.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Castle|Animation")
+	bool UsesGaspLocomotion() const;
+
+	/** True while the body mesh is animated by an AnimBP; the clip switch then leaves it alone. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Animation")
+	bool IsBodyDrivenByAnimBlueprint() const;
+
+	/**
+	 * Writes the current gait, crouch and aim into the sample's CharacterInputState:
+	 * WantsToSprint (sprint gait), WantsToWalk (walk gait, or aiming), WantsToStrafe and
+	 * WantsToAim (aiming), WantsToCrouch (crouched or sliding), plus FullMovementInput (any gait
+	 * above walk). No-op on a class without the struct. Public so a test can drive it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Animation")
+	void SyncGaspInputState();
+
+	/** Reads one CharacterInputState flag back by its authored name (WantsToSprint, ...). False if absent. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Animation")
+	bool GetGaspInputFlag(FName FlagName) const;
+
+	/** How many Blueprint input bindings the last possession dropped. See DropBlueprintInputBindings. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Animation")
+	int32 GetDroppedBlueprintInputBindings() const { return DroppedBlueprintInputBindings; }
+
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Castle|Character")
 	void OnInteractPressed();
@@ -283,6 +317,21 @@ protected:
 
 	/** Aiming faces the camera; otherwise the body turns towards where it moves. */
 	void ApplyRotationMode();
+
+	/**
+	 * The sample's graph binds its own IA_Move, IA_Look, IA_Jump, IA_Sprint, IA_Crouch and IA_Aim
+	 * events, and our actions sit at the same asset paths, so they would fire twice (and a crouch
+	 * toggle would cancel itself). With the GASP bridge active every Blueprint action and key
+	 * binding added after our own is removed; C++ owns input.
+	 */
+	void DropBlueprintInputBindings();
+
+	/**
+	 * Deactivates every camera on the actor other than FollowCamera: the sample's GameplayCamera
+	 * rig (and the cine camera it spawns) and its spare CameraComponent. Our spring arm stays the
+	 * view. Cheap when there is nothing to do; run on BeginPlay, possession and every tick.
+	 */
+	void SilenceForeignCameras();
 
 	/**
 	 * Copies the tuning properties onto the boom and CharacterMovement. Run at BeginPlay so a
@@ -649,6 +698,17 @@ protected:
 
 private:
 	FTimerHandle NoiseTimerHandle;
+
+	/** Action bindings SetupPlayerInputComponent made; anything after them came from a Blueprint. */
+	int32 NativeActionBindingCount = INDEX_NONE;
+
+	int32 DroppedBlueprintInputBindings = 0;
+
+	/** Logged once per actor: that the sample's graph, not our gait speeds, sets MaxWalkSpeed. */
+	bool bLoggedGaspSpeedOwnership = false;
+
+	/** Logged once per actor, the first time a foreign camera had to be switched off. */
+	bool bLoggedForeignCamera = false;
 
 	/** Whichever of IdleAnim / WalkAnim the body is playing, so Tick only re-plays on a change. */
 	UPROPERTY(Transient)

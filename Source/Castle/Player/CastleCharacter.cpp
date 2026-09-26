@@ -2,6 +2,7 @@
 
 #include "Player/CastleCharacter.h"
 
+#include "Animation/AnimInstance.h"
 #include "Animation/AnimSequence.h"
 #include "Camera/CameraComponent.h"
 #include "Castle.h"
@@ -26,6 +27,7 @@
 #include "Components/PawnNoiseEmitterComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "TimerManager.h"
+#include "UObject/UnrealType.h"
 #include "World/InteractionComponent.h"
 
 static TAutoConsoleVariable<int32> CVarCastleDebugMovement(
@@ -33,6 +35,42 @@ static TAutoConsoleVariable<int32> CVarCastleDebugMovement(
 	0,
 	TEXT("1 shows the player's gait, ground speed and fall height on the HUD, for reading playtest screenshots."),
 	ECVF_Default);
+
+namespace CastleGasp
+{
+	/** The Game Animation Sample's S_PlayerInputState variable on SandboxCharacter_CMC. */
+	static const FName InputStateName(TEXT("CharacterInputState"));
+
+	/** SandboxCharacter_CMC's analog-stick flag: true when the stick is past its walk range. */
+	static const FName FullMovementInputName(TEXT("FullMovementInput"));
+
+	static FStructProperty* FindInputState(const UClass* Class)
+	{
+		return Class ? FindFProperty<FStructProperty>(Class, InputStateName) : nullptr;
+	}
+
+	/**
+	 * A member of the user-defined struct by the name its author gave it. The struct's real
+	 * property names carry a GUID suffix (WantsToSprint_1_840C...), which is why this matches the
+	 * authored name and not the FName.
+	 */
+	static FBoolProperty* FindFlag(const FStructProperty* InputState, FName FlagName)
+	{
+		if (!InputState || !InputState->Struct)
+		{
+			return nullptr;
+		}
+		const FString Wanted = FlagName.ToString();
+		for (TFieldIterator<FBoolProperty> It(InputState->Struct); It; ++It)
+		{
+			if (It->GetAuthoredName() == Wanted)
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+}
 
 ACastleCharacter::ACastleCharacter()
 {
@@ -128,6 +166,7 @@ void ACastleCharacter::BeginPlay()
 	}
 
 	UpdateBodyLocomotion();
+	SilenceForeignCameras();
 
 	BindToSettingsSubsystem();
 
@@ -147,6 +186,9 @@ void ACastleCharacter::PossessedBy(AController* NewController)
 	// BeginPlay may have run before the game instance had its subsystems; possession is the
 	// second, reliable chance to pick the player's sensitivity up.
 	BindToSettingsSubsystem();
+
+	// The sample's graph may switch its own camera rig on as it is possessed.
+	SilenceForeignCameras();
 }
 
 void ACastleCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -224,7 +266,111 @@ void ACastleCharacter::PawnClientRestart()
 {
 	Super::PawnClientRestart();
 
+	// Super bound the Blueprint input events after SetupPlayerInputComponent ran; drop them here.
+	DropBlueprintInputBindings();
 	AddDefaultMappingContext();
+	SilenceForeignCameras();
+}
+
+void ACastleCharacter::DropBlueprintInputBindings()
+{
+	UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(InputComponent);
+	if (!EnhancedInput || NativeActionBindingCount == INDEX_NONE || !UsesGaspLocomotion())
+	{
+		return;
+	}
+
+	int32 Dropped = 0;
+	for (int32 Index = EnhancedInput->GetActionEventBindings().Num() - 1; Index >= NativeActionBindingCount; --Index)
+	{
+		Dropped += EnhancedInput->RemoveActionEventBinding(Index) ? 1 : 0;
+	}
+	// Raw key events (the sample's mouse wheel and d-pad camera controls); we bind none of our own.
+	Dropped += EnhancedInput->KeyBindings.Num();
+	EnhancedInput->KeyBindings.Reset();
+
+	DroppedBlueprintInputBindings = Dropped;
+	UE_LOG(LogCastle, Log, TEXT("%s: dropped %d Blueprint input binding(s); the sandbox graph reads CharacterInputState instead."),
+		*GetNameSafe(this), Dropped);
+}
+
+void ACastleCharacter::SilenceForeignCameras()
+{
+	if (!UsesGaspLocomotion())
+	{
+		return;
+	}
+
+	TInlineComponentArray<UActorComponent*> Components(this);
+	for (UActorComponent* Component : Components)
+	{
+		if (!Component || Component == FollowCamera || !Component->IsActive())
+		{
+			continue;
+		}
+		// The sample's GameplayCamera component (GameplayCameras plugin, which this module does
+		// not link) is matched by class name; it owns and drives a cine camera it spawns.
+		const bool bCamera = Component->IsA<UCameraComponent>()
+			|| Component->GetClass()->GetName().Contains(TEXT("GameplayCamera"));
+		if (!bCamera)
+		{
+			continue;
+		}
+		Component->Deactivate();
+		if (!bLoggedForeignCamera)
+		{
+			bLoggedForeignCamera = true;
+			UE_LOG(LogCastle, Log, TEXT("%s: switched off the sample's camera %s (%s); the spring arm is the view."),
+				*GetNameSafe(this), *Component->GetName(), *Component->GetClass()->GetName());
+		}
+	}
+}
+
+bool ACastleCharacter::UsesGaspLocomotion() const
+{
+	return CastleGasp::FindInputState(GetClass()) != nullptr;
+}
+
+bool ACastleCharacter::IsBodyDrivenByAnimBlueprint() const
+{
+	const USkeletalMeshComponent* Body = GetMesh();
+	return Body && Body->GetAnimationMode() == EAnimationMode::AnimationBlueprint && Body->AnimClass != nullptr;
+}
+
+bool ACastleCharacter::GetGaspInputFlag(FName FlagName) const
+{
+	const FStructProperty* InputState = CastleGasp::FindInputState(GetClass());
+	const FBoolProperty* Flag = CastleGasp::FindFlag(InputState, FlagName);
+	return Flag && Flag->GetPropertyValue_InContainer(InputState->ContainerPtrToValuePtr<void>(this));
+}
+
+void ACastleCharacter::SyncGaspInputState()
+{
+	FStructProperty* InputState = CastleGasp::FindInputState(GetClass());
+	if (!InputState)
+	{
+		return;
+	}
+
+	void* State = InputState->ContainerPtrToValuePtr<void>(this);
+	auto SetFlag = [InputState, State](const TCHAR* Name, bool bValue)
+	{
+		if (FBoolProperty* Flag = CastleGasp::FindFlag(InputState, FName(Name)))
+		{
+			Flag->SetPropertyValue_InContainer(State, bValue);
+		}
+	};
+
+	SetFlag(TEXT("WantsToSprint"), CurrentGait == ECastleGait::Sprint);
+	SetFlag(TEXT("WantsToWalk"), CurrentGait == ECastleGait::Walk || bIsAiming);
+	SetFlag(TEXT("WantsToStrafe"), bIsAiming);
+	SetFlag(TEXT("WantsToAim"), bIsAiming);
+	SetFlag(TEXT("WantsToCrouch"), bIsCrouched || bIsSliding);
+
+	if (FBoolProperty* FullInput = FindFProperty<FBoolProperty>(GetClass(), CastleGasp::FullMovementInputName))
+	{
+		FullInput->SetPropertyValue_InContainer(this, CurrentGait != ECastleGait::Walk);
+	}
 }
 
 void ACastleCharacter::AddDefaultMappingContext()
@@ -333,6 +479,9 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	{
 		EnhancedInput->BindAction(GrappleAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_Grapple);
 	}
+
+	// Everything bound after this point is a Blueprint's; see DropBlueprintInputBindings.
+	NativeActionBindingCount = EnhancedInput->GetActionEventBindings().Num();
 }
 
 void ACastleCharacter::Input_Slot1(const FInputActionValue& /*Value*/)
@@ -662,6 +811,21 @@ void ACastleCharacter::UpdateMaxWalkSpeed()
 		Speed *= LandingSpeedMultiplier;
 	}
 
+	SyncGaspInputState();
+	if (UsesGaspLocomotion())
+	{
+		// TODO(stage2): reconcile. The sandbox graph writes MaxWalkSpeed, crouch speed and
+		// acceleration from its own Walk/Run/Sprint/Crouch speed curves before the movement
+		// component ticks; writing ours as well would make the two fight frame to frame.
+		if (!bLoggedGaspSpeedOwnership)
+		{
+			bLoggedGaspSpeedOwnership = true;
+			UE_LOG(LogCastle, Log, TEXT("%s: the Game Animation Sample graph sets movement speeds; Castle gait speeds are not applied."),
+				*GetNameSafe(this));
+		}
+		return;
+	}
+
 	// Crouch and slide move on the crouched speed; everything else on the walking one.
 	const bool bLow = CurrentGait == ECastleGait::Crouch || CurrentGait == ECastleGait::Slide;
 	Movement->MaxWalkSpeed = bLow ? RunSpeed : Speed;
@@ -732,6 +896,7 @@ void ACastleCharacter::Tick(float DeltaSeconds)
 	UpdateCamera(DeltaSeconds);
 	UpdateBodyVisibilityForCamera();
 	UpdateBodyLocomotion();
+	SilenceForeignCameras();
 }
 
 void ACastleCharacter::UpdateBodyVisibilityForCamera()
@@ -753,6 +918,12 @@ void ACastleCharacter::UpdateBodyVisibilityForCamera()
 
 void ACastleCharacter::UpdateBodyLocomotion()
 {
+	// An AnimBP (BP_Kate's motion matching) owns the body; single-node playback would replace it.
+	if (IsBodyDrivenByAnimBlueprint())
+	{
+		return;
+	}
+
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
 	const float Speed = GetVelocity().Size2D();
 
