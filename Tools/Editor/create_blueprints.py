@@ -33,23 +33,16 @@ import unreal
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
-import _materials as m  # noqa: E402
 
 PLAYER_PATH = "/Game/Blueprints/Player"
 UI_PATH = "/Game/Blueprints/UI"
 INPUT_PATH = "/Game/Input"
 
-# True first person. UE 5.8 ships no arms-only mesh, so SK_Mannequin is used twice: once as
-# Frank's actual body (ACharacter's own Mesh, animated, shadow-casting, head hidden) and once
-# as the poseable arms in front of the camera. See ACastleCharacter and
-# UFirstPersonArmsComponent.
+# Third person: SK_Mannequin is the player's body on ACharacter's own Mesh, fully visible and
+# animated by the idle/walk sequences. See ACastleCharacter.
 MANNEQUIN_MESH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
 MANNEQUIN_IDLE = "/Game/Mannequin/Animations/ThirdPersonIdle"
 MANNEQUIN_WALK = "/Game/Mannequin/Animations/ThirdPersonWalk"
-
-# Copied out of Templates/TemplateResources/Standard/Weapons. Its internal references are
-# absolute (/Game/Weapons/...), so Content/Weapons is where these have to live.
-PISTOL_MESH = "/Game/Weapons/Pistol/Meshes/SM_Pistol"
 
 # ACastleCharacter input property name -> IA asset name.
 # Pause lives on ACastlePlayerController, not the pawn, so that Escape still works when the
@@ -205,104 +198,79 @@ def set_component_asset(bp, component_name, setter_name, prop_name, asset, conte
         return False
 
 
-def mesh_slot_names(mesh):
-    """The material slot names of a skeletal mesh, in order. Empty list when it has none."""
-    names = []
-    if mesh is None:
-        return names
+# Packages a pre-pivot BP_CastleCharacter still pulls in through the first-person components
+# and materials it was saved with. Any of these in its dependencies means it has not been
+# resaved since the viewmodel code was removed.
+RETIRED_CHARACTER_DEPENDENCIES = (
+    "/Game/Materials/M_FrankArms",
+    "/Game/Materials/M_FrankGloves",
+    "/Game/Materials/M_Pistol",
+    "/Game/Weapons/Pistol/Meshes/SM_Pistol",
+)
+
+
+def package_dependencies(package_name):
+    """Hard and soft package dependencies of package_name, as plain strings."""
     try:
-        slots = mesh.get_editor_property("materials") or []
-    except Exception:  # noqa: BLE001
-        return names
-    for slot in slots:
-        try:
-            names.append(str(slot.get_editor_property("material_slot_name")))
-        except Exception:  # noqa: BLE001
-            names.append("")
-    return names
+        registry = unreal.AssetRegistryHelpers.get_asset_registry()
+        options = unreal.AssetRegistryDependencyOptions(
+            include_soft_package_references=True,
+            include_hard_package_references=True,
+            include_searchable_names=False,
+            include_soft_management_references=False,
+            include_hard_management_references=False,
+        )
+        return [str(dep) for dep in (registry.get_dependencies(package_name, options) or [])]
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("get_dependencies " + package_name, exc)
+        return []
 
 
-def set_component_materials(bp, component_name, slot_names, materials, context):
-    """Put Frank's fatigues on every slot of a mesh component. Returns True if anything changed.
-
-    The mannequin is one material over the whole body, so a "hands" slot is something only a
-    future arms pack would have; if one shows up it gets the gloves instead of the sleeves.
-    """
-    arms = materials.get("arms")
-    gloves = materials.get("gloves") or arms
-    if arms is None:
-        c.log("skipped", context, "M_FrankArms was not created")
-        return False
-
-    cdo = c.blueprint_cdo(bp)
-    component = None
-    if cdo is not None:
-        try:
-            component = cdo.get_editor_property(component_name)
-        except Exception:  # noqa: BLE001
-            component = None
+def clear_retired_materials(component, context):
+    """Drop material overrides that point at the retired first-person fatigues."""
     if component is None:
-        c.log("skipped", context, "no component called " + component_name)
         return False
-
-    changed = False
-    for index, slot in enumerate(slot_names or [""]):
-        wanted = gloves if ("hand" in slot.lower() or "glove" in slot.lower()) else arms
-        try:
-            if component.get_material(index) == wanted:
-                continue
-            component.set_material(index, wanted)
-            c.log("updated", context, "slot {0} -> {1}".format(index, wanted.get_name()))
-            changed = True
-        except Exception as exc:  # noqa: BLE001
-            c.log_error("{0} slot {1}".format(context, index), exc)
-    return changed
+    try:
+        overrides = list(component.get_editor_property("override_materials") or [])
+    except Exception:  # noqa: BLE001
+        return False
+    if not any(mat is not None and mat.get_name().startswith("M_Frank") for mat in overrides):
+        return False
+    if c.set_props(component, [("override_materials", [])], context):
+        c.log("updated", context, "M_Frank* overrides cleared; the mesh wears its own materials")
+        return True
+    return False
 
 
-def configure_view_model(bp):
-    """Give BP_CastleCharacter its body, its hands and its pistol.
+def configure_body(bp):
+    """Give BP_CastleCharacter its body: SK_Mannequin on ACharacter's Mesh, nothing else.
 
-    Three assignments, all SK_Mannequin or its sequences:
-      Mesh      Frank's real body. Animated by IdleAnim/WalkAnim, head hidden in C++.
-      ArmsMesh  the poseable hands in front of the camera, posed in C++, never animated.
-      WeaponMesh the pistol, parented to the arms' hand_r.
+    Third person: the whole mannequin is visible and animated by IdleAnim/WalkAnim. The
+    first-person arms, the camera-held pistol and Frank's fatigues are gone; a save made before
+    the pivot still carries them, so the Blueprint is resaved once to shed those references.
     """
     if bp is None:
         return
 
-    pistol = c.load_or_none(PISTOL_MESH)
     mannequin = c.load_or_none(MANNEQUIN_MESH)
-
     changed = set_component_asset(
         bp, "mesh", "set_skeletal_mesh_asset", "skeletal_mesh_asset", mannequin,
         "BP_CastleCharacter.Mesh")
-    # A poseable mesh is a USkinnedMeshComponent, so it takes the skinned-asset setter rather
-    # than the skeletal-mesh one a USkeletalMeshComponent has.
-    changed = set_component_asset(
-        bp, "arms_mesh", "set_skinned_asset_and_update", "skinned_asset", mannequin,
-        "BP_CastleCharacter.ArmsMesh") or changed
-    changed = set_component_asset(
-        bp, "weapon_mesh", "set_static_mesh", "static_mesh", pistol,
-        "BP_CastleCharacter.WeaponMesh") or changed
 
-    # Shiny white plastic is what the mannequin ships as, and it is the first thing a player
-    # sees. Both meshes get the same fatigues so the legs match the forearms.
-    c.ensure_directory(m.MATERIALS_PATH)
-    character_materials = m.ensure_character_materials()
+    cdo = c.blueprint_cdo(bp)
+    body = None
+    if cdo is not None:
+        try:
+            body = cdo.get_editor_property("mesh")
+        except Exception:  # noqa: BLE001
+            body = None
+    changed = clear_retired_materials(body, "BP_CastleCharacter.Mesh") or changed
 
-    # The view model pistol is the same white template mesh the pickup uses, and the pickup
-    # already has a gun-metal material; without this the aimed shot is a white plastic gun.
-    pistol_material = m.ensure_prop_materials().get("pistol")
-    if pistol_material is not None:
-        changed = set_component_materials(
-            bp, "weapon_mesh", [""], {"arms": pistol_material},
-            "BP_CastleCharacter.WeaponMesh") or changed
-
-    slots = mesh_slot_names(mannequin)
-    changed = set_component_materials(
-        bp, "arms_mesh", slots, character_materials, "BP_CastleCharacter.ArmsMesh") or changed
-    changed = set_component_materials(
-        bp, "mesh", slots, character_materials, "BP_CastleCharacter.Mesh") or changed
+    package = c.asset_path(PLAYER_PATH, "BP_CastleCharacter")
+    stale = [dep for dep in package_dependencies(package) if dep in RETIRED_CHARACTER_DEPENDENCIES]
+    if stale:
+        c.log("updated", package, "resaved past the first-person build ({0})".format(", ".join(stale)))
+        changed = True
 
     if changed:
         c.compile_blueprint(bp)
@@ -364,15 +332,11 @@ def run():
         values = [("default_mapping_context", c.load_or_none(c.asset_path(INPUT_PATH, "IMC_Default")))]
         for prop, asset_name in CHARACTER_INPUT_PROPERTIES:
             values.append((prop, c.load_or_none(c.asset_path(INPUT_PATH, asset_name))))
-        # The body plays the same two sequences the guards do; there is no AnimBP.
+        # The body plays the same two sequences the thugs do; there is no AnimBP.
         values.append(("idle_anim", c.load_or_none(MANNEQUIN_IDLE)))
         values.append(("walk_anim", c.load_or_none(MANNEQUIN_WALK)))
-        # Frank's fatigues. ACastleCharacter puts this on every slot of the body and the arms
-        # at BeginPlay; a component material override alone does not reach the spawned pawn.
-        c.ensure_directory(m.MATERIALS_PATH)
-        values.append(("fatigues_material", m.ensure_character_materials().get("arms")))
         apply_defaults(bp_character, "BP_CastleCharacter", PLAYER_PATH, values)
-        configure_view_model(bp_character)
+        configure_body(bp_character)
 
     # --- BP_CastlePlayerController ------------------------------------------------------
     if bp_controller is not None:

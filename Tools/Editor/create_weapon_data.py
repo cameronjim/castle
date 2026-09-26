@@ -1,13 +1,13 @@
-"""Create the three weapon definition data assets and wire them into the content.
+"""Create the Hands weapon definition and wire it into the player.
 
     /Game/Blueprints/Weapons/DA_Weapon_Hands    melee, 15 damage, the always-present slot 0
-    /Game/Blueprints/Weapons/DA_Weapon_Pistol   34 / 12 / 24, x3 headshot, SM_Pistol
-    /Game/Blueprints/Weapons/DA_Weapon_Rifle    placeholder: 24 / 30 / 90, no mesh yet
 
 Then:
 
     BP_CastleCharacter.InventoryComponent.HandsDefinition = DA_Weapon_Hands
-    BP_Pickup_Pistol.Weapon                               = DA_Weapon_Pistol
+
+The pistol and rifle definitions went with the first-person build (pivot_cleanup.py deletes
+them). TODO(stage2): DA_Bow_Kate and the DA_Arrow_* definitions arrive here with the bow.
 
 Property names come from Source/Castle/Combat/WeaponDefinition.h. Idempotent: an existing
 asset keeps its values and is only re-saved when a field is actually different.
@@ -23,9 +23,6 @@ import _common as c  # noqa: E402
 
 WEAPON_PATH = "/Game/Blueprints/Weapons"
 PLAYER_PATH = "/Game/Blueprints/Player"
-WORLD_PATH = "/Game/Blueprints/World"
-
-PISTOL_MESH = "/Game/Weapons/Pistol/Meshes/SM_Pistol"
 
 
 def slot(name):
@@ -48,50 +45,9 @@ def weapon_values(name):
             ("melee_range", 120.0),
             ("melee_cooldown", 0.6),
             ("stagger_on_hit", True),
-            ("arms_pose_name", "Fists"),
         ]
 
-    if name == "DA_Weapon_Pistol":
-        return [
-            ("display_name", "Pistol"),
-            ("short_name", "Pistol"),
-            ("slot", slot("PISTOL")),
-            ("damage", 34.0),
-            ("magazine_size", 12),
-            ("default_reserve", 24),
-            ("fire_rate", 600.0),
-            ("reload_seconds", 2.0),
-            ("hip_spread_degrees", 2.5),
-            ("aim_spread_degrees", 0.5),
-            ("headshot_multiplier", 3.0),
-            ("is_melee", False),
-            ("view_model_mesh", c.load_or_none(PISTOL_MESH)),
-            ("arms_pose_name", "Pistol"),
-            ("hand_offset", unreal.Vector(4.0, 0.0, 0.0)),
-            # unreal.Rotator is (roll, pitch, yaw), not the (pitch, yaw, roll) an FRotator
-            # literal in C++ takes. Writing the C++ order here gave the pistol a -90 degree
-            # PITCH: in game the slide pointed straight down through the palm and the gun
-            # vanished out of frame, while the editor screenshots - which arm Frank without a
-            # definition and so fall back to the C++ default - looked perfect.
-            ("hand_rotation", unreal.Rotator(0.0, 0.0, -90.0)),
-        ]
-
-    # Rifle: placeholder stats so the third slot is real long before the mission that uses it.
-    return [
-        ("display_name", "Rifle"),
-        ("short_name", "Rifle"),
-        ("slot", slot("RIFLE")),
-        ("damage", 24.0),
-        ("magazine_size", 30),
-        ("default_reserve", 90),
-        ("fire_rate", 700.0),
-        ("reload_seconds", 2.4),
-        ("hip_spread_degrees", 3.0),
-        ("aim_spread_degrees", 0.4),
-        ("headshot_multiplier", 3.0),
-        ("is_melee", False),
-        ("arms_pose_name", "Rifle"),
-    ]
+    return []
 
 
 def data_asset_factory(data_asset_class):
@@ -192,54 +148,18 @@ def set_component_property(bp_path, bp_name, component_name, prop, value, contex
     return True
 
 
-def wire_pickup(pistol):
-    """BP_Pickup_Pistol hands the player DA_Weapon_Pistol rather than a bare magazine count."""
-    if pistol is None:
-        return False
-
-    full = c.asset_path(WORLD_PATH, "BP_Pickup_Pistol")
-    bp = c.load_or_none(full)
-    if bp is None:
-        c.log("skipped", full + ".weapon", "run create_world_blueprints.py first")
-        return False
-
-    cdo = c.blueprint_cdo(bp)
-    if cdo is None:
-        c.log("skipped", full + ".weapon", "no class default object")
-        return False
-
-    try:
-        if same_value(cdo.get_editor_property("weapon"), pistol):
-            c.log("exists", full + ".weapon")
-            return False
-    except Exception:  # noqa: BLE001
-        pass
-
-    if not c.set_props(cdo, [("weapon", pistol)], "BP_Pickup_Pistol"):
-        return False
-
-    c.compile_blueprint(bp)
-    c.save(bp)
-    c.log("updated", full + ".weapon", "DA_Weapon_Pistol")
-    return True
-
-
 def run():
     c.ensure_directory(WEAPON_PATH)
 
     hands = create_weapon("DA_Weapon_Hands")
-    pistol = create_weapon("DA_Weapon_Pistol")
-    create_weapon("DA_Weapon_Rifle")
 
-    # Without this the inventory falls back to a transient stand-in for Frank's fists, which
+    # Without this the inventory falls back to a transient stand-in for bare hands, which
     # works but is not the asset a designer can tune.
     set_component_property(
         PLAYER_PATH, "BP_CastleCharacter", "inventory_component", "hands_definition", hands,
         "BP_CastleCharacter.InventoryComponent.hands_definition")
 
-    wire_pickup(pistol)
-
-    return {"hands": hands, "pistol": pistol}
+    return {"hands": hands}
 
 
 if __name__ == "__main__":
