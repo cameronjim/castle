@@ -27,9 +27,10 @@ only question that matters: is moving through this city fun?
    lat/lon, query OpenStreetMap Overpass for building footprints with height or level
    tags, project to a local tangent plane in centimetres, extrude each footprint into a
    static mesh (procedural mesh or Geometry Script), and place it. Sidewalks, kerbs, and
-   street surfaces from the road polygons. Details in `docs/research/nyc-hawkeye.md`. Pick
-   the block from the show's neighbourhood. Greybox only: grey buildings, dark streets.
-   Add snow later.
+   street surfaces from the road polygons. Details in `docs/research/nyc-hawkeye.md`. The
+   block: East Village tenements around Tompkins Square Park, east of First Avenue
+   (decided 2026-09-25). Start with a box of roughly 400 x 400 m, two to four blocks.
+   Greybox only: grey buildings, dark streets. Add snow later.
 
 5. **Parkour (2 weeks).** Vault (waist height), mantle (chest to head height), ledge grab
    and climb (above head), ledge shimmy, drop-down, roll on landing. Detect with a few
