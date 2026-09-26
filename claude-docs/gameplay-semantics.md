@@ -189,8 +189,11 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 
 ## Objective markers and compass (specified 2026-09-26)
 - An objective trigger volume registers its centre with the tracker for its id at
-  BeginPlay; a data asset never needs coordinates. `GetCurrentObjectiveLocation` returns
-  the current objective's point if it has one.
+  BeginPlay and unregisters at EndPlay; a thug group objective registers its location the
+  same way; a data asset never needs coordinates. Priority: an explicit `WorldLocation`,
+  then the actor named by `MarkerActorLabel`, then the registered point.
+  `GetCurrentObjectiveLocation` returns the current objective's point if it has one.
+  (Built 2026-09-26; 181 tests.)
 - The HUD shows a cream diamond marker projected onto the current objective with the
   distance in metres under it, clamped to the screen edge with an arrow when off-screen,
   hidden within 3 m. A 400 px compass strip at the top centre shows ticks every 15
