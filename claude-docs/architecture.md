@@ -1,8 +1,34 @@
 # Architecture
 
-One game module, `Castle`, four subsystems that talk through delegates. Nothing holds a
-hard pointer across subsystem boundaries; everything that crosses one is either a data
-asset reference or an event.
+One game module, `Castle`, a handful of subsystems that talk through delegates. Nothing
+holds a hard pointer across subsystem boundaries; everything that crosses one is either
+a data asset reference or an event.
+
+## Pivot status (2026-09-25)
+The project pivoted from a first-person Punisher game to a third-person Hawkeye game.
+This document describes the code as it is, plus what changes. Sections below are marked:
+- **keep**: unchanged by the pivot.
+- **rename**: same code, new names (guard becomes thug, weapon becomes arrow or bow).
+- **remove**: deleted in the stage 2 cleanup step. Don't build on it.
+- **planned**: not written yet; the shape it will take.
+
+| Area | Status |
+|------|--------|
+| Mission, objectives, tracker, subsystem, trigger volume | keep |
+| Flashback definition, sequencer, widget | keep, plus a "playable scene" hook (planned) |
+| Health, boss phases, takedown | keep |
+| Weapon component and definitions | rename to bow and arrow definitions; hitscan path replaced by projectiles (planned) |
+| Inventory and hotbar | rename to quiver; radial UI (planned) |
+| Interaction, pickups, doors | keep |
+| Guard character and AI controller | rename to thug; add melee rush, gunner, archer, heavy variants (planned) |
+| First-person arms component, viewmodel, body-mesh head hiding | remove |
+| Third-person camera, spring arm, aim offset | planned |
+| Locomotion via Game Animation Sample, parkour, grapple | planned |
+| Partner AI and character switching | planned |
+| City generator from OSM, World Partition streaming | planned |
+| Settings, pause, end card, HUD, inventory widgets | keep, restyle later |
+| Materials and room-art scripts | keep; extend to facades and streets |
+| Pipeline, tests, verify, screenshots | keep |
 
 ## The systems
 

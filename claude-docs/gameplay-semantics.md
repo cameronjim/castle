@@ -3,6 +3,52 @@
 What each system promises. Tests in `Source/Castle/Tests` assert these. If you change a
 rule here, change the test and the code in the same commit.
 
+**Pivot note (2026-09-25).** The game is now third person with bows. Sections marked
+LEGACY describe first-person or pistol behaviour that still exists in code until the
+stage 2 cleanup removes it; don't extend them. Sections marked PLANNED are the contract
+for code not yet written; write the tests from them. Everything unmarked stands.
+
+## PLANNED: third-person camera and look
+- Spring arm behind the character, default length 350, socket offset up 60. Aim (right
+  mouse) shortens to 180 and offsets to the right shoulder over 0.15 s. Sensitivity from
+  the settings subsystem as today.
+- Camera probes and pulls in against walls; it never clips into geometry the player is
+  standing in.
+- Look input never rotates the character while idle; movement input rotates the
+  character toward the input direction (orient to movement), except while aiming, when
+  the character faces the camera direction.
+
+## PLANNED: traversal
+- Vault: obstacle top between 60 and 110 cm, clear on the far side. Mantle: 110 to 200
+  cm with a standing surface. Ledge grab: 200 to 260 cm, hang, then climb up or drop.
+  Auto-parkour picks the move while sprinting into an obstacle; a manual key does the
+  same at any speed. A traversal move never locks input longer than its animation.
+- Landing above 400 cm triggers a roll if the player is moving, a stumble if not. Fall
+  damage begins at 900 cm and never kills from a rooftop you can reach by grapple.
+- Grapple arrow: valid anchors within 2500 cm and within 30 degrees of the camera
+  forward show a marker; fire zips the character along a straight line at 1800 cm/s and
+  lands on the anchor's landing point. Chaining is allowed mid-zip once past 70% of the
+  line. Costs one grapple arrow; the arrow is recoverable at the anchor.
+
+## PLANNED: bow and arrows
+- Draw is a hold: 0 to `FullDrawSeconds` (0.8 Kate, 1.0 Clint). Release below 25% draw
+  cancels. Power scales damage from 40% to 100% and spread from 4 degrees to 0.5.
+- Arrows are projectiles with gravity, 6000 cm/s at full draw, penetration off. Headshot
+  bones as today. A perfect release (within 0.1 s of full draw) adds 25% damage.
+- Each arrow type is a `UArrowDefinition`: projectile class, on-hit effect, damage, cap,
+  and whether it is recoverable. Standard arrows cap at 30 and are always slot 1. Trick
+  arrow caps are small (3 to 6). Counts refill at safehouses and from pickups.
+- Focus: a meter that fills on hits and takedowns; while airborne, holding aim slows time
+  to 0.3x and drains it. Empties in 3 s of use.
+
+## PLANNED: partner and switching
+- The AI Hawkeye follows at 400 to 800 cm, takes cover when shot at, attacks enemies
+  the player has hit within the last 3 s, and goes to a marked point on command. Never
+  blocks doors. Revives the player once per fight.
+- `SwitchCharacter()` swaps possession, hands the previous pawn to a partner AI
+  controller, swaps HUD context, and blends the camera over 0.3 s. Only allowed where the
+  chapter data asset permits, and never mid-traversal-move or mid-takedown.
+
 ## Mission
 - A mission has 1 or more objectives. At least one must be non-optional.
 - `StartMission` on a subsystem that already has an active mission ends the old one
@@ -85,7 +131,7 @@ rule here, change the test and the code in the same commit.
 - Boss health bars show one segment per phase, sized proportionally to the health range
   each phase covers.
 
-## Weapon
+## Weapon (hitscan pistol is LEGACY; the ammo, reload, and definition rules carry into the bow)
 - Bullets trace on the `Weapon` channel (`ECC_GameTraceChannel1`, default Block), never
   `Visibility`: the engine's Pawn and CharacterMesh profiles ignore Visibility, which is
   why shots passed through guards in the first playtest. Every damageable character
@@ -118,7 +164,7 @@ rule here, change the test and the code in the same commit.
   while the takedown plays. Guards can still shoot the player during this.
 - `OnTakedownPerformed(Target)` fires once at the start of the takedown.
 
-## Player look and viewmodel
+## LEGACY: player look and viewmodel (first person, to be removed)
 - Look input is multiplied by the sensitivity from `UCastleSettingsSubsystem` (default
   0.2, clamped to [0.02, 1.0]) and, while aiming, by `AimLookMultiplier` (0.7) as well.
   The character's own `LookSensitivity` property is only the fallback when no game

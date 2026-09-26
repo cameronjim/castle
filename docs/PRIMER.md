@@ -21,23 +21,24 @@ the work:
 - A **mesh** component gives it a shape (a 3D model made of triangles).
 - A **material** gives the mesh a surface: colour, roughness, shininess, glow. Our concrete
   walls are a plain cube mesh with a concrete material on it.
-- A **collision** shape says what it blocks. Frank's collision is an invisible capsule; that's
-  what stops him walking through walls, not his visible body.
+- A **collision** shape says what it blocks. Kate's collision is an invisible capsule; that's
+  what stops her walking through walls, not her visible body.
 - A **light** component emits light. Everything you can see is lit by something.
 - Custom components carry logic: our `HealthComponent` tracks hit points, our
   `WeaponComponent` handles ammo and shooting.
 
-### The camera is your eyes
-In a first-person game the camera is attached to the player's head. What you see on screen
-is exactly what the camera sees. The pistol you see in the corner is a mesh attached to the
-camera so it moves with your view. Nothing else in the world sees it.
+### The camera follows the character
+In a third-person game the camera sits on an invisible arm behind and above the character.
+The arm shortens when a wall is in the way and swings over the shoulder when you aim.
+Moving the mouse turns the camera; pushing a direction turns the character to run that
+way. That split is why third person feels different from first person.
 
 ### Physics and collision
-The engine checks collisions every frame: can Frank move here, did a bullet hit that guard.
-Bullets in our game aren't objects flying through the air; they're an instant **line trace**,
-an invisible ray from the camera forward until it hits something. That's how nearly every
-shooter does hitscan weapons. Ragdoll is the engine taking over a dead guard's skeleton and
-letting gravity and joints move it.
+The engine checks collisions every frame: can Kate move here, did an arrow hit that thug.
+Arrows in our game are real objects: fired from the bow, they fly with gravity and take
+time to arrive, so leading a moving target matters. Parkour is the character detecting an
+obstacle with a few invisible rays, picking the right move, and playing it. Ragdoll is the
+engine taking over a downed thug's skeleton and letting gravity and joints move it.
 
 ### AI is just rules that run each frame
 A guard has a **state**: Calm, Suspicious, or Alerted. Every quarter second the guard's
@@ -52,8 +53,9 @@ setting that decides how bright the final image is. Same room, different exposur
 different feeling. That's why "make it brighter" was a one-number change.
 
 ### Units
-1 Unreal unit = 1 centimetre. Frank is 192 cm tall. A corridor is 300 cm wide. When I say a
-guard hears sprinting at 1200 units, that's 12 metres.
+1 Unreal unit = 1 centimetre. Kate is about 170 cm tall. A Manhattan side street is about
+1800 cm wide between building faces. When I say the grapple reaches 2500 units, that's
+25 metres.
 
 ---
 
@@ -74,14 +76,15 @@ Unreal is the engine (the simulation loop, rendering, physics, AI tools) plus an
 | `Saved/` | Logs, screenshots, crash dumps. Regenerated, not committed. |
 
 ### Assets you'll hear about
-- **Map / Level** (`L_M01_CellBlockD`): a world with actors placed in it. One mission = one map.
-- **Blueprint** (`BP_Guard`): a class defined visually in the editor. Ours are thin: each is
+- **Map / Level** (`L_District_LES`, `L_CH04_AuctionHouse`): a world with actors placed in it.
+  The open district is one map streamed in pieces; interior chapters are their own maps.
+- **Blueprint** (`BP_Thug`): a class defined visually in the editor. Ours are thin: each is
   "the C++ class plus which meshes and settings to use."
-- **Data asset** (`DA_M01_CellBlockD`): pure data. The mission's objectives, the flashback
-  to play after, the end-card line.
-- **Material** (`M_Concrete`): the surface recipe for a mesh.
+- **Data asset** (`DA_CH01_Rooftops`, `DA_Arrow_Grapple`): pure data. A chapter's objectives
+  and flashback, or an arrow type's damage and effect.
+- **Material** (`M_Brick`): the surface recipe for a mesh.
 - **Widget Blueprint** (`WBP_Hud`): a piece of UI.
-- **Input action** (`IA_Fire`): a named thing the player can do; a mapping context binds
+- **Input action** (`IA_Draw`): a named thing the player can do; a mapping context binds
   keys to it. This is why rebinding keys later is easy.
 
 ### C++ vs Blueprints
@@ -92,7 +95,8 @@ Blueprints hold only settings and asset choices, and our scripts generate them.
 ### Play in Editor vs standalone
 The editor has a Play button that runs the game inside the editor window. It's what most
 tutorials show. We don't use it. **Play Castle** launches the game as its own window with
-no editor at all, which is simpler and closer to what a player would get.
+no editor at all, which is simpler and closer to what a player would get. The shortcut
+name stays Castle because that's the project's code name; the game is Hawkeye.
 
 ### The editor, if you ever open it
 - Centre: the 3D viewport. Right-click-drag to look, WASD while holding right-click to fly.
@@ -107,15 +111,15 @@ You won't need any of it for this project unless I ask you to look at something 
 ## Part 3: How THIS project works
 
 ### The division of labour
-I build. You play and report. Every asset, level, light, and guard placement comes from a
-script in `Tools/Editor/`. When you tell me "the corridor is too dark," I change a number in
-a script, rerun it, and the map updates. Nothing is hand-placed, so nothing is lost when we
-regenerate.
+I build. You play and report. Every asset, building, light, and enemy placement comes from
+a script in `Tools/Editor/`. The city itself is generated from real map data by script.
+When you tell me "that rooftop gap is too wide," I change a number, rerun, and the district
+updates. Nothing is hand-placed, so nothing is lost when we regenerate.
 
 ### The pipeline, when I say "building"
 1. **Build**: compile the C++ in `Source/` into a DLL. About 80 seconds.
-2. **Test**: run the automation tests headless. About 90 tests check rules like "three body
-   shots kill a guard" and "the mission completes when all objectives are done."
+2. **Test**: run the automation tests headless. Over a hundred tests check rules like "a full
+   draw does full damage" and "the chapter completes when all objectives are done."
 3. **Content**: run the Python scripts inside a headless editor to create or update assets and
    maps. Idempotent: running twice changes nothing the second time.
 4. **Verify**: scripts load every asset and check it's wired correctly.
@@ -127,39 +131,44 @@ All of that needs the editor closed, because a running editor locks the compiled
 the one rule you have to remember: **close the game or editor window before I build.**
 
 ### How to test
-1. Double-click **Play Castle** on the desktop. It opens a 1600x900 window in Mission 1.
-2. Play with these controls:
+1. Double-click **Play Castle** on the desktop. It opens a 1600x900 game window.
+2. Play with these controls (the third-person set; it will grow as systems land):
 
    | Key | Action |
    |-----|--------|
    | WASD, mouse | Move, look |
-   | Shift | Sprint (loud; guards hear it) |
-   | Ctrl | Crouch (silent) |
-   | F | Takedown, when behind a guard and the prompt shows |
-   | E | Pick up, open door |
-   | Left click | Fire |
-   | Right click | Aim |
-   | R | Reload |
-   | Esc | Pause menu (Resume, Restart, Quit) |
+   | Shift | Sprint; hold it into obstacles to vault, mantle, and climb automatically |
+   | Space | Jump, or climb up from a ledge |
+   | Ctrl | Crouch, slide while sprinting |
+   | Left click | Draw the bow; release to fire |
+   | Right click | Aim over the shoulder |
+   | Mouse wheel, 1 to 6 | Arrow type |
+   | Q | Grapple arrow at the marked anchor |
+   | F | Takedown, when behind a thug and the prompt shows |
+   | E | Pick up, interact |
+   | Tab | Quiver and inventory |
+   | Esc | Pause menu (Resume, Settings, Restart, Quit) |
 
-3. The intended route: leave the cell, sneak behind the first corridor guard, F, pick up his
-   pistol and keycard with E, open the door with E, deal with the three infirmary guards,
-   walk into the exit room. End card, then the placeholder flashback.
-4. Notice things. Anything that feels wrong is a valid note: "too dark," "guard didn't
-   react," "gun looks small," "I didn't know where to go." Plain words are best.
-5. Quit (Esc, Quit) and tell me. Or write it in `docs/missions/M01.md` under Tuning notes.
+3. Until the district exists, the test space is a single greybox block. Run laps of it, get
+   on the roofs, get back down, pick a fight with the thugs. Time yourself.
+4. Notice things. Anything that feels wrong is a valid note: "got stuck on that ledge,"
+   "camera too close," "arrow felt slow," "I didn't know where to go." Plain words are best.
+5. Quit (Esc, Quit) and tell me. Or write it in the current chapter's file in `docs/chapters/`.
 
 ### What I do with your notes
-I read the log at `Saved/Logs/Castle.log`, which records mission starts, pickups, kills,
-who killed whom, and every bullet hit. Combined with your report, that's usually enough to
-find the cause. Then I make the change, run the pipeline, render a screenshot, and tell you
-to relaunch.
+I read the log at `Saved/Logs/Castle.log`, which records chapter starts, pickups, hits,
+takedowns, and traversal moves. Combined with your report, that's usually enough to find the
+cause. Then I make the change, run the pipeline, render a screenshot from the real game
+process, and tell you to relaunch.
 
 ### Where the design lives
-- `docs/DESIGN.md`: what the game is. Story, missions, bosses, flashbacks.
+- `docs/DESIGN.md`: what the game is. Story, chapters, bosses, systems.
+- `docs/research/nyc-hawkeye.md`: what's sourced about the show's locations and how the
+  city gets generated.
 - `docs/plans/`: the six build stages with "done when" checklists. We're in stage 2.
-- `docs/missions/M01.md`: everything about the first mission.
+- `docs/chapters/`: one file per chapter, written before it's built.
 - `docs/playtests/`: one file per play session.
+- `docs/archive/punisher/`: the previous build, for reference.
 
 ---
 

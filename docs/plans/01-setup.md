@@ -1,5 +1,8 @@
 # Stage 1: Setup
 
+Status: done (2026-09-18), carried over from the Punisher build. Kept for reference and
+for setting up a second machine. The pivot's cleanup step is in `02-prototype.md`, step 1.
+
 Goal: the Castle project opens in the Unreal editor, the C++ compiles, and every change
 is in git. Nothing about the game yet.
 

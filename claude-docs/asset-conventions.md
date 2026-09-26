@@ -1,5 +1,15 @@
 # Asset conventions
 
+## Naming after the pivot (2026-09-25)
+Chapters replace missions: `DA_CH01_Rooftops`, `L_CH04_AuctionHouse`, one-pagers in
+`docs/chapters/CH0X.md`. Districts are open-world maps: `L_District_<Name>`. Characters:
+`BP_Kate`, `BP_Clint`, `BP_Thug`, `BP_Thug_Gunner`, `BP_Archer`, `BP_Trickshot`,
+`BP_Lucky`. Arrows: `DA_Arrow_Standard`, `DA_Arrow_Grapple`, `DA_Arrow_Putty` and
+`BP_Arrow_<Type>` projectiles. Bows: `DA_Bow_Kate`, `DA_Bow_Clint`. Grapple anchors:
+`BP_GrappleAnchor`. Generated city actors carry the `City_` label prefix; hand-dressed
+hero blocks carry `Art_` as before. The old `M01`, guard, and pistol assets are removed in
+the stage 2 cleanup; until then they exist but nothing new should reference them.
+
 ## Content folder layout
 
 ```
