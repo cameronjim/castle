@@ -12,6 +12,8 @@ Prints one line per check and a final ``[Castle] verify_city PASS`` or ``FAIL``:
 * the BP_GameMode_EastVillage override starting DA_CH01_Rooftops, one City_Obj_* volume per
   chapter-1 objective sitting above its roof, the street lamps (light, pole, head) matching the
   generator, and no prison-build actors (thugs, keycards, doors, pickups)
+* City_LedgeSpawner and its props asset (the ledges and anchors are data, spawned at load; this
+  script calls SpawnAll() first, as BeginPlay does), and no ledge or anchor saved in the map
 * the grapple anchors match the generator, and every anchor's landing point is on a roof: a
   trace from just above it down 50 cm hits a City_Bldg mesh
 * one City_Ledge_ BP_TraversableBlock per roof edge the generator considers, hidden and
@@ -245,6 +247,34 @@ def check_ledges(district, actors):
           "; ".join(wrong_height))
 
 
+def check_spawner(district, actors):
+    """City_LedgeSpawner exists, its props asset matches the generator, and SpawnAll puts every
+    ledge and anchor out (as the game does at BeginPlay), so the checks after this see them."""
+    spawner = actors.get(gen.SPAWNER_LABEL)
+    check(spawner is not None, gen.SPAWNER_LABEL + " present")
+    if spawner is None:
+        return None
+    data = spawner.get_editor_property("data")
+    ledges = gen.ledge_spots(district)
+    anchors = gen.anchor_spots(district)
+    want = gen.city_props_hash(ledges, anchors, spawner.get_editor_property("ledge_class"),
+                               spawner.get_editor_property("anchor_class"))
+    check(data is not None and str(data.get_editor_property("source_hash")) == want,
+          "its props asset matches the generator's ledges and anchors",
+          "{0}, hash {1}".format(c.safe_name(data), str(data.get_editor_property("source_hash")) if data else "-"))
+    saved = [label for label in actors if label.startswith(gen.LEDGE_PREFIX)
+             or (label.startswith(gen.ANCHOR_PREFIX) and label[len(gen.ANCHOR_PREFIX):].isdigit())]
+    check(not saved, "no ledge or anchor actors saved in the map", "{0} saved".format(len(saved)))
+    spawned = spawner.spawn_all()
+    unreal.log("[Castle] info  SpawnAll: {0} actors, ledges {1:.0f} ms, anchors {2:.0f} ms (editor world)".format(
+        spawned, spawner.get_load_ledge_spawn_seconds() * 1000.0, spawner.get_anchor_spawn_seconds() * 1000.0))
+    check(spawner.get_spawned_ledge_count() == len(ledges) and spawner.get_spawned_anchor_count() == len(anchors),
+          "SpawnAll spawns every ledge and anchor",
+          "{0}/{1} ledges, {2}/{3} anchors".format(spawner.get_spawned_ledge_count(), len(ledges),
+                                                   spawner.get_spawned_anchor_count(), len(anchors)))
+    return spawner
+
+
 NAV_QUERY_EXTENT = unreal.Vector(50.0, 50.0, 150.0)   # cm; how far off a foot may be from the navmesh
 
 
@@ -342,7 +372,12 @@ def run():
 
     district = gen.District()
     records = {b["id"]: b for b in district.buildings}
+    spawner = check_spawner(district, gen.actors_by_label())
     actors = gen.actors_by_label()
+    if spawner is not None:
+        # Spawned transient, so the editor's actor listing leaves them out; add them by label.
+        for actor in list(spawner.get_spawned_ledges()) + list(spawner.get_spawned_anchors()):
+            actors[actor.get_actor_label()] = actor
     buildings = {label[len(gen.BUILDING_PREFIX):]: a for label, a in actors.items()
                  if label.startswith(gen.BUILDING_PREFIX)}
 
