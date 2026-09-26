@@ -2772,6 +2772,9 @@ def clutter_keepouts(district):
         points.append(("patrol", (p[1], p[2]), PATROL_CLEAR))
     loc, _rot = player_start_transform(district)
     points.append(("start", (loc.x, loc.y), TEST_BLOCK_CLEAR))
+    door = safehouse_keepout(district)
+    if door is not None:
+        points.append(("safehouse", door, SAFEHOUSE_KEEPOUT))
     for label, _tag, origin, yaw, scale in test_block_spots(district):
         ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
         cx = origin[0] + ux * scale[0] * 50.0 - uy * scale[1] * 50.0
@@ -3134,6 +3137,137 @@ def _clutter_record(group):
 # --------------------------------------------------------------------------------------
 
 
+# --------------------------------------------------------------------------------------
+# the safehouse: a lit purple door in a storefront across from the park
+# --------------------------------------------------------------------------------------
+
+# ASafehouse (Source/Hawkeye/World/Safehouse.h) on the ground floor of a building that fronts
+# Tompkins Square Park: SAFEHOUSE_PARK_REACH of the park, at least SAFEHOUSE_MIN_HEIGHT_M tall, not
+# an objective roof, and more than SAFEHOUSE_START_CLEAR from the PlayerStart so the opening
+# street shots keep their facades. Of those, the one nearest the start (a short walk). The door
+# goes on its facade at the point nearest the park, facing out, standing on the sidewalk.
+SAFEHOUSE_LABEL = "City_Safehouse"
+SAFEHOUSE_ID = "ch01_east_7th"
+SAFEHOUSE_PARK_REACH = 3000.0       # cm between the building and the park's edge
+SAFEHOUSE_MIN_HEIGHT_M = 6.0
+SAFEHOUSE_START_CLEAR = 2500.0      # cm
+SAFEHOUSE_EDGE_MIN = 400.0          # cm; the facade the door is in must be at least this long
+SAFEHOUSE_EDGE_INSET = 150.0        # cm from either end of that facade
+SAFEHOUSE_KEEPOUT = 250.0           # cm of pavement in front of the door that clutter leaves clear
+SAFEHOUSE_CLASS = "/Script/Hawkeye.Safehouse"
+
+
+def _safehouse_door(ring, target):
+    """(x, y, yaw, edge length) of the door on ring's edge nearest target, or None."""
+    best = None
+    n = len(ring)
+    for i in range(n):
+        a, b = ring[i], ring[(i + 1) % n]
+        hit = closest_point_on_polyline(target, [a, b])
+        if hit is not None and (best is None or hit[0] < best[0]):
+            best = (hit[0], i)
+    if best is None:
+        return None
+    a, b = ring[best[1]], ring[(best[1] + 1) % n]
+    length = math.hypot(b[0] - a[0], b[1] - a[1])
+    if length < SAFEHOUSE_EDGE_MIN:
+        return None
+    ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+    t = (target[0] - a[0]) * ux + (target[1] - a[1]) * uy
+    t = max(SAFEHOUSE_EDGE_INSET, min(length - SAFEHOUSE_EDGE_INSET, t))
+    x, y = a[0] + ux * t, a[1] + uy * t
+    nx, ny = uy, -ux
+    if geo.point_in_polygon((x + nx * 20.0, y + ny * 20.0), ring):
+        nx, ny = -nx, -ny
+    return x, y, math.degrees(math.atan2(ny, nx)), length
+
+
+def safehouse_spot(district):
+    """{'rec', 'x', 'y', 'yaw', 'address'} for the safehouse door, or None."""
+    if not district.parks:
+        return None
+    park = district.ring_cm(district.parks[0]["outer"])
+    park_centre = geo.centroid(park)
+    start, _rot = player_start_transform(district)
+    start = (start.x, start.y)
+    taken = {rec["id"] for rec in objective_roofs(district).values()}
+    candidates = []
+    for rec in district.buildings:
+        if rec["id"] in taken or rec["height_m"] < SAFEHOUSE_MIN_HEIGHT_M:
+            continue
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) < 3 or ring_distance(start, ring) <= SAFEHOUSE_START_CLEAR:
+            continue
+        reach = min(ring_distance(p, ring) for p in park)
+        if reach > SAFEHOUSE_PARK_REACH:
+            continue
+        door = _safehouse_door(ring, park_centre)
+        if door is None:
+            continue
+        candidates.append((ring_distance(start, ring), rec["id"], rec, door))
+    if not candidates:
+        return None
+    _d, _id, rec, door = min(candidates, key=lambda c_: (c_[0], c_[1]))
+    tags = rec.get("tags", {})
+    address = "{0} {1}".format(tags.get("addr:housenumber") or "", tags.get("addr:street") or "").strip()
+    return {"rec": rec, "x": door[0], "y": door[1], "yaw": door[2], "address": address}
+
+
+def safehouse_keepout(district):
+    """(x, y) of the pavement in front of the safehouse door, or None."""
+    spot = safehouse_spot(district)
+    if spot is None:
+        return None
+    yaw = math.radians(spot["yaw"])
+    return spot["x"] + math.cos(yaw) * 150.0, spot["y"] + math.sin(yaw) * 150.0
+
+
+def _ensure_part_material(actor, prop, material, label):
+    comp = actor.get_editor_property(prop)
+    if comp is None or material is None:
+        return 0
+    overrides = comp.get_editor_property("override_materials")
+    if len(overrides) >= 1 and overrides[0] == material:
+        return 0
+    comp.set_material(0, material)
+    c.log("updated", label, "{0} material = {1}".format(prop, material.get_name()))
+    return 1
+
+
+def ensure_safehouse(district, existing):
+    """City_Safehouse (ASafehouse) on its storefront. Idempotent by label."""
+    cls = c.find_class("Safehouse", SAFEHOUSE_CLASS)
+    if cls is None:
+        c.log("skipped", SAFEHOUSE_LABEL, "ASafehouse not exposed; build the module")
+        return 0
+    spot = safehouse_spot(district)
+    if spot is None:
+        c.log("FAILED", SAFEHOUSE_LABEL, "no building fronting the park qualifies")
+        return 0
+    x, y, yaw = spot["x"], spot["y"], spot["yaw"]
+    ground = ground_z(x + math.cos(math.radians(yaw)) * 60.0, y + math.sin(math.radians(yaw)) * 60.0,
+                      SIDEWALK_TOP, existing)
+    actor, changes = _ensure_located(existing, SAFEHOUSE_LABEL, cls, unreal.Vector(x, y, ground), yaw)
+    if actor is None:
+        return changes
+    changes += _ensure_tags(actor, ["City", "CitySafehouse", "osm:" + spot["rec"]["id"]])
+    if str(actor.get_editor_property("safehouse_id")) != SAFEHOUSE_ID:
+        actor.set_editor_property("safehouse_id", unreal.Name(SAFEHOUSE_ID))
+        changes += 1
+    name = spot["address"] or "Tompkins Square"
+    if str(actor.get_editor_property("display_name")) != name:
+        actor.set_editor_property("display_name", unreal.Text(name))
+        changes += 1
+    door = c.load_or_none(MI_BEACON)
+    trim = m.ensure_steel_painted()
+    changes += _ensure_part_material(actor, "door", door, SAFEHOUSE_LABEL)
+    changes += _ensure_part_material(actor, "door_frame", trim, SAFEHOUSE_LABEL)
+    changes += _ensure_part_material(actor, "sign_board", trim, SAFEHOUSE_LABEL)
+    c.log("updated" if changes else "exists", SAFEHOUSE_LABEL, "osm {0} ({1}), door at ({2:.0f}, {3:.0f}, {4:.0f}) yaw {5:.0f}".format(
+        spot["rec"]["id"], name, x, y, ground, yaw))
+    return changes
+
+
 def open_or_create_map():
     """(ok, created)."""
     subsystem = c.level_editor_subsystem()
@@ -3189,6 +3323,7 @@ def run():
     changes += remove_prison_actors(existing)
     changes += ensure_objective_volumes(district, existing)
     changes += ensure_objective_beacons(district, existing)
+    changes += ensure_safehouse(district, existing)
     changes += ensure_thugs(district, existing)
     changes += ensure_clint(district, existing)
     changes += ensure_street_lamps(district, existing)
