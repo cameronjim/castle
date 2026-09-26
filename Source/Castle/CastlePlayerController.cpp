@@ -14,6 +14,7 @@
 #include "Flashback/FlashbackWidget.h"
 #include "GameFramework/Pawn.h"
 #include "InputActionValue.h"
+#include "InputKeyEventArgs.h"
 #include "InputMappingContext.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -80,6 +81,15 @@ void ACastlePlayerController::SetupInputComponent()
 	}
 
 	EnhancedInput->BindAction(PauseAction, ETriggerEvent::Started, this, &ACastlePlayerController::Input_Pause);
+}
+
+bool ACastlePlayerController::InputKey(const FInputKeyEventArgs& Params)
+{
+	// Every key reaches here regardless of what (if anything) it is bound to, so this is the one
+	// place that reliably knows which device was touched last.
+	bUsingGamepad = Params.Key.IsGamepadKey();
+
+	return Super::InputKey(Params);
 }
 
 void ACastlePlayerController::Input_Pause(const FInputActionValue& /*Value*/)

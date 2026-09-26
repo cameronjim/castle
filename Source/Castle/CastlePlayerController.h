@@ -19,6 +19,7 @@ class UMissionDefinition;
 class UMissionEndCardWidget;
 class UMissionFlowController;
 struct FInputActionValue;
+struct FInputKeyEventArgs;
 
 /**
  * Owns the HUD and the flashback presentation: listens to the mission subsystem, plays the slideshow and
@@ -172,10 +173,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Pause")
 	void QuitToDesktop();
 
+	// --- Input device -----------------------------------------------------------------------
+
+	/**
+	 * True from the moment any Gamepad_* key is pressed until the next mouse or keyboard key,
+	 * so the HUD can swap "[F]" style hints for a gamepad glyph. Updated from every InputKey
+	 * event, not just ones a Blueprint or Enhanced Input action happens to bind.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Input")
+	bool IsUsingGamepad() const { return bUsingGamepad; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void SetupInputComponent() override;
+	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
 	void Input_Pause(const FInputActionValue& Value);
 
@@ -289,4 +301,8 @@ protected:
 	 */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Flashback")
 	bool bFlashbackActive = false;
+
+	/** Last device seen by InputKey: true for a Gamepad_* key, false for mouse or keyboard. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	bool bUsingGamepad = false;
 };
