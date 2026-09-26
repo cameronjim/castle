@@ -55,10 +55,11 @@ only question that matters: is moving through this city fun?
 - [x] A full lap of the block, street to rooftop and back, in under 90 seconds, without
       touching a wall you didn't mean to. Scripted lap: 61.75 s, 0 wall contacts, every
       move first try, descent by fire escape. A human lap is still needed.
-- [~] Grapple chains across at least three rooftops without stopping. Three zips, but
-      touch-and-go on the roofs rather than a mid-air redirect.
-- [~] Vault, mantle, ledge, and roll all trigger without thinking about them. Vault,
-      mantle, catch, and drop-to-hang do. The roll is still a placeholder dip.
+- [~] Grapple chains across at least three rooftops without stopping. Mid-air redirects
+      now work (lap: 33.71 s, one redirect, zero touch-downs in the chain). The scripted
+      route found no clear third anchor; a three-roof chain needs a route a human picks.
+- [x] Vault, mantle, ledge, and roll all trigger without thinking about them. Vault,
+      mantle, catch, drop-to-hang, roll, and stumble all fire by themselves in the lap.
 - [~] A fight with four thugs is winnable with bow and melee and isn't annoying. The roof
       pair is winnable (scripted: 8.2 s, 85 health left). The street pair and "isn't
       annoying" need Cameron.

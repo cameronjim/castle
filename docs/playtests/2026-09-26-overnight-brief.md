@@ -77,6 +77,15 @@ Quit the game before you report so the next build can run.
 - The Game Animation Sample assets are not in git (2 GB, Epic's). A fresh clone needs the
   sample installed and one content run. Documented in CLAUDE.md.
 
+## Late addition: the polish sweep landed too
+After this brief was first written, one more pass passed QA (318 commits, 173 tests):
+- Grapple chains redirect in the air now. The lap dropped to 33.71 s with a real mid-air
+  redirect and no touch-downs.
+- A real landing roll when you land moving from above 4 m, a stumble when still.
+- Thugs' bats hang by the leg and only come up to swing. Knocked-down thugs get back up
+  smoothly. Arrows have real shafts, vanes, and a purple nock.
+- The bow stays held out in front while drawing; the in-hand version looked worse from
+  the camera and was rejected.
+
 ## Next in the queue
-Mid-air grapple redirect, the real landing roll, the bow in her hands, the street pair
-fight, then your notes decide the rest of stage 2. Stage 3 starts with trick arrows.
+Your notes decide the rest of stage 2. Stage 3 starts with trick arrows.

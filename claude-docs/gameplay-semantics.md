@@ -88,12 +88,16 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   capsule radius clear of the start (plus the 150 cm allowance at the anchor). Level and
   downward lines are allowed. Jump or crouch mid-zip lets go with the catch active. 62 of
   63 anchored roofs within 150 m of the start have a clear roof-to-roof zip.
-- Chaining caveat: with the 70% rule and a 6000 cm/s arrow, short lines land before the
-  chain arrow arrives, so a three-roof chain is touch-and-go (0.03 to 0.23 s on the
-  roof), not a mid-air redirect. Lowering the threshold or speeding the chain arrow is
-  the fix.
-- Landing above 400 cm triggers the placeholder dip (roll and stumble not built).
-  Grapple landings never trigger it. Fall damage begins at 900 cm and never kills from a
+- Chaining (revised 2026-09-26): the chain input is allowed from 40% of the line; a chain
+  arrow fired mid-zip arrives instantly and the direction of travel turns onto the new
+  line over 0.1 s. After a mid-air chain the old anchor's building counts as a start
+  support until she is clear of it. The scripted lap shows a true mid-air redirect with
+  zero touch-downs inside the chain.
+- Landing above 400 cm while moving is a roll: 0.5 s, 200 cm along the stick, capsule at
+  half-height 50, camera pitched down 8 degrees and back, input locked 0.35 s, a single
+  forward tumble of the body. Landing while still is a 0.4 s stumble from 0 back to run
+  speed. Both procedural; the sample has land clips but no roll. Grapple landings never
+  trigger either. Fall damage is still zero below 900 cm. Fall damage begins at 900 cm and never kills from a
   rooftop you can reach by grapple.
 - Camera looking up: between +20 and +60 degrees of pitch the arm shortens 350 to 220,
   the socket Z rises 60 to 110, and the pivot lifts 0 to 150 cm in world space (without
@@ -131,7 +135,12 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Reticle while drawing: a ring whose radius is the current spread projected at 1500 cm,
   plus a draw bar that flashes in the perfect window. Drawing forces aim mode and walk
   speed.
-- Known gap: there is no draw animation. The bow blends from the left palm socket to a
+- Arrows: 100 cm shaft, 2.5 cm thick, light wood colour with three vanes at 120 degrees
+  and a purple nock, so Kate's arrows read as hers when stuck in things. A nocked arrow
+  sits on the string while drawing.
+- Known gap: there is no draw animation. A bow held in the left hand with the string at
+  the shoulder was tried and rejected (it vanished behind her hip from the default
+  camera; kept as `bow_draw_inhand.png`). The bow blends from the left palm socket to a
   point in front of the left shoulder while drawing and rides across the back when
   holstered. A layered upper-body aim animation is stage 3 work.
 
@@ -331,7 +340,11 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 ## Melee and thugs (built 2026-09-26)
 - Kate's strike is on V: tap for a light (15 damage, lands at 0.1 s, 0.3 s total, 120 cm
   sphere sweep, 20 cm lunge); hold 0.4 s for a heavy (35 damage after a 0.6 s wind-up,
-  40 cm lunge) that knocks the thug down for 3 s. Takedown from behind on F is unchanged.
+  40 cm lunge) that knocks the thug down for 3 s, after which he blends from the ragdoll
+  back to standing over 0.4 s (not yet seen in a full-length in-game fight). Takedown from
+  behind on F is unchanged.
+- A thug's bat hangs by his leg while walking, rises level behind him over the 0.6 s
+  wind-up, swings across in 0.15 s, and drops back.
   No attack animation exists yet; strikes are procedural lunges.
 - Dodge: tap Ctrl while moving and not sprinting dashes 300 cm in 0.4 s, invulnerable for
   the first 0.25 s, cooldown 0.8 s. Ctrl held crouches; Ctrl while sprinting slides.
