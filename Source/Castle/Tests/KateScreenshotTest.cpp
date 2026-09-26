@@ -1,11 +1,14 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimSingleNodeInstance.h"
+#include "Blueprint/WidgetLayoutLibrary.h"
 #include "Camera/CameraComponent.h"
+#include "CastlePlayerController.h"
 #include "CollisionQueryParams.h"
 #include "Combat/HealthComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -17,8 +20,11 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "Player/CastleCharacter.h"
+#include "Player/GrappleComponent.h"
 #include "Tests/AutomationCommon.h"
+#include "UI/CastleHudWidget.h"
 #include "UnrealClient.h"
+#include "World/GrappleAnchor.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -32,8 +38,14 @@
  *   kate_wall.png    back against a tenement, looking out: the arm has to pull in rather than
  *                    put the lens inside the building, and the body hides once the lens is on it
  *
+ *   grapple_marker.png  back on the street, looking up at a tenement anchor with its marker showing
+ *   grapple_mid.png     part way along the zip, the camera following
+ *   grapple_roof.png    landed on the anchor's roof
+ *
  * Each shot reports how far the arm pulled in and warns if the lens is inside geometry. The pass
- * ends with a 12 m drop onto the street and reports the landing height and health it cost.
+ * drops Kate 12 m onto the street and reports the landing height and health it cost, then fires
+ * the grapple and reports the target, the zip's length, time and speed, and where she landed.
+ * The average frame time over 60 frames is logged on the street and again on the roof.
  * Needs a real RHI; run from the standalone game (claude-docs/testing.md section 2b):
  *
  *   UnrealEditor-Cmd.exe Castle.uproject -game -windowed -ResX=1280 -ResY=720 -unattended
@@ -301,6 +313,391 @@ bool FCastleKateDrop::Update()
 	return true;
 }
 
+namespace CastleKateShots
+{
+	static ACastleCharacter* FindKate(APlayerController*& OutPC)
+	{
+		UWorld* World = FindWorld();
+		OutPC = World ? World->GetFirstPlayerController() : nullptr;
+		return OutPC ? Cast<ACastleCharacter>(OutPC->GetPawn()) : nullptr;
+	}
+
+	/** What the grapple shots measure between commands. */
+	struct FGrappleRun
+	{
+		TWeakObjectPtr<AGrappleAnchor> Anchor;
+		double ZipStartTime = -1.0;
+		FVector ZipStartLocation = FVector::ZeroVector;
+		float ZipLength = 0.f;
+	};
+	static FGrappleRun GrappleRun;
+}
+
+/** Averages FApp::GetDeltaTime over Frames frames (after a few to settle) and logs it in ms. */
+class FCastleKateFrameTime : public IAutomationLatentCommand
+{
+public:
+	FCastleKateFrameTime(FAutomationTestBase* InTest, const FString& InLabel, int32 InFrames)
+		: Test(InTest), Label(InLabel), Frames(InFrames)
+	{
+	}
+
+	virtual bool Update() override
+	{
+		if (SettleFrames > 0)
+		{
+			--SettleFrames;
+			return false;
+		}
+		const double Delta = FApp::GetDeltaTime();
+		Sum += Delta;
+		Worst = FMath::Max(Worst, Delta);
+		if (++Count < Frames)
+		{
+			return false;
+		}
+		const double AverageMs = Sum / Count * 1000.0;
+		Test->AddInfo(FString::Printf(
+			TEXT("Frame time on the %s: %.2f ms average over %d frames (%.1f fps), worst %.2f ms"),
+			*Label, AverageMs, Count, 1000.0 / AverageMs, Worst * 1000.0));
+		UE_LOG(LogTemp, Display, TEXT("CastleFrameTime %s avg_ms=%.2f worst_ms=%.2f frames=%d"),
+			*Label, AverageMs, Worst * 1000.0, Count);
+		return true;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	FString Label;
+	int32 Frames;
+	int32 SettleFrames = 5;
+	int32 Count = 0;
+	double Sum = 0.0;
+	double Worst = 0.0;
+};
+
+/**
+ * Stands Kate on the street and turns the camera up at the tenement anchors across from the
+ * park, nearest the middle of the grapple's range first, until the grapple targets one.
+ */
+class FCastleKateAimAtAnchor : public IAutomationLatentCommand
+{
+public:
+	explicit FCastleKateAimAtAnchor(FAutomationTestBase* InTest) : Test(InTest) {}
+
+	virtual bool Update() override
+	{
+		using namespace CastleKateShots;
+		APlayerController* PC = nullptr;
+		ACastleCharacter* Kate = FindKate(PC);
+		UGrappleComponent* Grapple = Kate ? Kate->GetGrappleComponent() : nullptr;
+		UWorld* World = FindWorld();
+		if (!Grapple || !World)
+		{
+			Test->AddError(TEXT("No Kate with a grapple component."));
+			return true;
+		}
+		if (!bListed)
+		{
+			ListCandidates(World, Kate);
+			bListed = true;
+		}
+		if (Index >= 0 && World->GetTimeSeconds() < AimedAt + 1.0)
+		{
+			return false;
+		}
+		if (Index >= 0 && Grapple->GetTargetAnchor())
+		{
+			Report(Kate, Grapple);
+			return true;
+		}
+		if (Index >= 0)
+		{
+			Diagnose(World, Kate, Candidates[Index].Get());
+		}
+		if (++Index >= Candidates.Num() || Index >= 20)
+		{
+			Test->AddWarning(TEXT("No tenement anchor became a grapple target from the street."));
+			return true;
+		}
+		if (const AGrappleAnchor* Anchor = Candidates[Index].Get())
+		{
+			const float Yaw = (Anchor->GetMarkerLocation() - Stands[Index]).Rotation().Yaw;
+			CastleKateShots::PlaceKate(Kate, PC, Stands[Index], Yaw, 0.f);
+			Aim(PC, Kate, Anchor);
+		}
+		AimedAt = World->GetTimeSeconds();
+		return false;
+	}
+
+private:
+	/**
+	 * Anchors near the street spot, each paired with a place on the street out from its facade
+	 * as far as the grapple's range allows (at most 17 m), so the camera looks up as shallowly
+	 * as it can.
+	 */
+	void ListCandidates(UWorld* World, const ACastleCharacter* Kate)
+	{
+		static constexpr float MaxStandBack = 1700.f;
+		static constexpr float Reach = 2350.f;
+		FVector Spot, Away;
+		CastleKateShots::FindStreetSpot(World, Spot, Away);
+		FVector Street;
+		const float StreetZ = CastleKateShots::FindGround(World, Spot, 3000.f, Kate, Street) ? Street.Z : 0.f;
+		TArray<TPair<float, int32>> Order;
+		for (TActorIterator<AGrappleAnchor> It(World); It; ++It)
+		{
+			const FVector Marker = It->GetMarkerLocation();
+			const float Height = Marker.Z - StreetZ;
+			if (FVector::Dist2D(Marker, Spot) > 15000.f || Height < 800.f || Height > 2250.f)
+			{
+				continue;
+			}
+			const float StandBack = FMath::Min(MaxStandBack, FMath::Sqrt(Reach * Reach - Height * Height));
+			const FVector Outward = -It->GetActorForwardVector().GetSafeNormal2D();
+			const FVector StandXY = Marker + Outward * StandBack;
+			FHitResult Ground;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(KateShotStand), false, Kate);
+			if (!World->LineTraceSingleByChannel(Ground, FVector(StandXY.X, StandXY.Y, StreetZ + 300.f),
+					FVector(StandXY.X, StandXY.Y, StreetZ - 300.f), ECC_Visibility, Params)
+				|| !Ground.GetActor() || Ground.GetActor()->Tags.Contains(CastleKateShots::BuildingTag))
+			{
+				continue;
+			}
+			Order.Emplace(FVector::Dist2D(Marker, Spot), Candidates.Num());
+			Candidates.Add(*It);
+			Stands.Add(Ground.ImpactPoint);
+		}
+		Order.Sort([](const TPair<float, int32>& A, const TPair<float, int32>& B) { return A.Key < B.Key; });
+		TArray<TWeakObjectPtr<AGrappleAnchor>> SortedAnchors;
+		TArray<FVector> SortedStands;
+		for (const TPair<float, int32>& Pair : Order)
+		{
+			SortedAnchors.Add(Candidates[Pair.Value]);
+			SortedStands.Add(Stands[Pair.Value]);
+		}
+		Candidates = MoveTemp(SortedAnchors);
+		Stands = MoveTemp(SortedStands);
+		Test->AddInfo(FString::Printf(TEXT("%d tenement anchors with a street spot out in front of their facade."),
+			Candidates.Num()));
+	}
+
+	/** Points the control rotation so the camera, which hangs behind and right of Kate, faces Anchor. */
+	static void Aim(APlayerController* PC, ACastleCharacter* Kate, const AGrappleAnchor* Anchor)
+	{
+		if (!Anchor)
+		{
+			return;
+		}
+		const FVector Target = Anchor->GetMarkerLocation();
+		FRotator Rotation = (Target - Kate->GetActorLocation()).Rotation();
+		for (int32 Pass = 0; Pass < 4; ++Pass)
+		{
+			const FVector Lens = Kate->GetActorLocation() + Rotation.RotateVector(FVector(-350.f, 70.f, 60.f));
+			Rotation = (Target - Lens).Rotation();
+		}
+		// Looking up from the street pulls the lens in against the pavement behind her, so her body
+		// fills the middle of the frame. Aim a little left of and below the anchor (well inside the
+		// 30 degree cone) so the marker shows up and to the right, clear of her.
+		Kate->SetActorRotation(FRotator(0.f, Rotation.Yaw, 0.f));
+		PC->SetControlRotation(FRotator(Rotation.Pitch - 8.f, Rotation.Yaw - 15.f, 0.f));
+	}
+
+	/** Why a candidate was not picked: its angle from the camera, its range, and what the sight line hits. */
+	void Diagnose(UWorld* World, const ACastleCharacter* Kate, const AGrappleAnchor* Anchor)
+	{
+		if (!Anchor)
+		{
+			return;
+		}
+		const UCameraComponent* Camera = Kate->GetFollowCamera();
+		const FVector Lens = Camera->GetComponentLocation();
+		const FVector Marker = Anchor->GetMarkerLocation();
+		const float Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
+			FVector::DotProduct(Camera->GetForwardVector(), (Marker - Lens).GetSafeNormal()), -1.f, 1.f)));
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(KateShotSight), false, Kate);
+		Params.AddIgnoredActor(Anchor);
+		FHitResult Hit;
+		const bool bBlocked = World->LineTraceSingleByChannel(Hit, Lens, Marker, ECC_Visibility, Params);
+		Test->AddInfo(FString::Printf(
+			TEXT("Candidate %s not targeted: %.1f deg off the camera, %.0f cm from Kate, sight %s %s at %.0f of %.0f cm"),
+			*Anchor->GetActorLabel(), Angle, FVector::Dist(Kate->GetActorLocation(), Marker),
+			bBlocked ? TEXT("hits") : TEXT("clear"), *GetNameSafe(Hit.GetActor()), Hit.Distance,
+			FVector::Dist(Lens, Marker)));
+	}
+
+	void Report(ACastleCharacter* Kate, UGrappleComponent* Grapple)
+	{
+		AGrappleAnchor* Target = Grapple->GetTargetAnchor();
+		CastleKateShots::GrappleRun.Anchor = Target;
+		const UCameraComponent* Camera = Kate->GetFollowCamera();
+		const FVector ToAnchor = (Target->GetMarkerLocation() - Camera->GetComponentLocation()).GetSafeNormal();
+		const float Angle = FMath::RadiansToDegrees(FMath::Acos(
+			FMath::Clamp(FVector::DotProduct(Camera->GetForwardVector(), ToAnchor), -1.f, 1.f)));
+		Test->AddInfo(FString::Printf(
+			TEXT("Grapple target %s (%s): %.0f cm from Kate, %.0f cm above her, %.1f deg off the camera"),
+			*GetNameSafe(Target), *Target->GetActorLabel(),
+			FVector::Dist(Kate->GetActorLocation(), Target->GetMarkerLocation()),
+			Target->GetMarkerLocation().Z - Kate->GetActorLocation().Z, Angle));
+	}
+
+	FAutomationTestBase* Test;
+	TArray<TWeakObjectPtr<AGrappleAnchor>> Candidates;
+	TArray<FVector> Stands;
+	bool bListed = false;
+	int32 Index = -1;
+	double AimedAt = 0.0;
+};
+
+/** Where the HUD drew the marker against where the anchor projects, both in viewport pixels. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FCastleKateReportMarker, FAutomationTestBase*, Test);
+
+bool FCastleKateReportMarker::Update()
+{
+	using namespace CastleKateShots;
+	APlayerController* PC = nullptr;
+	ACastleCharacter* Kate = FindKate(PC);
+	const ACastlePlayerController* CastlePC = Cast<ACastlePlayerController>(PC);
+	const UCastleHudWidget* Hud = CastlePC ? CastlePC->GetCastleHud() : nullptr;
+	const UGrappleComponent* Grapple = Kate ? Kate->GetGrappleComponent() : nullptr;
+	const AGrappleAnchor* Target = Grapple ? Grapple->GetTargetAnchor() : nullptr;
+	if (!Hud || !Target)
+	{
+		Test->AddWarning(TEXT("No HUD or no grapple target for the marker shot."));
+		return true;
+	}
+	FVector2D AnchorPixel;
+	PC->ProjectWorldLocationToScreen(Target->GetMarkerLocation(), AnchorPixel, false);
+	const FVector2D MarkerPixel = Hud->GetGrappleMarkerPosition() * UWidgetLayoutLibrary::GetViewportScale(PC);
+	Test->AddInfo(FString::Printf(
+		TEXT("Marker visible=%d at (%.0f, %.0f) px, anchor projects to (%.0f, %.0f) px, hint=%d"),
+		Hud->IsGrappleMarkerVisible() ? 1 : 0, MarkerPixel.X, MarkerPixel.Y, AnchorPixel.X, AnchorPixel.Y,
+		Hud->IsGrappleHintVisible() ? 1 : 0));
+	if (!Hud->IsGrappleMarkerVisible() || FVector2D::Distance(MarkerPixel, AnchorPixel) > 3.f)
+	{
+		Test->AddWarning(TEXT("The grapple marker is not on the anchor."));
+	}
+	return true;
+}
+
+/** Presses Q. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FCastleKateFireGrapple, FAutomationTestBase*, Test);
+
+bool FCastleKateFireGrapple::Update()
+{
+	APlayerController* PC = nullptr;
+	ACastleCharacter* Kate = CastleKateShots::FindKate(PC);
+	UGrappleComponent* Grapple = Kate ? Kate->GetGrappleComponent() : nullptr;
+	CastleKateShots::GrappleRun.ZipStartTime = -1.0;
+	const bool bFired = Grapple && Grapple->TryFire();
+	Test->AddInfo(FString::Printf(TEXT("Grapple fired=%d, arrows left %d"), bFired ? 1 : 0,
+		Grapple ? Grapple->GetGrappleArrows() : -1));
+	if (!bFired)
+	{
+		Test->AddWarning(TEXT("The grapple did not fire."));
+	}
+	return true;
+}
+
+/**
+ * Waits (up to TimeoutSeconds) for the zip to pass Progress, noting when it started. With
+ * Progress above 1 it waits for the landing instead and reports the zip's numbers.
+ */
+class FCastleKateWaitZip : public IAutomationLatentCommand
+{
+public:
+	FCastleKateWaitZip(FAutomationTestBase* InTest, float InProgress, float InTimeoutSeconds)
+		: Test(InTest), Progress(InProgress), TimeoutSeconds(InTimeoutSeconds)
+	{
+	}
+
+	virtual bool Update() override;
+
+private:
+	FAutomationTestBase* Test;
+	float Progress;
+	float TimeoutSeconds;
+	double StartTime = -1.0;
+};
+
+bool FCastleKateWaitZip::Update()
+{
+	using namespace CastleKateShots;
+	APlayerController* PC = nullptr;
+	ACastleCharacter* Kate = FindKate(PC);
+	UGrappleComponent* Grapple = Kate ? Kate->GetGrappleComponent() : nullptr;
+	UWorld* World = FindWorld();
+	if (!Grapple || !World)
+	{
+		return true;
+	}
+	const double Now = World->GetTimeSeconds();
+	FGrappleRun& Run = GrappleRun;
+	if (Grapple->IsZipping() && Run.ZipStartTime < 0.0)
+	{
+		// The first frame seen zipping has already moved one step; back the start out of it.
+		Run.ZipStartTime = Now - Grapple->GetZipProgress() * Grapple->GetZipLength() / Grapple->ZipSpeed;
+		Run.ZipLength = Grapple->GetZipLength();
+		Run.ZipStartLocation = Kate->GetActorLocation();
+	}
+	if (StartTime < 0.0)
+	{
+		StartTime = Now;
+	}
+	const bool bTimedOut = Now - StartTime > TimeoutSeconds;
+
+	if (Progress <= 1.f)
+	{
+		if (Grapple->IsZipping() && Grapple->GetZipProgress() >= Progress)
+		{
+			Test->AddInfo(FString::Printf(TEXT("Mid-zip: %.0f%% along, at %s, %.2f s in"),
+				Grapple->GetZipProgress() * 100.f, *Kate->GetActorLocation().ToCompactString(),
+				Now - Run.ZipStartTime));
+			return true;
+		}
+		if (bTimedOut)
+		{
+			Test->AddWarning(FString::Printf(TEXT("The zip never reached %.0f%%."), Progress * 100.f));
+		}
+		return bTimedOut;
+	}
+
+	if (Grapple->IsZipping() || Grapple->IsArrowInFlight())
+	{
+		if (bTimedOut)
+		{
+			Test->AddWarning(TEXT("Kate never landed from the zip."));
+		}
+		return bTimedOut;
+	}
+	const double Duration = Now - Run.ZipStartTime;
+	const AGrappleAnchor* Anchor = Run.Anchor.Get();
+	const float Feet = Kate->GetActorLocation().Z - Kate->GetSimpleCollisionHalfHeight();
+	FHitResult Floor;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(KateShotRoof), false, Kate);
+	World->LineTraceSingleByChannel(Floor, Kate->GetActorLocation(),
+		Kate->GetActorLocation() - FVector(0.f, 0.f, 500.f), ECC_Visibility, Params);
+	Test->AddInfo(FString::Printf(
+		TEXT("Zip: %.0f cm in %.2f s = %.0f cm/s; landed at %s, feet %.1f cm above the landing point, %.1f cm above %s, walking=%d"),
+		Run.ZipLength, Duration, Duration > 0.0 ? Run.ZipLength / Duration : 0.0,
+		*Kate->GetActorLocation().ToCompactString(),
+		Anchor ? Feet - Anchor->GetLandingLocation().Z : -1.f, Floor.bBlockingHit ? Feet - Floor.ImpactPoint.Z : -1.f,
+		*GetNameSafe(Floor.GetActor()), Kate->GetCharacterMovement()->IsMovingOnGround() ? 1 : 0));
+	return true;
+}
+
+/** After landing: level the camera to look across the roof the way she is facing. */
+DEFINE_LATENT_AUTOMATION_COMMAND(FCastleKateLookAcrossRoof);
+
+bool FCastleKateLookAcrossRoof::Update()
+{
+	APlayerController* PC = nullptr;
+	if (ACastleCharacter* Kate = CastleKateShots::FindKate(PC))
+	{
+		PC->SetControlRotation(FRotator(-15.f, Kate->GetActorRotation().Yaw, 0.f));
+	}
+	return true;
+}
+
 DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FCastleKateTakeShot, FAutomationTestBase*, Test, FString, FileName);
 
 bool FCastleKateTakeShot::Update()
@@ -348,6 +745,28 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateDrop(this, 1200.f, false));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(3.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateDrop(this, 1200.f, true));
+
+	// Frame time at the street start, before anything moves.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameShot(this, static_cast<uint8>(EShot::Street)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameTime(this, TEXT("street"), 60));
+
+	// The grapple: marker, mid-zip, landed.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateAimAtAnchor(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportMarker(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("grapple_marker.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFireGrapple(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitZip(this, 0.45f, 3.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("grapple_mid.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitZip(this, 2.f, 5.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateLookAcrossRoof());
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportCamera(this, TEXT("grapple_roof.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("grapple_roof.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameTime(this, TEXT("roof"), 60));
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("castle.DebugMovement 0")));
 	return true;
