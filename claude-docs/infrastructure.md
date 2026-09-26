@@ -110,6 +110,40 @@ Cook content (checks for broken references and packaging problems without a full
 & "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" -run=Cook -TargetPlatform=Windows -unattended -nullrhi -stdout
 ```
 
+## City generation from OpenStreetMap
+
+The district is generated, never hand-placed. Scripts under `Tools/`:
+
+```powershell
+.\Tools\fetch-osm.ps1          # downloads Overpass JSON into Tools\Data\osm\ (committed; re-run only to refresh)
+.\Tools\test-geo.ps1           # 23 pure-python tests for projection and handedness, no engine needed
+.\Tools\generate-city.ps1      # runs Tools\Editor\generate_city.py headless; -Verify also runs verify_city.py
+```
+
+Facts that matter:
+- Bounding box for the East Village district: the grid-aligned rectangle between the
+  centre lines of 1st Ave, Ave C, E 6th St and E 11th St (667 x 376 m plus 22 m margin).
+  Origin 40.7264398, -73.9816394. Manhattan's grid is about 29 degrees off true north,
+  so streets run diagonally in Unreal; that's correct, not a bug.
+- Projection: local tangent plane in `Tools/Editor/_geo.py`. Unreal X = east, Y = south,
+  Z up. Verified by tests that the avenues order 1st < A < B < C in X and E 6th is south
+  of E 11th.
+- Heights: from the OSM `height` tag (524 of 526 buildings have it), else levels x 3.2 +
+  1.5, else 15 m. Parapets 90 cm high, 30 cm inset, skipped under 6 m.
+- Meshes: one static mesh per building under `Content/City/EastVillage/Meshes/`, built
+  with Geometry Script (`append_simple_extrude_polygon`, normals flipped if the signed
+  volume is negative), complex-as-simple collision. Each actor carries a `CityHash`
+  metadata tag; a rerun rebuilds only meshes whose footprint or height changed, and saves
+  nothing when nothing changed.
+- Streets and sidewalks from highway ways: default widths 25 m avenues, 12 m streets, 4 m
+  sidewalks; OSM rarely tags widths here. Courtyard holes and park footpaths are not built.
+- Verify: `verify_city.py` checks record count vs actors, collision, heights within 1 cm,
+  handedness, lights, PlayerStart, nav volume, game mode. Screenshots via
+  `Castle.Screenshot.EastVillage` into `Saved/Screenshots/City/`.
+- `overpass-api.de` rejects PowerShell's default user agent; the fetch script sends its
+  own and falls back to `overpass.kumi.systems`.
+- World Partition is off for the single block. Stage 3 turns it on.
+
 ## Packaging
 
 ```powershell
