@@ -23,7 +23,8 @@ class UStaticMeshComponent;
  *
  * On hit: ApplyPointDamage, a stagger through the victim's health component, the bow's OnHit;
  * then it embeds, attached to the component (and bone) it hit, and stays for StuckLifeSeconds
- * or until a recoverable arrow is walked over within RecoverRadius.
+ * or until a recoverable arrow is walked over within RecoverRadius. A trick arrow also spawns its
+ * AArrowEffect at the impact; the explosive's damage is the blast's alone, and the blast destroys it.
  *
  * BP_Arrow_Standard is this class; BP_Arrow_Grapple is AGrappleArrowProjectile.
  */
@@ -125,6 +126,9 @@ protected:
 
 	/** Point damage, stagger and the bow's OnHit for a hit on something with health. */
 	void DamageVictim(const FHitResult& Hit, const FVector& Direction, FName Bone);
+
+	/** Spawns the arrow's trick effect (putty, bola, smoke, EMP, explosive) at the impact. */
+	void SpawnHitEffect(const FHitResult& Hit);
 
 	/** Stops, sinks EmbedDepth past the impact and attaches to the hit bone, or else the hit component. */
 	void Embed(const FHitResult& Hit, const FVector& Direction, FName Bone);

@@ -6,6 +6,7 @@
 #include "Engine/DataAsset.h"
 #include "ArrowDefinition.generated.h"
 
+class AArrowEffect;
 class AArrowProjectile;
 class UTexture2D;
 
@@ -77,6 +78,14 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")
 	EArrowHitEffect OnHitEffect = EArrowHitEffect::None;
+
+	/**
+	 * The actor spawned where the arrow lands. Empty uses the stock class for OnHitEffect
+	 * (AHeldEffect, ABolaEffect, ASmokeCloud, AEmpPulse, AExplosiveBlast); a Blueprint child of
+	 * one of those retunes it without code.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")
+	TSubclassOf<AArrowEffect> EffectClass;
 
 	/** Hotbar icon. TODO(stage3): unused until icons are drawn; the hotbar shows ShortName. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")

@@ -3,10 +3,12 @@
 #include "World/ThugAIController.h"
 
 #include "Hawkeye.h"
+#include "Combat/ArrowEffects/ArrowEffectsSubsystem.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Engine/World.h"
+#include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "NavigationSystem.h"
@@ -183,7 +185,9 @@ void AThugAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus
 	}
 
 	const bool bIsSight = Stimulus.Type == UAISense::GetSenseID<UAISense_Sight>();
-	if (Stimulus.WasSuccessfullySensed())
+	// Crouched in the smoke she is not there, to eyes or ears.
+	const bool bSensed = Stimulus.WasSuccessfullySensed() && !IsHiddenInSmoke(Actor);
+	if (bSensed)
 	{
 		TargetActor = Actor;
 	}
@@ -191,7 +195,7 @@ void AThugAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus
 	ReportStimulus(
 		bIsSight ? EStimulusKind::Sight : EStimulusKind::Hearing,
 		Stimulus.StimulusLocation,
-		Stimulus.WasSuccessfullySensed(),
+		bSensed,
 		Stimulus.Strength);
 }
 
@@ -205,9 +209,20 @@ void AThugAIController::ReportStimulus(EStimulusKind Kind, FVector Location, boo
 
 	if (Kind == EStimulusKind::Sight)
 	{
+		bPerceivesTarget = bSuccessful;
 		bSeesTarget = bSuccessful;
 		if (!bSuccessful)
 		{
+			return;
+		}
+
+		LastSightLocation = Location;
+		bHasSightLocation = true;
+		UpdateBlinded();
+		if (bBlinded)
+		{
+			// In the cone, but through smoke: nothing to see.
+			bSeesTarget = false;
 			return;
 		}
 
@@ -250,9 +265,18 @@ void AThugAIController::TickThink()
 
 void AThugAIController::Think(float DeltaSeconds)
 {
+	if (JamRemaining > 0.f)
+	{
+		JamRemaining = FMath::Max(0.f, JamRemaining - DeltaSeconds);
+		if (JamRemaining <= 0.f)
+		{
+			UE_LOG(LogHawkeye, Log, TEXT("%s: pistol unjammed."), *GetName());
+		}
+	}
+
 	AThugCharacter* Thug = GetThug();
-	// A hit reaction or a knockdown owns him for its length: no moving, no attacking.
-	if (!Thug || Thug->IsIncapacitated())
+	// A hit reaction, a knockdown or the putty owns him for its length: no moving, no attacking.
+	if (!Thug || Thug->IsIncapacitated() || bHeld)
 	{
 		return;
 	}
@@ -264,6 +288,9 @@ void AThugAIController::Think(float DeltaSeconds)
 			return;
 		}
 	}
+
+	UpdateBlinded();
+	bSeesTarget = bPerceivesTarget && !bBlinded;
 
 	if (bSeesTarget)
 	{
@@ -428,6 +455,14 @@ void AThugAIController::TickAlerted(float DeltaSeconds)
 		return;
 	}
 
+	// Blind in the smoke: he stands and waits for it to clear rather than swinging or shooting at
+	// where she was. Losing the target on the usual clock is what sends him looking.
+	if (bBlinded)
+	{
+		StopMovement();
+		return;
+	}
+
 	const FVector ToTarget = TargetActor->GetActorLocation() - Thug->GetActorLocation();
 
 	// The weapon traces along the control rotation, so the aim always points at him. The body
@@ -569,6 +604,12 @@ void AThugAIController::FireAtTarget()
 		return;
 	}
 
+	if (IsJammed())
+	{
+		UE_LOG(LogHawkeye, Verbose, TEXT("%s: pistol jammed (%.1f s left), no shot."), *GetName(), JamRemaining);
+		return;
+	}
+
 	if (Weapon->CurrentAmmo <= 0)
 	{
 		Weapon->Reload();
@@ -584,4 +625,69 @@ void AThugAIController::FireAtTarget()
 	SetControlRotation(AimRotation);
 
 	Weapon->Fire();
+}
+
+// --- Trick arrow states ---------------------------------------------------------------------------
+
+void AThugAIController::SetHeld(bool bInHeld)
+{
+	if (bHeld == bInHeld)
+	{
+		return;
+	}
+	bHeld = bInHeld;
+	if (bHeld)
+	{
+		StopMovement();
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s."), *GetName(),
+		bHeld ? TEXT("held by putty, AI paused") : TEXT("putty released, AI resumes"));
+}
+
+void AThugAIController::Jam(float Seconds)
+{
+	if (Seconds <= JamRemaining)
+	{
+		return;
+	}
+	const bool bWasJammed = IsJammed();
+	JamRemaining = Seconds;
+	if (!bWasJammed)
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: pistol jammed for %.1f s."), *GetName(), Seconds);
+	}
+}
+
+bool AThugAIController::IsHiddenInSmoke(const AActor* Actor)
+{
+	const ACharacter* Character = Cast<ACharacter>(Actor);
+	const UArrowEffectsSubsystem* Effects = Character ? UArrowEffectsSubsystem::Get(Character) : nullptr;
+	return Effects && Character->bIsCrouched && Effects->IsInsideSmoke(Character->GetActorLocation());
+}
+
+void AThugAIController::UpdateBlinded()
+{
+	const APawn* Me = GetPawn();
+	const UArrowEffectsSubsystem* Effects = UArrowEffectsSubsystem::Get(this);
+	bool bNowBlinded = false;
+	if (Me && Effects && Effects->GetSmokeCount() > 0)
+	{
+		const FVector Eye = Me->GetPawnViewLocation();
+		bNowBlinded = Effects->IsInsideSmoke(Eye);
+		if (!bNowBlinded && IsValid(TargetActor))
+		{
+			bNowBlinded = IsHiddenInSmoke(TargetActor)
+				|| Effects->IsSightBlocked(Eye, TargetActor->GetActorLocation());
+		}
+		else if (!bNowBlinded && bHasSightLocation)
+		{
+			bNowBlinded = Effects->IsSightBlocked(Eye, LastSightLocation);
+		}
+	}
+	if (bNowBlinded != bBlinded)
+	{
+		bBlinded = bNowBlinded;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %s."), *GetName(),
+			bBlinded ? TEXT("blinded by smoke") : TEXT("can see again"));
+	}
 }

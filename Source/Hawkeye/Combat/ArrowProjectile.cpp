@@ -5,6 +5,7 @@
 #include "Hawkeye.h"
 #include "CollisionQueryParams.h"
 #include "Combat/ArrowDefinition.h"
+#include "Combat/ArrowEffects/ArrowEffect.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
@@ -338,8 +339,29 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 	bStuck = true;
 
 	const FName Bone = ResolveHitBone(Hit, Direction);
-	DamageVictim(Hit, Direction, Bone);
+	// The explosive's damage is the blast's, falling off from the centre; a direct hit is not
+	// also a stab for the full 80.
+	const EArrowHitEffect Effect = Arrow ? Arrow->OnHitEffect : EArrowHitEffect::None;
+	if (Effect != EArrowHitEffect::Explosive)
+	{
+		DamageVictim(Hit, Direction, Bone);
+	}
 	Embed(Hit, Direction, Bone);
+	SpawnHitEffect(Hit);
+}
+
+void AArrowProjectile::SpawnHitEffect(const FHitResult& Hit)
+{
+	if (!Arrow || Arrow->OnHitEffect == EArrowHitEffect::None || Arrow->OnHitEffect == EArrowHitEffect::Grapple)
+	{
+		return;
+	}
+	AArrowEffect::SpawnForHit(GetWorld(), Arrow, Shooter.Get(), Hit);
+	if (Arrow->OnHitEffect == EArrowHitEffect::Explosive)
+	{
+		// Nothing left of it to stick out of anything.
+		Destroy();
+	}
 }
 
 bool AArrowProjectile::TryRecoverBy(AActor* Collector)

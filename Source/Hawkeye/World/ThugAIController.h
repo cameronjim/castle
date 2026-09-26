@@ -173,6 +173,40 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	bool IsThinkingEnabled() const { return bThinkingEnabled; }
 
+	// --- Trick arrow states (claude-docs/gameplay-semantics.md, "trick arrows") ------------------
+
+	/** Putty: while held he does nothing at all, not even think. AHeldEffect sets and clears it. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Trick Arrows")
+	void SetHeld(bool bInHeld);
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Trick Arrows")
+	bool IsHeld() const { return bHeld; }
+
+	/** EMP: his pistol will not fire for Seconds. A longer jam already running is kept. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Trick Arrows")
+	void Jam(float Seconds);
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Trick Arrows")
+	bool IsJammed() const { return JamRemaining > 0.f; }
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Trick Arrows")
+	float GetJamRemaining() const { return JamRemaining; }
+
+	/**
+	 * Smoke: true while he stands in a cloud, his line of sight to the player runs through one, or
+	 * the player is crouched inside one. He cannot see, so he neither confirms a sighting nor
+	 * attacks; he loses the target after LoseTargetSeconds like any other time he cannot see her.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Thug|Trick Arrows")
+	bool IsBlinded() const { return bBlinded; }
+
+	/** Re-checks IsBlinded against the smoke clouds. Think runs it; public for tests. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Trick Arrows")
+	void UpdateBlinded();
+
+	/** True for a character crouched inside a smoke cloud: undetectable by sight or sound. */
+	static bool IsHiddenInSmoke(const AActor* Actor);
+
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void OnUnPossess() override;
@@ -241,8 +275,19 @@ protected:
 	int32 PatrolIndex = 0;
 
 private:
-	/** True while the player is inside the sight cone right now. */
+	/** True while the player is inside the sight cone right now and nothing blinds him. */
 	bool bSeesTarget = false;
+
+	/** What perception last said about the player, before smoke is taken into account. */
+	bool bPerceivesTarget = false;
+
+	/** Where the player was last seen (or glimpsed through smoke); the far end of the smoke check. */
+	FVector LastSightLocation = FVector::ZeroVector;
+	bool bHasSightLocation = false;
+
+	bool bHeld = false;
+	bool bBlinded = false;
+	float JamRemaining = 0.f;
 
 	float SeenSeconds = 0.f;
 	float UnseenSeconds = 0.f;
