@@ -28,14 +28,15 @@ KATE_MATERIAL_PATH = "/Game/Characters/Kate"
 IA_NAMES = [
     "IA_Move", "IA_Look", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
     "IA_Aim", "IA_Reload", "IA_Takedown", "IA_Interact", "IA_Pause", "IA_Skip",
-    "IA_Slot1", "IA_Slot2", "IA_Slot3", "IA_SlotScroll", "IA_Inventory",
+    "IA_Slot1", "IA_Slot2", "IA_Slot3", "IA_Slot4", "IA_Slot5", "IA_Slot6", "IA_SlotScroll",
+    "IA_Inventory", "IA_Grapple",
 ]
 
 CHARACTER_INPUT_PROPS = [
     "default_mapping_context", "move_action", "look_action", "jump_action", "sprint_action",
     "crouch_action", "fire_action", "aim_action", "reload_action", "takedown_action",
-    "interact_action", "slot1_action", "slot2_action", "slot3_action",
-    "slot_scroll_action", "inventory_action",
+    "interact_action", "slot1_action", "slot2_action", "slot3_action", "slot4_action",
+    "slot5_action", "slot6_action", "slot_scroll_action", "inventory_action", "grapple_action",
 ]
 
 # Pause is bound on the controller so it survives the pawn being locked out or dead.
@@ -73,6 +74,15 @@ EXPECTED = (
     ]
     + [
         WEAPON_PATH + "/DA_Weapon_Hands",
+        WEAPON_PATH + "/DA_Bow_Kate",
+        WEAPON_PATH + "/DA_Bow_Clint",
+        WEAPON_PATH + "/DA_Arrow_Standard",
+        WEAPON_PATH + "/DA_Arrow_Grapple",
+        WEAPON_PATH + "/BP_Arrow_Standard",
+        WEAPON_PATH + "/BP_Arrow_Grapple",
+        WEAPON_PATH + "/SM_Bow_Placeholder",
+        WEAPON_PATH + "/M_Bow",
+        "/Game/Missions/DA_CH01_Rooftops",
         "/Game/Missions/DA_M01_CellBlockD",
         "/Game/Flashbacks/Definitions/DA_FB01_Sunday",
         "/Game/Maps/L_Sandbox",
@@ -477,11 +487,18 @@ def check_kate():
 
 
 def check_weapon_data():
-    """DA_Weapon_Hands, and the one place it has to be wired into."""
+    """DA_Weapon_Hands, the bows and arrows, and the places they have to be wired into."""
     say("---- weapon data ----")
 
     expected = {
         "DA_Weapon_Hands": [("is_melee", True), ("damage", 15.0), ("melee_range", 120.0)],
+        "DA_Bow_Kate": [("full_draw_seconds", 0.8), ("min_draw_fraction", 0.25), ("max_speed", 6000.0),
+                        ("min_speed_fraction", 0.4), ("min_spread", 0.5), ("max_spread", 4.0),
+                        ("perfect_window_seconds", 0.1), ("perfect_bonus", 0.25), ("hand_socket", "palm_l_Socket")],
+        "DA_Bow_Clint": [("full_draw_seconds", 1.0)],
+        "DA_Arrow_Standard": [("slot", 1), ("damage", 40.0), ("cap", 30), ("recoverable", True),
+                              ("on_hit_effect", "NONE")],
+        "DA_Arrow_Grapple": [("slot", 2), ("cap", 6), ("recoverable", True), ("on_hit_effect", "GRAPPLE")],
     }
 
     for name, fields in expected.items():
@@ -489,12 +506,25 @@ def check_weapon_data():
         if asset is None:
             fail(name)
             continue
-        say("  {0}: slot={1}".format(name, prop(asset, "slot")))
+        say("  {0}".format(name))
         for field, want in fields:
             got = prop(asset, field)
             say("    {0:<22} = {1}".format(field, got))
-            if value_text(got) != str(want):
+            same = abs(float(got) - want) < 1e-4 if isinstance(want, float) and got is not None else \
+                value_text(got) == str(want)
+            if not same:
                 fail("{0}.{1} is {2}, expected {3}".format(name, field, got, want))
+
+    for bow in ("DA_Bow_Kate", "DA_Bow_Clint"):
+        mesh = prop(c.load_or_none(c.asset_path(WEAPON_PATH, bow)), "bow_mesh")
+        say("  {0}.bow_mesh = {1}".format(bow, mesh))
+        if "SM_Bow_Placeholder" not in str(mesh or ""):
+            fail(bow + ".bow_mesh is not SM_Bow_Placeholder")
+    for arrow, projectile in (("DA_Arrow_Standard", "BP_Arrow_Standard"), ("DA_Arrow_Grapple", "BP_Arrow_Grapple")):
+        cls = prop(c.load_or_none(c.asset_path(WEAPON_PATH, arrow)), "projectile_class")
+        say("  {0}.projectile_class = {1}".format(arrow, name_of(cls)))
+        if projectile not in str(name_of(cls)):
+            fail("{0}.projectile_class is {1}, expected {2}_C".format(arrow, name_of(cls), projectile))
 
     char_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
     if char_class is not None:
@@ -505,6 +535,10 @@ def check_weapon_data():
             fail("BP_CastleCharacter has no InventoryComponent")
         elif "DA_Weapon_Hands" not in str(hands or ""):
             fail("BP_CastleCharacter.InventoryComponent.hands_definition is not DA_Weapon_Hands")
+        standard = prop(inventory, "standard_arrow_definition") if inventory is not None else None
+        say("  BP_CastleCharacter.Inventory.standard_arrow_definition = {0}".format(standard))
+        if "DA_Arrow_Standard" not in str(standard or ""):
+            fail("BP_CastleCharacter.InventoryComponent.standard_arrow_definition is not DA_Arrow_Standard")
 
 
 def check_data_assets():
@@ -538,6 +572,20 @@ def check_data_assets():
         say("  DA_M01_CellBlockD.end_card_line     = '{0}'".format(end_card_line))
         if not str(end_card_line or ""):
             fail("DA_M01_CellBlockD.end_card_line is empty")
+
+    chapter = c.load_or_none("/Game/Missions/DA_CH01_Rooftops")
+    if chapter is None:
+        fail("DA_CH01_Rooftops")
+    else:
+        bow = prop(chapter, "starting_bow")
+        grants = [(str(prop(g, "arrow")), prop(g, "count")) for g in list(prop(chapter, "starting_arrows") or [])]
+        say("  DA_CH01_Rooftops: starting_bow={0} starting_arrows={1}".format(bow, grants))
+        if "DA_Bow_Kate" not in str(bow or ""):
+            fail("DA_CH01_Rooftops.starting_bow is not DA_Bow_Kate")
+        wanted = [("DA_Arrow_Standard", 30), ("DA_Arrow_Grapple", 6)]
+        if len(grants) != len(wanted) or any(
+                name not in arrow or count != want for (arrow, count), (name, want) in zip(grants, wanted)):
+            fail("DA_CH01_Rooftops.starting_arrows is {0}, expected {1}".format(grants, wanted))
 
     flashback = c.load_or_none("/Game/Flashbacks/Definitions/DA_FB01_Sunday")
     if flashback is None:
