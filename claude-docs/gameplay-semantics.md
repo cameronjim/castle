@@ -8,15 +8,34 @@ LEGACY describe first-person or pistol behaviour that still exists in code until
 stage 2 cleanup removes it; don't extend them. Sections marked PLANNED are the contract
 for code not yet written; write the tests from them. Everything unmarked stands.
 
-## PLANNED: third-person camera and look
-- Spring arm behind the character, default length 350, socket offset up 60. Aim (right
-  mouse) shortens to 180 and offsets to the right shoulder over 0.15 s. Sensitivity from
-  the settings subsystem as today.
-- Camera probes and pulls in against walls; it never clips into geometry the player is
-  standing in.
-- Look input never rotates the character while idle; movement input rotates the
-  character toward the input direction (orient to movement), except while aiming, when
-  the character faces the camera direction.
+## Third-person camera and look (built 2026-09-26)
+- Spring arm behind the character: hip length 350, socket offset (0, 70, 60), FOV 90.
+  Aim (right mouse) blends over 0.15 s to length 180, offset (0, 45, 55), FOV 70. The
+  70 cm lateral offset puts the character around 40% of screen width so the right side
+  of the frame is open. Position lag 10, rotation lag 12. Sensitivity from the settings
+  subsystem. `ComputeCameraTargets(bAiming)` is pure and tested.
+- The arm probes on the Camera channel with a 12 cm radius and pulls in against walls,
+  never inside geometry. Closer than 100 cm the character is hidden from the camera so
+  the view isn't inside her shoulder.
+- Movement input rotates the character toward the input direction; while aiming she
+  faces the camera yaw. Look input never rotates her while idle.
+
+## Movement (built 2026-09-26; every number is a property on BP_Kate)
+- Speeds: walk 250, run 500, sprint 700, crouch 200. Gamepad: stick at 0.9 or more runs
+  immediately, 0.4 or more runs after 0.2 s, lighter walks. Keyboard always runs; Shift
+  sprints.
+- Jump height 90 cm, air control 0.3.
+- Slide: crouch while sprinting; 0.7 s, speed eases 750 to 200, capsule half-height 50,
+  restored after.
+- Landing from above 400 cm halves speed and dips the camera 30 cm for 0.3 s (a
+  placeholder for the roll and stumble). Fall damage starts at 900 cm at 10% of max
+  health, rises to a 60% cap at 2500 cm, and never kills: it stops at 1 health.
+- `castle.DebugMovement 1` draws state, speed, and fall height on the HUD. Landing
+  height, fall damage, and slide start are logged at Log; sprint start and stop at Verbose.
+
+## HUD (third person)
+- No crosshair. A 4 px reticle dot appears only while aiming and flashes white for 0.1 s
+  on a hit. Hotbar slots are Hands, Bow, Reserved until arrows exist.
 
 ## PLANNED: traversal
 - Vault: obstacle top between 60 and 110 cm, clear on the far side. Mantle: 110 to 200
