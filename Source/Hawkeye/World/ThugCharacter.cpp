@@ -352,6 +352,11 @@ void AThugCharacter::HitReaction(AActor* HitBy)
 
 void AThugCharacter::Knockdown(AActor* By)
 {
+	KnockdownFor(By, KnockdownSeconds, KnockdownLaunchSpeed);
+}
+
+void AThugCharacter::KnockdownFor(AActor* By, float Seconds, float LaunchSpeed)
+{
 	if (bLimp || !HealthComponent || !HealthComponent->IsAlive())
 	{
 		return;
@@ -360,7 +365,7 @@ void AThugCharacter::Knockdown(AActor* By)
 	// Knocked over again while still getting up: the blend ends here and the ragdoll starts over.
 	FinishGetUp();
 	bKnockedDown = true;
-	KnockdownRemaining = KnockdownSeconds;
+	KnockdownRemaining = FMath::Max(Seconds, 0.f);
 	StaggerRemaining = 0.f;
 	if (MeleeComponent)
 	{
@@ -381,14 +386,14 @@ void AThugCharacter::Knockdown(AActor* By)
 		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	}
 
-	bKnockdownRagdoll = BeginKnockdownRagdoll(By);
+	bKnockdownRagdoll = BeginKnockdownRagdoll(By, LaunchSpeed < 0.f ? KnockdownLaunchSpeed : LaunchSpeed);
 	AlertTo(By);
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: knocked down by %s for %.1f s (%s), health %.1f."), *GetName(), *GetNameSafe(By),
-		KnockdownSeconds, bKnockdownRagdoll ? TEXT("ragdoll") : TEXT("no ragdoll"), HealthComponent->GetCurrentHealth());
+		KnockdownRemaining, bKnockdownRagdoll ? TEXT("ragdoll") : TEXT("no ragdoll"), HealthComponent->GetCurrentHealth());
 }
 
-bool AThugCharacter::BeginKnockdownRagdoll(AActor* By)
+bool AThugCharacter::BeginKnockdownRagdoll(AActor* By, float LaunchSpeed)
 {
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset() || !SkeletalMesh->GetPhysicsAsset())
@@ -414,7 +419,9 @@ bool AThugCharacter::BeginKnockdownRagdoll(AActor* By)
 	{
 		Away = -GetActorForwardVector();
 	}
-	SkeletalMesh->SetAllPhysicsLinearVelocity(Away * KnockdownLaunchSpeed + FVector(0.f, 0.f, 150.f));
+	// A big throw (the blast) goes up as well as out; a heavy or a trip barely leaves the floor.
+	const float Lift = LaunchSpeed > KnockdownLaunchSpeed ? LaunchSpeed * 0.5f : 150.f;
+	SkeletalMesh->SetAllPhysicsLinearVelocity(Away * LaunchSpeed + FVector(0.f, 0.f, Lift));
 	return true;
 }
 

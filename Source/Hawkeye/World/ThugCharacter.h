@@ -165,6 +165,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Thug")
 	void Knockdown(AActor* By);
 
+	/**
+	 * Knockdown for Seconds instead of KnockdownSeconds, thrown at LaunchSpeed (below 0 uses
+	 * KnockdownLaunchSpeed). The bola's trip (2.5 s) and the explosive's blast (2 s) come through here.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void KnockdownFor(AActor* By, float Seconds, float LaunchSpeed = -1.f);
+
+	/** Seconds this knockdown has left, 0 when he is not down. */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	float GetKnockdownRemaining() const { return bKnockedDown ? KnockdownRemaining : 0.f; }
+
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	bool IsKnockedDown() const { return bKnockedDown; }
 
@@ -330,7 +341,7 @@ protected:
 	void UpdateMaterialPulse(float DeltaSeconds);
 
 	/** Throws the mesh into a ragdoll for a knockdown. False when it cannot simulate. */
-	bool BeginKnockdownRagdoll(AActor* By);
+	bool BeginKnockdownRagdoll(AActor* By, float LaunchSpeed);
 
 	/**
 	 * Ends a knockdown: the capsule moves to where the body lies and, when he was a ragdoll, the
