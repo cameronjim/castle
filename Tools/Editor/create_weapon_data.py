@@ -54,8 +54,13 @@ BOW_GLOW = 1.2                     # before _materials.EMISSIVE_INTENSITY_FACTOR
 NOCK_MATERIAL = "M_ArrowNock"
 NOCK_GLOW = 1.5                    # times the nock's Color, before the factor
 FX_MATERIAL = "M_ArrowFx"
-FX_SELF_LIGHT = 0.08               # smoke glows this much of its Color so it reads between lamps
+FX_SELF_LIGHT = 0.03               # smoke glows this much of its Color so it reads between lamps
+FX_EDGE_EXPONENT = 2.0             # how fast a puff thins toward its silhouette (Fresnel exponent)
+FX_DEPTH_FADE = 150.0              # cm over which a puff fades where it meets the ground or a wall
 GLOW_MATERIAL = "M_ArrowGlow"
+# Rebuilt when this changes, independent of the city look build.
+FX_BUILD_TAG = "HawkeyeArrowFxBuild"
+FX_BUILD = "fx-2"
 BOW_MESH = "SM_Bow_Placeholder"
 
 # Palm of the left hand on the UEFN mannequin (a socket on hand_l, found by introspecting
@@ -251,18 +256,44 @@ def _build_arrow_nock(material):
 
 
 def _build_arrow_fx(material):
-    """Lit translucent Color at Opacity, with a little self light: the smoke's puffs."""
+    """Lit translucent Color at Opacity with a little self light: the smoke's puffs. Each puff thins
+    to nothing at its silhouette and where it meets the ground, so a cluster of spheres reads as one
+    soft cloud rather than a heap of balls."""
     import _materials as m  # noqa: PLC0415
 
-    c.set_props(material, [("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT),
-                           ("two_sided", True)], FX_MATERIAL)
-    color = m.vector_param(material, "Color", (0.55, 0.56, 0.6), -700, -100)
-    opacity = m.scalar_param(material, "Opacity", 0.5, -700, 200)
+    c.set_props(material, [("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT)], FX_MATERIAL)
+    color = m.vector_param(material, "Color", (0.3, 0.31, 0.34), -900, -100)
+    opacity = m.scalar_param(material, "Opacity", 0.5, -900, 200)
     m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
     self_light = m.multiply(material, color, None, -400, 50, const_b=FX_SELF_LIGHT * m.EMISSIVE_INTENSITY_FACTOR)
     m.connect_property(self_light, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
-    m.connect_property(opacity, unreal.MaterialProperty.MP_OPACITY)
-    m.set_scalar_property(material, 1.0, unreal.MaterialProperty.MP_ROUGHNESS, -400, 300)
+    fresnel = m.expr(material, "MaterialExpressionFresnel", -1100, 350, [("exponent", FX_EDGE_EXPONENT)], "Fresnel")
+    facing = m.subtract(material, m.constant(material, 1.0, -950, 450), fresnel, -800, 350)
+    soft = m.multiply(material, opacity, m.multiply(material, facing, facing, -650, 350), -500, 250)
+    depth = m.expr(material, "MaterialExpressionDepthFade", -350, 250, [("fade_distance_default", FX_DEPTH_FADE)],
+                   "DepthFade")
+    m.connect(soft, "", depth, "Opacity")
+    m.connect_property(depth, unreal.MaterialProperty.MP_OPACITY)
+    m.set_scalar_property(material, 1.0, unreal.MaterialProperty.MP_ROUGHNESS, -400, 450)
+
+
+def ensure_fx_material(full_path, build_fn):
+    """An effect material, rebuilt whenever FX_BUILD changes; otherwise left alone."""
+    import _materials as m  # noqa: PLC0415
+
+    existing = c.load_or_none(full_path)
+    try:
+        current = unreal.EditorAssetLibrary.get_metadata_tag(existing, FX_BUILD_TAG) if existing else None
+    except Exception:  # noqa: BLE001
+        current = None
+    if existing is not None and current == FX_BUILD:
+        c.log("exists", full_path)
+        return existing
+    material = m.ensure_material(full_path, build_fn, rebuild=existing is not None)
+    if material is not None:
+        unreal.EditorAssetLibrary.set_metadata_tag(material, FX_BUILD_TAG, FX_BUILD)
+        c.save(material)
+    return material
 
 
 def _build_arrow_glow(material):
@@ -402,8 +433,8 @@ def run():
 
     material = m.ensure_look_material(c.asset_path(WEAPON_PATH, BOW_MATERIAL), _build_bow)
     m.ensure_look_material(c.asset_path(WEAPON_PATH, NOCK_MATERIAL), _build_arrow_nock)
-    m.ensure_look_material(c.asset_path(WEAPON_PATH, FX_MATERIAL), _build_arrow_fx)
-    m.ensure_look_material(c.asset_path(WEAPON_PATH, GLOW_MATERIAL), _build_arrow_glow)
+    ensure_fx_material(c.asset_path(WEAPON_PATH, FX_MATERIAL), _build_arrow_fx)
+    ensure_fx_material(c.asset_path(WEAPON_PATH, GLOW_MATERIAL), _build_arrow_glow)
     mesh = ensure_bow_mesh(material)
     projectiles = ensure_projectile_blueprints()
 
