@@ -40,12 +40,17 @@ UHawkeyeSaveSubsystem* UHawkeyeSaveSubsystem::Get(const UObject* WorldContextObj
 	return GameInstance ? GameInstance->GetSubsystem<UHawkeyeSaveSubsystem>() : nullptr;
 }
 
+UHawkeyeSaveSubsystem::UHawkeyeSaveSubsystem()
+{
+	// A default subobject, so a subsystem made by a test (never Initialized) has one too.
+	Campaign = CreateDefaultSubobject<UHawkeyeCampaignState>(TEXT("HawkeyeCampaign"));
+}
+
 void UHawkeyeSaveSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Collection.InitializeDependency<USpudSubsystem>();
 	Super::Initialize(Collection);
 
-	Campaign = NewObject<UHawkeyeCampaignState>(this, TEXT("HawkeyeCampaign"));
 	if (USpudSubsystem* Spud = GetSpud())
 	{
 		Spud->AddPersistentGlobalObjectWithName(Campaign, HawkeyeSave::GlobalName);
@@ -225,33 +230,56 @@ EHawkeyeLoadDecision UHawkeyeSaveSubsystem::DecideLoad(bool bSaveExists, int32 S
 	return Decision;
 }
 
+bool UHawkeyeSaveSubsystem::ReadSaveHeader(int32& OutVersion, FString& OutMissionPath) const
+{
+	OutVersion = INDEX_NONE;
+	OutMissionPath.Reset();
+	const TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*USpudSubsystem::GetSaveGameFilePath(GetSlotName())));
+	if (!Reader)
+	{
+		return false;
+	}
+	USpudSaveGameInfo* Info = NewObject<USpudSaveGameInfo>();
+	const bool bRead = USpudState::LoadSaveInfoFromArchive(*Reader, *Info);
+	Reader->Close();
+	if (!bRead || !Info->CustomInfo)
+	{
+		return false;
+	}
+	int Version = INDEX_NONE;
+	Info->CustomInfo->GetInt(HawkeyeSave::VersionKey, Version);
+	Info->CustomInfo->GetString(HawkeyeSave::MissionKey, OutMissionPath);
+	OutVersion = Version;
+	return true;
+}
+
 bool UHawkeyeSaveSubsystem::LoadCampaign()
 {
-	USpudSubsystem* Spud = GetSpud();
-	if (!Spud || !GetGameWorld() || !Spud->IsIdle() || IsLoading())
+	if (IsLoading())
 	{
-		UE_LOG(LogHawkeye, Warning, TEXT("%s: cannot load now (no world, or SPUD busy)."), *GetName());
 		return false;
 	}
 
+	// The header alone says whether this save can be used; an unreadable one counts as another version.
 	int32 SavedVersion = INDEX_NONE;
 	FString SavedMission;
 	const bool bExists = HasSave();
-	if (USpudSaveGameInfo* Info = bExists ? Spud->GetSaveGameInfo(GetSlotName()) : nullptr)
+	if (bExists)
 	{
-		if (Info->CustomInfo)
-		{
-			Info->CustomInfo->GetInt(HawkeyeSave::VersionKey, SavedVersion);
-			Info->CustomInfo->GetString(HawkeyeSave::MissionKey, SavedMission);
-		}
+		ReadSaveHeader(SavedVersion, SavedMission);
 	}
-
 	if (DecideLoad(bExists, SavedVersion, SavedMission) != EHawkeyeLoadDecision::Load)
 	{
 		StartNewGame();
 		return false;
 	}
 
+	USpudSubsystem* Spud = GetSpud();
+	if (!Spud || !GetGameWorld() || !Spud->IsIdle())
+	{
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: cannot load now (no world, or SPUD busy)."), *GetName());
+		return false;
+	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: loading %s (%s)."), *GetName(), *GetSlotName(), *SavedMission);
 	bLoadInFlight = true;
 	bRestorePending = true;

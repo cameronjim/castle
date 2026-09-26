@@ -33,6 +33,8 @@ class HAWKEYE_API UHawkeyeSaveSubsystem : public UGameInstanceSubsystem
 	GENERATED_BODY()
 
 public:
+	UHawkeyeSaveSubsystem();
+
 	/** The subsystem for the world this object lives in, or nullptr outside a game instance. */
 	static UHawkeyeSaveSubsystem* Get(const UObject* WorldContextObject);
 
@@ -78,6 +80,9 @@ public:
 	 * no longer exists), a version with no migration a warning.
 	 */
 	EHawkeyeLoadDecision DecideLoad(bool bSaveExists, int32 SavedVersion, const FString& InMissionPath) const;
+
+	/** Reads the slot's header (save version and mission path) without loading it. False when unreadable. */
+	bool ReadSaveHeader(int32& OutVersion, FString& OutMissionPath) const;
 
 	/** True from LoadCampaign until the restored world is ready. */
 	UFUNCTION(BlueprintPure, Category = "Save")
