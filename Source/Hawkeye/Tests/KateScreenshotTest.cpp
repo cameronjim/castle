@@ -3,6 +3,7 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
+#include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "HawkeyePlayerController.h"
 #include "CollisionQueryParams.h"
@@ -16,6 +17,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/LocalPlayer.h"
+#include "Engine/SpotLight.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "EnhancedInputSubsystems.h"
@@ -60,6 +62,9 @@
  *                    pose, leaning, arms swinging
  *   kate_stop.png    0.3 s after letting go: the stop, not a snap to idle
  *   kate_aimstrafe.png aiming and strafing right, facing the camera's way
+ *   kate_costume.png under the street lamp nearest the street spot, seen from a camera 2.3 m in front
+ *                    of her (she turns to face her own camera, so it cannot be swung round): the black
+ *                    suit's purple arm panels and chest chevron in lamp light
  *
  *   grapple_marker.png  back on the street, looking up at a tenement anchor with its marker showing
  *   grapple_mid.png     part way along the zip, the camera following
@@ -134,7 +139,25 @@ namespace HawkeyeKateShots
 		Stop,
 		AimStrafe,
 		EndMove,
+		Costume,
 	};
+
+	/** The lamp light (tag CityLamp) nearest Near, 2D. */
+	static ASpotLight* FindLampNear(UWorld* World, const FVector& Near)
+	{
+		ASpotLight* Best = nullptr;
+		float BestDistance = TNumericLimits<float>::Max();
+		for (TActorIterator<ASpotLight> It(World); It; ++It)
+		{
+			const float Distance = FVector::Dist2D(It->GetActorLocation(), Near);
+			if (It->Tags.Contains(TEXT("CityLamp")) && Distance < BestDistance)
+			{
+				BestDistance = Distance;
+				Best = *It;
+			}
+		}
+		return Best;
+	}
 
 	static const TCHAR* MoveActionPath = TEXT("/Game/Input/IA_Move.IA_Move");
 
@@ -350,10 +373,63 @@ bool FHawkeyeKateFrameShot::Update()
 		HoldMove(PC, FVector2D::ZeroVector, false);
 		Kate->StopAim();
 		break;
+
+	case EShot::Costume:
+		// Under the lamp's pool, turned toward the street, the camera 160 degrees round in front.
+		if (ASpotLight* Lamp = FindLampNear(World, Spot))
+		{
+			if (FindGround(World, Lamp->GetActorLocation(), Lamp->GetActorLocation().Z - 50.f, Kate, Ground))
+			{
+				PlaceKate(Kate, PC, Ground, AlongYaw, HipPitch);
+				Test->AddInfo(FString::Printf(TEXT("Costume: under %s at %s."), *GetNameSafe(Lamp),
+					*Ground.ToCompactString()));
+			}
+		}
+		else
+		{
+			Test->AddWarning(TEXT("kate_costume.png: no CityLamp spot light."));
+		}
+		break;
 	}
 
 	Test->AddInfo(FString::Printf(TEXT("Kate at %s, control %s."),
 		*Kate->GetActorLocation().ToCompactString(), *PC->GetControlRotation().ToCompactString()));
+	return true;
+}
+
+/** Looks at Kate from a camera in front of her, a little to her right, at chest height. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FHawkeyeKateCostumeCamera, FAutomationTestBase*, Test);
+
+bool FHawkeyeKateCostumeCamera::Update()
+{
+	using namespace HawkeyeKateShots;
+
+	UWorld* World = FindWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	if (!Kate)
+	{
+		Test->AddError(TEXT("kate_costume.png: no Kate."));
+		return true;
+	}
+	const float HalfHeight = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector Chest = Kate->GetActorLocation() + FVector(0.f, 0.f, HalfHeight * 0.45f);
+	const FVector Front = FRotator(0.f, Kate->GetActorRotation().Yaw + 25.f, 0.f).Vector();
+	const FVector Eye = Chest + Front * 230.f + FVector(0.f, 0.f, 10.f);
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	ACameraActor* Camera = World->SpawnActor<ACameraActor>(Eye, (Chest - Eye).Rotation(), Params);
+	if (!Camera)
+	{
+		Test->AddError(TEXT("kate_costume.png: could not spawn the camera."));
+		return true;
+	}
+	Camera->GetCameraComponent()->SetConstraintAspectRatio(false);
+	Camera->GetCameraComponent()->SetFieldOfView(55.f);
+	Camera->SetLifeSpan(3.f);
+	PC->SetViewTarget(Camera);
+	Test->AddInfo(FString::Printf(TEXT("kate_costume.png: camera at %s, Kate facing %.0f."), *Eye.ToCompactString(),
+		Kate->GetActorRotation().Yaw));
 	return true;
 }
 
@@ -2517,6 +2593,14 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, FString(ShotAndFile.Value)));
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	}
+	// The costume, close, in lamp light, from a camera in front of her.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFrameShot(this, static_cast<uint8>(EShot::Costume)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateCostumeCamera(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("kate_costume.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
 	// The bow: on her back, the quiver, half drawn, then an arrow into a thug 15 m away.
 	using EBow = HawkeyeKateShots::EBowShot;
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFrameShot(this, static_cast<uint8>(EShot::Street)));

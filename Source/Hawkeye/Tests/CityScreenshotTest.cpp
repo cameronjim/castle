@@ -21,10 +21,12 @@
  * Reference shots of the generated East Village district (Tools/Editor/generate_city.py),
  * written to Saved/Screenshots/City/. Look-at-them tools, not assertions:
  *
- *   street.png    eye height at the PlayerStart on East 7th Street, looking down the street
- *   rooftop.png   on the tallest roof within 120 m of the start, looking across to the park
- *   overview.png  150 m up south of Tompkins Square Park, pitched -60, facing north
- *                 (so Avenue A is on the left and Avenue B on the right if nothing is mirrored)
+ *   street_night.png    eye height on the park-side sidewalk of East 7th Street by the PlayerStart,
+ *                       looking down the street: lamps, lit windows, snow on the sidewalk
+ *   rooftop_night.png   on the tallest roof within 120 m of the start, looking across the roofs to
+ *                       the park: snowy roofs, water towers, moonlight
+ *   overview_night.png  150 m up south of Tompkins Square Park, pitched -60, facing north
+ *                       (so Avenue A is on the left and Avenue B on the right if nothing is mirrored)
  *
  * The generator tags its actors (CityBuilding, CityPark) because actor labels are editor-only;
  * these shots find everything by tag. Needs a real RHI, so it is a no-op under -nullrhi. Run it
@@ -46,6 +48,8 @@ namespace HawkeyeCityShots
 	static constexpr float RooftopSearchRadius = 12000.f;
 	static constexpr float OverviewHeight = 15000.f;
 	static constexpr float OverviewPitch = -60.f;
+	/** From the PlayerStart (3 m park side of the centre line) back to the park-side sidewalk, cm. */
+	static constexpr float StreetSidewalkBack = 500.f;
 
 	enum class EShot : uint8
 	{
@@ -169,10 +173,15 @@ bool FHawkeyeCityFrameShot::Update()
 	switch (static_cast<EShot>(Shot))
 	{
 	case EShot::Street:
-		// The start faces the tenement row across the street; a quarter turn looks down it.
-		Eye = FVector(StartLocation.X, StartLocation.Y, EyeHeight);
-		Look = FRotator(-2.f, StartYaw + 90.f, 0.f);
+	{
+		// The start faces the tenement row across the street; back from it onto the park-side
+		// sidewalk, a quarter turn looks down the street with the park on the left.
+		const FVector Across = FRotator(0.f, StartYaw, 0.f).Vector();
+		const FVector OnSidewalk = StartLocation - Across * StreetSidewalkBack;
+		Eye = FVector(OnSidewalk.X, OnSidewalk.Y, EyeHeight);
+		Look = FRotator(-4.f, StartYaw + 90.f, 0.f);
 		break;
+	}
 
 	case EShot::Rooftop:
 	{
@@ -185,7 +194,7 @@ bool FHawkeyeCityFrameShot::Update()
 		}
 		Eye = Top + FVector(0.f, 0.f, EyeHeight);
 		const FVector Target = bHasPark ? ParkCentre : StartLocation;
-		Look = FRotator(-12.f, (Target - Eye).GetSafeNormal2D().Rotation().Yaw, 0.f);
+		Look = FRotator(-8.f, (Target - Eye).GetSafeNormal2D().Rotation().Yaw, 0.f);
 		Test->AddInfo(FString::Printf(TEXT("Rooftop: %s, roof at %.0f cm."), *Building->GetName(), Top.Z));
 		break;
 	}
@@ -245,9 +254,9 @@ bool FHawkeyeScreenshotEastVillage::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(6.f));
 
 	const TPair<EShot, const TCHAR*> Shots[] = {
-		{ EShot::Street, TEXT("street.png") },
-		{ EShot::Rooftop, TEXT("rooftop.png") },
-		{ EShot::Overview, TEXT("overview.png") },
+		{ EShot::Street, TEXT("street_night.png") },
+		{ EShot::Rooftop, TEXT("rooftop_night.png") },
+		{ EShot::Overview, TEXT("overview_night.png") },
 	};
 	for (const TPair<EShot, const TCHAR*>& ShotAndFile : Shots)
 	{
