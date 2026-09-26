@@ -1,11 +1,11 @@
 # Launches the Hawkeye game standalone (no editor UI) for fast iteration on feel.
 # Refuses to start if an editor instance is already running - this machine has 16 GB RAM
 # and editor + standalone game at once will thrash.
-# Usage: .\Tools\play.ps1 [-Map /Game/Maps/L_M01_CellBlockD] [-Fullscreen]
-#   -Map         play a different map instead of the mission default (L_M01_CellBlockD)
+# Usage: .\Tools\play.ps1 [-Map /Game/Maps/L_District_EastVillage] [-Fullscreen]
+#   -Map         play a different map instead of the district (L_District_EastVillage)
 #   -Fullscreen  launch fullscreen instead of windowed at 1600x900
 param(
-    [string]$Map = "/Game/Maps/L_M01_CellBlockD",
+    [string]$Map = "/Game/Maps/L_District_EastVillage",
     [switch]$Fullscreen,
     [string]$Engine = "C:\Program Files\Epic Games\UE_5.8"
 )
