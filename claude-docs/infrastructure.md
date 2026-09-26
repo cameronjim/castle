@@ -2,6 +2,8 @@
 
 Paths, commands, and the machine. Everything here is Windows.
 
+Renamed from Castle to Hawkeye on 2026-09-26; CoreRedirects in DefaultEngine.ini map the old script package and classes.
+
 ## Paths
 
 | Thing | Path |
@@ -13,14 +15,14 @@ Paths, commands, and the machine. Everything here is Windows.
 | Build script | `...\UE_5.8\Engine\Build\BatchFiles\Build.bat` |
 | UAT (packaging) | `...\UE_5.8\Engine\Build\BatchFiles\RunUAT.bat` |
 | Visual Studio | `C:\Program Files\Microsoft Visual Studio\2022\Community` |
-| Logs | `C:\Users\camer\code\fps-game\Saved\Logs\Castle.log` |
+| Logs | `C:\Users\camer\code\fps-game\Saved\Logs\Hawkeye.log` |
 | Crash dumps | `C:\Users\camer\code\fps-game\Saved\Crashes\` |
 
 Set these as variables at the top of any script:
 
 ```powershell
 $UE = "C:\Program Files\Epic Games\UE_5.8"
-$Proj = "C:\Users\camer\code\fps-game\Castle.uproject"
+$Proj = "C:\Users\camer\code\fps-game\Hawkeye.uproject"
 ```
 
 ## Build
@@ -34,25 +36,25 @@ Generate project files (after adding or removing source files, or changing Build
 Build the editor target (what you run 95% of the time):
 
 ```powershell
-& "$UE\Engine\Build\BatchFiles\Build.bat" CastleEditor Win64 Development -project="$Proj" -waitmutex
+& "$UE\Engine\Build\BatchFiles\Build.bat" HawkeyeEditor Win64 Development -project="$Proj" -waitmutex
 ```
 
 Build the standalone game target (for packaging tests):
 
 ```powershell
-& "$UE\Engine\Build\BatchFiles\Build.bat" Castle Win64 Development -project="$Proj" -waitmutex
+& "$UE\Engine\Build\BatchFiles\Build.bat" Hawkeye Win64 Development -project="$Proj" -waitmutex
 ```
 
 Exit code 0 is success. Errors look like `error C2065` (compiler) or `Error: ... UnrealHeaderTool`
 (reflection). UHT errors come first and block compilation; fix them before reading further.
 
-`Source/Castle.Target.cs` and `CastleEditor.Target.cs` must stay on
+`Source/Hawkeye.Target.cs` and `HawkeyeEditor.Target.cs` must stay on
 `BuildSettingsVersion.V7` and `EngineIncludeOrderVersion.Unreal5_8`. Older values make UBT
 refuse to build against the launcher engine (it reports `OtherCompilationError` in under a
-second with no compiler output). 5.8 also writes `Castle.slnx` next to `Castle.sln`; both are
+second with no compiler output). 5.8 also writes `Hawkeye.slnx` next to `Hawkeye.sln`; both are
 ignored by git.
 
-Build time: about 80 seconds for a full rebuild of the Castle module, 20-40 seconds incremental.
+Build time: about 80 seconds for a full rebuild of the Hawkeye module, 20-40 seconds incremental.
 If the editor is open, close it or use Live Coding (Ctrl+Alt+F11 in the editor) instead.
 Building with the editor open and Live Coding off produces a DLL the editor won't reload.
 
@@ -87,7 +89,7 @@ Common flags: `-unattended` (no dialogs), `-nosplash`, `-nop4`, `-stdout`,
 Run automation tests:
 
 ```powershell
-& "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" -ExecCmds="Automation RunTests Castle; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -ReportExportPath="C:\Users\camer\code\fps-game\Saved\Automation"
+& "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" -ExecCmds="Automation RunTests Hawkeye; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -ReportExportPath="C:\Users\camer\code\fps-game\Saved\Automation"
 ```
 
 Run a Python script in the editor (asset creation, batch edits):
@@ -125,13 +127,13 @@ republished, and 2 GB is past the free LFS quota. Consequences:
   CurveExpression, DrawDebugLibrary, Mover (the AnimBP uses it), MovieSceneAnimMixer,
   GameplayCameras, SmartObjects, StateTree, GameplayStateTree, GameplayInteractions,
   FullBodyIK. The sample's console variables and gameplay tags are copied into `Config/`.
-- Parent chain: `BP_Kate` → `SandboxCharacter_CMC` → `BP_CastleCharacter` →
-  `ACastleCharacter`. The sample's own input context is emptied and its graph bindings are
+- Parent chain: `BP_Kate` → `SandboxCharacter_CMC` → `BP_HawkeyeCharacter` →
+  `AHawkeyeCharacter`. The sample's own input context is emptied and its graph bindings are
   dropped on possession; C++ bridges `WantsToSprint`, `WantsToWalk`, `WantsToStrafe`,
   `WantsToAim`, `WantsToCrouch`, and `FullMovementInput` into it each tick. Its camera is
   switched off at runtime. Its graph sets movement speeds (run 500, stop 200, aimed strafe
   180), overriding ours on Kate only; thugs keep the native speeds.
-- The full `Castle.Screenshot` group has hung once mid-run; run `Castle.Screenshot.Kate`
+- The full `Hawkeye.Screenshot` group has hung once mid-run; run `Hawkeye.Screenshot.Kate`
   and the others separately.
 
 ## City generation from OpenStreetMap
@@ -163,7 +165,7 @@ Facts that matter:
   sidewalks; OSM rarely tags widths here. Courtyard holes and park footpaths are not built.
 - Verify: `verify_city.py` checks record count vs actors, collision, heights within 1 cm,
   handedness, lights, PlayerStart, nav volume, game mode. Screenshots via
-  `Castle.Screenshot.EastVillage` into `Saved/Screenshots/City/`.
+  `Hawkeye.Screenshot.EastVillage` into `Saved/Screenshots/City/`.
 - `overpass-api.de` rejects PowerShell's default user agent; the fetch script sends its
   own and falls back to `overpass.kumi.systems`.
 - World Partition is off for the single block. Stage 3 turns it on.
@@ -208,5 +210,5 @@ Takes 15-40 minutes. Output under `Saved\Packaged\Windows\`. Stage 6 only.
 & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.VisualStudio.Workload.NativeGame -property installationPath
 Get-ChildItem "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"
 git lfs ls-files | Measure-Object -Line
-Get-Content "C:\Users\camer\code\fps-game\Saved\Logs\Castle.log" -Tail 50 | Select-String -Pattern "Error|Fatal|Warning: .*Castle"
+Get-Content "C:\Users\camer\code\fps-game\Saved\Logs\Hawkeye.log" -Tail 50 | Select-String -Pattern "Error|Fatal|Warning: .*Hawkeye"
 ```

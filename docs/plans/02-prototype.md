@@ -51,7 +51,7 @@ only question that matters: is moving through this city fun?
 8. **Play it twenty times.** Run laps. Time a circuit. Note every snag on geometry, every
    move that felt slow, every place you wanted to go and couldn't.
 
-## Done when (status 2026-09-26, from the scripted lap `Castle.Lap.EastVillage`)
+## Done when (status 2026-09-26, from the scripted lap `Hawkeye.Lap.EastVillage`)
 - [x] A full lap of the block, street to rooftop and back, in under 90 seconds, without
       touching a wall you didn't mean to. Scripted lap: 61.75 s, 0 wall contacts, every
       move first try, descent by fire escape. A human lap is still needed.

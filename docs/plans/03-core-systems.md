@@ -29,7 +29,7 @@ asset, and scripted beats. After this stage, building a chapter is content, not 
 - `UPartnerComponent` on the AI-controlled Hawkeye: follow at distance, take cover, shoot
   tagged enemies, go to a marker on command, revive the player once per fight. Never
   blocks a doorway.
-- Switching: `ACastlePlayerController::SwitchCharacter()` possesses the other Hawkeye,
+- Switching: `AHawkeyePlayerController::SwitchCharacter()` possesses the other Hawkeye,
   hands the old pawn to an AI controller running the partner logic, swaps the HUD. Camera
   blends over 0.3 s. Chapters set whether switching is allowed.
 - Each character has their own bow stats, arrow caps, melee move set, and locomotion

@@ -21,7 +21,7 @@ Content/
     Images/             T_FB01_01 ... (one folder per flashback if it gets big)
     Audio/              S_FB01_Frank_01 ...
   Blueprints/
-    Player/             BP_CastleCharacter, BP_CastlePlayerController, BP_CastleGameMode
+    Player/             BP_HawkeyeCharacter, BP_HawkeyePlayerController, BP_HawkeyeGameMode
     Weapons/            DA_Weapon_Hands, DA_Weapon_Pistol, DA_Weapon_Rifle (UWeaponDefinition)
     AI/                 BP_Guard, BP_Guard_Baton, BP_Guard_Rifle, BP_Inmate_Broken,
                         BT_Guard, BB_Guard, EQS_CoverPoints, BTT_*, BTS_*, BTD_*

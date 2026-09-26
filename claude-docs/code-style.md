@@ -34,7 +34,7 @@ choose differently. When in doubt, match the surrounding file.
   `EditAnywhere` or `EditDefaultsOnly` plus `BlueprintReadOnly`. Runtime state is
   `VisibleAnywhere, BlueprintReadOnly` or `Transient`.
 - Anything a designer might clamp gets `meta = (ClampMin = "0.0")` or `UIMin/UIMax`.
-- Components: `UCLASS(ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))`.
+- Components: `UCLASS(ClassGroup = (Hawkeye), meta = (BlueprintSpawnableComponent))`.
 - Data assets: `UCLASS(BlueprintType)` deriving `UPrimaryDataAsset`. Override
   `GetPrimaryAssetId` to return a stable type (`"Mission"`, `"Flashback"`).
 - Interfaces: `UINTERFACE(MinimalAPI, Blueprintable)` with `BlueprintNativeEvent`
@@ -70,9 +70,9 @@ choose differently. When in doubt, match the surrounding file.
   copied data.
 
 ## Logging
-- One category: `DECLARE_LOG_CATEGORY_EXTERN(LogCastle, Log, All)` in `Castle.h`,
-  defined in `Castle.cpp`.
-- `UE_LOG(LogCastle, Warning, TEXT("..."))` for designer mistakes (unknown objective id,
+- One category: `DECLARE_LOG_CATEGORY_EXTERN(LogHawkeye, Log, All)` in `Hawkeye.h`,
+  defined in `Hawkeye.cpp`.
+- `UE_LOG(LogHawkeye, Warning, TEXT("..."))` for designer mistakes (unknown objective id,
   missing data asset). `Error` for things that break the game. `Verbose` for per-frame
   or per-event traces that are off by default.
 - Log format: `TEXT("%s: message with %s"), *GetNameSafe(this), *Id.ToString()`. Always

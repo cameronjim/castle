@@ -1,4 +1,4 @@
-# Castle (code name) / Quiver (working title)
+# Hawkeye (code name) / Quiver (working title)
 
 Third-person action game in Unreal Engine 5.8: a fan spin-off of the Disney+ Hawkeye
 series with Kate Bishop and Clint Barton in a real-data slice of winter Manhattan.
@@ -23,7 +23,7 @@ Everything runs headless from scripts; the editor is rarely needed.
 
 ```powershell
 # Build the editor target
-& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" CastleEditor Win64 Development -project="<repo>\Castle.uproject" -waitmutex
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" HawkeyeEditor Win64 Development -project="<repo>\Hawkeye.uproject" -waitmutex
 
 # Tests
 .\Tools\run-tests.ps1
@@ -39,13 +39,13 @@ Everything runs headless from scripts; the editor is rarely needed.
 ```
 
 Full command reference in `claude-docs/infrastructure.md`. Project files for Visual Studio:
-`Build.bat -projectfiles -project="<repo>\Castle.uproject" -game -rocket -progress`.
+`Build.bat -projectfiles -project="<repo>\Hawkeye.uproject" -game -rocket -progress`.
 
 ## Layout
 
 | Path | What |
 |------|------|
-| `Source/Castle/` | C++: Mission, Flashback, Combat, Player, World, UI, Settings, Tests |
+| `Source/Hawkeye/` | C++: Mission, Flashback, Combat, Player, World, UI, Settings, Tests |
 | `Content/` | Generated assets (LFS) |
 | `Tools/Editor/` | Python editor scripts that create every asset |
 | `Config/` | Engine, game, and input settings |

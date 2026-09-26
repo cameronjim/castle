@@ -38,7 +38,7 @@ The partials: grapple chains are touch-and-go rather than mid-air redirects; the
 roll is still a placeholder dip; only the roof pair was fought by script.
 
 ## How to play it
-Play Castle on the desktop. You start on Avenue A by Tompkins Square Park with the
+Play Hawkeye on the desktop. You start on Avenue A by Tompkins Square Park with the
 objective "Get to a rooftop."
 
 | Key | Action |

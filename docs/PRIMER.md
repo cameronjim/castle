@@ -1,4 +1,4 @@
-# Castle primer: how 3D games work, how Unreal works, how this project works
+# Hawkeye primer: how 3D games work, how Unreal works, how this project works
 
 Written for Cameron, who is new to both. Read it once, top to bottom, in about 20 minutes.
 Skip anything that's obvious. Come back to the glossary when a word in chat is unfamiliar.
@@ -67,7 +67,7 @@ Unreal is the engine (the simulation loop, rendering, physics, AI tools) plus an
 ### The project folder (`C:\Users\camer\code\fps-game`)
 | Folder | What it is |
 |--------|------------|
-| `Castle.uproject` | The project file. Double-clicking it is unreliable on Windows 11; use the shortcuts instead. |
+| `Hawkeye.uproject` | The project file. Double-clicking it is unreliable on Windows 11; use the shortcuts instead. |
 | `Source/` | C++ code. The rules of the game: health, weapons, missions, AI, flashbacks. Compiled into a DLL the engine loads. |
 | `Content/` | Assets: maps, Blueprints, meshes, materials, textures, sounds. Binary files the editor reads. |
 | `Config/` | Settings files (text). Which map starts, what the input keys are, rendering options. |
@@ -94,9 +94,9 @@ Blueprints hold only settings and asset choices, and our scripts generate them.
 
 ### Play in Editor vs standalone
 The editor has a Play button that runs the game inside the editor window. It's what most
-tutorials show. We don't use it. **Play Castle** launches the game as its own window with
-no editor at all, which is simpler and closer to what a player would get. The shortcut
-name stays Castle because that's the project's code name; the game is Hawkeye.
+tutorials show. We don't use it. **Play Hawkeye** launches the game as its own window with
+no editor at all, which is simpler and closer to what a player would get. (It was called
+Play Castle until the project was renamed on 2026-09-26.)
 
 ### The editor, if you ever open it
 - Centre: the 3D viewport. Right-click-drag to look, WASD while holding right-click to fly.
@@ -131,7 +131,7 @@ All of that needs the editor closed, because a running editor locks the compiled
 the one rule you have to remember: **close the game or editor window before I build.**
 
 ### How to test
-1. Double-click **Play Castle** on the desktop. It opens a 1600x900 game window.
+1. Double-click **Play Hawkeye** on the desktop. It opens a 1600x900 game window.
 2. Play with these controls (the third-person set; it will grow as systems land):
 
    | Key | Action |
@@ -156,7 +156,7 @@ the one rule you have to remember: **close the game or editor window before I bu
 5. Quit (Esc, Quit) and tell me. Or write it in the current chapter's file in `docs/chapters/`.
 
 ### What I do with your notes
-I read the log at `Saved/Logs/Castle.log`, which records chapter starts, pickups, hits,
+I read the log at `Saved/Logs/Hawkeye.log`, which records chapter starts, pickups, hits,
 takedowns, and traversal moves. Combined with your report, that's usually enough to find the
 cause. Then I make the change, run the pipeline, render a screenshot from the real game
 process, and tell you to relaunch.

@@ -25,6 +25,6 @@ that. No amount of story or art fixes traversal that doesn't feel good.
 - Design: [../DESIGN.md](../DESIGN.md)
 - Research: [../research/nyc-hawkeye.md](../research/nyc-hawkeye.md) (show locations, city data pipeline)
 - Previous build (archived): [../archive/punisher/](../archive/punisher/)
-- Code: `Source/Castle/` (the module keeps its name)
+- Code: `Source/Hawkeye/` (module renamed from Castle on 2026-09-26)
 - Machine: RTX 4070, i7-13700K, 16 GB RAM. An open world will push the RAM harder than a
   prison did. World Partition streaming is not optional.

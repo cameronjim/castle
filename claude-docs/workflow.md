@@ -56,7 +56,7 @@ How to work in this repo, whether you're Cameron, Claude, or a subagent.
 
 ## When something breaks
 - Compile error: read the first error, not the last. UHT errors before compiler errors.
-- Editor crash on startup: check `Saved\Logs\Castle.log` for the last `LogCastle` line and
+- Editor crash on startup: check `Saved\Logs\Hawkeye.log` for the last `LogHawkeye` line and
   `Saved\Crashes\` for the callstack. Usually a constructor touching something that isn't
   ready, or a bad config value.
 - Asset won't load / "failed to load": a redirector or a renamed class. Fix Up

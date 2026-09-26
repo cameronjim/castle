@@ -1,8 +1,8 @@
 # Working title: QUIVER (Hawkeye: Kate Bishop and Clint Barton)
 
 Status: pivot, 2026-09-25. Engine: Unreal Engine 5.8, C++ base with generated content.
-Internal code name stays `Castle` (project and module name; renaming a UE C++ project is
-pain for no gain). Everything player-facing says Hawkeye.
+Internal code name is `Hawkeye` (project and module name; was code-named Castle until
+2026-09-26). Everything player-facing says Hawkeye.
 
 The Punisher design this replaced is in `docs/archive/punisher/`. Most of its systems
 carry over; see "What we keep" at the end.

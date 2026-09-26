@@ -3,7 +3,7 @@
 Status: done (2026-09-18), carried over from the Punisher build. Kept for reference and
 for setting up a second machine. The pivot's cleanup step is in `02-prototype.md`, step 1.
 
-Goal: the Castle project opens in the Unreal editor, the C++ compiles, and every change
+Goal: the Hawkeye project opens in the Unreal editor, the C++ compiles, and every change
 is in git. Nothing about the game yet.
 
 ## Steps
@@ -14,23 +14,23 @@ is in git. Nothing about the game yet.
 2. **Reboot.** Visual Studio's installer left a reboot pending. Do it before opening
    anything else or the build tool won't find `dotnet` on the PATH.
 
-3. **Match the engine version in the project.** Open `Castle.uproject` in a text editor.
+3. **Match the engine version in the project.** Open `Hawkeye.uproject` in a text editor.
    `EngineAssociation` says "5.4". If the launcher installed 5.5 or 5.6, change it to match.
    A mismatch makes the editor ask to convert the project, which works but is annoying.
 
-4. **Generate project files.** Right-click `Castle.uproject` in Explorer, pick
-   "Generate Visual Studio project files." This creates `Castle.sln`. If the right-click
+4. **Generate project files.** Right-click `Hawkeye.uproject` in Explorer, pick
+   "Generate Visual Studio project files." This creates `Hawkeye.sln`. If the right-click
    option is missing, run the engine's `UnrealVersionSelector.exe` once (it's under
    `Epic Games/Launcher/Engine/Binaries/Win64`) and try again.
 
    Windows 11 note: the `.uproject` double-click association is unreliable (the selector
    needs a `/editor` verb that "Open with" doesn't pass, and you get "invalid command
-   line"). Don't fight it. Use the "Castle Editor" desktop shortcut or
+   line"). Don't fight it. Use the "Hawkeye Editor" desktop shortcut or
    `Tools\open-editor.ps1`, both of which launch `UnrealEditor.exe` on the project
    directly. Project files can be generated from the command line instead; see
    `claude-docs/infrastructure.md`.
 
-5. **Build.** Open `Castle.sln`. Set the config to "Development Editor" and platform
+5. **Build.** Open `Hawkeye.sln`. Set the config to "Development Editor" and platform
    "Win64". Build (Ctrl+Shift+B). Expect errors on the first pass. The scaffold has never
    been compiled. Paste the errors into chat and I'll fix them. Typical culprits: interface
    `_Implementation` signatures, `Instanced` arrays in data assets, and header include order.
@@ -45,7 +45,7 @@ is in git. Nothing about the game yet.
 
 8. **Set the default map.** Make an empty level, save it as `Maps/L_Sandbox`. Project
    Settings, Maps & Modes, set it as both Editor Startup Map and Game Default Map. Confirm
-   the Default GameMode shows `CastleGameMode`.
+   the Default GameMode shows `HawkeyeGameMode`.
 
 9. **Commit.** `git add -A`, commit. From here on, commit at the end of every session.
    Binary assets go through LFS automatically because of `.gitattributes`. If git ever
@@ -60,7 +60,7 @@ is in git. Nothing about the game yet.
 
 ## Done when
 - [ ] Editor opens from the .uproject with no dialogs
-- [ ] `Castle.sln` builds Development Editor with zero errors
+- [ ] `Hawkeye.sln` builds Development Editor with zero errors
 - [ ] `L_Sandbox` loads, Play in Editor works, you can look around with a default pawn
 - [ ] `git status` is clean and `git lfs ls-files` lists at least the sandbox map
 - [ ] You've closed and reopened the editor once and it came back in under 2 minutes

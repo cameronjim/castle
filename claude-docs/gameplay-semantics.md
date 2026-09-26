@@ -1,6 +1,6 @@
 # Gameplay semantics
 
-What each system promises. Tests in `Source/Castle/Tests` assert these. If you change a
+What each system promises. Tests in `Source/Hawkeye/Tests` assert these. If you change a
 rule here, change the test and the code in the same commit.
 
 **Pivot note (2026-09-25).** The game is now third person with bows. Sections marked
@@ -36,7 +36,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Landing from above 400 cm halves speed and dips the camera 30 cm for 0.3 s (a
   placeholder for the roll and stumble). Fall damage starts at 900 cm at 10% of max
   health, rises to a 60% cap at 2500 cm, and never kills: it stops at 1 health.
-- `castle.DebugMovement 1` draws state, speed, and fall height on the HUD. Landing
+- `hawkeye.DebugMovement 1` draws state, speed, and fall height on the HUD. Landing
   height, fall damage, and slide start are logged at Log; sprint start and stop at Verbose.
 
 ## HUD (third person)
@@ -279,7 +279,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - `OnTakedownPerformed(Target)` fires once at the start of the takedown.
 
 ## LEGACY: player look and viewmodel (first person, to be removed)
-- Look input is multiplied by the sensitivity from `UCastleSettingsSubsystem` (default
+- Look input is multiplied by the sensitivity from `UHawkeyeSettingsSubsystem` (default
   0.2, clamped to [0.02, 1.0]) and, while aiming, by `AimLookMultiplier` (0.7) as well.
   The character's own `LookSensitivity` property is only the fallback when no game
   instance subsystem exists (tests). Changing the setting takes effect immediately.
@@ -306,8 +306,8 @@ Mouse look uses `LookSensitivity`; stick look uses `StickSensitivity` (default 1
 the last input came from a pad.
 
 ## Settings
-- `UCastleSettingsSubsystem` (game instance) owns `FCastleSettings` and persists it in the
-  save slot `CastleSettings` on every change. Missing or version-mismatched data yields
+- `UHawkeyeSettingsSubsystem` (game instance) owns `FHawkeyeSettings` and persists it in the
+  save slot `HawkeyeSettings` on every change. Missing or version-mismatched data yields
   defaults, never a crash. Only mouse sensitivity exists today; every future option (volume,
   subtitles, invert Y, key rebinds) goes in the same struct with a version bump.
 - The Settings screen is reached from the pause menu. The game stays paused while it's
@@ -398,7 +398,7 @@ the last input came from a pad.
   cone's visual.
 - Guard death logs the killer and cause at Log level (takedowns name the attacker);
   every bullet hit logs actor, bone, and damage at Verbose so a playtest can be
-  reconstructed from `Castle.log`.
+  reconstructed from `Hawkeye.log`.
 - Guard death is always visible. `GoLimp(Killer)` ragdolls the mesh (the mannequin's
   physics asset from the High feature pack; the Standard pack's copy is an empty stub and
   must never be used). If the mesh reports it is not simulating afterwards, a procedural
@@ -407,7 +407,7 @@ the last input came from a pad.
   Which path ran is logged once per guard at Warning.
 
 ## Save data (stage 3)
-- One slot, `CastleSave`, autosaved at mission complete and at checkpoints. Manual save
+- One slot, `HawkeyeSave`, autosaved at mission complete and at checkpoints. Manual save
   is not exposed.
 - Contents: mission id, completed objective ids, player health, weapon magazine and
   reserve, checkpoint id within the level, flashbacks seen, `bKilledDoctor`,

@@ -1,6 +1,6 @@
 # Architecture
 
-One game module, `Castle`, a handful of subsystems that talk through delegates. Nothing
+One game module, `Hawkeye`, a handful of subsystems that talk through delegates. Nothing
 holds a hard pointer across subsystem boundaries; everything that crosses one is either
 a data asset reference or an event.
 
@@ -36,7 +36,7 @@ This document describes the code as it is, plus what changes. Sections below are
 Player input
     │
     ▼
-ACastleCharacter ──► UWeaponComponent ──► ApplyPointDamage ──► UHealthComponent (on target)
+AHawkeyeCharacter ──► UWeaponComponent ──► ApplyPointDamage ──► UHealthComponent (on target)
     │                                                               │
     ├──► UTakedownComponent ──► ITakedownable::OnTakedown           ├──► OnHealthChanged ──► UBossPhaseComponent ──► OnPhaseChanged
     │                                                               │                                                  │
@@ -54,12 +54,12 @@ UMissionSubsystem (world subsystem)
     └──► OnFlashbackRequested(UFlashbackDefinition*)
               │
               ▼
-       ACastlePlayerController ──► creates UFlashbackWidget ──► Play()
+       AHawkeyePlayerController ──► creates UFlashbackWidget ──► Play()
                                           │
                                           └──► OnFlashbackFinished ──► open NextLevel
 ```
 
-### Mission (`Source/Castle/Mission`)
+### Mission (`Source/Hawkeye/Mission`)
 - `UMissionDefinition` (primary data asset): the mission's identity, its ordered
   objectives (instanced `UMissionObjective` objects), the flashback to play after, the
   next level. One asset per mission in `Content/Missions`.
@@ -74,7 +74,7 @@ UMissionSubsystem (world subsystem)
   player pawn, calls `CompleteObjective(ObjectiveId)`. Doors, pickups, and scripted beats
   do the same call from Blueprint.
 
-### Flashback (`Source/Castle/Flashback`)
+### Flashback (`Source/Hawkeye/Flashback`)
 - `UFlashbackDefinition` (primary data asset): ordered `FFlashbackSlide` array (texture,
   caption, hold seconds, crossfade seconds, voice line), ambient loop, skippable flag.
   Stage 3 adds `ReplacedByImage` and `GlitchSeconds` per slide for the lie-breaking effect.
@@ -84,7 +84,7 @@ UMissionSubsystem (world subsystem)
   Fires `OnFlashbackFinished`. Designers subclass it as `WBP_Flashback` to lay out the
   visuals; the logic stays in C++.
 
-### Combat (`Source/Castle/Combat`)
+### Combat (`Source/Hawkeye/Combat`)
 - `UHealthComponent`: `MaxHealth`, `CurrentHealth`, `bInvulnerable`. Hooks the owner's
   `OnTakeAnyDamage`. Fires `OnHealthChanged(Old, New, Instigator)` and `OnDeath`. Every
   damageable thing has one: player, guards, bosses, shootable lights.
@@ -103,7 +103,7 @@ UMissionSubsystem (world subsystem)
 - `ITakedownable`: one BlueprintNativeEvent, `OnTakedown(AActor* Attacker)`. Guards
   implement it in Blueprint (ragdoll, drop pickup, notify AI).
 
-### World (`Source/Castle/World`)
+### World (`Source/Hawkeye/World`)
 - `IInteractable`: `Interact(Interactor)`, `GetInteractPrompt()`, `CanInteract(Interactor)`.
   Anything the player presses E on implements it.
 - `UInteractionComponent`: on the player. Sphere-sweeps from the camera every 0.1 s out
@@ -126,7 +126,7 @@ UMissionSubsystem (world subsystem)
   `ReportStimulus(Kind, Location, bSuccessful)` is the single entry point both perception
   and tests use. No behavior tree yet; stage 3 decides whether one is needed.
 
-### Inventory and weapons (`Source/Castle/Player`, `Source/Castle/Combat`)
+### Inventory and weapons (`Source/Hawkeye/Player`, `Source/Hawkeye/Combat`)
 - `UWeaponDefinition` (primary data asset, type `Weapon`): every stat for one weapon, its
   hotbar slot, melee flags, viewmodel mesh, arms pose name, and hand offset. Assets:
   `DA_Weapon_Hands`, `DA_Weapon_Pistol`, `DA_Weapon_Rifle` in `Content/Blueprints/Weapons`.
@@ -140,37 +140,37 @@ UMissionSubsystem (world subsystem)
 - Mission lifecycle hooks: starting weapons applied on `OnMissionStarted`, inventory cleared
   on `OnMissionComplete` (before the end card) and on restart.
 
-### Settings (`Source/Castle/Settings`)
-- `UCastleSettingsSubsystem` (game instance): owns `FCastleSettings`, persists it to the
-  `CastleSettings` save slot on every change, broadcasts `OnSettingsChanged`. The character
+### Settings (`Source/Hawkeye/Settings`)
+- `UHawkeyeSettingsSubsystem` (game instance): owns `FHawkeyeSettings`, persists it to the
+  `HawkeyeSettings` save slot on every change, broadcasts `OnSettingsChanged`. The character
   subscribes so sensitivity changes apply live.
 
-### UI (`Source/Castle/UI`)
-- `UCastleHotbarWidget`: three slot boxes at bottom centre, inside the HUD overlay.
-- `UCastleInventoryWidget`: Tab. Read-only list of weapons, keycards, spare ammo. Pauses.
-- `UCastlePauseWidget`, `UCastleSettingsWidget`, `UMissionEndCardWidget`: pause menu with
+### UI (`Source/Hawkeye/UI`)
+- `UHawkeyeHotbarWidget`: three slot boxes at bottom centre, inside the HUD overlay.
+- `UHawkeyeInventoryWidget`: Tab. Read-only list of weapons, keycards, spare ammo. Pauses.
+- `UHawkeyePauseWidget`, `UHawkeyeSettingsWidget`, `UMissionEndCardWidget`: pause menu with
   Resume, Settings, Restart, Quit; settings with the sensitivity slider; mission end card.
   All build their own layout when the Blueprint has none, and dim the game with an
   `FSlateColorBrush` (a `UBorder` default brush has no resource, so tinting it draws nothing).
-- `UCastleHudWidget`: objective title, ammo (`12 / 24`, blank when unarmed), interaction
+- `UHawkeyeHudWidget`: objective title, ammo (`12 / 24`, blank when unarmed), interaction
   prompt, crosshair. Builds its own layout in `RebuildWidget` when the Blueprint has none.
   Subscribes to the mission subsystem, the pawn's weapon, and the takedown component.
   Hidden during flashbacks by the controller. Honours `UMissionDefinition::bShowObjectiveText`.
 
 ### Player and framework
-- `ACastleCharacter`: first-person camera on the capsule, health, takedown, interaction,
+- `AHawkeyeCharacter`: first-person camera on the capsule, health, takedown, interaction,
   weapon (starts with `bHasWeapon` false), noise emitter (1.0 sprinting, 0.4 walking, 0
   crouched, every 0.5 s; 3.0 on fire), keycard set, `LookSensitivity`. Viewmodel:
   `ArmsMesh` (the mannequin with legs and head hidden, attached to the camera, owner-only)
   and `WeaponMesh` (template pistol) with procedural recoil, reload dip, aim lerp, sway,
   and a muzzle light. Enhanced Input action properties and all viewmodel assets are
-  assigned in `BP_CastleCharacter`. Movement tuning lives on the Blueprint's
+  assigned in `BP_HawkeyeCharacter`. Movement tuning lives on the Blueprint's
   CharacterMovement component, not in C++.
-- `ACastlePlayerController`: the glue for UI. Creates `HudWidgetClass` on BeginPlay,
+- `AHawkeyePlayerController`: the glue for UI. Creates `HudWidgetClass` on BeginPlay,
   subscribes to the mission subsystem, owns `FlashbackWidgetClass`, hides the HUD during a
   flashback, opens the next level when it finishes. Stage 3 adds end cards, subtitles,
   and the pause menu here.
-- `ACastleGameMode`: default pawn and controller classes, `StartingMission` which it
+- `AHawkeyeGameMode`: default pawn and controller classes, `StartingMission` which it
   starts at BeginPlay, `RestartMission()` which reopens the level 2 s after player death.
   Stage 3 replaces the restart with checkpoints.
 
