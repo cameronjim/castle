@@ -45,6 +45,7 @@
 #include "World/GrappleAnchor.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
+#include "Tests/PartnerScreenshots.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -104,6 +105,9 @@
  *   objective_complete.png  0.6 s after Kate is put inside City_Obj_reach_roof: the "Objective complete"
  *                           toast, looking on toward cross_block
  *   (these three come first, while reach_roof is still the current objective)
+ *
+ *   partner_follow.png, partner_shoot.png, banter.png, switch_clint.png: the partner pass, run last
+ *                           (PartnerScreenshotTest.cpp)
  *
  * The district's placed thugs are frozen (thinking off) for every shot but their own, and Kate is
  * invulnerable through the roof fight so a swing cannot end the pass.
@@ -1719,6 +1723,8 @@ bool FHawkeyeKateFightShot::Update()
 	{
 	case EFightShot::FreezeAll:
 		SetThinking(World, NAME_None, false);
+		// Clint stands at his start and the banter stays quiet until the partner shots.
+		HawkeyeFreezePartner(World);
 		Test->AddInfo(FString::Printf(TEXT("Froze the placed thugs: %d on the roof, %d on the street."),
 			Tagged(World, RoofPairTag).Num(), Tagged(World, StreetPairTag).Num()));
 		break;
@@ -2786,6 +2792,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFightShot(this, static_cast<uint8>(EFight::Cleanup)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
+	// Clint: following, shooting what she hit, a banter line, and the switch to him.
+	HawkeyeAddPartnerShots(this);
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.DebugMovement 0")));
 	return true;
