@@ -3,7 +3,8 @@
 Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``:
 
 * one City_Bldg_<id> actor per building record, and no strays
-* every building actor has a static mesh with collision (complex as simple) and M_Greybox
+* every building actor has a static mesh with collision (complex as simple) and the MI_Facade_<style>
+  instance generate_city.facade_style picks for its record
 * every building mesh's top is the record height within 1 cm (plus the parapet if it has one)
 * a PlayerStart, a NavMeshBoundsVolume, a directional light, a sky light, and no light with
   Static mobility
@@ -27,6 +28,10 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
 * chapter 1's fight: four City_Thug_ (one gunner, two bats, one fists), the RoofPair on the
   cross_block roof, two City_Patrol_ points 40 m apart, City_ThugGroup_clear_roof, and every
   thug's feet on the navmesh (the navmesh is built in the editor world first, not saved)
+* the clutter in the props asset matches the generator kind by kind, SpawnAll draws every instance,
+  and none stands within reach of the thug patrol (its points, the line between them, the thugs),
+  on or against a fire-escape landing at the landing's height, within 3 m of an objective beacon,
+  or within the anchor clearance of a grapple anchor or its landing point on the same roof
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
     UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
@@ -43,6 +48,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
 import generate_city as gen  # noqa: E402
 import _geo as geo  # noqa: E402
+import _materials as m  # noqa: E402
 
 HEIGHT_TOLERANCE_CM = 1.0
 
@@ -263,8 +269,9 @@ def check_spawner(district, actors):
     ledges = gen.ledge_spots(district)
     anchors = gen.anchor_spots(district)
     escapes = gen.fire_escape_spots(district)
+    clutter, _plan = clutter_groups(district)
     want = gen.city_props_hash(ledges, anchors, spawner.get_editor_property("ledge_class"),
-                               spawner.get_editor_property("anchor_class"), escapes)
+                               spawner.get_editor_property("anchor_class"), escapes, clutter)
     check(data is not None and str(data.get_editor_property("source_hash")) == want,
           "its props asset matches the generator's ledges and anchors",
           "{0}, hash {1}".format(c.safe_name(data), str(data.get_editor_property("source_hash")) if data else "-"))
@@ -281,6 +288,87 @@ def check_spawner(district, actors):
               spawner.get_spawned_ledge_count(), len(ledges), spawner.get_spawned_anchor_count(), len(anchors),
               spawner.get_spawned_fire_escape_count(), len(escapes)))
     return spawner
+
+
+def clutter_groups(district):
+    """The generator's clutter groups, from the meshes and instances already on disk (loads only)."""
+    meshes = {name: c.load_or_none(c.asset_path(gen.MESH_DIR, name)) for name in gen.CLUTTER_MESHES}
+    materials = {key: c.load_or_none(m.MATERIALS_PATH + "/MI_Prop_" + key) for key in gen.CLUTTER_MATERIALS}
+    return gen.clutter_groups(district, meshes, materials)
+
+
+def check_clutter(district, spawner):
+    """Counts per kind, the spawned instances, and nothing in the way of the patrol, landings,
+    beacons or anchors."""
+    if spawner is None:
+        check(False, "clutter", "no spawner")
+        return
+    data = spawner.get_editor_property("data")
+    groups = list(data.get_editor_property("clutter")) if data is not None else []
+    _want, plan = clutter_groups(district)
+    have = {str(g.get_editor_property("kind")): list(g.get_editor_property("instances")) for g in groups}
+    want = {k: len(v) for k, v in plan.items() if v}
+    got = {k: len(v) for k, v in have.items()}
+    check(got == want, "clutter groups match the generator",
+          ", ".join("{0} {1}".format(v, k) for k, v in sorted(got.items())))
+    total = sum(want.values())
+    missing = [str(g.get_editor_property("kind")) for g in groups
+               if g.get_editor_property("mesh") is None or g.get_editor_property("material") is None]
+    check(spawner.get_clutter_instance_count() == total and not missing,
+          "SpawnAll draws every clutter instance, each group with its mesh and MI_Prop_ material",
+          "{0}/{1} instances{2}".format(spawner.get_clutter_instance_count(), total,
+                                        "; no mesh or material: " + ", ".join(missing) if missing else ""))
+    prop = c.load_or_none(m.M_PROP)
+    check(prop is not None and bool(prop.get_editor_property("used_with_instanced_static_meshes")),
+          "M_Prop is usable on instanced meshes")
+
+    thugs, points, _roof = gen.thug_placements(district)
+    keep = [(t[1], t[2]) for t in thugs] + [(p[1], p[2]) for p in points]
+    segment = [(points[0][1], points[0][2]), (points[1][1], points[1][2])] if len(points) == 2 else None
+    landings = []
+    for rec in data.get_editor_property("fire_escapes") if data is not None else []:
+        xf = rec.get_editor_property("transform")
+        t = xf.translation
+        landings.append((gen._landing_corners(t.x, t.y, xf.rotation.rotator().yaw),
+                         t.z - gen.FIRE_ESCAPE_SLAB[2], t.z + gen.FIRE_ESCAPE_RAIL))
+    beacons = [(x, y) for x, y, _z, _how in gen.beacon_spots(district).values()]
+    anchors = []
+    for x, y, z, yaw, forward, _drop, _osm in gen.anchor_spots(district):
+        anchors.append((x, y, z))
+        anchors.append((x + math.cos(math.radians(yaw)) * forward, y + math.sin(math.radians(yaw)) * forward, z))
+
+    blocking = {"patrol": [], "landing": [], "beacon": [], "anchor": []}
+    for kind, xforms in sorted(have.items()):
+        radius = max(gen.CLUTTER_KINDS[kind][4], 60.0 if kind == "Scaffold" else 0.0)
+        height = gen.CLUTTER_HEIGHTS.get(kind, 150.0)
+        roof = kind in ("WaterTower", "HVAC", "Chimney")
+        for xf in xforms:
+            t = xf.translation
+            pt = (t.x, t.y)
+            if any(math.hypot(pt[0] - q[0], pt[1] - q[1]) < gen.PATROL_CLEAR + radius - 1.0 for q in keep) or (
+                    segment and gen.closest_point_on_polyline(pt, segment)[0] < gen.PATROL_CLEAR + radius - 1.0):
+                blocking["patrol"].append(kind)
+            if kind == "Scaffold":
+                yaw = xf.rotation.rotator().yaw
+                ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+                w, d_, _h = gen.SCAFFOLD_BAY
+                foot = [(t.x, t.y), (t.x + ux * w, t.y + uy * w), (t.x + ux * w - uy * d_, t.y + uy * w + ux * d_),
+                        (t.x - uy * d_, t.y + ux * d_)]
+                if any(lo < t.z + height and hi > t.z and gen._rects_overlap(foot, quad) for quad, lo, hi in landings):
+                    blocking["landing"].append(kind)
+            elif any(lo < t.z + height and hi > t.z and gen._point_quad_distance(pt, quad) < radius
+                     for quad, lo, hi in landings):
+                blocking["landing"].append(kind)
+            if any(math.hypot(pt[0] - b[0], pt[1] - b[1]) < 300.0 + radius for b in beacons):
+                blocking["beacon"].append(kind)
+            if roof and any(abs(a[2] - t.z) < gen.ANCHOR_SAME_ROOF and math.hypot(pt[0] - a[0], pt[1] - a[1]) < gen.ANCHOR_CLEAR + radius - 1.0
+                            for a in anchors):
+                blocking["anchor"].append(kind)
+    for what, kinds in sorted(blocking.items()):
+        check(not kinds, "no clutter in the way of the {0}".format(
+            {"patrol": "thug patrol", "landing": "fire-escape landings", "beacon": "objective beacons",
+             "anchor": "grapple anchors"}[what]),
+              "{0} instance(s): {1}".format(len(kinds), ", ".join(sorted(set(kinds)))) if kinds else "")
 
 
 def _landing_quad(actor, margin=0.0):
@@ -556,7 +644,7 @@ def run():
               len(buildings), len(records), len(missing), len(strays),
               ": " + ", ".join((missing + strays)[:5]) if missing or strays else ""))
 
-    greybox = c.load_or_none(gen.KIT_MATERIALS + "/M_Greybox")
+    facades = {style: c.load_or_none(m.mi_facade_path(style)) for style in m.FACADE_STYLES}
     no_mesh, no_collision, wrong_height, wrong_material = [], [], [], []
     rows = []
     for rid, actor in sorted(buildings.items()):
@@ -572,7 +660,8 @@ def run():
         if not ok:
             no_collision.append("{0} ({1})".format(rid, why))
         overrides = comp.get_editor_property("override_materials")
-        if greybox is not None and (len(overrides) < 1 or overrides[0] != greybox):
+        facade = facades.get(gen.facade_style(rec))
+        if facade is None or len(overrides) < 1 or overrides[0] != facade:
             wrong_material.append(rid)
         top, bottom = mesh_top_cm(sm)
         parapet = tag_value(actor, "parapet:") == "1"
@@ -586,7 +675,7 @@ def run():
     check(not no_mesh, "every building has a static mesh", ", ".join(no_mesh[:5]))
     check(not no_collision, "every building mesh has complex-as-simple collision", ", ".join(no_collision[:5]))
     check(not wrong_height, "building heights match records within 1 cm", "; ".join(wrong_height[:5]))
-    check(not wrong_material, "every building uses M_Greybox", ", ".join(wrong_material[:5]))
+    check(not wrong_material, "every building wears its MI_Facade_ style", ", ".join(wrong_material[:5]))
 
     # Streets and ground
     roads = [a for label, a in actors.items() if label.startswith(gen.ROAD_PREFIX)]
@@ -674,6 +763,13 @@ def run():
     check_anchors(district, actors)
     check_ledges(district, actors)
     check_fire_escapes(district, actors, spawner)
+    check_clutter(district, spawner)
+    sky = actors.get(gen.STARS_LABEL)
+    sky_comp = sky.get_editor_property("static_mesh_component") if sky is not None else None
+    check(sky_comp is not None and sky_comp.get_collision_enabled() == unreal.CollisionEnabled.NO_COLLISION
+          and str(sky_comp.get_collision_profile_name()) == "NoCollision",
+          gen.STARS_LABEL + " present in M_NightStars with no collision",
+          str(sky_comp.get_collision_profile_name()) if sky_comp is not None else "missing")
     check_thugs(district, actors, records)
 
     prison = [a.get_actor_label() for a in all_actors

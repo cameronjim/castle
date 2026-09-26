@@ -11,17 +11,21 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
 * every building: the footprint extruded to its height (append_simple_extrude_polygon, ear
   clipped so concave footprints work; courtyard holes are ignored), a 30 x 90 cm parapet ring
   just inside the roof edge, per-face normals, complex-as-simple collision so the player can
-  stand on roofs and walk into walls. Actor ``City_Bldg_<id>``, M_Greybox.
-* one ground slab under the whole district at z = 0 (``City_Ground``, M_Greybox_Floor).
-* per named road way: carriageway at z = +2 cm (``City_Road_<id>``, M_Asphalt) and the 4 m
-  sidewalks either side at z = +15 cm (``City_Sidewalk_<id>``, M_ConcreteFloor). Sidewalks are
+  stand on roofs and walk into walls. Actor ``City_Bldg_<id>`` in the MI_Facade_<style> that
+  facade_style picks (brick or brownstone tenements, stone over 30 m, painted grey garages): M_Facade
+  draws the window grid, storefronts, cornice and lit windows from world position, snow on top.
+* one ground slab under the whole district at z = 0 (``City_Ground``, snowy MI_Prop_Ground).
+* per named road way: carriageway at z = +2 cm (``City_Road_<id>``, wet M_StreetAsphalt) and the 4 m
+  sidewalks either side at z = +15 cm (``City_Sidewalk_<id>``, M_SidewalkSnow). Sidewalks are
   the road's buffer minus every carriageway, so they stop at the kerb of each crossing street.
-* the park at z = +5 cm (``City_Park_<id>``, M_Grass), minus the carriageways.
-* lighting (winter evening), a PlayerStart on East 7th Street facing the tenement row across
+* the park at z = +5 cm (``City_Park_<id>``, M_ParkSnow), minus the carriageways.
+* a January night: a 0.3 lux blue moon (``Moon``, the sky atmosphere's light) 30 degrees up, the sky
+  light, the height fog as night haze, stars on ``City_NightSky`` (M_NightStars on the engine
+  sphere), fixed exposure and a purple-shadow, cream-highlight grade with a vignette; a PlayerStart on East 7th Street facing the tenement row across
   from Tompkins Square Park, a NavMeshBoundsVolume.
 * street lamps every 30 m on both sidewalks of every road (``City_Lamp_<n>`` spot light plus
   ``City_LampPole_<n>`` and ``City_LampHead_<n>``); only the ones around the park cast shadows.
-  Lit windows are not built yet.
+  The lit windows are in the facade material.
 * chapter 1: the BP_GameMode_EastVillage override (starts DA_CH01_Rooftops) and three
   ``City_Obj_<objective>`` trigger volumes on roofs picked from the records, each with a 1 m
   ``City_Beacon_<objective>`` (pole, emissive purple ``City_BeaconTop_``, and a movable 300 lm
@@ -48,6 +52,9 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   landing below, alternating ends. Black iron (M_SteelPainted). A building whose escape would
   hit another building, a street lamp or another escape gets none. Data in the same props
   asset, spawned by the same spawner.
+* clutter (see clutter_plan): water towers, HVAC boxes and chimneys on the roofs, hydrants, bins and
+  bags, scaffolding and parked cars on the street; data in the props asset, drawn by the spawner as
+  one instanced mesh per kind.
 
 Idempotent: each mesh carries a ``CityHash`` metadata tag (hash of its source record and the
 generator version); a mesh is rebuilt only when that hash changes. Actors are found by label
@@ -65,6 +72,7 @@ import json
 import math
 import os
 import sys
+import zlib
 
 import unreal
 
@@ -359,7 +367,34 @@ class Piece(object):
         self.tags = list(tags)
 
 
-def building_pieces(district, material):
+PAINTED_BUILDINGS = ("garage", "garages", "shed", "roof", "warehouse", "parking", "service")
+STONE_BUILDINGS = ("church", "civic", "school", "synagogue", "religious", "public", "university")
+# Tenements (10 to 30 m) pick a brick or brownstone by a stable hash of their id, in these shares.
+TENEMENT_STYLES = (("BrickRed", 0.32), ("BrickBrown", 0.26), ("BrickPurple", 0.2), ("Brownstone", 0.22))
+
+
+def facade_style(rec):
+    """MI_Facade_<style> for a building record: painted grey for sheds and garages (and anything
+    under 6 m), stone for churches, civic buildings and anything over 30 m, brownstone from 6 to
+    10 m, and a brick or brownstone by hash for the 10 to 30 m tenements."""
+    kind = (rec.get("tags") or {}).get("building", "")
+    h = rec["height_m"]
+    if kind in PAINTED_BUILDINGS or h < PARAPET_MIN_HEIGHT_M:
+        return "Painted"
+    if kind in STONE_BUILDINGS or h > FIRE_ESCAPE_MAX_HEIGHT_M:
+        return "Stone"
+    if h < FIRE_ESCAPE_MIN_HEIGHT_M:
+        return "Brownstone"
+    pick = stable_hash(rec["id"], "facade")
+    for style, share in TENEMENT_STYLES:
+        if pick < share:
+            return style
+        pick -= share
+    return TENEMENT_STYLES[-1][0]
+
+
+def building_pieces(district, facades):
+    """``facades`` maps a facade style to its MI_Facade_ instance."""
     pieces = []
     skipped_holes = 0
     for rec in district.buildings:
@@ -378,8 +413,10 @@ def building_pieces(district, material):
         def build(local=local, height_cm=height_cm, parapet=parapet):
             return building_mesh(local, height_cm, parapet)
 
+        style = facade_style(rec)
+        material = facades.get(style)
         tags = ["City", "CityBuilding", "osm:" + rec["id"],
-                "height_cm:{0:.1f}".format(height_cm), "parapet:{0}".format(int(parapet))]
+                "height_cm:{0:.1f}".format(height_cm), "parapet:{0}".format(int(parapet)), "facade:" + style]
         street = rec.get("tags", {}).get("addr:street")
         if street:
             tags.append("street:" + street)
@@ -439,7 +476,7 @@ def street_pieces(district, materials):
         geo.record_hash(GENERATOR_VERSION, "ground", ground),
         unreal.Vector(gx, gy, 0.0),
         lambda: shifted(slab_from_polygons(polygon_list_from_ring(ground), 0.0, GROUND_THICK), gx, gy),
-        materials["floor"], ["City", "CityGround"]))
+        materials["ground"], ["City", "CityGround"]))
 
     roads = road_paths(district)
     all_road_spec = geo.record_hash([[r["id"], r["width_m"], p] for r, p in roads])
@@ -627,15 +664,30 @@ def remove_stale(pieces, existing):
 # lighting, player start, nav, game mode
 # --------------------------------------------------------------------------------------
 
-SUN_ROTATION = unreal.Rotator(0.0, -12.0, -30.0)   # roll, pitch, yaw: low WSW sun, light heading ENE
-SUN_LUX = 3.0
-SUN_TEMPERATURE = 4800.0
-SKY_INTENSITY = 2.5
+# A January night: the sun is down, a dim cool moon (the only directional light, and the sky
+# atmosphere's light, so the atmosphere draws a moonlit sky and the moon's disc) lights the roofs,
+# and the lamps and lit windows carry the streets.
+MOON_LABEL = "Moon"
+RETIRED_SUN_LABEL = "Sun"
+MOON_ROTATION = unreal.Rotator(0.0, -30.0, -30.0)   # roll, pitch, yaw: 30 degrees up in the WSW
+MOON_LUX = 0.3
+MOON_COLOR = (0.55, 0.65, 1.0)
+MOON_DISK_SCALE = (0.9, 0.93, 1.0)
+SKY_INTENSITY = 3.0
 FOG_DENSITY = 0.008
+FOG_INSCATTERING = (0.035, 0.035, 0.06)   # night haze, a touch of purple
+FOG_CUTOFF = 300000.0                     # cm; the star sphere (400 m further out) stays clear of fog
 # Auto exposure is off project-wide (Config/DefaultEngine.ini), so exposure is fixed: the
 # min/max brightness pair pins it at 1.0, and the bias is the knob.
 EXPOSURE_BRIGHTNESS = 1.0
-EXPOSURE_BIAS = 1.5
+EXPOSURE_BIAS = 2.0
+# Grading: purple in the shadows, cream in the highlights, a light vignette.
+GAIN_SHADOWS = (0.92, 0.86, 1.10, 1.0)
+GAIN_HIGHLIGHTS = (1.05, 1.0, 0.88, 1.0)
+VIGNETTE = 0.3
+STARS_LABEL = "City_NightSky"
+STARS_RADIUS = 340000.0                   # cm
+SPHERE = "/Engine/BasicShapes/Sphere"     # 100 cm across
 
 
 def set_if_different(obj, prop, value, context, tol=1e-3):
@@ -650,6 +702,8 @@ def set_if_different(obj, prop, value, context, tol=1e-3):
     elif isinstance(value, unreal.Rotator):
         same = (abs(current.pitch - value.pitch) <= tol and abs(current.yaw - value.yaw) <= tol
                 and abs(current.roll - value.roll) <= tol)
+    elif isinstance(value, (unreal.LinearColor, unreal.Vector4, unreal.Color)):
+        same = m.same_value(current, value, tol)
     else:
         same = current == value
     if same:
@@ -658,20 +712,35 @@ def set_if_different(obj, prop, value, context, tol=1e-3):
     return 1
 
 
+def _color(rgb):
+    return unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0)
+
+
 def ensure_lighting(existing):
     changes = 0
-    sun, created = ensure_labelled(existing, unreal.DirectionalLight, "Sun", unreal.Vector(0, 0, 3000), SUN_ROTATION)
+    old_sun = existing.pop(RETIRED_SUN_LABEL, None)
+    if old_sun is not None:
+        old_sun.destroy_actor()
+        changes += 1
+        c.log("updated", RETIRED_SUN_LABEL, "removed; the moon lights the night")
+    moon, created = ensure_labelled(existing, unreal.DirectionalLight, MOON_LABEL, unreal.Vector(0, 0, 3000),
+                                    MOON_ROTATION)
     changes += created
-    if sun is not None:
-        comp = sun.get_editor_property("directional_light_component")
-        changes += set_if_different(comp, "mobility", unreal.ComponentMobility.MOVABLE, "Sun")
-        changes += set_if_different(comp, "intensity", SUN_LUX, "Sun")
-        changes += set_if_different(comp, "atmosphere_sun_light", True, "Sun")
-        changes += set_if_different(comp, "use_temperature", True, "Sun")
-        changes += set_if_different(comp, "temperature", SUN_TEMPERATURE, "Sun")
-        rot = sun.get_actor_rotation()
-        if abs(rot.pitch - SUN_ROTATION.pitch) > 0.01 or abs(rot.yaw - SUN_ROTATION.yaw) > 0.01:
-            sun.set_actor_rotation(SUN_ROTATION, False)
+    if moon is not None:
+        comp = moon.get_editor_property("directional_light_component")
+        changes += set_if_different(comp, "mobility", unreal.ComponentMobility.MOVABLE, MOON_LABEL)
+        changes += set_if_different(comp, "intensity", MOON_LUX, MOON_LABEL)
+        changes += set_if_different(comp, "atmosphere_sun_light", True, MOON_LABEL)
+        changes += set_if_different(comp, "use_temperature", False, MOON_LABEL)
+        want = unreal.Color(r=int(MOON_COLOR[0] * 255), g=int(MOON_COLOR[1] * 255), b=int(MOON_COLOR[2] * 255), a=255)
+        have = comp.get_editor_property("light_color")
+        if (have.r, have.g, have.b) != (want.r, want.g, want.b):
+            comp.set_editor_property("light_color", want)
+            changes += 1
+        changes += set_if_different(comp, "atmosphere_sun_disk_color_scale", _color(MOON_DISK_SCALE), MOON_LABEL)
+        rot = moon.get_actor_rotation()
+        if abs(rot.pitch - MOON_ROTATION.pitch) > 0.01 or abs(rot.yaw - MOON_ROTATION.yaw) > 0.01:
+            moon.set_actor_rotation(MOON_ROTATION, False)
             changes += 1
 
     sky, created = ensure_labelled(existing, unreal.SkyLight, "SkyLight", unreal.Vector(0, 0, 2000))
@@ -692,6 +761,8 @@ def ensure_lighting(existing):
     if fog is not None:
         comp = fog.get_editor_property("component")
         changes += set_if_different(comp, "fog_density", FOG_DENSITY, "HeightFog", 1e-5)
+        changes += set_if_different(comp, "fog_inscattering_luminance", _color(FOG_INSCATTERING), "HeightFog", 1e-4)
+        changes += set_if_different(comp, "fog_cutoff_distance", FOG_CUTOFF, "HeightFog", 1.0)
 
     pp, created = ensure_labelled(existing, unreal.PostProcessVolume, "PP_Global", unreal.Vector(0, 0, 0))
     changes += created
@@ -704,15 +775,22 @@ def ensure_lighting(existing):
                             ("auto_exposure_min_brightness", EXPOSURE_BRIGHTNESS),
                             ("auto_exposure_max_brightness", EXPOSURE_BRIGHTNESS),
                             ("override_auto_exposure_bias", True),
-                            ("auto_exposure_bias", EXPOSURE_BIAS)):
+                            ("auto_exposure_bias", EXPOSURE_BIAS),
+                            ("override_color_gain_shadows", True),
+                            ("color_gain_shadows", unreal.Vector4(*GAIN_SHADOWS)),
+                            ("override_color_gain_highlights", True),
+                            ("color_gain_highlights", unreal.Vector4(*GAIN_HIGHLIGHTS)),
+                            ("override_vignette_intensity", True),
+                            ("vignette_intensity", VIGNETTE)):
             current = settings.get_editor_property(prop)
-            if (isinstance(value, float) and abs(float(current) - value) > 1e-4) or (
-                    not isinstance(value, float) and current != value):
+            if not m.same_value(current, value):
                 settings.set_editor_property(prop, value)
                 dirty = True
         if dirty:
             pp.set_editor_property("settings", settings)
             changes += 1
+
+    changes += ensure_night_sky(existing)
 
     # Nothing in this map may bake: every light is movable (Lumen, no lightmass).
     for actor in c.all_level_actors():
@@ -721,6 +799,32 @@ def ensure_lighting(existing):
             if root is not None and root.get_editor_property("mobility") != unreal.ComponentMobility.MOVABLE:
                 root.set_editor_property("mobility", unreal.ComponentMobility.MOVABLE)
                 changes += 1
+    return changes
+
+
+def ensure_night_sky(existing):
+    """City_NightSky: the engine sphere scaled round the district, seen from inside, in M_NightStars.
+    Not the engine's own starry sky (BP_Sky_Sphere): that replaces the sky atmosphere rather than
+    adding to it."""
+    sphere = c.load_or_none(SPHERE)
+    stars = c.load_or_none(m.M_NIGHT_STARS)
+    if sphere is None or stars is None:
+        c.log("FAILED", STARS_LABEL, "no engine sphere or M_NightStars")
+        return 0
+    scale = STARS_RADIUS / 50.0
+    changes = _ensure_mesh_actor(existing, STARS_LABEL, sphere, stars, unreal.Vector(0.0, 0.0, 0.0),
+                                 unreal.Rotator(0.0, 0.0, 0.0), unreal.Vector(scale, scale, scale),
+                                 ["City", "CityNightSky"])
+    actor = existing.get(STARS_LABEL)
+    if actor is not None:
+        comp = actor.get_editor_property("static_mesh_component")
+        changes += set_if_different(comp, "cast_shadow", False, STARS_LABEL)
+        # No collision at all: everything in the district is inside this sphere, and its simple
+        # sphere collider pushed Kate, the thugs and every ground trace out through the floor.
+        if str(comp.get_collision_profile_name()) != "NoCollision":
+            comp.set_collision_profile_name("NoCollision")
+            changes += 1
+        changes += set_if_different(comp, "affect_distance_field_lighting", False, STARS_LABEL)
     return changes
 
 
@@ -1449,7 +1553,7 @@ LAMP_KERB_INSET = 60.0              # cm from the kerb into the sidewalk
 LAMP_POLE_HEIGHT = 700.0
 LAMP_POLE_DIAMETER = 14.0
 LAMP_ARM = 90.0                     # cm the head reaches out over the road
-LAMP_LUMENS = 2500.0
+LAMP_LUMENS = 1100.0
 LAMP_RADIUS = 1800.0
 LAMP_OUTER_CONE = 70.0              # degrees from straight down; the pool edge
 LAMP_INNER_CONE = 35.0
@@ -1513,9 +1617,10 @@ def lamp_spots(district):
 
 
 def ensure_lamp_materials():
-    emissive = m.ensure_material(m.M_EMISSIVE, m._build_emissive)
+    # M_LampHead: the glow on the underside only, snow on top; same parameters as M_Emissive.
+    parent = m.ensure_look_material(m.M_LAMP_HEAD, m._build_lamp_head)
     head = m.ensure_material_instance(
-        MI_STREET_LAMP, emissive,
+        MI_STREET_LAMP, parent,
         vectors=[(m.EMISSIVE_COLOR_PARAM, LAMP_COLOR)],
         scalars=[(m.EMISSIVE_INTENSITY_PARAM, LAMP_EMISSIVE * m.EMISSIVE_INTENSITY_FACTOR)])
     pole = m.ensure_steel_painted()
@@ -2135,13 +2240,19 @@ def _ledge_edge_index(label):
     return int(label.rsplit("_", 1)[1])
 
 
-def city_props_hash(ledges, anchors, ledge_cls, anchor_cls, fire_escapes=None):
-    """What the props asset was written from: every ledge, anchor and fire-escape spot and the classes."""
+def city_props_hash(ledges, anchors, ledge_cls, anchor_cls, fire_escapes=None, clutter=None):
+    """What the props asset was written from: every ledge, anchor, fire-escape spot and clutter
+    instance, and the classes, meshes and materials."""
     parts = [[[s[0], list(s[2]), s[3], list(s[4])] for s in ledges],
              [list(a) for a in anchors], c.safe_name(ledge_cls), c.safe_name(anchor_cls)]
     if fire_escapes:
         parts.append([[f[0], f[1], list(f[2]), f[3], f[4], f[5]] for f in fire_escapes])
         parts.append([list(FIRE_ESCAPE_SLAB), FIRE_ESCAPE_GAP, FIRE_ESCAPE_RAIL, FIRE_ESCAPE_RAIL_THICK])
+    if clutter:
+        parts.append([[kind, c.safe_name(mesh), c.safe_name(material), collision, shadow,
+                       [[round(v, 1) for v in (x.translation.x, x.translation.y, x.translation.z,
+                                               x.rotation.rotator().yaw, x.scale3d.x)] for x in xforms]]
+                      for kind, mesh, material, collision, shadow, xforms in clutter])
     return geo.record_hash(GENERATOR_VERSION, "props", *parts)
 
 
@@ -2200,7 +2311,8 @@ def ensure_city_props(district):
     ledges = ledge_spots(district)
     anchors = anchor_spots(district)
     escapes = fire_escape_spots(district)
-    want_hash = city_props_hash(ledges, anchors, ledge_cls, anchor_cls, escapes)
+    clutter, plan = clutter_groups(district, ensure_clutter_meshes(), ensure_clutter_materials())
+    want_hash = city_props_hash(ledges, anchors, ledge_cls, anchor_cls, escapes, clutter)
     full = c.asset_path(CITY_PROPS_PATH, CITY_PROPS_NAME)
     asset = c.load_or_none(full)
     if asset is None:
@@ -2209,18 +2321,21 @@ def ensure_city_props(district):
         asset, _created = c.create_asset(CITY_PROPS_NAME, CITY_PROPS_PATH, data_cls, factory, quiet=True)
         if asset is None:
             return None, ledge_cls, anchor_cls
-    summary = "{0} ledges on {1} buildings, {2} anchors on {3} roofs, {4} fire-escape landings on {5} buildings".format(
+    summary = "{0} ledges on {1} buildings, {2} anchors on {3} roofs, {4} fire-escape landings on {5} buildings, clutter: {6}".format(
         len(ledges), len({s[1] for s in ledges}), len(anchors), len({a[6] for a in anchors}),
-        len(escapes), len({f[0] for f in escapes}))
+        len(escapes), len({f[0] for f in escapes}),
+        ", ".join("{0} {1}".format(len(v), k) for k, v in sorted(plan.items()) if v))
     if str(asset.get_editor_property("source_hash")) == want_hash \
             and len(asset.get_editor_property("ledges")) == len(ledges) \
             and len(asset.get_editor_property("anchors")) == len(anchors) \
-            and len(asset.get_editor_property("fire_escapes")) == len(escapes):
+            and len(asset.get_editor_property("fire_escapes")) == len(escapes) \
+            and len(asset.get_editor_property("clutter")) == len(clutter):
         c.log("exists", full, summary + "; hash unchanged")
         return asset, ledge_cls, anchor_cls
     asset.set_editor_property("ledges", [_ledge_record(spot) for spot in ledges])
     asset.set_editor_property("anchors", [_anchor_record(i, spot) for i, spot in enumerate(anchors)])
     asset.set_editor_property("fire_escapes", [_fire_escape_record(spot) for spot in escapes])
+    asset.set_editor_property("clutter", [_clutter_record(group) for group in clutter])
     asset.set_editor_property("source_hash", want_hash)
     c.save(asset)
     c.log("updated", full, summary)
@@ -2378,6 +2493,593 @@ def ensure_test_blocks(district, existing):
 
 
 # --------------------------------------------------------------------------------------
+# clutter: rooftop water towers, HVAC boxes and chimneys; hydrants, bins and bags, scaffolding and
+# parked cars on the street. Placed here from the OSM records, not by a PCG graph: PCG graphs can be
+# built from Python (UPCGGraph.AddNodeOfType / AddEdge), but a PCG component only schedules its
+# generation for a later world tick, and this headless commandlet never ticks, so the output could
+# neither be saved nor checked by verify_city. The rules need the records (heights, roads, anchors,
+# landings, patrol points) anyway. Every instance goes into the props asset as FCityClutterGroup and
+# City_LedgeSpawner draws each group as one instanced mesh at load.
+# --------------------------------------------------------------------------------------
+
+CLUTTER_VERSION = 1                    # bump when a clutter mesh recipe changes
+WATER_TOWER_MIN_HEIGHT_M = 15.0
+WATER_TOWER_ONE_IN = 4
+HVAC_ONE_IN = 2
+CHIMNEY_ONE_IN = 2
+CLUTTER_ROOF_MIN_HEIGHT_M = 8.0        # sheds and garages get nothing on the roof
+ROOF_GRID = 100.0                      # cm; candidate spots on a roof
+ROOF_EDGE_CLEAR = 90.0                 # cm from any roof edge to the prop's footprint
+CHIMNEY_EDGE = (60.0, 110.0)           # a chimney's centre this far in from an edge
+ANCHOR_SAME_ROOF = 200.0               # cm; anchors within this height of a roof count for it
+ANCHOR_CLEAR = 100.0                   # cm from an anchor or its landing point to a prop's footprint
+PROP_GAP = 80.0                        # cm between two props on one roof
+HYDRANT_SPACING = 6000.0               # cm along each road, alternating sides
+HYDRANT_KERB_INSET = 45.0
+CROSSING_CLEAR = 500.0                 # cm from another road's carriageway: no hydrant, car or bin there
+LAMP_CLEAR = 150.0                     # cm from a lamp pole
+PATROL_CLEAR = 150.0                   # cm from the thug patrol line, its points and the thugs
+TEST_BLOCK_CLEAR = 300.0               # cm from the parkour test blocks and the PlayerStart
+BIN_ONE_IN = 3
+BIN_FACADE_OUT = 55.0                  # cm out from the facade to a bin's centre
+BIN_CORNER_IN = 90.0                   # cm along the facade from the corner
+SCAFFOLD_BUILDINGS = 3
+SCAFFOLD_BAY = (200.0, 110.0, 200.0)   # width along the facade, depth, height per level
+SCAFFOLD_MIN_EDGE = 500.0
+SCAFFOLD_MAX_HEIGHT = 1200.0           # cm; the work is on the lower floors
+CAR_SIZE = (450.0, 180.0, 140.0)
+CAR_SPACING = 700.0
+CAR_KERB_GAP = 20.0
+CAR_GAP_FRACTION = 0.3                 # of car spaces left empty
+HYDRANT_NO_PARKING = 460.0             # cm either side of a hydrant (15 ft)
+
+# kind: (mesh name, material key, collision, casts shadow, footprint radius cm)
+CLUTTER_KINDS = {
+    "WaterTower": ("SM_City_WaterTower", "WaterTower", True, True, 170.0),
+    "HVAC": ("SM_City_HVAC", "HVAC", True, True, 120.0),
+    "Chimney": ("SM_City_Chimney", "Chimney", True, True, 60.0),
+    "Hydrant": ("SM_City_Hydrant", "Hydrant", True, False, 25.0),
+    "Bin": ("SM_City_Bin", "Bin", True, False, 32.0),
+    "TrashBag": ("SM_City_TrashBag", "TrashBag", True, False, 36.0),
+    "Scaffold": ("SM_City_ScaffoldBay", "Scaffold", False, True, 0.0),
+    "ParkedCar_Black": ("SM_City_ParkedCar", "CarBlack", True, True, 245.0),
+    "ParkedCar_Purple": ("SM_City_ParkedCar", "CarPurple", True, True, 245.0),
+    "ParkedCar_Grey": ("SM_City_ParkedCar", "CarGrey", True, True, 245.0),
+    "ParkedCar_Navy": ("SM_City_ParkedCar", "CarNavy", True, True, 245.0),
+}
+# cm from the base to the top, for the fire-escape landing check.
+CLUTTER_HEIGHTS = {"WaterTower": 710.0, "HVAC": 130.0, "Chimney": 170.0, "Scaffold": SCAFFOLD_BAY[2]}
+LANDING_CLEAR = 30.0                   # cm between a prop and a fire-escape landing it shares height with
+CAR_KINDS = ("ParkedCar_Black", "ParkedCar_Purple", "ParkedCar_Grey", "ParkedCar_Navy")
+
+# MI_Prop_<key>: (colour, roughness), from the palette: purple, cream, grey, black.
+CLUTTER_MATERIALS = {
+    "WaterTower": ((0.12, 0.08, 0.06), 0.9),
+    "HVAC": ((0.30, 0.30, 0.31), 0.5),
+    "Chimney": ((0.20, 0.07, 0.05), 0.9),
+    "Hydrant": ((0.35, 0.05, 0.035), 0.45),
+    "Bin": ((0.03, 0.06, 0.045), 0.6),
+    "TrashBag": ((0.012, 0.012, 0.014), 0.25),
+    "Scaffold": ((0.22, 0.22, 0.23), 0.5),
+    "CarBlack": ((0.015, 0.015, 0.017), 0.3),
+    "CarPurple": ((0.07, 0.025, 0.10), 0.3),
+    "CarGrey": ((0.10, 0.10, 0.11), 0.35),
+    "CarNavy": ((0.02, 0.03, 0.07), 0.3),
+    "Ground": ((0.10, 0.10, 0.10), 0.9),
+}
+
+
+def stable_hash(*parts):
+    """0..1 from the parts' text, the same on every run and machine."""
+    text = "|".join(str(p) for p in parts)
+    return (zlib.crc32(text.encode("utf-8")) & 0xffffffff) / 4294967296.0
+
+
+def _bx(mesh, cx, cy, z0, sx, sy, sz, yaw=0.0):
+    xf = unreal.Transform(location=unreal.Vector(cx, cy, z0), rotation=unreal.Rotator(0.0, 0.0, yaw))
+    GS_PRIM.append_box(mesh, unreal.GeometryScriptPrimitiveOptions(), xf, sx, sy, sz, 0, 0, 0,
+                       unreal.GeometryScriptPrimitiveOriginMode.BASE)
+
+
+def _cyl(mesh, cx, cy, z0, radius, height, steps=12, roll=0.0):
+    xf = unreal.Transform(location=unreal.Vector(cx, cy, z0), rotation=unreal.Rotator(roll, 0.0, 0.0))
+    GS_PRIM.append_cylinder(mesh, unreal.GeometryScriptPrimitiveOptions(), xf, radius, height, steps, 0, True,
+                            unreal.GeometryScriptPrimitiveOriginMode.BASE)
+
+
+def _build_water_tower():
+    mesh = new_mesh()
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            _bx(mesh, sx * 95.0, sy * 95.0, 0.0, 18.0, 18.0, 260.0)
+    _bx(mesh, 0.0, 0.0, 260.0, 330.0, 330.0, 12.0)
+    _cyl(mesh, 0.0, 0.0, 272.0, 150.0, 320.0, 16)
+    GS_PRIM.append_cone(mesh, unreal.GeometryScriptPrimitiveOptions(),
+                        unreal.Transform(location=unreal.Vector(0.0, 0.0, 592.0)), 165.0, 8.0, 110.0, 16, 0, True,
+                        unreal.GeometryScriptPrimitiveOriginMode.BASE)
+    return mesh
+
+
+def _build_hvac():
+    mesh = new_mesh()
+    _bx(mesh, 0.0, 0.0, 0.0, 200.0, 130.0, 110.0)
+    _cyl(mesh, 40.0, 0.0, 110.0, 45.0, 18.0, 16)
+    return mesh
+
+
+def _build_chimney():
+    mesh = new_mesh()
+    _bx(mesh, 0.0, 0.0, 0.0, 70.0, 70.0, 160.0)
+    _bx(mesh, 0.0, 0.0, 160.0, 86.0, 86.0, 10.0)
+    return mesh
+
+
+def _build_hydrant():
+    mesh = new_mesh()
+    _cyl(mesh, 0.0, 0.0, 0.0, 18.0, 6.0, 12)
+    _cyl(mesh, 0.0, 0.0, 6.0, 13.0, 52.0, 12)
+    _cyl(mesh, 0.0, 0.0, 58.0, 16.0, 8.0, 12)
+    _cyl(mesh, 0.0, 0.0, 66.0, 8.0, 8.0, 8)
+    _bx(mesh, 0.0, 0.0, 32.0, 44.0, 10.0, 10.0)
+    return mesh
+
+
+def _build_bin():
+    mesh = new_mesh()
+    _cyl(mesh, 0.0, 0.0, 0.0, 30.0, 85.0, 12)
+    return mesh
+
+
+def _build_trash_bag():
+    mesh = new_mesh()
+    GS_PRIM.append_sphere_lat_long(mesh, unreal.GeometryScriptPrimitiveOptions(),
+                                   unreal.Transform(location=unreal.Vector(0.0, 0.0, 26.0), scale=unreal.Vector(1.0, 1.0, 0.75)),
+                                   35.0, 8, 10, unreal.GeometryScriptPrimitiveOriginMode.CENTER)
+    return mesh
+
+
+def _build_scaffold_bay():
+    """One bay: local X along the facade (0..W), Y out of it (0..D), Z up (0..H); deck on top."""
+    w, d, h = SCAFFOLD_BAY
+    mesh = new_mesh()
+    for px in (2.5, w - 2.5):
+        for py in (2.5, d - 2.5):
+            _bx(mesh, px, py, 0.0, 5.0, 5.0, h)
+    for py in (2.5, d - 2.5):
+        _bx(mesh, w * 0.5, py, h * 0.5, w, 4.0, 4.0)
+    _bx(mesh, w * 0.5, d - 2.5, h - 100.0, w, 4.0, 4.0)
+    _bx(mesh, w * 0.5, d * 0.5, h - 4.0, w, d, 4.0)
+    return mesh
+
+
+def _build_parked_car():
+    """A dark block car, 4.5 x 1.8 x 1.4 m: body, cabin set back, four wheels. Origin at the ground,
+    centred, +X forward."""
+    L, W, H = CAR_SIZE
+    mesh = new_mesh()
+    _bx(mesh, 0.0, 0.0, 28.0, L, W, 67.0)
+    _bx(mesh, -20.0, 0.0, 95.0, 250.0, W - 16.0, H - 95.0)
+    for sx in (-1.0, 1.0):
+        for sy in (-1.0, 1.0):
+            xf = unreal.Transform(location=unreal.Vector(sx * 140.0, sy * (W * 0.5 - 11.0), 33.0),
+                                  rotation=unreal.Rotator(90.0, 0.0, 0.0))
+            GS_PRIM.append_cylinder(mesh, unreal.GeometryScriptPrimitiveOptions(), xf, 33.0, 22.0, 12, 0, True,
+                                    unreal.GeometryScriptPrimitiveOriginMode.CENTER)
+    return mesh
+
+
+CLUTTER_MESHES = {
+    "SM_City_WaterTower": _build_water_tower,
+    "SM_City_HVAC": _build_hvac,
+    "SM_City_Chimney": _build_chimney,
+    "SM_City_Hydrant": _build_hydrant,
+    "SM_City_Bin": _build_bin,
+    "SM_City_TrashBag": _build_trash_bag,
+    "SM_City_ScaffoldBay": _build_scaffold_bay,
+    "SM_City_ParkedCar": _build_parked_car,
+}
+
+
+def ensure_clutter_meshes():
+    """{mesh name: StaticMesh}; each rebuilt only when CLUTTER_VERSION changes."""
+    out = {}
+    c.ensure_directory(MESH_DIR)
+    for name, build in sorted(CLUTTER_MESHES.items()):
+        spec = geo.record_hash(GENERATOR_VERSION, CLUTTER_VERSION, "clutter", name, list(CAR_SIZE), list(SCAFFOLD_BAY))
+        asset, current = stored_hash(name)
+        if asset is not None and current == spec:
+            out[name] = asset
+            continue
+        try:
+            result = write_static_mesh(build(), name, spec)
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("clutter mesh " + name, exc)
+            result = None
+        if result is not None:
+            out[name] = result[0]
+            c.log(result[1], c.asset_path(MESH_DIR, name))
+    c.log("exists", "clutter meshes", "{0} of {1} present".format(len(out), len(CLUTTER_MESHES)))
+    return out
+
+
+def ensure_clutter_materials():
+    return {key: m.ensure_prop_instance(key, rgb, rough) for key, (rgb, rough) in sorted(CLUTTER_MATERIALS.items())}
+
+
+def _near_segment(pt, a, b):
+    return closest_point_on_polyline(pt, [a, b])[0]
+
+
+def clutter_keepouts(district):
+    """What street clutter keeps clear of: [(kind, (x, y), radius)] points and patrol segments."""
+    points = []
+    for x, y, _yaw, _shadows in lamp_spots(district):
+        points.append(("lamp", (x, y), LAMP_CLEAR))
+    thugs, patrol_points, _roof = thug_placements(district)
+    for t in thugs:
+        points.append(("thug", (t[1], t[2]), PATROL_CLEAR))
+    for p in patrol_points:
+        points.append(("patrol", (p[1], p[2]), PATROL_CLEAR))
+    loc, _rot = player_start_transform(district)
+    points.append(("start", (loc.x, loc.y), TEST_BLOCK_CLEAR))
+    for label, _tag, origin, yaw, scale in test_block_spots(district):
+        ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+        cx = origin[0] + ux * scale[0] * 50.0 - uy * scale[1] * 50.0
+        cy = origin[1] + uy * scale[0] * 50.0 + ux * scale[1] * 50.0
+        points.append(("test_block", (cx, cy), TEST_BLOCK_CLEAR + max(scale[0], scale[1]) * 50.0))
+    segments = []
+    if len(patrol_points) == 2:
+        segments.append(((patrol_points[0][1], patrol_points[0][2]), (patrol_points[1][1], patrol_points[1][2])))
+    return points, segments
+
+
+def clutter_plan(district):
+    """{kind: [(x, y, z, yaw, scale)]} in a stable order, plus notes for the log. The rules:
+
+    * roofs of buildings over CLUTTER_ROOF_MIN_HEIGHT_M, never the three objective roofs (their
+      beacons, volumes and the RoofPair stay clear): a water tower on 1 in WATER_TOWER_ONE_IN roofs
+      over WATER_TOWER_MIN_HEIGHT_M, an HVAC box on 1 in HVAC_ONE_IN, one or two chimneys near an
+      edge on 1 in CHIMNEY_ONE_IN; each footprint ROOF_EDGE_CLEAR inside the roof, ANCHOR_CLEAR from
+      every grapple anchor and landing point, PROP_GAP from the others
+    * a hydrant every HYDRANT_SPACING along each road at the kerb, sides alternating
+    * a bin and two or three bags at a street corner of 1 in BIN_ONE_IN buildings, against the facade
+    * scaffolding up to SCAFFOLD_MAX_HEIGHT over the street facade of SCAFFOLD_BUILDINGS buildings with
+      no fire escape
+    * parked cars every CAR_SPACING along the side of each road away from the park, none near a
+      crossing or within HYDRANT_NO_PARKING of a hydrant, CAR_GAP_FRACTION left empty
+    Street clutter keeps clear of lamps, the thug patrol, the PlayerStart and the parkour test blocks.
+    """
+    plan = {kind: [] for kind in CLUTTER_KINDS}
+    objective_ids = {rec["id"] for rec in objective_roofs(district).values()}
+    anchors = anchor_spots(district)
+    anchor_pts = []   # (x, y, z): every anchor and its landing point
+    for x, y, z, yaw, forward, _drop, _osm in anchors:
+        lx, ly = x + math.cos(math.radians(yaw)) * forward, y + math.sin(math.radians(yaw)) * forward
+        anchor_pts.extend([(x, y, z), (lx, ly, z)])
+    escapes = fire_escape_spots(district)
+    escape_ids = {f[0] for f in escapes}
+    landing_quads = [_landing_corners(f[2][0], f[2][1], f[3], FIRE_ESCAPE_GAP_TO_OTHER) for f in escapes]
+    landings = [(quad, f[2][2] - FIRE_ESCAPE_SLAB[2], f[2][2] + FIRE_ESCAPE_RAIL, geo.bounds(quad))
+                for quad, f in zip(landing_quads, escapes)]
+
+    def landings_near(box, pad=400.0):
+        x0, y0, x1, y1 = box
+        return [l for l in landings if l[3][0] < x1 + pad and l[3][2] > x0 - pad and l[3][1] < y1 + pad and l[3][3] > y0 - pad]
+
+    def hits_landing(px, py, radius, z0, z1, near):
+        return any(lo < z1 and hi > z0 and _point_quad_distance((px, py), quad) < radius + LANDING_CLEAR
+                   for quad, lo, hi, _box in near)
+
+    buildings = []
+    for rec in sorted(district.buildings, key=lambda r: r["id"]):
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) >= 3:
+            buildings.append((rec, ring, geo.bounds(ring)))
+
+    # --- roofs ---
+    for rec, ring, (x0, y0, x1, y1) in buildings:
+        h = rec["height_m"]
+        if h < CLUTTER_ROOF_MIN_HEIGHT_M or rec["id"] in objective_ids:
+            continue
+        roof_z = h * 100.0
+        # This roof's anchors and any neighbour's at about the same height (theirs sit on a shared
+        # parapet line, and Kate lands on this roof from them).
+        avoid = [(ax, ay) for ax, ay, az in anchor_pts if abs(az - roof_z) < ANCHOR_SAME_ROOF
+                 and x0 - 400.0 <= ax <= x1 + 400.0 and y0 - 400.0 <= ay <= y1 + 400.0]
+        near = landings_near((x0, y0, x1, y1))
+        placed = []   # (x, y, radius)
+        grid = []
+        gx = x0 + ROOF_GRID * 0.5
+        while gx < x1:
+            gy = y0 + ROOF_GRID * 0.5
+            while gy < y1:
+                if geo.point_in_polygon((gx, gy), ring):
+                    grid.append((gx, gy, _edge_distance((gx, gy), ring)))
+                gy += ROOF_GRID
+            gx += ROOF_GRID
+
+        def free(px, py, radius, edge):
+            if edge < radius + ROOF_EDGE_CLEAR:
+                return False
+            if any(math.hypot(px - ax, py - ay) < radius + ANCHOR_CLEAR for ax, ay in avoid):
+                return False
+            return all(math.hypot(px - qx, py - qy) >= radius + qr + PROP_GAP for qx, qy, qr in placed)
+
+        def pick(kind, salt, want_edge=None):
+            radius = CLUTTER_KINDS[kind][4]
+            options = []
+            for px, py, edge in grid:
+                if hits_landing(px, py, radius, roof_z, roof_z + CLUTTER_HEIGHTS[kind], near):
+                    continue
+                if want_edge is not None:
+                    if not (want_edge[0] <= edge <= want_edge[1]):
+                        continue
+                    if any(math.hypot(px - ax, py - ay) < radius + ANCHOR_CLEAR for ax, ay in avoid):
+                        continue
+                    if not all(math.hypot(px - qx, py - qy) >= radius + qr + PROP_GAP for qx, qy, qr in placed):
+                        continue
+                elif not free(px, py, radius, edge):
+                    continue
+                options.append((px, py))
+            if not options:
+                return None
+            px, py = options[int(stable_hash(rec["id"], kind, salt) * len(options)) % len(options)]
+            placed.append((px, py, radius))
+            return px, py
+
+        yaw0 = oriented_rect(ring)[4]
+        if h >= WATER_TOWER_MIN_HEIGHT_M and stable_hash(rec["id"], "tower") < 1.0 / WATER_TOWER_ONE_IN:
+            spot = pick("WaterTower", 0)
+            if spot:
+                s = 0.8 + 0.25 * stable_hash(rec["id"], "tower-scale")
+                plan["WaterTower"].append((spot[0], spot[1], roof_z, yaw0 + 45.0 * stable_hash(rec["id"], "ty"), s))
+        if stable_hash(rec["id"], "hvac") < 1.0 / HVAC_ONE_IN:
+            spot = pick("HVAC", 0)
+            if spot:
+                plan["HVAC"].append((spot[0], spot[1], roof_z, yaw0, 1.0))
+        if stable_hash(rec["id"], "chimney") < 1.0 / CHIMNEY_ONE_IN:
+            for n in range(1 + int(stable_hash(rec["id"], "chimneys") * 2.0)):
+                spot = pick("Chimney", n, CHIMNEY_EDGE)
+                if spot:
+                    plan["Chimney"].append((spot[0], spot[1], roof_z, yaw0, 1.0))
+
+    # --- street ---
+    roads = sorted(road_paths(district), key=lambda rp: rp[0]["id"])
+    def road_key(rec):
+        return rec.get("name") or rec["id"]
+
+    carriageway = [(p, q, rec["width_m"] * 50.0, road_key(rec)) for rec, paths in roads
+                   for path in paths for p, q in zip(path, path[1:])]
+    ground = ground_ring_cm(district)
+    parks = [district.ring_cm(p["outer"]) for p in district.parks]
+    points, segments = clutter_keepouts(district)
+
+    def in_carriageway(pt, pad=30.0, skip_road=None):
+        return any(_near_segment(pt, p, q) < half + pad for p, q, half, rid in carriageway if rid != skip_road)
+
+    def near_crossing(pt, own_road):
+        return in_carriageway(pt, CROSSING_CLEAR, own_road)
+
+    def in_building(pt, clearance):
+        for rec, ring, (x0, y0, x1, y1) in buildings:
+            if x0 - clearance <= pt[0] <= x1 + clearance and y0 - clearance <= pt[1] <= y1 + clearance:
+                if geo.point_in_polygon(pt, ring) or ring_distance(pt, ring) < clearance:
+                    return True
+        return False
+
+    def kept_out(pt, radius):
+        if any(math.hypot(pt[0] - q[0], pt[1] - q[1]) < r + radius for _k, q, r in points):
+            return True
+        return any(_near_segment(pt, a, b) < PATROL_CLEAR + radius for a, b in segments)
+
+    def street_ok(pt, radius, road_id=None, crossing=True):
+        if not geo.point_in_polygon(pt, ground) or in_building(pt, radius + 5.0) or kept_out(pt, radius):
+            return False
+        if any(geo.point_in_polygon(pt, park) for park in parks):
+            return False
+        return not (crossing and road_id is not None and near_crossing(pt, road_id))
+
+    # Hydrants at the kerb.
+    hydrants = []
+    for rec, paths in roads:
+        offset = rec["width_m"] * 50.0 + HYDRANT_KERB_INSET
+        side = 1.0
+        for path in paths:
+            s_next = HYDRANT_SPACING * 0.5
+            walked = 0.0
+            for (ax, ay), (bx, by) in zip(path, path[1:]):
+                L = math.hypot(bx - ax, by - ay)
+                if L < 1.0:
+                    continue
+                ux, uy = (bx - ax) / L, (by - ay) / L
+                while s_next <= walked + L:
+                    t = s_next - walked
+                    px, py = ax + ux * t, ay + uy * t
+                    for try_side in (side, -side):
+                        pt = (px - uy * offset * try_side, py + ux * offset * try_side)
+                        if in_carriageway(pt, 10.0) or not street_ok(pt, CLUTTER_KINDS["Hydrant"][4], road_key(rec)):
+                            continue
+                        if any(math.hypot(pt[0] - q[0], pt[1] - q[1]) < HYDRANT_SPACING * 0.3 for q in hydrants):
+                            continue
+                        hydrants.append(pt)
+                        plan["Hydrant"].append((pt[0], pt[1], SIDEWALK_TOP, math.degrees(math.atan2(uy, ux)), 1.0))
+                        break
+                    side = -side
+                    s_next += HYDRANT_SPACING
+                walked += L
+    for x, y, *_rest in plan["Hydrant"]:
+        points.append(("hydrant", (x, y), 60.0))
+
+    # A bin and bags at one street corner of some buildings.
+    segments_all = [(p, q) for p, q, _h, _r in carriageway]
+    for rec, ring, _box in buildings:
+        if rec["height_m"] < CLUTTER_ROOF_MIN_HEIGHT_M or stable_hash(rec["id"], "bin") >= 1.0 / BIN_ONE_IN:
+            continue
+        inward = 1.0 if geo.is_ccw(ring) else -1.0
+        n = len(ring)
+        best = None
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            L = math.hypot(bx - ax, by - ay)
+            if L < 2.0 * BIN_CORNER_IN + 100.0:
+                continue
+            ox, oy = (by - ay) / L * inward, -(bx - ax) / L * inward
+            mx, my = (ax + bx) * 0.5, (ay + by) * 0.5
+            dist = min(_near_segment((mx, my), p, q) for p, q in segments_all)
+            if best is None or dist < best[0]:
+                best = (dist, (ax, ay), (bx, by), (ox, oy), L)
+        if best is None:
+            continue
+        _d, a, b, (ox, oy), L = best
+        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        end = 1.0 if stable_hash(rec["id"], "bin-end") < 0.5 else -1.0
+        corner = b if end > 0 else a
+        along = -end
+        cx = corner[0] + ux * along * BIN_CORNER_IN + ox * BIN_FACADE_OUT
+        cy = corner[1] + uy * along * BIN_CORNER_IN + oy * BIN_FACADE_OUT
+        if in_carriageway((cx, cy), 150.0) or not street_ok((cx, cy), CLUTTER_KINDS["Bin"][4]):
+            continue
+        yaw = math.degrees(math.atan2(uy, ux))
+        plan["Bin"].append((cx, cy, SIDEWALK_TOP, yaw, 1.0))
+        bags = 2 + int(stable_hash(rec["id"], "bags") * 2.0)
+        for k in range(bags):
+            t = (k + 1) * 60.0
+            bx_, by_ = cx + ux * along * t + ox * (5.0 * (k % 2)), cy + uy * along * t + oy * (5.0 * (k % 2))
+            if street_ok((bx_, by_), CLUTTER_KINDS["TrashBag"][4]) and not in_carriageway((bx_, by_), 150.0):
+                plan["TrashBag"].append((bx_, by_, SIDEWALK_TOP, yaw + 70.0 * k, 0.85 + 0.3 * stable_hash(rec["id"], k)))
+
+    # Scaffolding on a few tenements without fire escapes.
+    candidates = []
+    for rec, ring, _box in buildings:
+        h = rec["height_m"]
+        if h < CLUTTER_ROOF_MIN_HEIGHT_M or rec["id"] in escape_ids or rec["id"] in objective_ids:
+            continue
+        inward = 1.0 if geo.is_ccw(ring) else -1.0
+        n = len(ring)
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            L = math.hypot(bx - ax, by - ay)
+            if L < SCAFFOLD_MIN_EDGE:
+                continue
+            ox, oy = (by - ay) / L * inward, -(bx - ax) / L * inward
+            mx, my = (ax + bx) * 0.5, (ay + by) * 0.5
+            probe = (mx + ox * (SCAFFOLD_BAY[1] + 50.0), my + oy * (SCAFFOLD_BAY[1] + 50.0))
+            if in_carriageway(probe, 50.0) or in_building(probe, 20.0):
+                continue
+            if min(_near_segment((mx, my), p, q) for p, q in segments_all) > 1500.0:
+                continue
+            candidates.append((stable_hash(rec["id"], "scaffold"), rec, (ax, ay), (bx, by), (ox, oy), L))
+            break
+    candidates.sort(key=lambda cand: cand[0])
+    chosen = 0
+    for _h, rec, a, b, (ox, oy), L in candidates:
+        if chosen >= SCAFFOLD_BUILDINGS:
+            break
+        ux, uy = (b[0] - a[0]) / L, (b[1] - a[1]) / L
+        bays = int((L - 60.0) // SCAFFOLD_BAY[0])
+        levels = int(min(rec["height_m"] * 100.0 - 60.0, SCAFFOLD_MAX_HEIGHT) // SCAFFOLD_BAY[2])
+        start = (L - bays * SCAFFOLD_BAY[0]) * 0.5
+        yaw = math.degrees(math.atan2(uy, ux))
+        # The bay's local +Y must point out of the facade: flip the run if yaw turns it inward.
+        if (-math.sin(math.radians(yaw))) * ox + math.cos(math.radians(yaw)) * oy < 0.0:
+            a, b, ux, uy = b, a, -ux, -uy
+            yaw = math.degrees(math.atan2(uy, ux))
+        gap = 8.0
+        quad = [(a[0] + ox * gap, a[1] + oy * gap), (b[0] + ox * gap, b[1] + oy * gap),
+                (b[0] + ox * (gap + SCAFFOLD_BAY[1]), b[1] + oy * (gap + SCAFFOLD_BAY[1])),
+                (a[0] + ox * (gap + SCAFFOLD_BAY[1]), a[1] + oy * (gap + SCAFFOLD_BAY[1]))]
+        if any(_rects_overlap(quad, other) for other in landing_quads):
+            continue
+        steps = int(L // 100.0) + 1
+        edge_pts = [(quad[0][0] + (quad[1][0] - quad[0][0]) * k / steps + (quad[3][0] - quad[0][0]) * f,
+                     quad[0][1] + (quad[1][1] - quad[0][1]) * k / steps + (quad[3][1] - quad[0][1]) * f)
+                    for k in range(steps + 1) for f in (0.0, 1.0)]
+        if any(kept_out(pt, 60.0) for pt in edge_pts):
+            continue
+        chosen += 1
+        for i in range(bays):
+            for j in range(levels):
+                bx_ = a[0] + ux * (start + i * SCAFFOLD_BAY[0]) + ox * gap
+                by_ = a[1] + uy * (start + i * SCAFFOLD_BAY[0]) + oy * gap
+                plan["Scaffold"].append((bx_, by_, SIDEWALK_TOP + j * SCAFFOLD_BAY[2], yaw, 1.0))
+
+    # Parked cars along the side of each road away from the park.
+    for rec, paths in roads:
+        half = rec["width_m"] * 50.0
+        offset = half - CAR_SIZE[1] * 0.5 - CAR_KERB_GAP
+        for pi, path in enumerate(paths):
+            if len(path) < 2:
+                continue
+            (ax, ay), (bx, by) = path[0], path[-1]
+            L0 = math.hypot(bx - ax, by - ay) or 1.0
+            nx0, ny0 = -(by - ay) / L0, (bx - ax) / L0
+            mid = ((ax + bx) * 0.5, (ay + by) * 0.5)
+            side = 1.0 if stable_hash(rec["id"], "car-side") < 0.5 else -1.0
+            if parks:
+                d_plus = min(ring_distance((mid[0] + nx0 * offset, mid[1] + ny0 * offset), p) for p in parks)
+                d_minus = min(ring_distance((mid[0] - nx0 * offset, mid[1] - ny0 * offset), p) for p in parks)
+                if min(d_plus, d_minus) < 3000.0:
+                    side = 1.0 if d_plus > d_minus else -1.0
+            walked = 0.0
+            s_next = CAR_SPACING * 0.5
+            for (sx, sy), (ex, ey) in zip(path, path[1:]):
+                L = math.hypot(ex - sx, ey - sy)
+                if L < 1.0:
+                    continue
+                ux, uy = (ex - sx) / L, (ey - sy) / L
+                nx, ny = -uy, ux
+                while s_next <= walked + L:
+                    t = s_next - walked
+                    px, py = sx + ux * t + nx * offset * side, sy + uy * t + ny * offset * side
+                    s_next += CAR_SPACING
+                    slot = "{0}:{1}:{2:.0f}".format(rec["id"], pi, s_next)
+                    if stable_hash(slot, "gap") < CAR_GAP_FRACTION:
+                        continue
+                    nose = (px + ux * CAR_SIZE[0] * 0.5, py + uy * CAR_SIZE[0] * 0.5)
+                    tail = (px - ux * CAR_SIZE[0] * 0.5, py - uy * CAR_SIZE[0] * 0.5)
+                    if not all(geo.point_in_polygon(q, ground) for q in (nose, tail)):
+                        continue
+                    if any(in_carriageway(q, CROSSING_CLEAR * 0.6, road_key(rec)) for q in (nose, tail, (px, py))):
+                        continue
+                    if any(math.hypot(px - hx, py - hy) < HYDRANT_NO_PARKING for hx, hy in hydrants):
+                        continue
+                    if in_building((px, py), CAR_SIZE[1]) or kept_out((px, py), CLUTTER_KINDS[CAR_KINDS[0]][4]):
+                        continue
+                    kind = CAR_KINDS[int(stable_hash(slot, "colour") * len(CAR_KINDS)) % len(CAR_KINDS)]
+                    yaw = math.degrees(math.atan2(uy, ux)) + (180.0 if stable_hash(slot, "dir") < 0.15 else 0.0)
+                    plan[kind].append((px, py, ROAD_TOP, yaw, 1.0))
+                walked += L
+    return plan
+
+
+def clutter_groups(district, meshes, materials):
+    """[(kind, mesh, material, collision, shadow, [Transform])] for the props asset, and the plan."""
+    plan = clutter_plan(district)
+    groups = []
+    for kind in sorted(plan):
+        mesh_name, mat_key, collision, shadow, _radius = CLUTTER_KINDS[kind]
+        xforms = [unreal.Transform(unreal.Vector(x, y, z), unreal.Rotator(0.0, 0.0, yaw), unreal.Vector(s, s, s))
+                  for x, y, z, yaw, s in plan[kind]]
+        if xforms:
+            groups.append((kind, meshes.get(mesh_name), materials.get(mat_key), collision, shadow, xforms))
+    return groups, plan
+
+
+def _clutter_record(group):
+    kind, mesh, material, collision, shadow, xforms = group
+    rec = unreal.CityClutterGroup()
+    rec.set_editor_property("kind", kind)
+    rec.set_editor_property("mesh", mesh)
+    rec.set_editor_property("material", material)
+    rec.set_editor_property("collision", collision)
+    rec.set_editor_property("cast_shadow", shadow)
+    rec.set_editor_property("instances", xforms)
+    return rec
+
+
+# --------------------------------------------------------------------------------------
 # level
 # --------------------------------------------------------------------------------------
 
@@ -2398,12 +3100,16 @@ def open_or_create_map():
 
 
 def ensure_materials():
+    """The night look (_materials.ensure_city_look): facade instances per style, snowy sidewalks,
+    park and ground, wet asphalt."""
+    look = m.ensure_city_look()
     materials = {
-        "greybox": c.ensure_constant_color_material("M_Greybox", KIT_MATERIALS, (0.20, 0.21, 0.22), 0.9),
-        "floor": c.ensure_constant_color_material("M_Greybox_Floor", KIT_MATERIALS, (0.12, 0.13, 0.14), 0.9),
-        "asphalt": c.ensure_constant_color_material("M_Asphalt", m.MATERIALS_PATH, (0.05, 0.05, 0.05), 0.9),
-        "grass": c.ensure_constant_color_material("M_Grass", m.MATERIALS_PATH, (0.05, 0.12, 0.04), 0.95),
-        "sidewalk": m.ensure_material(m.M_CONCRETE_FLOOR, m._build_concrete_floor),
+        "facades": look["facades"],
+        "ground": m.ensure_prop_instance("Ground", *CLUTTER_MATERIALS["Ground"]),
+        "asphalt": look["asphalt"],
+        "grass": look["park"],
+        "sidewalk": look["sidewalk"],
+        "stars": look["stars"],
     }
     return materials
 
@@ -2420,7 +3126,7 @@ def run():
     if not ok:
         return False
 
-    pieces = building_pieces(district, materials["greybox"]) + street_pieces(district, materials)
+    pieces = building_pieces(district, materials["facades"]) + street_pieces(district, materials)
     existing = actors_by_label()
 
     changes = remove_stale(pieces, existing)
