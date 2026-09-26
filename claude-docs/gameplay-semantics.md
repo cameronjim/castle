@@ -173,13 +173,28 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Focus: a meter that fills on hits and takedowns; while airborne, holding aim slows time
   to 0.3x and drains it. Empties in 3 s of use.
 
-## PLANNED: partner and switching
-- The AI Hawkeye follows at 400 to 800 cm, takes cover when shot at, attacks enemies
-  the player has hit within the last 3 s, and goes to a marked point on command. Never
-  blocks doors. Revives the player once per fight.
-- `SwitchCharacter()` swaps possession, hands the previous pawn to a partner AI
-  controller, swaps HUD context, and blends the camera over 0.3 s. Only allowed where the
-  chapter data asset permits, and never mid-traversal-move or mid-takedown.
+## Partner and switching (built 2026-09-26)
+- The partner runs a StateTree (`ST_Partner`, built headless by editor-only C++ through
+  the StateTree editor API; no GUI needed) with states in priority order: Revive, GoToMark,
+  Cover, Attack, Follow. Without a tree (tests) the controller picks the same order in C++.
+- Follow: 400 to 800 cm band, settles at 600, sprints beyond 1500. If the height gap is
+  over 300 cm and he has been out of range for 5 s, he zips to the anchor nearest the
+  player, or teleports to the landing point if the line is blocked; both logged.
+- Attack: the enemy the player hit most recently within 3 s (nearest on a tie), with his
+  own bow (1.0 s draw, released just after full) at range and bow strikes under 200 cm.
+- Cover: a ring of candidate points, keeping those where the shooter's trace is blocked.
+- Revive: at 0 health the player is downed, not restarted; after 3 s beside her she is
+  back at 30%. Once per fight; a fight ends 10 s after the last contact.
+- The partner can't drop below 1 health, self-heals under 50%, can be staggered. T marks
+  a point for him to go to (no pad button yet).
+- `SwitchCharacter()` on X or LB: only when the chapter's `bAllowSwitching` is set (CH01
+  true); refused if either character is mid-traversal, mid-zip, mid-takedown, or down.
+  Swaps possession, hands the old pawn to the partner controller, rebinds the HUD
+  (quiver and name), blends the camera over 0.3 s.
+- Banter: `DT_Dialogue`, 48 lines, six per speaker per situation (idle roam, after a
+  fight, objective near, low health). One every 45 to 90 s of roaming or on the event,
+  speakers alternating, 4 s subtitle, no audio. Clint's arrows are picked up into the
+  player's quiver for now. BP_Clint in the map adds PoseSearch index-build warnings at load.
 
 ## Mission
 - A mission has 1 or more objectives. At least one must be non-optional.
