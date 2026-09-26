@@ -14,6 +14,18 @@ purple, cream, grey, black. Cheap per building, distinctive, hides generated geo
 For an open city solo, stylised is the only sane answer. A hero block or two can be
 pushed further. The show's warmth comes from colour and light, not texture detail.
 
+## Status (2026-09-26)
+The first look pass on the East Village block is in, all by script: world-position facade
+material with a window grid, storefronts, cornices, and six brick/stone/painted instances
+assigned per building; a snow layer on every upward face; a moonlit night sky with stars;
+purple-shadow, cream-highlight grading; rooftop water towers, HVAC, chimneys; hydrants,
+bins, trash bags, scaffolding, parked cars; Kate in matte black with purple panels and a
+glowing bow grip. Frame time 9.6 ms at 1280x720. Windows were then dimmed and varied
+because the first pass blew them out. PCG was evaluated for clutter and not used: its
+components generate on a world tick that the headless commandlet never runs, so nothing
+could be saved or verified; clutter is placed by the generator into the props asset and
+drawn as instanced meshes.
+
 ## The city
 - Generated buildings get a small set of facade materials (brick, brownstone, glass,
   concrete) assigned by footprint size and OSM tags, with window grids from a material
