@@ -30,9 +30,12 @@ namespace HawkeyeArrow
 	static constexpr float BoneProbeAhead = 150.f;
 }
 
+const TCHAR* const AArrowProjectile::DefaultNockMaterialPath = TEXT("/Game/Blueprints/Weapons/M_ArrowNock.M_ArrowNock");
+
 AArrowProjectile::AArrowProjectile()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	NockMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(DefaultNockMaterialPath));
 
 	Collision = CreateDefaultSubobject<USphereComponent>(TEXT("Collision"));
 	RootComponent = Collision;
@@ -148,8 +151,15 @@ void AArrowProjectile::InitArrow(UArrowDefinition* InArrow, UBowDefinition* InBo
 		Collision->IgnoreActorWhenMoving(InShooter, true);
 	}
 
-	// Pale shaft so it reads against a dark jacket, coloured fletching, Kate's purple nock.
-	// BasicShapeMaterial takes a Color parameter.
+	// Pale shaft so it reads against a dark jacket, coloured fletching, Kate's purple nock (glowing
+	// when M_ArrowNock is there). BasicShapeMaterial and M_ArrowNock both take a Color parameter.
+	if (Nock && !NockMaterial.IsNull())
+	{
+		if (UMaterialInterface* Glow = NockMaterial.LoadSynchronous())
+		{
+			Nock->SetMaterial(0, Glow);
+		}
+	}
 	const TPair<UStaticMeshComponent*, FLinearColor> Tints[] = {
 		{ Shaft.Get(), ShaftColor },
 		{ Fletching.Get(), FletchingColor },

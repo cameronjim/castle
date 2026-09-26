@@ -435,9 +435,19 @@ void UBowComponent::RefreshBowVisual()
 	{
 		Part.Key->SetCastShadow(false);
 		Part.Key->SetVisibility(false);
-		if (ShapeMaterial)
+		UMaterialInterface* PartMaterial = ShapeMaterial;
+		if (Part.Key == NockedNock.Get())
 		{
-			Part.Key->SetMaterial(0, ShapeMaterial);
+			// The glowing nock loosed arrows wear, when it has been built.
+			const TSoftObjectPtr<UMaterialInterface> Glow{ FSoftObjectPath(AArrowProjectile::DefaultNockMaterialPath) };
+			if (UMaterialInterface* Loaded = Glow.LoadSynchronous())
+			{
+				PartMaterial = Loaded;
+			}
+		}
+		if (PartMaterial)
+		{
+			Part.Key->SetMaterial(0, PartMaterial);
 			if (UMaterialInstanceDynamic* Tint = Part.Key->CreateDynamicMaterialInstance(0))
 			{
 				Tint->SetVectorParameterValue(TEXT("Color"), Part.Value);

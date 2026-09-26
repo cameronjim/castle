@@ -64,6 +64,16 @@ public:
 	FLinearColor NockColor = FLinearColor(0.45f, 0.1f, 0.75f);
 
 	/**
+	 * The nock's material: a Color parameter that also glows (M_ArrowNock, built by
+	 * Tools/Editor/create_weapon_data.py). The plain shape material when it is not there.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")
+	TSoftObjectPtr<UMaterialInterface> NockMaterial;
+
+	/** Where NockMaterial points by default; the bow's nocked arrow uses the same one. */
+	static const TCHAR* const DefaultNockMaterialPath;
+
+	/**
 	 * Sets what this arrow is and who shot it. Damage is the release damage (draw and perfect bonus
 	 * already applied); Bow supplies the headshot rule; Source hears about the hit.
 	 */
