@@ -3,6 +3,7 @@
 #include "Camera/CameraComponent.h"
 #include "CollisionQueryParams.h"
 #include "Combat/ArrowDefinition.h"
+#include "Combat/ArrowProjectile.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
@@ -68,12 +69,20 @@
  *
  * Hawkeye.Lap.RoofFight: Kate against the RoofPair on the cross_block roof with the bow and melee;
  * must win with health above 0. Writes Saved/Automation/lap_roof_fight.json.
+ *
+ * Hawkeye.Lap.ArcherDuel: Kate on the find_arrow roof against the ArcherPair (both archers thinking,
+ * on their own sight), using the parapet for cover and the bow; must win inside 60 s with health
+ * above 0. Writes Saved/Automation/lap_archer_duel.json with the hits she took and the arrows used.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapEastVillage, "Hawkeye.Lap.EastVillage",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 	| EAutomationTestFlags::ProductFilter)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapRoofFight, "Hawkeye.Lap.RoofFight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+	| EAutomationTestFlags::ProductFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapArcherDuel, "Hawkeye.Lap.ArcherDuel",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 	| EAutomationTestFlags::ProductFilter)
 
@@ -94,6 +103,7 @@ namespace HawkeyeLap
 	static const FName VaultTag(TEXT("CityTestVault"));
 	static const FName MantleTag(TEXT("CityTestMantle"));
 	static const FName RoofPairTag(TEXT("RoofPair"));
+	static const FName ArcherPairTag(TEXT("ArcherPair"));
 
 	/** Speed under which held input counts as the capsule being stopped, cm/s. */
 	static constexpr float BlockedSpeed = 100.f;
@@ -2272,6 +2282,494 @@ bool FHawkeyeRoofFightRunner::Update()
 	return false;
 }
 
+// --- The archer duel --------------------------------------------------------------------------------
+
+/**
+ * Hawkeye.Lap.ArcherDuel: Kate on the find_arrow roof against the ArcherPair, with the bow and the
+ * parapet. She crouches behind cover (a spot where both archers' lines to her crouched body are
+ * blocked but a standing one is clear), stands to shoot only when neither archer is past the start of
+ * a draw, looses at full draw on the weaker archer she can see, and crouches again. A draw of 0.9 s
+ * or more on either archer while she is up sends her down at once. Must win inside 60 s.
+ */
+class FHawkeyeArcherDuelRunner : public IAutomationLatentCommand
+{
+public:
+	explicit FHawkeyeArcherDuelRunner(FAutomationTestBase* InTest) : Test(InTest) {}
+
+	virtual bool Update() override;
+
+private:
+	enum class EPhase : uint8
+	{
+		Hidden,
+		Rising,
+		Drawing,
+		Moving,
+	};
+
+	FAutomationTestBase* Test;
+	bool bSetUp = false;
+	bool bDone = false;
+	double FightStart = -1.0;
+	double DoneAt = -1.0;
+	double PhaseSince = 0.0;
+	EPhase Phase = EPhase::Hidden;
+	float LastHealth = 0.f;
+	float DamageTaken = 0.f;
+	int32 HitsTaken = 0;
+	int32 ArrowsAtStart = 0;
+	int32 Pops = 0;
+	int32 Aborts = 0;
+	FVector Cover = FVector::ZeroVector;
+	FString CoverNote;
+	HawkeyeLap::FMeter Meter;
+	TArray<TWeakObjectPtr<AThugCharacter>> Archers;
+	TWeakObjectPtr<AThugCharacter> Target;
+	/** Where on the target she aims, cm above his capsule centre: what shows over his parapet. */
+	float TargetHeight = 30.f;
+	/** How high above her feet her arrows leave the bow, cm. */
+	float HandHeight = 120.f;
+
+	static bool IsDown(const AThugCharacter* Archer)
+	{
+		return !Archer || Archer->IsLimp() || Archer->GetHealthComponent()->IsDead();
+	}
+
+	static FVector Eye(const AThugCharacter* Archer)
+	{
+		return Archer->GetActorLocation() + FVector(0.f, 0.f, 60.f);
+	}
+
+	/** A clear Visibility line from Archer's eyes to Point, pawns ignored. */
+	static bool Sees(UWorld* World, const AThugCharacter* Archer, const FVector& Point, const AActor* Kate)
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(DuelSight), false, Archer);
+		Params.AddIgnoredActor(Kate);
+		return !World->LineTraceTestByChannel(Eye(Archer), Point, ECC_Visibility, Params);
+	}
+
+	/** Seconds into the draw an archer is, or -1 when he is not drawing. */
+	static float DrawOf(const AThugCharacter* Archer)
+	{
+		const UBowComponent* Bow = Archer ? Archer->GetBowComponent() : nullptr;
+		return Bow && Bow->IsDrawing() ? Bow->GetDrawElapsed() : -1.f;
+	}
+
+	bool FindCover(UWorld* World, AHawkeyeCharacter* Kate, const FVector& Beacon, AActor* Roof);
+	/** IA_Move injection toward Goal (zero stops it), as a stick would. */
+	void Move(APlayerController* PC, const FVector2D& Value);
+	bool bMoveInjecting = false;
+	TWeakObjectPtr<AActor> RoofActor;
+	double NoShotSince = -1.0;
+	int32 Moves = 0;
+	/** Taps IA_Crouch (a toggle) when she is not already where bDown says, at most every 0.25 s. */
+	void Crouch(APlayerController* PC, bool bDown);
+	double LastCrouchTap = -10.0;
+	double LastStatus = -10.0;
+	void Finish(UWorld* World, APlayerController* PC, AHawkeyeCharacter* Kate, const FString& Why);
+};
+
+void FHawkeyeArcherDuelRunner::Move(APlayerController* PC, const FVector2D& Value)
+{
+	UEnhancedInputLocalPlayerSubsystem* Input = HawkeyeLap::InputOf(PC);
+	const UInputAction* A = HawkeyeLap::Action(HawkeyeLap::MovePath);
+	if (!Input || !A)
+	{
+		return;
+	}
+	if (Value.IsNearlyZero())
+	{
+		if (bMoveInjecting)
+		{
+			Input->StopContinuousInputInjectionForAction(A);
+			bMoveInjecting = false;
+		}
+		return;
+	}
+	if (!bMoveInjecting)
+	{
+		Input->StartContinuousInputInjectionForAction(A, FInputActionValue(Value), {}, {});
+		bMoveInjecting = true;
+	}
+	else
+	{
+		Input->UpdateValueOfContinuousInputInjectionForAction(A, FInputActionValue(Value));
+	}
+}
+
+void FHawkeyeArcherDuelRunner::Crouch(APlayerController* PC, bool bDown)
+{
+	const ACharacter* Kate = PC ? Cast<ACharacter>(PC->GetPawn()) : nullptr;
+	const UWorld* World = PC ? PC->GetWorld() : nullptr;
+	if (!Kate || !World || Kate->bIsCrouched == bDown || World->GetTimeSeconds() - LastCrouchTap < 0.25)
+	{
+		return;
+	}
+	LastCrouchTap = World->GetTimeSeconds();
+	HawkeyeLap::Tap(PC, HawkeyeLap::CrouchPath);
+}
+
+bool FHawkeyeArcherDuelRunner::FindCover(UWorld* World, AHawkeyeCharacter* Kate, const FVector& Beacon, AActor* Roof)
+{
+	using namespace HawkeyeLap;
+	const float Crouched = Kate->GetCharacterMovement()->GetCrouchedHalfHeight();
+	const float Radius = Kate->GetCapsuleComponent()->GetScaledCapsuleRadius();
+	const float HalfHeight = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	float Best = BIG_NUMBER;
+	int32 Candidates = 0;
+	for (float X = -1200.f; X <= 1200.f; X += 50.f)
+	{
+		for (float Y = -1200.f; Y <= 1200.f; Y += 50.f)
+		{
+			FVector Ground;
+			AActor* Under = nullptr;
+			if (!FindGround(World, Beacon + FVector(X, Y, 0.f), Beacon.Z + 300.f, Kate, Ground, &Under) || Under != Roof
+				|| FMath::Abs(Ground.Z - Beacon.Z) > 40.f)
+			{
+				continue;
+			}
+			// Room for her capsule standing.
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(DuelRoom), false, Kate);
+			if (World->OverlapBlockingTestByChannel(Ground + FVector(0.f, 0.f, HalfHeight + 5.f), FQuat::Identity, ECC_Pawn,
+					FCollisionShape::MakeCapsule(Radius + 5.f, HalfHeight), Params))
+			{
+				continue;
+			}
+			// Crouched she is hidden from both; standing she sees at least one.
+			const FVector Low = Ground + FVector(0.f, 0.f, Crouched);
+			const FVector High = Ground + FVector(0.f, 0.f, HandHeight);
+			bool bHidden = true;
+			int32 Seen = 0;
+			int32 Living = 0;
+			for (const TWeakObjectPtr<AThugCharacter>& Archer : Archers)
+			{
+				if (IsDown(Archer.Get()))
+				{
+					continue;
+				}
+				++Living;
+				bHidden = bHidden && !Sees(World, Archer.Get(), Low, Kate) && !Sees(World, Archer.Get(), Low + FVector(0.f, 0.f, 15.f), Kate);
+				// An arrow from her hand clears everything on the way to his head.
+				FCollisionQueryParams ArrowParams(SCENE_QUERY_STAT(DuelArrowLine), false, Kate);
+				ArrowParams.AddIgnoredActor(Archer.Get());
+				Seen += World->LineTraceTestByChannel(High, Archer->GetActorLocation() + FVector(0.f, 0.f, 55.f), ECC_Visibility, ArrowParams)
+					? 0 : 1;
+			}
+			if (!bHidden || Seen == 0)
+			{
+				continue;
+			}
+			++Candidates;
+			// Nearest where she is (the beacon at the start), and reaching every archer still up when it can.
+			const float Score = FVector::Dist2D(Ground, Beacon) + (Seen == Living ? 0.f : 600.f);
+			if (Score < Best)
+			{
+				Best = Score;
+				Cover = Ground;
+				CoverNote = FString::Printf(TEXT("%.0f cm away, her arrows reach %d of %d"), FVector::Dist2D(Ground, Beacon),
+					Seen, Living);
+			}
+		}
+	}
+	Test->AddInfo(FString::Printf(TEXT("Archer duel: %d cover spots on the find_arrow roof."), Candidates));
+	return Candidates > 0;
+}
+
+void FHawkeyeArcherDuelRunner::Finish(UWorld* World, APlayerController* PC, AHawkeyeCharacter* Kate, const FString& Why)
+{
+	HawkeyeLap::Hold(PC, HawkeyeLap::FirePath, false);
+	Move(PC, FVector2D::ZeroVector);
+	Crouch(PC, false);
+	if (UBowComponent* Bow = Kate->GetBowComponent())
+	{
+		Bow->ClearAimOverride();
+	}
+	bDone = true;
+	DoneAt = World->GetTimeSeconds();
+	const float Health = Kate->GetHealthComponent()->GetCurrentHealth();
+	int32 Down = 0;
+	int32 TheirArrows = 0;
+	for (const TWeakObjectPtr<AThugCharacter>& Archer : Archers)
+	{
+		Down += IsDown(Archer.Get()) ? 1 : 0;
+		if (const AThugCharacter* A = Archer.Get())
+		{
+			TheirArrows += A->GetBowComponent() ? A->GetBowComponent()->GetArrowsLoosed() : 0;
+		}
+	}
+	const int32 ArrowsUsed = Kate->GetBowComponent() ? Kate->GetBowComponent()->GetArrowsLoosed() - ArrowsAtStart : 0;
+	// Where her arrows ended up, for tuning: stuck in what, how far from her.
+	TMap<FString, int32> StuckIn;
+	for (TActorIterator<AArrowProjectile> It(World); It; ++It)
+	{
+		if (It->GetOwner() == Kate && It->IsStuck())
+		{
+			const AActor* In = It->GetStuckInActor();
+			StuckIn.FindOrAdd(FString::Printf(TEXT("%s@%.0fcm z%+.0f"), In ? *In->GetClass()->GetName() : TEXT("nothing"),
+				FVector::Dist2D(It->GetActorLocation(), Kate->GetActorLocation()) / 100.f * 100.f,
+				It->GetActorLocation().Z - Kate->GetActorLocation().Z))++;
+		}
+	}
+	for (const TPair<FString, int32>& Entry : StuckIn)
+	{
+		Test->AddInfo(FString::Printf(TEXT("Archer duel: %d of her arrows stuck in %s"), Entry.Value, *Entry.Key));
+	}
+	const double Seconds = DoneAt - FightStart;
+	const bool bWon = Down == Archers.Num() && Archers.Num() == 2 && Health > 0.f && Seconds <= 60.0;
+	const FString Json = FString::Printf(TEXT(
+		"{\n  \"test\": \"Hawkeye.Lap.ArcherDuel\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
+		"  \"kate_health\": %.1f,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n  \"archers_down\": %d,\n"
+		"  \"arrows_used\": %d,\n  \"archer_arrows\": %d,\n  \"pops\": %d,\n  \"aborted_pops\": %d,\n  \"cover_moves\": %d,\n"
+		"  \"cover\": \"%s\",\n  \"average_frame_ms\": %.2f\n}\n"),
+		bWon ? TEXT("true") : TEXT("false"), *Why, Seconds, Health, HitsTaken, DamageTaken, Down, ArrowsUsed, TheirArrows,
+		Pops, Aborts, Moves, *CoverNote, Meter.AverageMs());
+	HawkeyeLap::WriteText(TEXT("lap_archer_duel.json"), Json);
+	Test->AddInfo(TEXT("lap_archer_duel.json:\n") + Json);
+	UE_LOG(LogTemp, Display, TEXT("[Hawkeye] archer duel: %s"), *Json);
+	if (!bWon)
+	{
+		Test->AddError(FString::Printf(TEXT("Kate did not win the archer duel (%s): health %.0f, %d of 2 archers down in %.1f s."),
+			*Why, Health, Down, Seconds));
+	}
+	HawkeyeLap::SetThugsThinking(World, NAME_None, true);
+}
+
+bool FHawkeyeArcherDuelRunner::Update()
+{
+	using namespace HawkeyeLap;
+	UWorld* World = FindWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	if (!World || !Kate)
+	{
+		Test->AddError(TEXT("No game world or no Kate for the archer duel."));
+		return true;
+	}
+	const double Now = World->GetTimeSeconds();
+	if (bDone)
+	{
+		return Now - DoneAt > 1.0;
+	}
+	UHealthComponent* KateHealth = Kate->GetHealthComponent();
+
+	if (!bSetUp)
+	{
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			if (It->ActorHasTag(ArcherPairTag) && !IsDown(*It))
+			{
+				Archers.Add(*It);
+			}
+		}
+		AActor* Beacon = nullptr;
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->Tags.Contains(FName(TEXT("CityBeacon"))) && It->Tags.Contains(FName(TEXT("objective:find_arrow"))))
+			{
+				Beacon = *It;
+				break;
+			}
+		}
+		if (Archers.Num() != 2 || !Beacon)
+		{
+			Test->AddError(FString::Printf(TEXT("Expected the two ArcherPair archers and the find_arrow beacon, found %d and %s."),
+				Archers.Num(), Beacon ? TEXT("the beacon") : TEXT("no beacon")));
+			return true;
+		}
+		SetThugsThinking(World, NAME_None, false);
+		EnsureQuiver(Test, Kate->GetInventoryComponent());
+		Kate->GetInventoryComponent()->SelectArrowSlot(1);
+		FVector RoofPoint;
+		AActor* Roof = nullptr;
+		FindGround(World, Beacon->GetActorLocation(), Beacon->GetActorLocation().Z + 300.f, Kate, RoofPoint, &Roof);
+		// Her arrows leave from the bow hand (no draw animation: it stays near her hip), not her eyes.
+		if (const UBowComponent* KateBow = Kate->GetBowComponent())
+		{
+			const float Feet = Kate->GetActorLocation().Z - Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			HandHeight = FMath::Clamp(static_cast<float>(KateBow->GetArrowSpawnLocation().Z - Feet), 60.f, 170.f);
+		}
+		RoofActor = Roof;
+		if (!Roof || !FindCover(World, Kate, RoofPoint, Roof))
+		{
+			Test->AddError(TEXT("No cover on the find_arrow roof from both archers."));
+			return true;
+		}
+		const float HalfHeight = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const FVector Mid = (Archers[0]->GetActorLocation() + Archers[1]->GetActorLocation()) * 0.5f;
+		const float Yaw = (Mid - Cover).Rotation().Yaw;
+		Kate->TeleportTo(Cover + FVector(0.f, 0.f, HalfHeight + 2.f), FRotator(0.f, Yaw, 0.f));
+		PC->SetControlRotation(FRotator(-4.f, Yaw, 0.f));
+		PC->SetViewTarget(Kate);
+		KateHealth->SetInvulnerable(false);
+		KateHealth->Heal(1000.f);
+		LastHealth = KateHealth->GetCurrentHealth();
+		ArrowsAtStart = Kate->GetBowComponent() ? Kate->GetBowComponent()->GetArrowsLoosed() : 0;
+		Crouch(PC, true);
+		// Both archers on their own sight: aggressive within 30 m of her and with a line to her.
+		SetThugsThinking(World, ArcherPairTag, true);
+		Test->AddInfo(FString::Printf(TEXT("Archer duel: Kate at %s (%s); archers at %.0f and %.0f cm."), *Cover.ToCompactString(),
+			*CoverNote, FVector::Dist2D(Archers[0]->GetActorLocation(), Cover), FVector::Dist2D(Archers[1]->GetActorLocation(), Cover)));
+		bSetUp = true;
+		FightStart = Now;
+		PhaseSince = Now;
+		return false;
+	}
+
+	Meter.Frame(World->GetDeltaSeconds());
+	const float Health = KateHealth->GetCurrentHealth();
+	if (Health < LastHealth - 0.01f)
+	{
+		++HitsTaken;
+		DamageTaken += LastHealth - Health;
+		Test->AddInfo(FString::Printf(TEXT("Archer duel %.1f s: Kate hit for %.0f, health %.0f"), Now - FightStart, LastHealth - Health, Health));
+	}
+	LastHealth = Health;
+	if (!KateHealth->IsAlive() || Kate->IsDowned())
+	{
+		Finish(World, PC, Kate, TEXT("Kate went down"));
+		return false;
+	}
+	if (Now - FightStart > 60.0)
+	{
+		Finish(World, PC, Kate, TEXT("timed out"));
+		return false;
+	}
+
+	// The weakest archer she can see from standing.
+	// Her chest once she stands, wherever she is now (the capsule is shorter while she crouches).
+	const float FeetZ = Kate->GetActorLocation().Z - Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector Standing(Kate->GetActorLocation().X, Kate->GetActorLocation().Y, FeetZ + HandHeight);
+	AThugCharacter* Pick = nullptr;
+	float PickHeight = 30.f;
+	float Danger = -1.f;
+	int32 Alive = 0;
+	for (const TWeakObjectPtr<AThugCharacter>& Archer : Archers)
+	{
+		AThugCharacter* A = Archer.Get();
+		if (IsDown(A))
+		{
+			continue;
+		}
+		++Alive;
+		Danger = FMath::Max(Danger, DrawOf(A));
+		// The chest if it shows over his parapet, else his head.
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(DuelAim), false, Kate);
+		Params.AddIgnoredActor(A);
+		float Height = -1.f;
+		for (const float Try : { 30.f, 55.f, 70.f })
+		{
+			if (!World->LineTraceTestByChannel(Standing, A->GetActorLocation() + FVector(0.f, 0.f, Try), ECC_Visibility, Params))
+			{
+				Height = Try;
+				break;
+			}
+		}
+		if (Height >= 0.f && (!Pick || A->GetHealthComponent()->GetCurrentHealth() < Pick->GetHealthComponent()->GetCurrentHealth()))
+		{
+			Pick = A;
+			PickHeight = Height;
+		}
+	}
+	if (Alive == 0)
+	{
+		Finish(World, PC, Kate, TEXT("both archers down"));
+		return false;
+	}
+
+	UBowComponent* Bow = Kate->GetBowComponent();
+	if (Now - LastStatus >= 3.0)
+	{
+		LastStatus = Now;
+		Test->AddInfo(FString::Printf(TEXT("Archer duel %.1f s: phase %d, crouched %d, target in sight %s, worst draw %.2f s, alive %d."),
+			Now - FightStart, static_cast<int32>(Phase), Kate->bIsCrouched ? 1 : 0, *GetNameSafe(Pick), Danger, Alive));
+	}
+	switch (Phase)
+	{
+	case EPhase::Hidden:
+		Crouch(PC, true);
+		NoShotSince = Pick ? -1.0 : (NoShotSince < 0.0 ? Now : NoShotSince);
+		if (NoShotSince >= 0.0 && Now - NoShotSince > 1.0 && RoofActor.IsValid())
+		{
+			// Nobody left in reach from here: new cover that reaches the rest, walked to crouched.
+			const FVector Feet = Kate->GetActorLocation() - FVector(0.f, 0.f, Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+			if (FindCover(World, Kate, Feet, RoofActor.Get()) && FVector::Dist2D(Cover, Feet) > 40.f)
+			{
+				Test->AddInfo(FString::Printf(TEXT("Archer duel %.1f s: moving to new cover %s (%s)."), Now - FightStart,
+					*Cover.ToCompactString(), *CoverNote));
+				Phase = EPhase::Moving;
+				PhaseSince = Now;
+				++Moves;
+			}
+			NoShotSince = Now;
+		}
+		// Up only when nobody is more than a moment into a draw: her 0.8 s draw beats his 1.2 s.
+		if (Now - PhaseSince >= 0.5 && Kate->bIsCrouched && Pick && Danger < 0.25f)
+		{
+			Target = Pick;
+			TargetHeight = PickHeight;
+			Crouch(PC, false);
+			Phase = EPhase::Rising;
+			PhaseSince = Now;
+			++Pops;
+		}
+		break;
+	case EPhase::Rising:
+		Crouch(PC, false);
+		if (Target.IsValid())
+		{
+			AimAt(PC, Kate, Target->GetActorLocation() + FVector(0.f, 0.f, TargetHeight));
+		}
+		if (Now - PhaseSince >= 0.2 && !Kate->bIsCrouched)
+		{
+			Hold(PC, FirePath, true);
+			Phase = EPhase::Drawing;
+			PhaseSince = Now;
+		}
+		break;
+	case EPhase::Drawing:
+	{
+		AThugCharacter* A = Target.Get();
+		if (A && Bow)
+		{
+			// Where the arrow will meet him, dropping over the flight.
+			const FVector Chest = A->GetActorLocation() + FVector(0.f, 0.f, TargetHeight);
+			const FVector Aim = AThugAIController::ComputeLeadAimPoint(Bow->GetArrowSpawnLocation(), Chest, A->GetVelocity(),
+				6000.f, World->GetGravityZ());
+			Bow->SetAimOverride(Aim);
+			AimAt(PC, Kate, Aim);
+		}
+		const bool bThreat = Danger >= 0.9f;
+		if (Now - PhaseSince >= 0.82 || bThreat || IsDown(A))
+		{
+			Hold(PC, FirePath, false);
+			Aborts += (bThreat && Now - PhaseSince < 0.82) ? 1 : 0;
+			Crouch(PC, true);
+			Phase = EPhase::Hidden;
+			PhaseSince = Now;
+		}
+		break;
+	}
+	case EPhase::Moving:
+	{
+		Crouch(PC, true);
+		const FVector To = Cover - Kate->GetActorLocation();
+		if (To.Size2D() <= 40.f || Now - PhaseSince > 8.0)
+		{
+			Move(PC, FVector2D::ZeroVector);
+			Phase = EPhase::Hidden;
+			PhaseSince = Now;
+			break;
+		}
+		if (Kate->bIsCrouched)
+		{
+			Move(PC, MoveTowards(To.GetSafeNormal2D(), PC->GetControlRotation().Yaw));
+		}
+		break;
+	}
+	}
+	return false;
+}
+
 // --- Tests --------------------------------------------------------------------------------------
 
 bool FHawkeyeLapEastVillage::RunTest(const FString& Parameters)
@@ -2297,6 +2795,19 @@ bool FHawkeyeLapRoofFight::RunTest(const FString& Parameters)
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeRoofFightRunner(this));
+	return true;
+}
+
+bool FHawkeyeLapArcherDuel::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddInfo(TEXT("No RHI: skipping the archer duel. Run it from the standalone game (-game, no -nullrhi)."));
+		return true;
+	}
+	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeArcherDuelRunner(this));
 	return true;
 }
 
