@@ -7,6 +7,9 @@
 #include "HawkeyePlayerController.generated.h"
 
 class SWidget;
+class AHawkeyeCharacter;
+class AHawkeyePartnerController;
+class UBanterComponent;
 class UHawkeyeHudWidget;
 class UHawkeyeInventoryWidget;
 class UHawkeyePauseWidget;
@@ -31,6 +34,8 @@ class HAWKEYE_API AHawkeyePlayerController : public APlayerController
 	GENERATED_BODY()
 
 public:
+	AHawkeyePlayerController();
+
 	/** UMG widget (reparented to UHawkeyeHudWidget) created on BeginPlay. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD")
 	TSubclassOf<UHawkeyeHudWidget> HudWidgetClass;
@@ -183,6 +188,65 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Input")
 	bool IsUsingGamepad() const { return bUsingGamepad; }
 
+	// --- Partner and switching (claude-docs/gameplay-semantics.md) -----------------------------
+
+	/**
+	 * Swaps control to the other Hawkeye: possesses the partner's pawn, hands the one you were
+	 * playing to the partner controller, rebinds the HUD (quiver, name) and blends the camera over
+	 * SwitchBlendSeconds. False, and nothing changes, when GetSwitchRefusal has a reason.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Partner")
+	bool SwitchCharacter();
+
+	/**
+	 * Why a switch would be refused now, or empty when it would go ahead: the chapter does not allow
+	 * it, there is no partner, or either Hawkeye is mid-traversal, mid-zip, mid-takedown or down.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Partner")
+	FString GetSwitchRefusal() const;
+
+	/** The chapter's bAllowSwitching, or bAllowSwitchingOverride. */
+	UFUNCTION(BlueprintPure, Category = "Partner")
+	bool IsSwitchingAllowed() const;
+
+	/** The partner controller backing up this player's pawn (any partner with a pawn if none leads it). */
+	UFUNCTION(BlueprintPure, Category = "Partner")
+	AHawkeyePartnerController* FindPartnerController() const;
+
+	/**
+	 * T: traces from the camera up to MarkTraceDistance and sends the partner to the point it hits.
+	 * False when there is no partner or nothing under the view.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Partner")
+	bool MarkPoint();
+
+	/** The name the HUD shows for the character being played; updated by every switch. */
+	UFUNCTION(BlueprintPure, Category = "Partner")
+	FText GetHudCharacterName() const;
+
+	UFUNCTION(BlueprintPure, Category = "Partner")
+	UBanterComponent* GetBanter() const { return Banter; }
+
+	/** X on the keyboard, LB on a pad. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Partner")
+	TObjectPtr<UInputAction> SwitchCharacterAction;
+
+	/** T on the keyboard. No pad binding yet (the D-pad is the quiver's). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Partner")
+	TObjectPtr<UInputAction> PartnerMarkAction;
+
+	/** How long the camera takes to move from one Hawkeye to the other. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Partner", meta = (ClampMin = "0.0"))
+	float SwitchBlendSeconds = 0.3f;
+
+	/** How far the mark trace looks, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Partner", meta = (ClampMin = "100.0"))
+	float MarkTraceDistance = 5000.f;
+
+	/** Allows switching whatever the chapter says: debug and automation tests. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Partner")
+	bool bAllowSwitchingOverride = false;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -190,6 +254,16 @@ protected:
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
 	void Input_Pause(const FInputActionValue& Value);
+	void Input_SwitchCharacter(const FInputActionValue& Value);
+	void Input_PartnerMark(const FInputActionValue& Value);
+
+	/** Kate and Clint's banter, shown on the HUD. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Partner")
+	TObjectPtr<UBanterComponent> Banter;
+
+	/** Set by SwitchCharacter; empty until the first switch, when the pawn's own name is used. */
+	UPROPERTY(Transient)
+	FText ActiveCharacterName;
 
 	/** Adds PauseMappingContext to the local player's Enhanced Input subsystem. */
 	void AddPauseMappingContext();

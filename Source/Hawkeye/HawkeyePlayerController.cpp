@@ -27,6 +27,16 @@
 #include "UI/HawkeyePauseWidget.h"
 #include "UI/HawkeyeSettingsWidget.h"
 #include "UI/MissionEndCardWidget.h"
+#include "Dialogue/BanterComponent.h"
+#include "EngineUtils.h"
+#include "NavigationSystem.h"
+#include "Partner/HawkeyePartnerController.h"
+#include "Player/HawkeyeCharacter.h"
+
+AHawkeyePlayerController::AHawkeyePlayerController()
+{
+	Banter = CreateDefaultSubobject<UBanterComponent>(TEXT("Banter"));
+}
 
 void AHawkeyePlayerController::BeginPlay()
 {
@@ -67,7 +77,7 @@ void AHawkeyePlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
 
-	if (!PauseAction)
+	if (!PauseAction && !SwitchCharacterAction && !PartnerMarkAction)
 	{
 		return;
 	}
@@ -80,7 +90,20 @@ void AHawkeyePlayerController::SetupInputComponent()
 		return;
 	}
 
-	EnhancedInput->BindAction(PauseAction, ETriggerEvent::Started, this, &AHawkeyePlayerController::Input_Pause);
+	if (PauseAction)
+	{
+		EnhancedInput->BindAction(PauseAction, ETriggerEvent::Started, this, &AHawkeyePlayerController::Input_Pause);
+	}
+	// On the controller, like pause: switching moves between pawns, so neither pawn can own it.
+	if (SwitchCharacterAction)
+	{
+		EnhancedInput->BindAction(SwitchCharacterAction, ETriggerEvent::Started, this,
+			&AHawkeyePlayerController::Input_SwitchCharacter);
+	}
+	if (PartnerMarkAction)
+	{
+		EnhancedInput->BindAction(PartnerMarkAction, ETriggerEvent::Started, this, &AHawkeyePlayerController::Input_PartnerMark);
+	}
 }
 
 bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
@@ -758,5 +781,162 @@ bool AHawkeyePlayerController::TryOpenNextLevel()
 
 	UE_LOG(LogHawkeye, Log, TEXT("Travelling to next level: %s"), *Mission->NextLevel.ToString());
 	UGameplayStatics::OpenLevelBySoftObjectPtr(this, Mission->NextLevel);
+	return true;
+}
+
+// --- Partner and switching ----------------------------------------------------------------------------
+
+void AHawkeyePlayerController::Input_SwitchCharacter(const FInputActionValue& /*Value*/)
+{
+	SwitchCharacter();
+}
+
+void AHawkeyePlayerController::Input_PartnerMark(const FInputActionValue& /*Value*/)
+{
+	MarkPoint();
+}
+
+bool AHawkeyePlayerController::IsSwitchingAllowed() const
+{
+	if (bAllowSwitchingOverride)
+	{
+		return true;
+	}
+	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
+	const UMissionDefinition* Mission = Missions ? Missions->GetCurrentMission() : nullptr;
+	return Mission && Mission->bAllowSwitching;
+}
+
+AHawkeyePartnerController* AHawkeyePlayerController::FindPartnerController() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+	AHawkeyePartnerController* Any = nullptr;
+	for (TActorIterator<AHawkeyePartnerController> It(World); It; ++It)
+	{
+		if (!It->GetPartner())
+		{
+			continue;
+		}
+		if (It->GetLeader() == GetPawn())
+		{
+			return *It;
+		}
+		Any = Any ? Any : *It;
+	}
+	return Any;
+}
+
+FString AHawkeyePlayerController::GetSwitchRefusal() const
+{
+	if (!IsSwitchingAllowed())
+	{
+		return TEXT("this chapter does not allow switching");
+	}
+	const AHawkeyeCharacter* Current = Cast<AHawkeyeCharacter>(GetPawn());
+	if (!Current)
+	{
+		return TEXT("no Hawkeye to switch from");
+	}
+	const AHawkeyePartnerController* Partner = FindPartnerController();
+	const AHawkeyeCharacter* Other = Partner ? Partner->GetPartner() : nullptr;
+	if (!Other)
+	{
+		return TEXT("no partner to switch to");
+	}
+	const FString Blocker = Current->GetSwitchBlocker();
+	if (!Blocker.IsEmpty())
+	{
+		return FString::Printf(TEXT("%s is %s"), *Current->GetCharacterName().ToString(), *Blocker);
+	}
+	const FString OtherBlocker = Other->GetSwitchBlocker();
+	if (!OtherBlocker.IsEmpty())
+	{
+		return FString::Printf(TEXT("%s is %s"), *Other->GetCharacterName().ToString(), *OtherBlocker);
+	}
+	return FString();
+}
+
+bool AHawkeyePlayerController::SwitchCharacter()
+{
+	const FString Refusal = GetSwitchRefusal();
+	if (!Refusal.IsEmpty())
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: switch refused: %s."), *GetName(), *Refusal);
+		return false;
+	}
+
+	AHawkeyeCharacter* Previous = Cast<AHawkeyeCharacter>(GetPawn());
+	AHawkeyePartnerController* Partner = FindPartnerController();
+	AHawkeyeCharacter* Next = Partner->GetPartner();
+	const FRotator View = GetControlRotation();
+
+	// Whatever the thumbs were holding on the old body is let go: no sprint or draw carries over.
+	Previous->ReleaseHeldInputs();
+	Partner->UnPossess();
+	Possess(Next);
+	SetControlRotation(FRotator(View.Pitch, View.Yaw, 0.f));
+	Partner->Possess(Previous);
+	Partner->SetLeader(Next);
+
+	// Possess snapped the view to the new pawn; start from the old one's camera and blend across.
+	if (SwitchBlendSeconds > 0.f && IsLocalController())
+	{
+		SetViewTarget(Previous);
+		SetViewTargetWithBlend(Next, SwitchBlendSeconds, VTBlend_Cubic);
+	}
+
+	ActiveCharacterName = Next->GetCharacterName();
+	if (HudWidget)
+	{
+		HudWidget->RebindToPawn();
+		HudWidget->SetCharacterName(ActiveCharacterName);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: switched from %s to %s; %s now follows."), *GetName(),
+		*Previous->GetCharacterName().ToString(), *ActiveCharacterName.ToString(), *Previous->GetCharacterName().ToString());
+	return true;
+}
+
+FText AHawkeyePlayerController::GetHudCharacterName() const
+{
+	if (!ActiveCharacterName.IsEmpty())
+	{
+		return ActiveCharacterName;
+	}
+	const AHawkeyeCharacter* Current = Cast<AHawkeyeCharacter>(GetPawn());
+	return Current ? Current->GetCharacterName() : FText::GetEmpty();
+}
+
+bool AHawkeyePlayerController::MarkPoint()
+{
+	AHawkeyePartnerController* Partner = FindPartnerController();
+	UWorld* World = GetWorld();
+	if (!Partner || !World)
+	{
+		return false;
+	}
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetPlayerViewPoint(ViewLocation, ViewRotation);
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HawkeyeMarkPoint), false, GetPawn());
+	Params.AddIgnoredActor(Partner->GetPawn());
+	FHitResult Hit;
+	if (!World->LineTraceSingleByChannel(Hit, ViewLocation, ViewLocation + ViewRotation.Vector() * MarkTraceDistance,
+			ECC_Visibility, Params))
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: nothing under the view to mark."), *GetName());
+		return false;
+	}
+	FVector Point = Hit.ImpactPoint;
+	FNavLocation OnNav;
+	if (const UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
+		Nav && Nav->ProjectPointToNavigation(Point, OnNav, FVector(200.f, 200.f, 300.f)))
+	{
+		Point = OnNav.Location;
+	}
+	Partner->CommandMoveTo(Point);
 	return true;
 }
