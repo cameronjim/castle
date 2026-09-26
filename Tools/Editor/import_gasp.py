@@ -200,9 +200,21 @@ def plan(source=GASP_CONTENT, roots=ROOTS):
     }
 
 
+def is_redirector(path):
+    """True for a package that only redirects to another (the sample ships a few after renames)."""
+    with open(path, "rb") as handle:
+        return b"ObjectRedirector" in handle.read(65536)
+
+
 def copy(result, destination):
-    """Copies what is not there yet. Returns (copied, identical, kept_ours) package lists."""
+    """Copies what is not there yet. Returns (copied, identical, kept_ours) package lists.
+
+    The sample's redirectors are copied only alongside a package that may still point through
+    them. pivot_cleanup's Fix Up Redirectors resaves those referencers and deletes the
+    redirectors, so a later run that copies nothing else must not bring them back, or every
+    create-content run would copy them and the next delete them again."""
     copied, identical, kept = [], [], []
+    redirectors = []
     for package, source_path in result["files"].items():
         ext = os.path.splitext(source_path)[1]
         target = os.path.join(destination, package[len("/Game/"):].replace("/", os.sep) + ext)
@@ -213,9 +225,17 @@ def copy(result, destination):
                 # Ours at the same path (the eight IA_ collisions), or a copy a later step changed.
                 kept.append(package)
             continue
+        if is_redirector(source_path):
+            redirectors.append((package, source_path, target))
+            continue
         os.makedirs(os.path.dirname(target), exist_ok=True)
         shutil.copy2(source_path, target)
         copied.append(package)
+    if copied:
+        for package, source_path, target in redirectors:
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(source_path, target)
+            copied.append(package)
     return copied, identical, kept
 
 
