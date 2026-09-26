@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Components/LightComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -10,6 +11,8 @@
 #include "NavigationSystem.h"
 #include "Mission/MissionDefinition.h"
 #include "Mission/MissionSubsystem.h"
+#include "Combat/HealthComponent.h"
+#include "Combat/WeaponComponent.h"
 #include "Player/CastleCharacter.h"
 #include "Tests/AutomationCommon.h"
 #include "World/DoorActor.h"
@@ -19,8 +22,9 @@
 
 /**
  * Boots /Game/Maps/L_M01_CellBlockD for real and asserts the level is playable: a mission is
- * running with its four objectives, the five thugs and the keycard door exist, and the pawn
- * the player is driving is an ACastleCharacter.
+ * running with its three objectives, the five thugs and the keycard door exist, the pawn the
+ * player is driving is an ACastleCharacter, the thugs move, and a fight has consequences: a thug
+ * dies to the player's fists or a thug's bullet hurts the player.
  *
  * This is the only test that loads Content. It is deliberately shallow - it answers "does the
  * game boot", not "is the game correct" - but it is the one thing the unit tests cannot cover.
@@ -124,6 +128,74 @@ bool FCastleAssertThugsPatrol::Update()
 	return true;
 }
 
+/**
+ * And a fight has consequences. The player walks up to the nearest living thug, square in front
+ * of him, and punches until either the thug dies to the fists or the thug's own shots land. Both
+ * are the payoff of the third-person rig and the hitscan still working together: the punch sweeps
+ * from the body, not the camera 350 cm behind it, and the thug's bullets block on the player.
+ */
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
+	FCastleAssertFightHasConsequences, FCastleSmokeLoadM01*, Test, float, SecondsLeft);
+
+bool FCastleAssertFightHasConsequences::Update()
+{
+	UWorld* World = FindCastleGameWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	ACastleCharacter* Player = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
+	UWeaponComponent* Fists = Player ? Player->GetWeaponComponent() : nullptr;
+	UHealthComponent* PlayerHealth = Player ? Player->GetHealthComponent() : nullptr;
+	if (!Fists || !PlayerHealth)
+	{
+		Test->AddError(TEXT("No player pawn with a weapon and health to start a fight with."));
+		return true;
+	}
+
+	AThugCharacter* Target = nullptr;
+	float NearestDistanceSquared = TNumericLimits<float>::Max();
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
+	{
+		const UHealthComponent* Health = It->GetHealthComponent();
+		if (Health && Health->IsDead())
+		{
+			Test->AddInfo(FString::Printf(TEXT("%s died to the player's fists."), *It->GetName()));
+			Test->TestTrue(TEXT("A thug dies to melee"), true);
+			return true;
+		}
+		const float DistanceSquared = FVector::DistSquared(It->GetActorLocation(), Player->GetActorLocation());
+		if (Health && DistanceSquared < NearestDistanceSquared)
+		{
+			NearestDistanceSquared = DistanceSquared;
+			Target = *It;
+		}
+	}
+
+	if (PlayerHealth->GetCurrentHealth() < PlayerHealth->GetMaxHealth())
+	{
+		Test->AddInfo(FString::Printf(TEXT("A thug shot the player down to %.0f health."),
+			PlayerHealth->GetCurrentHealth()));
+		Test->TestTrue(TEXT("A thug's bullet hurts the player"), true);
+		return true;
+	}
+
+	SecondsLeft -= FApp::GetDeltaTime();
+	if (!Target || SecondsLeft <= 0.f)
+	{
+		Test->AddError(TEXT("No thug died to the player's fists and no thug's shot hurt the player."));
+		return true;
+	}
+
+	// Stand 90 cm in front of him, feet on his floor, facing him, and swing. The fists' cooldown
+	// paces the punches; standing in his sight cone is what lets him shoot back.
+	const FVector ThugLocation = Target->GetActorLocation();
+	const FVector Stand = ThugLocation + Target->GetActorForwardVector().GetSafeNormal2D() * 90.f
+		- FVector(0.f, 0.f, 8.f);
+	const FRotator Facing = FRotator(0.f, (ThugLocation - Stand).GetSafeNormal2D().Rotation().Yaw, 0.f);
+	Player->TeleportTo(Stand, Facing, false, true);
+	PC->SetControlRotation(Facing);
+	Fists->Fire();
+	return false;
+}
+
 bool FCastleAssertM01Playable::Update()
 {
 	UWorld* World = FindCastleGameWorld();
@@ -146,7 +218,8 @@ bool FCastleAssertM01Playable::Update()
 		Test->TestNotNull(TEXT("The game mode started a mission"), Mission);
 		if (Mission)
 		{
-			Test->TestEqual(TEXT("The mission has four objectives"), Missions->GetActiveObjectives().Num(), 4);
+			// leave_cell, security_door, reach_stairwell. find_weapon went with the pistol.
+			Test->TestEqual(TEXT("The mission has three objectives"), Missions->GetActiveObjectives().Num(), 3);
 			Test->TestNotNull(TEXT("And a current objective to show on the HUD"), Missions->GetCurrentObjective());
 		}
 	}
@@ -186,7 +259,17 @@ bool FCastleAssertM01Playable::Update()
 	Test->TestNotNull(TEXT("There is a player controller"), PC);
 	if (PC)
 	{
-		Test->TestNotNull(TEXT("The pawn is an ACastleCharacter"), Cast<ACastleCharacter>(PC->GetPawn()));
+		const ACastleCharacter* Player = Cast<ACastleCharacter>(PC->GetPawn());
+		Test->TestNotNull(TEXT("The pawn is an ACastleCharacter"), Player);
+		if (Player)
+		{
+			// Third person: the mannequin is on the body and the camera is on a boom behind it.
+			const USkeletalMeshComponent* Body = Player->GetMesh();
+			Test->TestTrue(TEXT("The player body wears a skeletal mesh"),
+				Body && Body->GetSkeletalMeshAsset() != nullptr);
+			Test->TestTrue(TEXT("And its owner can see it"), Body && !Body->bOwnerNoSee && Body->IsVisible());
+			Test->TestNotNull(TEXT("The camera sits on a spring arm"), Player->GetCameraBoom());
+		}
 	}
 
 	return true;
@@ -203,6 +286,9 @@ bool FCastleSmokeLoadM01::RunTest(const FString& Parameters)
 	// Navigation is built asynchronously and the patrol only starts once it is there.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertM01Navigation(this, 10.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertThugsPatrol(this, 10.f));
+
+	// Last, because it moves the player: a fist fight with the nearest thug.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertFightHasConsequences(this, 15.f));
 
 	return true;
 }

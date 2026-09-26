@@ -1,17 +1,13 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "Combat/HealthComponent.h"
-#include "Combat/WeaponComponent.h"
-#include "Combat/WeaponDefinition.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "Engine/Engine.h"
-#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
-#include "Player/InventoryComponent.h"
 #include "Player/LocomotionAnim.h"
-#include "World/PickupActor.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformFileManager.h"
@@ -27,31 +23,30 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
- * Reference shots of Cell Block D, written to Saved/Screenshots/Room/. These are look-at-them
- * tools, not assertions: they exist so the room and the view model can be reviewed without
+ * Reference shots of L_M01_CellBlockD, written to Saved/Screenshots/Room/. These are look-at-them
+ * tools, not assertions: they exist so the room, the player and the thugs can be reviewed without
  * opening the full editor.
  *
- *   Castle.Screenshot.M01Cell       cell.png, corridor.png, doorway.png, station.png,
- *                                   corridor2.png, exitroom.png - the room, pawn hidden
- *   Castle.Screenshot.M01Viewmodel  viewmodel_fists.png, viewmodel_lookdown.png,
- *                                   viewmodel_hip.png, viewmodel_aim.png, viewmodel_fire.png,
- *                                   thug_walking.png, thug_dead.png - the pawn visible
- *   Castle.Screenshot.Settings      UI/settings.png - the pause menu's Settings screen
+ *   Castle.Screenshot.M01Cell         cell.png, corridor.png, doorway.png, station.png,
+ *                                     corridor2.png, exitroom.png - the room, pawn hidden
+ *   Castle.Screenshot.M01ThirdPerson  third_person.png - the player from the placeholder boom;
+ *                                     thug_walking.png, thug_dead.png - the thugs
+ *   Castle.Screenshot.Settings        UI/settings.png - the pause menu's Settings screen
  *
- * Both need a real RHI, so they are explicit no-ops in the normal -nullrhi suite:
+ * The fixed shots view through a camera actor placed at the shot's eye, because the pawn's own
+ * camera now sits on a boom 350 cm behind it. They need a real RHI, so they are explicit no-ops
+ * in the normal -nullrhi suite:
  *
  *   UnrealEditor-Cmd.exe Castle.uproject -ExecCmds="Automation RunTests Castle.Screenshot; Quit"
  *       -unattended -nosplash -nop4 -stdout
  */
 /**
  * ClientContext as well as EditorContext, so the same pass can be run inside the standalone
- * game. That is the gap this whole set of shots exists to close: an editor render told us the
- * pistol was in Frank's hand while the game, which loads the definition rather than the
- * Blueprint default, showed nothing at all.
+ * game. That is the gap this whole set of shots exists to close: an editor render once looked
+ * right while the game, which loads assets rather than finding them resident, did not.
  *
- *   UnrealEditor-Cmd.exe Castle.uproject /Game/Maps/L_M01_CellBlockD -game -windowed
- *       -ResX=1280 -ResY=720 -unattended -nosplash
- *       -ExecCmds="Automation RunTests Castle.Screenshot.M01Cell; Quit"
+ *   UnrealEditor-Cmd.exe Castle.uproject -game -windowed -ResX=1280 -ResY=720 -unattended
+ *       -nosplash -log -ExecCmds="Automation RunTests Castle.Screenshot; Quit"
  */
 static constexpr EAutomationTestFlags CastleScreenshotFlags =
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
@@ -60,11 +55,14 @@ static constexpr EAutomationTestFlags CastleScreenshotFlags =
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotM01Cell, "Castle.Screenshot.M01Cell",
 	CastleScreenshotFlags)
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotM01Viewmodel, "Castle.Screenshot.M01Viewmodel",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotM01ThirdPerson, "Castle.Screenshot.M01ThirdPerson",
 	CastleScreenshotFlags)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotSettings, "Castle.Screenshot.Settings",
 	CastleScreenshotFlags)
+
+/** Tag on the one camera actor the fixed shots look through. */
+static const FName CastleScreenshotCameraTag(TEXT("CastleScreenshotCamera"));
 
 /** Where the PNGs land. Absolute, because FScreenshotRequest does not resolve /Game paths. */
 static FString RoomScreenshotPath(const FString& FileName)
@@ -101,10 +99,51 @@ static APawn* FindScreenshotPawn()
 }
 
 /**
- * Teleport the player pawn and point the camera. The shot comes a beat later.
- *
- * bHidePawn hides the whole actor, which is what the room shots want: the view model is
- * parented to the camera and would otherwise sit in front of every wall.
+ * Look through a camera actor at Location/Rotation instead of the pawn's boom. The same actor is
+ * reused for every fixed shot so the world does not fill up with cameras.
+ */
+static void ViewFromFixedCamera(UWorld* World, APlayerController* PC, const FVector& Location, const FRotator& Rotation)
+{
+	if (!World || !PC)
+	{
+		return;
+	}
+
+	ACameraActor* Camera = nullptr;
+	for (TActorIterator<ACameraActor> It(World); It; ++It)
+	{
+		if (It->ActorHasTag(CastleScreenshotCameraTag))
+		{
+			Camera = *It;
+			break;
+		}
+	}
+
+	if (!Camera)
+	{
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Camera = World->SpawnActor<ACameraActor>(Location, Rotation, SpawnParams);
+		if (!Camera)
+		{
+			return;
+		}
+		Camera->Tags.Add(CastleScreenshotCameraTag);
+		if (UCameraComponent* Lens = Camera->GetCameraComponent())
+		{
+			Lens->SetFieldOfView(90.f);
+			Lens->bConstrainAspectRatio = false;
+		}
+	}
+
+	Camera->SetActorLocationAndRotation(Location, Rotation);
+	PC->SetViewTarget(Camera);
+}
+
+/**
+ * Put the camera at Location/Rotation for a fixed shot. The pawn is moved there too - so thugs
+ * react to it as they always have - and hidden when bHidePawn, which is what the room shots
+ * want. The shot comes a beat later.
  */
 DEFINE_LATENT_AUTOMATION_COMMAND_FOUR_PARAMETER(
 	FCastlePlaceCamera, FAutomationTestBase*, Test, FVector, Location, FRotator, Rotation,
@@ -121,16 +160,43 @@ bool FCastlePlaceCamera::Update()
 		return true;
 	}
 
-	// Yaw only on the actor: a character never pitches (bUseControllerRotationPitch is off), and
-	// teleporting one nose-down swings his body out of his own camera, which is precisely what
-	// the look-down shot is meant to show.
 	Pawn->TeleportTo(Location, FRotator(0.f, Rotation.Yaw, 0.f), false, true);
 	PC->SetControlRotation(Rotation);
 	Pawn->SetActorHiddenInGame(bHidePawn);
+	ViewFromFixedCamera(World, PC, Location, Rotation);
 	return true;
 }
 
-/** Ask for one screenshot. Separate from the teleport so motion blur has settled first. */
+/**
+ * The player from the placeholder third-person boom: pawn visible, standing in corridor 1
+ * facing down it, the view target back on the pawn so the shot is what the player sees.
+ */
+DEFINE_LATENT_AUTOMATION_COMMAND_THREE_PARAMETER(
+	FCastleViewFromPawn, FAutomationTestBase*, Test, FVector, Location, FRotator, ControlRotation);
+
+bool FCastleViewFromPawn::Update()
+{
+	UWorld* World = FindScreenshotWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	ACastleCharacter* Player = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
+	if (!Player)
+	{
+		Test->AddError(TEXT("No ACastleCharacter to frame from its own camera."));
+		return true;
+	}
+
+	Player->SetActorHiddenInGame(false);
+	Player->TeleportTo(Location, FRotator(0.f, ControlRotation.Yaw, 0.f), false, true);
+	PC->SetControlRotation(ControlRotation);
+	PC->SetViewTarget(Player);
+
+	const USkeletalMeshComponent* Body = Player->GetMesh();
+	Test->AddInfo(FString::Printf(TEXT("Third-person view: body mesh=%s visible=%d"),
+		*GetNameSafe(Body ? Body->GetSkeletalMeshAsset() : nullptr), Body && Body->IsVisible() ? 1 : 0));
+	return true;
+}
+
+/** Ask for one screenshot. Separate from the placement so motion blur and camera lag settle. */
 DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
 	FCastleTakeRoomShot, FAutomationTestBase*, Test, FString, FileName);
 
@@ -141,58 +207,6 @@ bool FCastleTakeRoomShot::Update()
 	PlatformFile.CreateDirectoryTree(*FPaths::GetPath(FullPath));
 	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/false, /*bAddFilenameSuffix=*/false);
 	Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
-	return true;
-}
-
-/**
- * Arm Frank the way the game does: through a weapon pickup in the level.
- *
- * This used to call WeaponComponent::GiveWeapon, which arms the component but leaves
- * ActiveDefinition null - so the view model kept the Blueprint's default mesh and its C++ grip
- * rotation, and the shot looked right while the real game, which goes through the definition,
- * showed no gun at all. Anything the pickup path gets wrong now gets it wrong here too.
- */
-DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
-	FCastleGiveWeapon, FAutomationTestBase*, Test);
-
-bool FCastleGiveWeapon::Update()
-{
-	UWorld* World = FindScreenshotWorld();
-	ACastleCharacter* Frank = Cast<ACastleCharacter>(FindScreenshotPawn());
-	if (!World || !Frank || !Frank->GetInventoryComponent())
-	{
-		Test->AddError(TEXT("No player pawn with an inventory to arm."));
-		return true;
-	}
-
-	for (TActorIterator<APickupActor> It(World); It; ++It)
-	{
-		if (It->PickupType != EPickupType::Weapon || It->Weapon.IsNull())
-		{
-			continue;
-		}
-		Test->AddInfo(FString::Printf(TEXT("Taking %s through the real pickup path."), *It->GetName()));
-		It->ApplyTo(Frank);
-		break;
-	}
-
-	const UWeaponComponent* Weapon = Frank->GetWeaponComponent();
-	if (!Weapon || !Weapon->HasWeapon())
-	{
-		Test->AddError(TEXT("No weapon pickup in the map armed the player; the hip shot has no gun."));
-		return true;
-	}
-
-	Frank->RefreshViewModelForWeapon();
-	const UStaticMeshComponent* WeaponMesh = Frank->GetWeaponMesh();
-	Test->AddInfo(FString::Printf(TEXT("View model: mesh=%s hidden=%d definition=%s"),
-		*GetNameSafe(WeaponMesh ? WeaponMesh->GetStaticMesh() : nullptr),
-		WeaponMesh && WeaponMesh->bHiddenInGame ? 1 : 0,
-		*GetNameSafe(Weapon->GetActiveDefinition())));
-	if (WeaponMesh && (!WeaponMesh->GetStaticMesh() || WeaponMesh->bHiddenInGame))
-	{
-		Test->AddError(TEXT("The view model pistol is missing or hidden after the pickup."));
-	}
 	return true;
 }
 
@@ -245,69 +259,19 @@ bool FCastleFrameWalkingThug::Update()
 	}
 
 	// Stand off his shoulder so the shot shows which way the body points against which way it
-	// travels; straight behind him hides exactly that.
+	// travels; straight behind him hides exactly that. The player is hidden at the eye.
 	const FVector Travel = Walking->GetVelocity().GetSafeNormal2D();
 	const FVector Side = FVector::CrossProduct(FVector::UpVector, Travel);
 	const FVector Body = Walking->GetActorLocation();
 	const FVector Eye = Body - Travel * 260.f + Side * 90.f + FVector(0.f, 0.f, 70.f);
 	const FRotator Look = (Body - Eye).Rotation();
-	Pawn->TeleportTo(Eye, Look, false, true);
+	Pawn->TeleportTo(Eye, FRotator(0.f, Look.Yaw, 0.f), false, true);
+	Pawn->SetActorHiddenInGame(true);
 	if (APlayerController* PC = World->GetFirstPlayerController())
 	{
 		PC->SetControlRotation(Look);
+		ViewFromFixedCamera(World, PC, Eye, Look);
 	}
-	return true;
-}
-
-/** Start or stop aiming, so the aimed pose can be captured. */
-DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
-	FCastleSetAiming, FAutomationTestBase*, Test, bool, bAiming);
-
-bool FCastleSetAiming::Update()
-{
-	ACastleCharacter* Frank = Cast<ACastleCharacter>(FindScreenshotPawn());
-	if (!Frank)
-	{
-		Test->AddError(TEXT("No player pawn to aim."));
-		return true;
-	}
-
-	if (bAiming)
-	{
-		Frank->StartAim();
-	}
-	else
-	{
-		Frank->StopAim();
-	}
-	return true;
-}
-
-/**
- * Fire and request the shot in the same Update, so the capture lands inside the 0.05 s muzzle
- * flash rather than after it.
- */
-DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
-	FCastleFireAndShoot, FAutomationTestBase*, Test, FString, FileName);
-
-bool FCastleFireAndShoot::Update()
-{
-	ACastleCharacter* Frank = Cast<ACastleCharacter>(FindScreenshotPawn());
-	UWeaponComponent* Weapon = Frank ? Frank->GetWeaponComponent() : nullptr;
-	if (!Weapon)
-	{
-		Test->AddError(TEXT("No weapon component to fire."));
-		return true;
-	}
-
-	Weapon->Fire();
-	Frank->PlayFireFeedback();
-
-	const FString FullPath = RoomScreenshotPath(FileName);
-	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	PlatformFile.CreateDirectoryTree(*FPaths::GetPath(FullPath));
-	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/false, /*bAddFilenameSuffix=*/false);
-	Test->AddInfo(FString::Printf(TEXT("Fired and requested %s"), *FullPath));
 	return true;
 }
 
@@ -350,10 +314,13 @@ bool FCastleKillNearestThug::Update()
 	const FVector ThugLocation = Nearest->GetActorLocation();
 	const FVector Behind = ThugLocation - FVector(220.f, 0.f, 0.f);
 	const FVector Eye = FVector(Behind.X, Behind.Y, 170.f);
-	Pawn->TeleportTo(Eye, (ThugLocation - Eye).Rotation(), false, true);
+	const FRotator Look = (ThugLocation - Eye).Rotation();
+	Pawn->TeleportTo(Eye, FRotator(0.f, Look.Yaw, 0.f), false, true);
+	Pawn->SetActorHiddenInGame(true);
 	if (APlayerController* PC = World->GetFirstPlayerController())
 	{
-		PC->SetControlRotation((ThugLocation - Eye).Rotation());
+		PC->SetControlRotation(Look);
+		ViewFromFixedCamera(World, PC, Eye, Look);
 	}
 
 	Nearest->GetHealthComponent()->ApplyDamage(9999.f, Pawn);
@@ -388,10 +355,11 @@ bool FCastleLookAtDeadThug::Update()
 		const FVector Body = It->GetMesh()->GetComponentLocation();
 		const FVector Eye = Body - FVector(260.f, 0.f, 0.f) + FVector(0.f, 0.f, 160.f);
 		const FRotator Look = (Body - Eye).Rotation();
-		Pawn->TeleportTo(Eye, Look, false, true);
+		Pawn->TeleportTo(Eye, FRotator(0.f, Look.Yaw, 0.f), false, true);
 		if (APlayerController* PC = World->GetFirstPlayerController())
 		{
 			PC->SetControlRotation(Look);
+			ViewFromFixedCamera(World, PC, Eye, Look);
 		}
 		Test->AddInfo(FString::Printf(TEXT("Framing %s at %s."), *It->GetName(), *Body.ToCompactString()));
 		return true;
@@ -508,16 +476,15 @@ bool FCastleScreenshotM01Cell::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("doorway.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
-	// The end of corridor 1, looking into the thug station. This is the shot that answers
-	// whether the keycard door at x = 2900 reads as the way forward, and whether the art pass's
-	// door frame fights with the door Blueprint's own.
+	// The end of corridor 1, looking into the station room. This is the shot that answers
+	// whether the keycard door at x = 2900 reads as the way forward.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(2150.f, 0.f, 170.f), FRotator(-2.f, 0.f, 0.f), true));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("station.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
-	// Through the keycard door and down corridor 2, which is where "second room is absolutely
-	// pitch black" was. Corridor 2 runs x 2900..4900 into the exit room at 4900..5500.
+	// Through the keycard door and down corridor 2. Corridor 2 runs x 2900..4900 into the exit
+	// room at 4900..5500.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(2960.f, 0.f, 170.f), FRotator(-2.f, 0.f, 0.f), true));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("corridor2.png")));
@@ -532,7 +499,7 @@ bool FCastleScreenshotM01Cell::RunTest(const FString& Parameters)
 	return true;
 }
 
-bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
+bool FCastleScreenshotM01ThirdPerson::RunTest(const FString& Parameters)
 {
 	if (SkipWithoutRHI(*this))
 	{
@@ -540,42 +507,16 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	}
 
 	AutomationOpenMap(TEXT("/Game/Maps/L_M01_CellBlockD"));
-	// Longer than the room pass: the first second or so still renders the editor's own
-	// billboards and volume wireframes over the game view, which spoils a view model shot.
+	// The first second or so still renders the editor's own billboards and volume wireframes
+	// over the game view when this runs inside the editor.
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(5.f));
 
-	// Down the corridor, pawn visible: the view model hangs off the camera, so it only shows
-	// up in a shot where the actor is not hidden.
-	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(600.f, 0.f, 170.f), FRotator(-3.f, 0.f, 0.f), false));
-
-	// Empty-handed first: this is the shot that says whether the fists read as fists.
+	// The player in corridor 1, facing down it, seen from the placeholder boom. The boom lags,
+	// so it gets a second and a half to catch up with the teleport before the capture.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleViewFromPawn(this, FVector(900.f, 0.f, 100.f), FRotator(-10.f, 0.f, 0.f)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("third_person.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_fists.png")));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-
-	// Looking at his own feet: the one shot that shows the body under the camera, so a white
-	// mannequin leg or a missing torso is visible before a playtest finds it.
-	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(600.f, 0.f, 170.f), FRotator(-70.f, 0.f, 0.f), false));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_lookdown.png")));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-
-	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(600.f, 0.f, 170.f), FRotator(-3.f, 0.f, 0.f), false));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleGiveWeapon(this));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_hip.png")));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleSetAiming(this, true));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("viewmodel_aim.png")));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleSetAiming(this, false));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleFireAndShoot(this, TEXT("viewmodel_fire.png")));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
 	// A thug mid-patrol, framed off his shoulder: the shot that answers "do they walk forwards".
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleFrameWalkingThug(this));
@@ -583,7 +524,7 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("thug_walking.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
-	// And the other half of the playtest: a thug who is supposed to end up on the floor.
+	// And a thug who is supposed to end up on the floor.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKillNearestThug(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleLookAtDeadThug(this));

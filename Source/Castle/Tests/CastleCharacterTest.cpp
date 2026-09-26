@@ -1,8 +1,13 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Camera/CameraComponent.h"
 #include "Combat/WeaponComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "Misc/AutomationTest.h"
 #include "Player/CastleCharacter.h"
+#include "Player/LocomotionAnim.h"
 #include "Tests/CastleTestUtils.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -163,6 +168,72 @@ bool FCastleCharacterLookSensitivity::RunTest(const FString& Parameters)
 	Frank->StopAim();
 	TestEqual(TEXT("Lowering the sights restores it"),
 		Frank->GetEffectiveLookSensitivity(), 0.2f);
+
+	return true;
+}
+
+/**
+ * The placeholder third-person rig from docs/plans/02-prototype.md step 1: a 350 cm boom lifted
+ * 60, turned by the control rotation, the camera on its end, and a body that faces where it
+ * walks with nothing hidden. The camera task retunes these; this only pins the shape.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleCharacterThirdPersonRig, "Castle.Character.ThirdPersonRig",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleCharacterThirdPersonRig::RunTest(const FString& Parameters)
+{
+	const FCastleTestWorld TestWorld;
+	ACastleAimTestCharacter* Kate = CastleAimTest::Spawn(TestWorld);
+	if (!Kate || !Kate->GetCameraBoom() || !Kate->GetFollowCamera())
+	{
+		AddError(TEXT("Could not spawn a character with a camera boom and a camera."));
+		return false;
+	}
+
+	const USpringArmComponent* Boom = Kate->GetCameraBoom();
+	TestEqual(TEXT("The boom is 350 cm long"), Boom->TargetArmLength, 350.f);
+	TestEqual(TEXT("Its socket is lifted 60 cm"), Boom->SocketOffset, FVector(0.f, 0.f, 60.f));
+	TestTrue(TEXT("The control rotation turns the boom"), Boom->bUsePawnControlRotation);
+	TestTrue(TEXT("With camera lag on"), Boom->bEnableCameraLag);
+	TestEqual(TEXT("At lag speed 10"), Boom->CameraLagSpeed, 10.f);
+	TestTrue(TEXT("The camera hangs off the boom"), Kate->GetFollowCamera()->GetAttachParent() == Boom);
+	TestFalse(TEXT("And leaves the rotating to it"), Kate->GetFollowCamera()->bUsePawnControlRotation);
+
+	TestFalse(TEXT("The body does not snap to the controller's yaw"), Kate->bUseControllerRotationYaw);
+	const UCharacterMovementComponent* Movement = Kate->GetCharacterMovement();
+	TestTrue(TEXT("It turns to face where it moves"), Movement && Movement->bOrientRotationToMovement);
+
+	const USkeletalMeshComponent* Body = Kate->GetMesh();
+	TestTrue(TEXT("The owner sees the whole body; no bones are hidden for the camera any more"),
+		Body && !Body->bOwnerNoSee);
+
+	return true;
+}
+
+/**
+ * The body is the mannequin at a -90 degree yaw, exactly like the thugs', so its legs face the
+ * way it walks. Same check, same reason: see Castle.Thug.FacesTravelDirection.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleCharacterBodyFacesForward, "Castle.Character.BodyFacesForward",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleCharacterBodyFacesForward::RunTest(const FString& Parameters)
+{
+	const FCastleTestWorld TestWorld;
+	ACastleCharacter* Kate = Cast<ACastleCharacter>(TestWorld.SpawnActor(
+		ACastleAimTestCharacter::StaticClass(), FVector::ZeroVector, FRotator(0.f, 35.f, 0.f)));
+	if (!Kate || !Kate->GetMesh())
+	{
+		AddError(TEXT("Could not spawn a character with a body mesh."));
+		return false;
+	}
+
+	const FVector Facing = CastleLocomotion::GetMeshFacing(Kate->GetMesh());
+	TestTrue(TEXT("The body mesh faces the way the actor does"),
+		FVector::DotProduct(Facing.GetSafeNormal2D(), Kate->GetActorForwardVector()) > 0.99f);
+	TestTrue(TEXT("Walking forwards, the legs point forwards"),
+		CastleLocomotion::GetFacingAlongVelocity(
+			Kate->GetMesh(), Kate->GetActorForwardVector() * 450.f) > 0.7f);
 
 	return true;
 }

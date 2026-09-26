@@ -10,7 +10,7 @@ class USkeletalMeshComponent;
 /**
  * Idle/walk switching without an AnimBP. The mannequin pack's ThirdPerson_AnimBP does not
  * compile in a headless editor, so every character here drives the sequences directly; this is
- * the one copy of that, shared by the guards and by Frank's own true-first-person body.
+ * the one copy of that, shared by the thugs and by the player's third-person body.
  */
 namespace CastleLocomotion
 {

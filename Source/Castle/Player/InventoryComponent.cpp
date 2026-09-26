@@ -64,7 +64,6 @@ UWeaponDefinition* UInventoryComponent::GetHandsDefinition()
 		FallbackHands->Damage = 15.f;
 		FallbackHands->MagazineSize = 0;
 		FallbackHands->DefaultReserve = 0;
-		FallbackHands->ArmsPoseName = FName(TEXT("Fists"));
 	}
 
 	return FallbackHands;

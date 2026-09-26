@@ -11,44 +11,67 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
- * The bullets-do-not-kill-thugs regression.
+ * The bullets-do-not-hit-characters regression, now from the thugs' side.
  *
  * Every shot used to trace on ECC_Visibility, which the stock Pawn and CharacterMesh collision
- * profiles both ignore, so the trace passed straight through the thug and hit the wall behind
- * him. A whole playthrough produced no shooting death. These tests fire a real weapon at a real
- * thug in a real world, which is the only place that bug was visible.
+ * profiles both ignore, so the trace passed straight through its target and hit the wall behind.
+ * The player no longer carries a gun (TODO(stage2): the bow replaces it), but thugs still shoot
+ * the hitscan, so these fire a real thug's weapon at real characters in a real world.
  */
 namespace CastleWeaponDamageTest
 {
-	/** Frank at the origin looking down +X, armed, with the fire-rate clock under test control. */
-	static ACastleCharacter* SpawnArmedPlayer(const FCastleTestWorld& TestWorld, double& Now)
+	/** A thug at the origin looking down +X, with no spread and the fire clock under test control. */
+	static AThugCharacter* SpawnShootingThug(const FCastleTestWorld& TestWorld, double Now)
 	{
-		ACastleCharacter* Player = Cast<ACastleCharacter>(TestWorld.SpawnActor(
-			ACastleCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
-		if (!Player)
+		AThugCharacter* Thug = Cast<AThugCharacter>(TestWorld.SpawnActor(
+			AThugCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
+		if (!Thug)
 		{
 			return nullptr;
 		}
 
-		UWeaponComponent* Weapon = Player->GetWeaponComponent();
-		if (Weapon)
+		if (UWeaponComponent* Weapon = Thug->GetWeaponComponent())
 		{
-			Weapon->GiveWeapon(12, 24);
-			// No spread: the test asserts that a shot aimed at a thug hits him, not that the
+			// No spread: the test asserts that a shot aimed at someone hits them, not that the
 			// cone maths is fair.
 			Weapon->HipSpreadDegrees = 0.f;
 			Weapon->AimSpreadDegrees = 0.f;
 			Weapon->SetTestTimeSeconds(Now);
 		}
 
-		return Player;
+		return Thug;
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponThugShotHurtsPlayer, "Castle.Weapon.ThugShotHurtsPlayer",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleWeaponThugShotHurtsPlayer::RunTest(const FString& Parameters)
+{
+	FCastleTestWorld TestWorld;
+
+	AThugCharacter* Thug = CastleWeaponDamageTest::SpawnShootingThug(TestWorld, 0.0);
+	ACastleCharacter* Player = Cast<ACastleCharacter>(TestWorld.SpawnActor(
+		ACastleCharacter::StaticClass(), FVector(300.f, 0.f, 0.f), FRotator(0.f, 180.f, 0.f)));
+	if (!TestNotNull(TEXT("Thug spawned"), Thug) || !TestNotNull(TEXT("Player spawned 3 metres in front"), Player))
+	{
+		return false;
 	}
 
-	static void AdvanceClock(UWeaponComponent* Weapon, double& Now, double Seconds)
+	UWeaponComponent* Weapon = Thug->GetWeaponComponent();
+	UHealthComponent* PlayerHealth = Player->GetHealthComponent();
+	if (!TestNotNull(TEXT("Player has health"), PlayerHealth))
 	{
-		Now += Seconds;
-		Weapon->SetTestTimeSeconds(Now);
+		return false;
 	}
+
+	const float StartingHealth = PlayerHealth->GetCurrentHealth();
+	TestTrue(TEXT("The shot goes out"), Weapon->Fire());
+
+	TestEqual(TEXT("The player lost exactly one thug shot of health"),
+		PlayerHealth->GetCurrentHealth(), StartingHealth - Weapon->Damage);
+
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponShotDamagesThug, "Castle.Weapon.ShotDamagesThug",
@@ -56,75 +79,24 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponShotDamagesThug, "Castle.Weapon.Sh
 
 bool FCastleWeaponShotDamagesThug::RunTest(const FString& Parameters)
 {
-	double Now = 0.0;
 	FCastleTestWorld TestWorld;
 
-	ACastleCharacter* Player = CastleWeaponDamageTest::SpawnArmedPlayer(TestWorld, Now);
-	if (!TestNotNull(TEXT("Player spawned"), Player))
-	{
-		return false;
-	}
-
-	AThugCharacter* Thug = Cast<AThugCharacter>(TestWorld.SpawnActor(
+	// A thug's capsule and mesh have to block the Weapon channel as well as the player's do.
+	AThugCharacter* Shooter = CastleWeaponDamageTest::SpawnShootingThug(TestWorld, 0.0);
+	AThugCharacter* Target = Cast<AThugCharacter>(TestWorld.SpawnActor(
 		AThugCharacter::StaticClass(), FVector(300.f, 0.f, 0.f), FRotator::ZeroRotator));
-	if (!TestNotNull(TEXT("Thug spawned 3 metres in front"), Thug))
+	if (!TestNotNull(TEXT("Shooter spawned"), Shooter) || !TestNotNull(TEXT("Target spawned"), Target))
 	{
 		return false;
 	}
 
-	UWeaponComponent* Weapon = Player->GetWeaponComponent();
-	UHealthComponent* ThugHealth = Thug->GetHealthComponent();
-	if (!TestNotNull(TEXT("Thug has health"), ThugHealth))
-	{
-		return false;
-	}
+	UWeaponComponent* Weapon = Shooter->GetWeaponComponent();
+	UHealthComponent* TargetHealth = Target->GetHealthComponent();
 
-	const float StartingHealth = ThugHealth->GetCurrentHealth();
+	const float StartingHealth = TargetHealth->GetCurrentHealth();
 	TestTrue(TEXT("The shot goes out"), Weapon->Fire());
-
-	TestEqual(TEXT("The thug lost exactly one body shot of health"),
-		ThugHealth->GetCurrentHealth(), StartingHealth - Weapon->Damage);
-
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponThreeShotsKillThug, "Castle.Weapon.ThreeShotsKillThug",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
-
-bool FCastleWeaponThreeShotsKillThug::RunTest(const FString& Parameters)
-{
-	double Now = 0.0;
-	FCastleTestWorld TestWorld;
-
-	ACastleCharacter* Player = CastleWeaponDamageTest::SpawnArmedPlayer(TestWorld, Now);
-	AThugCharacter* Thug = Cast<AThugCharacter>(TestWorld.SpawnActor(
-		AThugCharacter::StaticClass(), FVector(300.f, 0.f, 0.f), FRotator::ZeroRotator));
-	if (!TestNotNull(TEXT("Player spawned"), Player) || !TestNotNull(TEXT("Thug spawned"), Thug))
-	{
-		return false;
-	}
-
-	UWeaponComponent* Weapon = Player->GetWeaponComponent();
-	UHealthComponent* ThugHealth = Thug->GetHealthComponent();
-
-	UCastleTestListener* Listener = NewObject<UCastleTestListener>();
-	ThugHealth->OnDeath.AddDynamic(Listener, &UCastleTestListener::HandleDeath);
-
-	int32 ShotsFired = 0;
-	for (int32 Shot = 0; Shot < 3; ++Shot)
-	{
-		if (Weapon->Fire())
-		{
-			++ShotsFired;
-		}
-		CastleWeaponDamageTest::AdvanceClock(Weapon, Now, 1.0);
-	}
-
-	TestEqual(TEXT("Three shots went out"), ShotsFired, 3);
-	TestEqual(TEXT("A 100 HP thug is dead after three body shots"),
-		ThugHealth->GetCurrentHealth(), 0.f);
-	TestTrue(TEXT("And he knows it"), ThugHealth->IsDead());
-	TestEqual(TEXT("OnDeath fired exactly once"), Listener->DeathCount, 1);
+	TestEqual(TEXT("The target thug lost exactly one shot of health"),
+		TargetHealth->GetCurrentHealth(), StartingHealth - Weapon->Damage);
 
 	return true;
 }
@@ -134,18 +106,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponHitDelegateFires, "Castle.Weapon.H
 
 bool FCastleWeaponHitDelegateFires::RunTest(const FString& Parameters)
 {
-	double Now = 0.0;
 	FCastleTestWorld TestWorld;
 
-	ACastleCharacter* Player = CastleWeaponDamageTest::SpawnArmedPlayer(TestWorld, Now);
-	AThugCharacter* Thug = Cast<AThugCharacter>(TestWorld.SpawnActor(
-		AThugCharacter::StaticClass(), FVector(300.f, 0.f, 0.f), FRotator::ZeroRotator));
-	if (!TestNotNull(TEXT("Player spawned"), Player) || !TestNotNull(TEXT("Thug spawned"), Thug))
+	AThugCharacter* Thug = CastleWeaponDamageTest::SpawnShootingThug(TestWorld, 0.0);
+	ACastleCharacter* Player = Cast<ACastleCharacter>(TestWorld.SpawnActor(
+		ACastleCharacter::StaticClass(), FVector(300.f, 0.f, 0.f), FRotator::ZeroRotator));
+	if (!TestNotNull(TEXT("Thug spawned"), Thug) || !TestNotNull(TEXT("Player spawned"), Player))
 	{
 		return false;
 	}
 
-	UWeaponComponent* Weapon = Player->GetWeaponComponent();
+	UWeaponComponent* Weapon = Thug->GetWeaponComponent();
 	UCastleTestListener* Listener = NewObject<UCastleTestListener>();
 	Weapon->OnHit.AddDynamic(Listener, &UCastleTestListener::HandleWeaponHit);
 
@@ -153,8 +124,8 @@ bool FCastleWeaponHitDelegateFires::RunTest(const FString& Parameters)
 
 	// The HUD's hit marker hangs off this, so a hit on a damageable actor has to report itself.
 	TestEqual(TEXT("OnHit fired once"), Listener->WeaponHitCount, 1);
-	TestEqual(TEXT("With the thug as the hit actor"),
-		static_cast<AActor*>(Listener->LastWeaponHitActor.Get()), static_cast<AActor*>(Thug));
+	TestEqual(TEXT("With the player as the hit actor"),
+		static_cast<AActor*>(Listener->LastWeaponHitActor.Get()), static_cast<AActor*>(Player));
 	TestEqual(TEXT("And the damage that was dealt"), Listener->LastWeaponHitDamage, Weapon->Damage);
 
 	return true;
@@ -165,27 +136,60 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponMissDamagesNothing, "Castle.Weapon
 
 bool FCastleWeaponMissDamagesNothing::RunTest(const FString& Parameters)
 {
-	double Now = 0.0;
 	FCastleTestWorld TestWorld;
 
-	ACastleCharacter* Player = CastleWeaponDamageTest::SpawnArmedPlayer(TestWorld, Now);
-	// Behind the player: the trace runs down +X and this thug is at -X.
-	AThugCharacter* Thug = Cast<AThugCharacter>(TestWorld.SpawnActor(
-		AThugCharacter::StaticClass(), FVector(-300.f, 0.f, 0.f), FRotator::ZeroRotator));
-	if (!TestNotNull(TEXT("Player spawned"), Player) || !TestNotNull(TEXT("Thug spawned"), Thug))
+	AThugCharacter* Thug = CastleWeaponDamageTest::SpawnShootingThug(TestWorld, 0.0);
+	// Behind the thug: the trace runs down +X and the player is at -X.
+	ACastleCharacter* Player = Cast<ACastleCharacter>(TestWorld.SpawnActor(
+		ACastleCharacter::StaticClass(), FVector(-300.f, 0.f, 0.f), FRotator::ZeroRotator));
+	if (!TestNotNull(TEXT("Thug spawned"), Thug) || !TestNotNull(TEXT("Player spawned"), Player))
 	{
 		return false;
 	}
 
-	UWeaponComponent* Weapon = Player->GetWeaponComponent();
+	UWeaponComponent* Weapon = Thug->GetWeaponComponent();
 	UCastleTestListener* Listener = NewObject<UCastleTestListener>();
 	Weapon->OnHit.AddDynamic(Listener, &UCastleTestListener::HandleWeaponHit);
 
+	const float StartingHealth = Player->GetHealthComponent()->GetCurrentHealth();
 	Weapon->Fire();
 
-	TestEqual(TEXT("A thug behind you takes nothing"),
-		Thug->GetHealthComponent()->GetCurrentHealth(), 100.f);
+	TestEqual(TEXT("A player behind the thug takes nothing"),
+		Player->GetHealthComponent()->GetCurrentHealth(), StartingHealth);
 	TestEqual(TEXT("And no hit marker is asked for"), Listener->WeaponHitCount, 0);
+
+	return true;
+}
+
+/**
+ * Third person put the camera metres behind the body, so a punch swept from the camera would end
+ * before it reached anyone. The swing starts at the pawn's eyes instead; this is that rule.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleWeaponPunchReachesFromTheBody, "Castle.Weapon.PunchReachesFromTheBody",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleWeaponPunchReachesFromTheBody::RunTest(const FString& Parameters)
+{
+	FCastleTestWorld TestWorld;
+
+	ACastleCharacter* Player = Cast<ACastleCharacter>(TestWorld.SpawnActor(
+		ACastleCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
+	AThugCharacter* Thug = Cast<AThugCharacter>(TestWorld.SpawnActor(
+		AThugCharacter::StaticClass(), FVector(90.f, 0.f, 0.f), FRotator(0.f, 180.f, 0.f)));
+	UWeaponComponent* Weapon = Player ? Player->GetWeaponComponent() : nullptr;
+	if (!TestNotNull(TEXT("Player spawned"), Player) || !TestNotNull(TEXT("Thug spawned in reach"), Thug)
+		|| !TestNotNull(TEXT("Player has a weapon component"), Weapon))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("The player starts on Hands"), Weapon->IsMelee());
+
+	const float StartingHealth = Thug->GetHealthComponent()->GetCurrentHealth();
+	Weapon->SetTestTimeSeconds(100.0);
+	TestTrue(TEXT("The punch goes out"), Weapon->Fire());
+	TestEqual(TEXT("And lands on the thug 90 cm in front"),
+		Thug->GetHealthComponent()->GetCurrentHealth(), StartingHealth - Weapon->MeleeDamage);
 
 	return true;
 }

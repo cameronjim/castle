@@ -115,10 +115,6 @@ bool APickupActor::ApplyTo(AActor* Interactor)
 			// One call: the inventory owns slotting, ammo and handing the gun to the weapon
 			// component, so a pickup cannot arm the player halfway.
 			Inventory->AddWeaponWithAmmo(Definition, MagazineAmount, AmmoAmount);
-
-			// The view model reads the weapon component on the next tick anyway; doing it here
-			// means the gun is in his hand on the frame he picks it up.
-			Character->RefreshViewModelForWeapon();
 			break;
 		}
 

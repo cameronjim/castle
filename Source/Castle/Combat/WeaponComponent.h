@@ -21,11 +21,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnEmptyClickSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnWeaponHitSignature, AActor*, HitActor, float, DamageDealt);
 
 /**
- * Hitscan weapon attached to a pawn. Traces from the owner's view point, so it works for the
- * first-person camera on ACastleCharacter without any extra wiring.
+ * Hitscan weapon and melee swing attached to a pawn. Shots trace from the owner's view point
+ * (the player camera, or a thug's eyes); punches sweep from the owner's eyes.
  *
- * Default stats are the starter pistol: 34 damage, x3 on a headshot, so a 100 HP guard dies to
- * three body shots or one headshot.
+ * TODO(stage2): replaced by bow for the player. The hitscan stays because thugs still shoot.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UWeaponComponent : public UActorComponent
@@ -38,7 +37,7 @@ public:
 	/**
 	 * False while the owner is holding no ranged weapon: Fire traces nothing, Reload does
 	 * nothing and the HUD shows no ammo. With an inventory attached this means "the active
-	 * slot is a ranged weapon", so it is false while Frank has his fists up. Guards have no
+	 * slot is a ranged weapon", so it is false while Hands are up. Thugs have no
 	 * inventory and simply start armed.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon")
@@ -46,7 +45,7 @@ public:
 
 	/**
 	 * The weapon this component is currently firing. Null for a component driven by its own
-	 * properties (guards), set by UInventoryComponent for the player.
+	 * properties (thugs), set by UInventoryComponent for the player.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon")
 	TObjectPtr<UWeaponDefinition> ActiveDefinition = nullptr;
@@ -151,7 +150,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	UWeaponDefinition* GetActiveDefinition() const { return ActiveDefinition; }
 
-	/** True while the active weapon is Frank's fists. */
+	/** True while the active weapon is bare hands. */
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	bool IsMelee() const;
 
@@ -251,6 +250,9 @@ protected:
 	/** View point the shot originates from (player camera when the owner is player controlled). */
 	void GetFireViewPoint(FVector& OutLocation, FRotator& OutRotation) const;
 
+	/** Where a punch starts: the owner's eyes, looking along its view rotation. Never the camera. */
+	void GetMeleeViewPoint(FVector& OutLocation, FRotator& OutRotation) const;
+
 	/** Double precision so a test clock advanced by exactly one interval is not rejected. */
 	double GetSecondsBetweenShots() const { return 60.0 / FMath::Max(static_cast<double>(FireRate), 1.0); }
 
@@ -282,7 +284,7 @@ private:
 	UPROPERTY(Transient)
 	bool bIsAiming = false;
 
-	/** Seeded from the owner's name at BeginPlay so two guards do not fire identical patterns. */
+	/** Seeded from the owner's name at BeginPlay so two thugs do not fire identical patterns. */
 	UPROPERTY(Transient)
 	FRandomStream SpreadStream;
 

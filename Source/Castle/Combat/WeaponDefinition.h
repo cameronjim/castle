@@ -6,8 +6,6 @@
 #include "Engine/DataAsset.h"
 #include "WeaponDefinition.generated.h"
 
-class UStaticMesh;
-
 /**
  * The three hotbar slots. The numeric values are the number keys the player presses, minus
  * one, so a slot and its key never drift apart.
@@ -15,7 +13,7 @@ class UStaticMesh;
 UENUM(BlueprintType)
 enum class EHotbarSlot : uint8
 {
-	/** Always present: Frank's fists. Left click punches. */
+	/** Always present: bare hands. Left click punches. */
 	Hands = 0,
 	Pistol = 1,
 	Rifle = 2
@@ -25,11 +23,12 @@ enum class EHotbarSlot : uint8
 static constexpr int32 CastleHotbarSlotCount = 3;
 
 /**
- * Everything that makes one weapon different from another: damage, ammo, feel and the mesh
- * the player sees. A new weapon is a new data asset, never a new class.
+ * Everything that makes one weapon different from another: damage, ammo, fire rate, spread
+ * and melee reach. A new weapon is a new data asset, never a new class. The bow and arrow
+ * definitions build on this next (TODO(stage2)); the first-person view model fields are gone.
  *
  * Create via Content Browser > Miscellaneous > Data Asset > WeaponDefinition, or let
- * Tools/Editor/create_weapon_data.py make the three the game ships with.
+ * Tools/Editor/create_weapon_data.py make DA_Weapon_Hands.
  */
 UCLASS(BlueprintType)
 class CASTLE_API UWeaponDefinition : public UPrimaryDataAsset
@@ -97,23 +96,6 @@ public:
 	/** Melee hits above UHealthComponent's stagger threshold fire OnStaggered on the victim. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|Melee")
 	bool bStaggerOnHit = true;
-
-	// --- View model -----------------------------------------------------------------------------
-
-	/** Mesh held in the view model's right hand. Empty for Hands (and for the rifle, so far). */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|ViewModel")
-	TSoftObjectPtr<UStaticMesh> ViewModelMesh;
-
-	/** Arms pose this weapon is held in: "Fists", "Pistol" or "Rifle". */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|ViewModel")
-	FName ArmsPoseName = FName(TEXT("Pistol"));
-
-	/** Where the grip sits in the palm, relative to the hand bone. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|ViewModel")
-	FVector HandOffset = FVector(4.f, 0.f, 0.f);
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon|ViewModel")
-	FRotator HandRotation = FRotator(0.f, -90.f, 0.f);
 
 	UWeaponDefinition();
 

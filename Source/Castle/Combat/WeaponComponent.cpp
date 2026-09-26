@@ -29,7 +29,7 @@ void UWeaponComponent::BeginPlay()
 
 	CurrentAmmo = FMath::Clamp(CurrentAmmo, 0, MagazineSize);
 
-	// Per-owner seed: two guards firing on the same frame should miss in different directions.
+	// Per-owner seed: two thugs firing on the same frame should miss in different directions.
 	SpreadStream.Initialize(*GetNameSafe(GetOwner()));
 
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
@@ -97,8 +97,8 @@ FVector UWeaponComponent::ApplyConeSpread(const FVector& Direction, float Spread
 
 void UWeaponComponent::GiveWeapon(int32 Magazine, int32 Reserve)
 {
-	// The definition-free path: "you are now holding a gun with these rounds". Guards and the
-	// screenshot tests use it, and it has to win over a melee definition left in the slot.
+	// The definition-free path: "you are now holding a gun with these rounds". Tests use it,
+	// and it has to win over a melee definition left in the slot.
 	if (IsMelee())
 	{
 		ActiveDefinition = nullptr;
@@ -224,6 +224,19 @@ float UWeaponComponent::ComputeDamageForHit(FName BoneName) const
 	return HeadBoneNames.Contains(BoneName) ? Damage * HeadshotMultiplier : Damage;
 }
 
+void UWeaponComponent::GetMeleeViewPoint(FVector& OutLocation, FRotator& OutRotation) const
+{
+	// From the body, not the camera: in third person the camera is metres behind the pawn, and
+	// a punch swept from there would end before it reached him. APawn answers with its eye
+	// height and its controller's rotation, so the swing still goes where the player looks.
+	OutLocation = FVector::ZeroVector;
+	OutRotation = FRotator::ZeroRotator;
+	if (const AActor* Owner = GetOwner())
+	{
+		Owner->GetActorEyesViewPoint(OutLocation, OutRotation);
+	}
+}
+
 void UWeaponComponent::GetFireViewPoint(FVector& OutLocation, FRotator& OutRotation) const
 {
 	OutLocation = FVector::ZeroVector;
@@ -239,7 +252,8 @@ void UWeaponComponent::GetFireViewPoint(FVector& OutLocation, FRotator& OutRotat
 	{
 		if (AController* OwnerController = Pawn->GetController())
 		{
-			// Matches the first-person camera for player-controlled pawns.
+			// The player camera for player-controlled pawns. TODO(stage2): replaced by bow - the
+			// player-facing hitscan goes when arrows are projectiles; thugs still trace from here.
 			OwnerController->GetPlayerViewPoint(OutLocation, OutRotation);
 			return;
 		}
@@ -314,12 +328,12 @@ bool UWeaponComponent::FireMelee()
 
 	FVector ViewLocation;
 	FRotator ViewRotation;
-	GetFireViewPoint(ViewLocation, ViewRotation);
+	GetMeleeViewPoint(ViewLocation, ViewRotation);
 
 	const FVector Direction = ViewRotation.Vector();
 	const FVector SweepEnd = ViewLocation + Direction * MeleeRange;
 
-	// A sphere, not a line: a fist is a wide thing and missing a guard by two centimetres is
+	// A sphere, not a line: a fist is a wide thing and missing a thug by two centimetres is
 	// not the feedback anyone wants from a punch.
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(CastleWeaponMelee), /*bTraceComplex=*/false, Owner);
 	QueryParams.AddIgnoredActor(Owner);

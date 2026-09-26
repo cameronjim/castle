@@ -10,18 +10,15 @@
 #include "Combat/HealthComponent.h"
 #include "Combat/TakedownComponent.h"
 #include "Combat/WeaponComponent.h"
-#include "Combat/WeaponDefinition.h"
 #include "Components/CapsuleComponent.h"
-#include "Components/PointLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Components/StaticMeshComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
-#include "Player/FirstPersonArmsComponent.h"
 #include "Player/InventoryComponent.h"
 #include "Player/LocomotionAnim.h"
 #include "Settings/CastleSettingsSubsystem.h"
@@ -31,67 +28,42 @@
 
 ACastleCharacter::ACastleCharacter()
 {
-	// Ticks only to blend the aim FOV; everything else is event driven.
+	// Ticks to blend the aim FOV and swap the body's idle/walk sequence.
 	PrimaryActorTick.bCanEverTick = true;
 
-	// First-person: the controller drives the camera, not the mesh.
-	bUseControllerRotationYaw = true;
+	// Third person: the controller turns the camera boom, and the body turns to face where it
+	// is going rather than where the camera is looking.
+	bUseControllerRotationYaw = false;
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationRoll = false;
 
-	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
-	FirstPersonCamera->SetupAttachment(GetCapsuleComponent());
-	FirstPersonCamera->SetRelativeLocation(FVector(0.f, 0.f, EyeHeightOffset));
-	FirstPersonCamera->bUsePawnControlRotation = true;
-	FirstPersonCamera->SetFieldOfView(HipFOV);
+	// TODO(stage2): placeholder rig; the camera task replaces it. Do not tune these here.
+	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
+	CameraBoom->SetupAttachment(GetCapsuleComponent());
+	CameraBoom->TargetArmLength = CameraBoomLength;
+	CameraBoom->SocketOffset = CameraBoomSocketOffset;
+	CameraBoom->bUsePawnControlRotation = true;
+	CameraBoom->bEnableCameraLag = true;
+	CameraBoom->CameraLagSpeed = CameraLagSpeed;
+
+	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
+	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
+	FollowCamera->bUsePawnControlRotation = false;
+	FollowCamera->SetFieldOfView(HipFOV);
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 	TakedownComponent = CreateDefaultSubobject<UTakedownComponent>(TEXT("TakedownComponent"));
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 	NoiseEmitter = CreateDefaultSubobject<UPawnNoiseEmitterComponent>(TEXT("NoiseEmitter"));
 
-	// Frank starts the mission with his fists; a pickup fills the pistol slot.
+	// The player starts on Hands; the inventory arms the component with whatever slot is active.
 	WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
 	WeaponComponent->bHasWeapon = false;
 
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 
-	// --- view model ---------------------------------------------------------------------------
-	ArmsMesh = CreateDefaultSubobject<UFirstPersonArmsComponent>(TEXT("ArmsMesh"));
-	ArmsMesh->SetupAttachment(FirstPersonCamera);
-	ArmsMesh->SetRelativeLocationAndRotation(ArmsRelativeLocation + ArmsHipOffset, ArmsRelativeRotation);
-
-	// The pistol hangs off the arms' right hand when they exist, and off the camera otherwise.
-	// In camera space its offsets read X forward, Y right, Z up.
-	WeaponMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("WeaponMesh"));
-	WeaponMesh->SetupAttachment(FirstPersonCamera);
-	WeaponMesh->SetRelativeLocationAndRotation(WeaponRelativeLocation, WeaponRelativeRotation);
-	WeaponMesh->SetOnlyOwnerSee(true);
-	WeaponMesh->SetCastShadow(false);
-	WeaponMesh->bCastDynamicShadow = false;
-	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	WeaponMesh->SetHiddenInGame(true);
-
-	MuzzleFlash = CreateDefaultSubobject<UPointLightComponent>(TEXT("MuzzleFlash"));
-	MuzzleFlash->SetupAttachment(WeaponMesh);
-	// In the pistol's own space the barrel runs along +Y and ends at y = 20.9, so the flash
-	// sits just past the muzzle rather than inside the slide.
-	MuzzleFlash->SetRelativeLocation(FVector(0.f, 23.f, 3.f));
-	MuzzleFlash->SetIntensity(6000.f);
-	MuzzleFlash->SetAttenuationRadius(600.f);
-	MuzzleFlash->SetLightColor(FLinearColor(1.f, 0.78f, 0.42f));
-	MuzzleFlash->SetCastShadows(false);
-	MuzzleFlash->SetMobility(EComponentMobility::Movable);
-	MuzzleFlash->SetVisibility(false);
-
-	// Frank's own body is what he looks down at, so only his head comes off. Hiding a bone
-	// hides its children, so neck_01 takes the head with it; head is listed as well because
-	// it is the bone the semantics and the test name.
-	HiddenViewModelBones = { FName(TEXT("head")), FName(TEXT("neck_01")) };
-
-	// True first person: the body mesh is Frank, not a third-person double. It is visible to
-	// everyone (bOwnerNoSee false) so it casts a shadow and will show up in a mirror, and it
-	// sits at the template's standard offset under the capsule.
+	// The whole body is visible, to the owner as well: in third person it is what the player
+	// looks at. It sits at the template's standard offset under the capsule, facing +X.
 	if (USkeletalMeshComponent* BodyMesh = GetMesh())
 	{
 		BodyMesh->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -96.f), FRotator(0.f, -90.f, 0.f));
@@ -104,7 +76,7 @@ ACastleCharacter::ACastleCharacter()
 	{
 		Movement->MaxWalkSpeed = WalkSpeed;
 		Movement->NavAgentProps.bCanCrouch = true;
-		Movement->bOrientRotationToMovement = false;
+		Movement->bOrientRotationToMovement = true;
 		Movement->JumpZVelocity = 480.f;
 		Movement->AirControl = 0.35f;
 	}
@@ -112,8 +84,8 @@ ACastleCharacter::ACastleCharacter()
 	// Lets the player crouch under and through geometry without the capsule popping.
 	GetCapsuleComponent()->SetCapsuleSize(34.f, 88.f);
 
-	// The Pawn profile ignores Visibility, so bullets need their own channel to land on
-	// Frank at all - without this the guards' shots went through him as well.
+	// The Pawn profile ignores Visibility, so bullets need their own channel to land on the
+	// player at all - without this the thugs' shots went straight through.
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
 	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
 	{
@@ -127,9 +99,9 @@ void ACastleCharacter::BeginPlay()
 
 	UpdateMaxWalkSpeed();
 
-	if (FirstPersonCamera)
+	if (FollowCamera)
 	{
-		FirstPersonCamera->SetFieldOfView(HipFOV);
+		FollowCamera->SetFieldOfView(HipFOV);
 	}
 
 	if (HealthComponent)
@@ -137,11 +109,11 @@ void ACastleCharacter::BeginPlay()
 		HealthComponent->OnDeath.AddDynamic(this, &ACastleCharacter::HandleDeath);
 	}
 
-	InitialiseViewModel();
+	UpdateBodyLocomotion();
 
 	BindToSettingsSubsystem();
 
-	// Guards hear the player through AISense_Hearing; MakeNoise on a fixed beat is enough
+	// Thugs hear the player through AISense_Hearing; MakeNoise on a fixed beat is enough
 	// resolution for a stealth game and costs nothing per frame.
 	if (UWorld* World = GetWorld())
 	{
@@ -166,7 +138,6 @@ void ACastleCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(NoiseTimerHandle);
-		World->GetTimerManager().ClearTimer(MuzzleFlashTimerHandle);
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -545,18 +516,18 @@ void ACastleCharacter::UpdateMaxWalkSpeed()
 
 float ACastleCharacter::GetCurrentFOV() const
 {
-	return FirstPersonCamera ? FirstPersonCamera->FieldOfView : HipFOV;
+	return FollowCamera ? FollowCamera->FieldOfView : HipFOV;
 }
 
 void ACastleCharacter::UpdateAimFOV(float DeltaSeconds)
 {
-	if (!FirstPersonCamera)
+	if (!FollowCamera)
 	{
 		return;
 	}
 
 	const float TargetFOV = bIsAiming ? AimFOV : HipFOV;
-	const float Current = FirstPersonCamera->FieldOfView;
+	const float Current = FollowCamera->FieldOfView;
 	if (FMath::IsNearlyEqual(Current, TargetFOV, 0.01f))
 	{
 		return;
@@ -564,13 +535,13 @@ void ACastleCharacter::UpdateAimFOV(float DeltaSeconds)
 
 	if (AimBlendSeconds <= 0.f)
 	{
-		FirstPersonCamera->SetFieldOfView(TargetFOV);
+		FollowCamera->SetFieldOfView(TargetFOV);
 		return;
 	}
 
 	// Constant rate rather than an exponential ease, so the blend really takes AimBlendSeconds.
 	const float Step = FMath::Abs(HipFOV - AimFOV) / AimBlendSeconds * DeltaSeconds;
-	FirstPersonCamera->SetFieldOfView(FMath::FInterpConstantTo(Current, TargetFOV, 1.f, Step));
+	FollowCamera->SetFieldOfView(FMath::FInterpConstantTo(Current, TargetFOV, 1.f, Step));
 }
 
 void ACastleCharacter::Tick(float DeltaSeconds)
@@ -578,293 +549,13 @@ void ACastleCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	UpdateAimFOV(DeltaSeconds);
-	UpdateViewModel(DeltaSeconds);
-}
-
-TArray<FName> ACastleCharacter::GetHiddenBodyBones() const
-{
-	TArray<FName> Bones = HiddenViewModelBones;
-
-	// With the poseable arms on there would otherwise be two right hands in frame, so the
-	// body's own arm chains come off. The cost is an armless shadow; see TODO below.
-	if (bUseArmsMesh)
-	{
-		Bones.AddUnique(FName(TEXT("clavicle_l")));
-		Bones.AddUnique(FName(TEXT("clavicle_r")));
-	}
-
-	return Bones;
-}
-
-void ACastleCharacter::InitialiseBodyMesh()
-{
-	USkeletalMeshComponent* BodyMesh = GetMesh();
-	if (!BodyMesh || !BodyMesh->GetSkeletalMeshAsset())
-	{
-		return;
-	}
-
-	// TODO(stage4): hiding the clavicles takes the arms out of Frank's shadow as well. A real
-	// first-person arms asset, or a second owner-only body, is what actually fixes that.
-	for (const FName& BoneName : GetHiddenBodyBones())
-	{
-		if (BodyMesh->GetBoneIndex(BoneName) != INDEX_NONE)
-		{
-			BodyMesh->HideBoneByName(BoneName, EPhysBodyOp::PBO_None);
-		}
-	}
-
-	ApplyFatigues(BodyMesh);
 	UpdateBodyLocomotion();
-}
-
-void ACastleCharacter::ApplyFatigues(UMeshComponent* Target) const
-{
-	if (!FatiguesMaterial || !Target)
-	{
-		return;
-	}
-
-	const int32 SlotCount = Target->GetNumMaterials();
-	for (int32 Index = 0; Index < SlotCount; ++Index)
-	{
-		Target->SetMaterial(Index, FatiguesMaterial);
-	}
 }
 
 void ACastleCharacter::UpdateBodyLocomotion()
 {
 	UAnimSequence* Wanted = GetVelocity().Size2D() > WalkAnimSpeedThreshold ? WalkAnim : IdleAnim;
 	CastleLocomotion::PlayIfChanged(GetMesh(), Wanted, CurrentLocomotionAnim);
-}
-
-void ACastleCharacter::InitialiseViewModel()
-{
-	InitialiseBodyMesh();
-
-	if (!ArmsMesh)
-	{
-		return;
-	}
-
-	const bool bArmsActive = bUseArmsMesh && ArmsMesh->GetSkinnedAsset() != nullptr;
-
-	ArmsMesh->SetVisibility(bArmsActive);
-	ArmsMesh->SetHiddenInGame(!bArmsActive);
-	ArmsMesh->SetComponentTickEnabled(bArmsActive);
-
-	if (bArmsActive)
-	{
-		ArmsMesh->InitialiseArms();
-		ApplyFatigues(ArmsMesh);
-	}
-
-	if (WeaponMesh)
-	{
-		// With no arms the pistol is parented straight to the camera, so WeaponRelativeLocation
-		// is read in camera space. With arms on, hand_r carries it instead.
-		if (bArmsActive)
-		{
-			const FName Socket = (ArmsMesh->DoesSocketExist(WeaponSocketName) ? WeaponSocketName : NAME_None);
-			WeaponMesh->AttachToComponent(
-				ArmsMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
-			WeaponMesh->SetRelativeLocationAndRotation(WeaponHandOffset, WeaponHandRotation);
-		}
-		else
-		{
-			if (FirstPersonCamera)
-			{
-				WeaponMesh->AttachToComponent(
-					FirstPersonCamera, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-			}
-			WeaponMesh->SetRelativeLocationAndRotation(WeaponRelativeLocation, WeaponRelativeRotation);
-		}
-	}
-
-	RefreshViewModelForWeapon();
-}
-
-void ACastleCharacter::RefreshViewModelForWeapon()
-{
-	const UWeaponComponent* Weapon = GetWeaponComponent();
-	const bool bArmed = Weapon && Weapon->HasWeapon();
-	UWeaponDefinition* Definition = Weapon ? Weapon->GetActiveDefinition() : nullptr;
-
-	bViewModelArmed = bArmed;
-	ViewModelDefinition = Definition;
-
-	if (WeaponMesh)
-	{
-		WeaponMesh->SetHiddenInGame(!bArmed);
-
-		// The mesh is data: the pistol carries one, the fists and (so far) the rifle do not.
-		// LoadSynchronous, not Get: in a packaged run nothing has pulled the soft pointer in yet,
-		// and Get() would quietly hand back null and leave the Blueprint's default mesh showing.
-		if (Definition && !Definition->ViewModelMesh.IsNull())
-		{
-			if (UStaticMesh* Held = Definition->ViewModelMesh.LoadSynchronous())
-			{
-				if (WeaponMesh->GetStaticMesh() != Held)
-				{
-					WeaponMesh->SetStaticMesh(Held);
-				}
-			}
-			else
-			{
-				UE_LOG(LogCastle, Warning, TEXT("%s: %s names a view model mesh that will not load (%s)."),
-					*GetName(), *Definition->GetName(), *Definition->ViewModelMesh.ToString());
-			}
-		}
-
-		if (Definition && bUseArmsMesh && ArmsMesh && WeaponMesh->GetAttachParent() == ArmsMesh)
-		{
-			WeaponMesh->SetRelativeLocationAndRotation(Definition->HandOffset, Definition->HandRotation);
-		}
-	}
-
-	if (!bUseArmsMesh || !ArmsMesh)
-	{
-		return;
-	}
-
-	// The pose is named in the data asset. UFirstPersonArmsComponent only authors Fists and
-	// Pistol today, so a rifle borrows the pistol grip until a rifle pose exists.
-	ECastleArmsPose Pose = bArmed ? ECastleArmsPose::Pistol : ECastleArmsPose::Fists;
-	if (Definition)
-	{
-		Pose = Definition->ArmsPoseName == FName(TEXT("Fists"))
-			? ECastleArmsPose::Fists : ECastleArmsPose::Pistol;
-	}
-	ArmsMesh->SetPose(Pose);
-}
-
-void ACastleCharacter::PlayMeleeFeedback()
-{
-	// Reuse the recoil curve: the whole view model kicks back and settles under the jab.
-	RecoilElapsed = 0.f;
-
-	// And the arm that throws it goes out on its own, alternating fists call by call.
-	if (bUseArmsMesh && ArmsMesh)
-	{
-		ArmsMesh->PlayPunch();
-	}
-}
-
-float ACastleCharacter::GetRecoilAlpha() const
-{
-	if (RecoilElapsed < 0.f)
-	{
-		return 0.f;
-	}
-
-	if (RecoilElapsed < RecoilKickSeconds)
-	{
-		return RecoilKickSeconds > 0.f ? RecoilElapsed / RecoilKickSeconds : 1.f;
-	}
-
-	const float ReturnElapsed = RecoilElapsed - RecoilKickSeconds;
-	if (RecoilReturnSeconds <= 0.f || ReturnElapsed >= RecoilReturnSeconds)
-	{
-		return 0.f;
-	}
-
-	return 1.f - ReturnElapsed / RecoilReturnSeconds;
-}
-
-FVector ACastleCharacter::GetViewModelOffset() const
-{
-	const float RecoilAlpha = GetRecoilAlpha();
-	// Aiming slides the view model from its hip pose to the centred one, so the sights rise to
-	// the crosshair. Everything else is added on top of wherever that lands.
-	FVector Offset = bUseArmsMesh
-		? (ArmsAimOffset - ArmsHipOffset) * AimOffsetAlpha
-		: (WeaponAimLocation - WeaponRelativeLocation) * AimOffsetAlpha;
-	Offset.X -= RecoilKickDistance * RecoilAlpha;
-
-	const UWeaponComponent* Weapon = GetWeaponComponent();
-	// No reload animation: the hands drop out of frame and come back instead.
-	if (Weapon && Weapon->IsReloading())
-	{
-		Offset.Z -= ReloadDipDistance;
-	}
-
-	// Bob is a sine on the phase, scaled by how fast the pawn is actually moving.
-	const float SpeedAlpha = SprintSpeed > 0.f
-		? FMath::Clamp(GetVelocity().Size2D() / SprintSpeed, 0.f, 1.f) : 0.f;
-	Offset.Z += FMath::Sin(SwayPhase) * SwayAmplitude * SpeedAlpha;
-	Offset.Y += FMath::Sin(SwayPhase * 0.5f) * SwayAmplitude * 0.5f * SpeedAlpha;
-
-	return Offset;
-}
-
-void ACastleCharacter::UpdateViewModel(float DeltaSeconds)
-{
-	const UWeaponComponent* Weapon = GetWeaponComponent();
-	if (Weapon && (Weapon->HasWeapon() != bViewModelArmed || Weapon->GetActiveDefinition() != ViewModelDefinition))
-	{
-		RefreshViewModelForWeapon();
-	}
-
-	if (RecoilElapsed >= 0.f)
-	{
-		RecoilElapsed += DeltaSeconds;
-		if (RecoilElapsed > RecoilKickSeconds + RecoilReturnSeconds)
-		{
-			RecoilElapsed = -1.f;
-		}
-	}
-
-	const float SpeedAlpha = SprintSpeed > 0.f
-		? FMath::Clamp(GetVelocity().Size2D() / SprintSpeed, 0.f, 1.f) : 0.f;
-	SwayPhase = FMath::Fmod(SwayPhase + DeltaSeconds * SwayCyclesPerSecond * 2.f * PI * SpeedAlpha, 2.f * PI);
-
-	const float AimStep = AimBlendSeconds > 0.f ? DeltaSeconds / AimBlendSeconds : 1.f;
-	AimOffsetAlpha = FMath::Clamp(AimOffsetAlpha + (bIsAiming ? AimStep : -AimStep), 0.f, 1.f);
-
-	const FVector Offset = GetViewModelOffset();
-	const float RecoilPitch = RecoilKickPitchDegrees * GetRecoilAlpha();
-
-	// Recoil, reload dip, sway and the aim slide are written onto whichever component is the
-	// view model root: the arms when Frank has hands, the pistol itself when he does not.
-	if (bUseArmsMesh && ArmsMesh)
-	{
-		FRotator Rotation = ArmsRelativeRotation;
-		Rotation.Pitch += RecoilPitch;
-		ArmsMesh->SetRelativeLocationAndRotation(ArmsRelativeLocation + ArmsHipOffset + Offset, Rotation);
-	}
-	else if (WeaponMesh && WeaponMesh->GetAttachParent() == FirstPersonCamera)
-	{
-		FRotator Rotation = WeaponRelativeRotation;
-		Rotation.Pitch += RecoilPitch;
-		WeaponMesh->SetRelativeLocationAndRotation(WeaponRelativeLocation + Offset, Rotation);
-	}
-
-	UpdateBodyLocomotion();
-}
-
-void ACastleCharacter::PlayFireFeedback()
-{
-	RecoilElapsed = 0.f;
-
-	if (!MuzzleFlash)
-	{
-		return;
-	}
-
-	MuzzleFlash->SetVisibility(true);
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(
-			MuzzleFlashTimerHandle, this, &ACastleCharacter::EndMuzzleFlash, MuzzleFlashSeconds, false);
-	}
-}
-
-void ACastleCharacter::EndMuzzleFlash()
-{
-	if (MuzzleFlash)
-	{
-		MuzzleFlash->SetVisibility(false);
-	}
 }
 
 void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
@@ -900,13 +591,13 @@ void ACastleCharacter::Input_Fire(const FInputActionValue& /*Value*/)
 	if (Weapon->IsMelee())
 	{
 		// A punch is quiet: it is the stealth option that does not bring the block down on you.
-		PlayMeleeFeedback();
 		return;
 	}
 
-	// A gunshot is the loudest thing in the level; every guard in range goes Alerted.
+	// TODO(stage2): replaced by bow. The hitscan is only kept because thugs still shoot; the
+	// player has no ranged definition to fire it with any more.
+	// A gunshot is the loudest thing in the level; every thug in range goes Alerted.
 	MakeNoise(GunshotNoiseLoudness, this, GetActorLocation());
-	PlayFireFeedback();
 }
 
 void ACastleCharacter::Input_Reload(const FInputActionValue& /*Value*/)
