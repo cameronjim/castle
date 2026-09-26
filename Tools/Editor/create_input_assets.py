@@ -4,6 +4,7 @@
     IA_Jump  IA_Sprint  IA_Crouch  IA_Fire  IA_Aim  IA_Reload
     IA_Takedown  IA_Interact  IA_Pause  IA_Skip   (Digital / bool)
     IA_Slot1  IA_Slot2  IA_Slot3  IA_Inventory     (Digital / bool)
+    IA_Grapple                      (Digital / bool, Q: the grapple arrow)
     IA_SlotScroll                   (Axis1D, the mouse wheel)
     IMC_Default                     with the UE first-person template's WASD + mouse setup
 
@@ -44,6 +45,7 @@ ACTIONS = [
     ("IA_Slot3", BOOL),
     ("IA_SlotScroll", AXIS1D),
     ("IA_Inventory", BOOL),
+    ("IA_Grapple", BOOL),
 ]
 
 # (action name, FKey name, [modifier specs])
@@ -78,6 +80,7 @@ MAPPINGS = [
     # The wheel is a single axis: up is +1 (next slot), down is -1 (previous).
     ("IA_SlotScroll", "MouseWheelAxis", []),
     ("IA_Inventory", "Tab", []),
+    ("IA_Grapple", "Q", []),
 ]
 
 

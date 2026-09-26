@@ -83,6 +83,7 @@ CHARACTER_INPUT_PROPERTIES = [
     ("slot3_action", "IA_Slot3"),
     ("slot_scroll_action", "IA_SlotScroll"),
     ("inventory_action", "IA_Inventory"),
+    ("grapple_action", "IA_Grapple"),
 ]
 
 
