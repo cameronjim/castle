@@ -15,8 +15,10 @@ enum class EHotbarSlot : uint8
 {
 	/** Always present: bare hands. Left click punches. */
 	Hands = 0,
-	Pistol = 1,
-	Rifle = 2
+	/** The bow and its standard arrows. Empty until the bow task adds DA_Bow_Kate. */
+	Bow = 1,
+	/** Held for the trick-arrow quiver; nothing lives here yet. */
+	Reserved = 2
 };
 
 /** Number of hotbar slots. Kept next to the enum so a fourth slot is one edit. */
@@ -36,7 +38,7 @@ class CASTLE_API UWeaponDefinition : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
-	/** Player-facing name ("Pistol"). Shown in the inventory screen. */
+	/** Player-facing name ("Fists"). Shown in the inventory screen. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon")
 	FText DisplayName;
 
@@ -46,7 +48,7 @@ public:
 
 	/** Which hotbar slot this weapon occupies. Two weapons can share a slot; the last one wins. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon")
-	EHotbarSlot Slot = EHotbarSlot::Pistol;
+	EHotbarSlot Slot = EHotbarSlot::Bow;
 
 	/** Damage per hit before the headshot multiplier. For a melee weapon this is the punch. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon", meta = (ClampMin = "0.0"))

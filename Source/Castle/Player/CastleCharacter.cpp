@@ -325,7 +325,7 @@ void ACastleCharacter::Input_Slot2(const FInputActionValue& /*Value*/)
 {
 	if (InventoryComponent)
 	{
-		InventoryComponent->SelectSlot(EHotbarSlot::Pistol);
+		InventoryComponent->SelectSlot(EHotbarSlot::Bow);
 	}
 }
 
@@ -333,7 +333,7 @@ void ACastleCharacter::Input_Slot3(const FInputActionValue& /*Value*/)
 {
 	if (InventoryComponent)
 	{
-		InventoryComponent->SelectSlot(EHotbarSlot::Rifle);
+		InventoryComponent->SelectSlot(EHotbarSlot::Reserved);
 	}
 }
 

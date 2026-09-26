@@ -315,7 +315,7 @@ bool FCastleMissionCompleteClearsTheInventory::RunTest(const FString& Parameters
 	Inventory->SelectSlot(EHotbarSlot::Hands, /*bImmediate=*/true);
 
 	UWeaponDefinition* Pistol = NewObject<UWeaponDefinition>(Inventory);
-	Pistol->Slot = EHotbarSlot::Pistol;
+	Pistol->Slot = EHotbarSlot::Bow;
 	Pistol->MagazineSize = 12;
 	Pistol->DefaultReserve = 24;
 
@@ -329,16 +329,16 @@ bool FCastleMissionCompleteClearsTheInventory::RunTest(const FString& Parameters
 	Tracker->StartMission(Mission);
 
 	TestFalse(TEXT("Frank is carrying the pistol mid-mission"),
-		Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+		Inventory->IsSlotEmpty(EHotbarSlot::Bow));
 
 	Tracker->CompleteObjective(FName(TEXT("find_weapon")));
 	TestFalse(TEXT("Still carrying it with one objective left"),
-		Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+		Inventory->IsSlotEmpty(EHotbarSlot::Bow));
 
 	Tracker->CompleteObjective(FName(TEXT("reach_stairwell")));
 
 	TestEqual(TEXT("The mission completed once"), Listener->MissionCompleteCount, 1);
-	TestTrue(TEXT("And nothing carries out of it"), Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+	TestTrue(TEXT("And nothing carries out of it"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
 	TestFalse(TEXT("Keycards included"), Inventory->HasKeycard(FName(TEXT("cellblock"))));
 	TestEqual(TEXT("Hands are back in his hands"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
 	TestFalse(TEXT("Which are never empty"), Inventory->IsSlotEmpty(EHotbarSlot::Hands));

@@ -25,7 +25,7 @@ namespace CastleInventoryTest
 		UWeaponDefinition* Definition = NewObject<UWeaponDefinition>(Outer);
 		Definition->DisplayName = FText::FromString(TEXT("Pistol"));
 		Definition->ShortName = FText::FromString(TEXT("Pistol"));
-		Definition->Slot = EHotbarSlot::Pistol;
+		Definition->Slot = EHotbarSlot::Bow;
 		Definition->Damage = 34.f;
 		Definition->MagazineSize = 12;
 		Definition->DefaultReserve = 24;
@@ -36,7 +36,7 @@ namespace CastleInventoryTest
 	{
 		UWeaponDefinition* Definition = NewObject<UWeaponDefinition>(Outer);
 		Definition->DisplayName = FText::FromString(TEXT("Rifle"));
-		Definition->Slot = EHotbarSlot::Rifle;
+		Definition->Slot = EHotbarSlot::Reserved;
 		Definition->Damage = 24.f;
 		Definition->MagazineSize = 30;
 		Definition->DefaultReserve = 90;
@@ -63,8 +63,8 @@ bool FCastleInventoryStartsWithHands::RunTest(const FString& Parameters)
 	TestFalse(TEXT("And slot 1 is never empty"), Inventory->IsSlotEmpty(EHotbarSlot::Hands));
 	TestTrue(TEXT("Hands are a melee weapon"), Inventory->GetActiveWeapon() != nullptr
 		&& Inventory->GetActiveWeapon()->bIsMelee);
-	TestTrue(TEXT("The pistol slot starts empty"), Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
-	TestTrue(TEXT("So does the rifle slot"), Inventory->IsSlotEmpty(EHotbarSlot::Rifle));
+	TestTrue(TEXT("The pistol slot starts empty"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
+	TestTrue(TEXT("So does the rifle slot"), Inventory->IsSlotEmpty(EHotbarSlot::Reserved));
 
 	return true;
 }
@@ -80,7 +80,7 @@ bool FCastleInventoryEmptySlotIsNoOp::RunTest(const FString& Parameters)
 	Inventory->OnActiveSlotChanged.AddDynamic(Listener, &UCastleTestListener::HandleActiveSlotChanged);
 
 	TestFalse(TEXT("Selecting the empty pistol slot does nothing"),
-		Inventory->SelectSlot(EHotbarSlot::Pistol));
+		Inventory->SelectSlot(EHotbarSlot::Bow));
 	TestEqual(TEXT("The active slot is unchanged"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
 	TestEqual(TEXT("And nothing was broadcast"), Listener->ActiveSlotChangedCount, 0);
 	TestFalse(TEXT("Nothing is swapping either"), Inventory->IsSwapping());
@@ -99,14 +99,14 @@ bool FCastleInventoryAutoSelectsOnlyFromHands::RunTest(const FString& Parameters
 
 	TestTrue(TEXT("The pistol goes in"), Inventory->AddWeapon(Pistol));
 	TestEqual(TEXT("And is drawn, because Hands were active"),
-		Inventory->GetActiveSlot(), EHotbarSlot::Pistol);
-	TestEqual(TEXT("With a full magazine"), Inventory->GetSlot(EHotbarSlot::Pistol).Magazine, 12);
-	TestEqual(TEXT("And its default reserve"), Inventory->GetSlot(EHotbarSlot::Pistol).Reserve, 24);
+		Inventory->GetActiveSlot(), EHotbarSlot::Bow);
+	TestEqual(TEXT("With a full magazine"), Inventory->GetSlot(EHotbarSlot::Bow).Magazine, 12);
+	TestEqual(TEXT("And its default reserve"), Inventory->GetSlot(EHotbarSlot::Bow).Reserve, 24);
 
 	// Picking a second gun up mid-fight must not take the first one out of his hands.
 	TestTrue(TEXT("The rifle goes in"), Inventory->AddWeapon(Rifle));
-	TestEqual(TEXT("But the pistol stays drawn"), Inventory->GetActiveSlot(), EHotbarSlot::Pistol);
-	TestFalse(TEXT("The rifle slot is filled all the same"), Inventory->IsSlotEmpty(EHotbarSlot::Rifle));
+	TestEqual(TEXT("But the pistol stays drawn"), Inventory->GetActiveSlot(), EHotbarSlot::Bow);
+	TestFalse(TEXT("The rifle slot is filled all the same"), Inventory->IsSlotEmpty(EHotbarSlot::Reserved));
 
 	return true;
 }
@@ -124,14 +124,14 @@ bool FCastleInventoryScrollSkipsEmptySlots::RunTest(const FString& Parameters)
 	Inventory->SelectSlot(EHotbarSlot::Hands, /*bImmediate=*/true);
 
 	TestTrue(TEXT("Wheel up moves on"), Inventory->SelectNextSlot());
-	TestEqual(TEXT("Straight to the rifle"), Inventory->GetActiveSlot(), EHotbarSlot::Rifle);
+	TestEqual(TEXT("Straight to the rifle"), Inventory->GetActiveSlot(), EHotbarSlot::Reserved);
 
 	TestTrue(TEXT("Wheel up again wraps"), Inventory->SelectNextSlot());
 	TestEqual(TEXT("Back to Hands"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
 
 	TestTrue(TEXT("Wheel down moves back"), Inventory->SelectPreviousSlot());
 	TestEqual(TEXT("To the rifle, not the empty pistol slot"),
-		Inventory->GetActiveSlot(), EHotbarSlot::Rifle);
+		Inventory->GetActiveSlot(), EHotbarSlot::Reserved);
 
 	return true;
 }
@@ -191,23 +191,23 @@ bool FCastleInventoryClearResetsToStartingSlots::RunTest(const FString& Paramete
 
 	// This mission hands Frank a pistol; everything else he found on the way.
 	Inventory->ApplyStartingWeapons({ Pistol });
-	TestFalse(TEXT("The starting pistol is carried"), Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+	TestFalse(TEXT("The starting pistol is carried"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
 	TestEqual(TEXT("And Hands are what he is holding"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
 
 	Inventory->AddWeapon(Rifle);
 	Inventory->GiveKeycard(FName(TEXT("cellblock")));
-	Inventory->AddAmmoToSlot(EHotbarSlot::Pistol, 12);
+	Inventory->AddAmmoToSlot(EHotbarSlot::Bow, 12);
 	TestEqual(TEXT("The pistol picked up spare rounds"),
-		Inventory->GetSlot(EHotbarSlot::Pistol).Reserve, 36);
+		Inventory->GetSlot(EHotbarSlot::Bow).Reserve, 36);
 
 	Inventory->Clear();
 
 	TestEqual(TEXT("Hands are active again"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
 	TestFalse(TEXT("Hands are still there"), Inventory->IsSlotEmpty(EHotbarSlot::Hands));
-	TestFalse(TEXT("The mission's pistol comes back"), Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+	TestFalse(TEXT("The mission's pistol comes back"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
 	TestEqual(TEXT("With its default reserve, not the rounds he found"),
-		Inventory->GetSlot(EHotbarSlot::Pistol).Reserve, 24);
-	TestTrue(TEXT("The rifle he found is gone"), Inventory->IsSlotEmpty(EHotbarSlot::Rifle));
+		Inventory->GetSlot(EHotbarSlot::Bow).Reserve, 24);
+	TestTrue(TEXT("The rifle he found is gone"), Inventory->IsSlotEmpty(EHotbarSlot::Reserved));
 	TestFalse(TEXT("And so are the keycards"), Inventory->HasKeycard(FName(TEXT("cellblock"))));
 
 	return true;
@@ -234,7 +234,7 @@ bool FCastleInventorySwapBlocksFire::RunTest(const FString& Parameters)
 	UWeaponDefinition* Pistol = CastleInventoryTest::MakePistol(Inventory);
 	Inventory->AddWeapon(Pistol);
 
-	TestEqual(TEXT("The pistol is drawn"), Inventory->GetActiveSlot(), EHotbarSlot::Pistol);
+	TestEqual(TEXT("The pistol is drawn"), Inventory->GetActiveSlot(), EHotbarSlot::Bow);
 	TestTrue(TEXT("Drawing it takes SwapSeconds"), Inventory->IsSwapping());
 	TestFalse(TEXT("Fire is refused for the whole swap"), Weapon->CanFire());
 	TestFalse(TEXT("And pulling the trigger does nothing"), Weapon->Fire());
@@ -246,7 +246,7 @@ bool FCastleInventorySwapBlocksFire::RunTest(const FString& Parameters)
 	TestTrue(TEXT("And the pistol fires"), Weapon->Fire());
 	TestEqual(TEXT("One round gone"), Weapon->CurrentAmmo, 11);
 	TestEqual(TEXT("Written back into the slot"),
-		Inventory->GetSlot(EHotbarSlot::Pistol).Magazine, 11);
+		Inventory->GetSlot(EHotbarSlot::Bow).Magazine, 11);
 
 	return true;
 }
@@ -280,7 +280,7 @@ bool FCastleInventoryAmmoSurvivesASwap::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Fists are not a ranged weapon"), Weapon->HasWeapon());
 	TestTrue(TEXT("And the component knows it is melee"), Weapon->IsMelee());
 
-	Inventory->SelectSlot(EHotbarSlot::Pistol);
+	Inventory->SelectSlot(EHotbarSlot::Bow);
 	TestEqual(TEXT("The pistol comes back with the rounds it had"), Weapon->CurrentAmmo, 10);
 	TestEqual(TEXT("And its reserve"), Weapon->ReserveAmmo, 24);
 
@@ -352,22 +352,22 @@ bool FCastleInventoryHotbarWidgetReflectsState::RunTest(const FString& Parameter
 
 	TestEqual(TEXT("Hands are the active box"), Hotbar->GetActiveSlot(), EHotbarSlot::Hands);
 	TestTrue(TEXT("Slot 1 is highlighted"), Hotbar->IsSlotActive(EHotbarSlot::Hands));
-	TestTrue(TEXT("Slot 2 is empty"), Hotbar->IsSlotEmpty(EHotbarSlot::Pistol));
+	TestTrue(TEXT("Slot 2 is empty"), Hotbar->IsSlotEmpty(EHotbarSlot::Bow));
 	TestEqual(TEXT("Slot labels are the number keys"),
-		Hotbar->GetSlotKeyText(EHotbarSlot::Rifle).ToString(), FString(TEXT("3")));
+		Hotbar->GetSlotKeyText(EHotbarSlot::Reserved).ToString(), FString(TEXT("3")));
 	TestTrue(TEXT("Fists show no ammo"), Hotbar->GetSlotAmmoText(EHotbarSlot::Hands).IsEmpty());
 	TestEqual(TEXT("An empty box is dimmed"),
-		Hotbar->GetSlotColor(EHotbarSlot::Pistol), Hotbar->GetSlotColor(EHotbarSlot::Rifle));
+		Hotbar->GetSlotColor(EHotbarSlot::Bow), Hotbar->GetSlotColor(EHotbarSlot::Reserved));
 
 	Inventory->AddWeapon(CastleInventoryTest::MakePistol(Inventory));
 
-	TestEqual(TEXT("The widget follows the inventory"), Hotbar->GetActiveSlot(), EHotbarSlot::Pistol);
-	TestTrue(TEXT("Slot 2 is highlighted now"), Hotbar->IsSlotActive(EHotbarSlot::Pistol));
+	TestEqual(TEXT("The widget follows the inventory"), Hotbar->GetActiveSlot(), EHotbarSlot::Bow);
+	TestTrue(TEXT("Slot 2 is highlighted now"), Hotbar->IsSlotActive(EHotbarSlot::Bow));
 	TestFalse(TEXT("And slot 1 is not"), Hotbar->IsSlotActive(EHotbarSlot::Hands));
 	TestEqual(TEXT("The gun shows its ammo"),
-		Hotbar->GetSlotAmmoText(EHotbarSlot::Pistol).ToString(), FString(TEXT("12 / 24")));
+		Hotbar->GetSlotAmmoText(EHotbarSlot::Bow).ToString(), FString(TEXT("12 / 24")));
 	TestEqual(TEXT("Under its short name"),
-		Hotbar->GetSlotNameText(EHotbarSlot::Pistol).ToString(), FString(TEXT("Pistol")));
+		Hotbar->GetSlotNameText(EHotbarSlot::Bow).ToString(), FString(TEXT("Pistol")));
 
 	return true;
 }

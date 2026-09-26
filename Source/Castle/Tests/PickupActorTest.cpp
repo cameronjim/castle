@@ -34,7 +34,7 @@ namespace CastlePickupTest
 	static UWeaponDefinition* MakePistol(UObject* Outer)
 	{
 		UWeaponDefinition* Definition = NewObject<UWeaponDefinition>(Outer);
-		Definition->Slot = EHotbarSlot::Pistol;
+		Definition->Slot = EHotbarSlot::Bow;
 		Definition->Damage = 34.f;
 		Definition->MagazineSize = 12;
 		Definition->DefaultReserve = 24;
@@ -65,7 +65,7 @@ bool FCastlePickupWeaponArmsThePlayer::RunTest(const FString& Parameters)
 	}
 
 	TestFalse(TEXT("Frank starts with his fists, not a gun"), Weapon->HasWeapon());
-	TestTrue(TEXT("Which is what the hotbar says too"), Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+	TestTrue(TEXT("Which is what the hotbar says too"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
 	TestFalse(TEXT("Reloading a fist is a no-op"), Weapon->Reload());
 
 	Pickup->Weapon = CastlePickupTest::MakePistol(Pickup);
@@ -73,14 +73,14 @@ bool FCastlePickupWeaponArmsThePlayer::RunTest(const FString& Parameters)
 	Pickup->AmmoAmount = 24;
 	TestTrue(TEXT("The pickup applies"), Pickup->ApplyTo(Player));
 
-	TestFalse(TEXT("The pistol landed in slot 2"), Inventory->IsSlotEmpty(EHotbarSlot::Pistol));
+	TestFalse(TEXT("The pistol landed in slot 2"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
 	TestEqual(TEXT("And was drawn, because Hands were active"),
-		Inventory->GetActiveSlot(), EHotbarSlot::Pistol);
+		Inventory->GetActiveSlot(), EHotbarSlot::Bow);
 	TestTrue(TEXT("Frank is armed"), Weapon->HasWeapon());
 	TestEqual(TEXT("Magazine loaded"), Weapon->CurrentAmmo, 12);
 	TestEqual(TEXT("Reserve loaded"), Weapon->ReserveAmmo, 24);
 	TestEqual(TEXT("The slot carries the same rounds"),
-		Inventory->GetSlot(EHotbarSlot::Pistol).Magazine, 12);
+		Inventory->GetSlot(EHotbarSlot::Bow).Magazine, 12);
 	TestTrue(TEXT("The pickup destroys itself"), Pickup->IsActorBeingDestroyed() || !IsValid(Pickup));
 
 	return true;
@@ -137,13 +137,13 @@ bool FCastlePickupAmmoAddsToReserve::RunTest(const FString& Parameters)
 	// Ammo goes into a weapon's slot, so there has to be a weapon to put it in.
 	UWeaponDefinition* Pistol = CastlePickupTest::MakePistol(Inventory);
 	Inventory->AddWeapon(Pistol);
-	const int32 Before = Inventory->GetSlot(EHotbarSlot::Pistol).Reserve;
+	const int32 Before = Inventory->GetSlot(EHotbarSlot::Bow).Reserve;
 
 	Pickup->Weapon = Pistol;
 	Pickup->AmmoAmount = 12;
 	TestTrue(TEXT("The pickup applies"), Pickup->ApplyTo(Player));
 	TestEqual(TEXT("The pistol's reserve grew by the pickup amount"),
-		Inventory->GetSlot(EHotbarSlot::Pistol).Reserve, Before + 12);
+		Inventory->GetSlot(EHotbarSlot::Bow).Reserve, Before + 12);
 	TestEqual(TEXT("And the held weapon sees it"), Weapon->ReserveAmmo, Before + 12);
 
 	return true;
