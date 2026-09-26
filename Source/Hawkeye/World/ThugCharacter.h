@@ -151,7 +151,11 @@ public:
 
 	/** The glint light's brightness, lumens. Small: a glint, not a lamp. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat", meta = (ClampMin = "0.0"))
-	float GlintLumens = 60.f;
+	float GlintLumens = 120.f;
+
+	/** The glint bead's emissive intensity (M_Emissive's Intensity), so it reads from the next roof. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat", meta = (ClampMin = "0.0"))
+	float GlintEmissive = 40.f;
 
 	/** Raised pistol position from the right upper arm, in the aim frame (X along the aim), cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")

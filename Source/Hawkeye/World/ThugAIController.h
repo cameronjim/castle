@@ -493,6 +493,12 @@ protected:
 	/** The player's pawn, for the archer's sight when no target is set yet. */
 	APawn* FindPlayerPawn() const;
 
+	/** Where on Target he aims and looks: ChestHeight above her capsule centre, the centre itself crouched. */
+	FVector GetAimPointOn(const AActor* Target) const;
+
+	/** The navmesh is built at BeginPlay; a failed move in this many seconds after start is not reported. */
+	static constexpr double NavigationGraceSeconds = 10.0;
+
 	/** World seconds. */
 	double GetNowSeconds() const;
 

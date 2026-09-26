@@ -415,21 +415,28 @@ void AThugCharacter::UpdateTelegraphGlint()
 	const bool bShow = bGlintOn && !bLimp;
 	if (bShow && !bGlintTinted)
 	{
-		// The nock material glows in its Color; the plain shape material when it has not been built.
+		// M_Emissive (Color x Intensity) so the bead reads from the next roof; the nock material, then
+		// the plain shape material, when it has not been built.
 		bGlintTinted = true;
-		const TSoftObjectPtr<UMaterialInterface> Glow{ FSoftObjectPath(AArrowProjectile::DefaultNockMaterialPath) };
-		if (UMaterialInterface* Loaded = Glow.LoadSynchronous())
+		const TSoftObjectPtr<UMaterialInterface> Emissive{ FSoftObjectPath(TEXT("/Game/Materials/M_Emissive.M_Emissive")) };
+		const TSoftObjectPtr<UMaterialInterface> Nock{ FSoftObjectPath(AArrowProjectile::DefaultNockMaterialPath) };
+		if (UMaterialInterface* Loaded = Emissive.LoadSynchronous())
 		{
 			GlintMesh->SetMaterial(0, Loaded);
+		}
+		else if (UMaterialInterface* NockMaterial = Nock.LoadSynchronous())
+		{
+			GlintMesh->SetMaterial(0, NockMaterial);
 		}
 		const FLinearColor Color = IsArcher() ? BowGlintColor : PistolGlintColor;
 		if (UMaterialInstanceDynamic* Tint = GlintMesh->CreateDynamicMaterialInstance(0))
 		{
 			Tint->SetVectorParameterValue(TEXT("Color"), Color);
+			Tint->SetScalarParameterValue(TEXT("Intensity"), GlintEmissive);
 		}
 		TelegraphLight->SetLightColor(Color);
 		TelegraphLight->SetIntensity(GlintLumens);
-		GlintMesh->SetWorldScale3D(FVector(IsArcher() ? 0.06f : 0.04f));
+		GlintMesh->SetWorldScale3D(FVector(IsArcher() ? 0.1f : 0.06f));
 	}
 	if (GlintMesh->IsVisible() != bShow)
 	{

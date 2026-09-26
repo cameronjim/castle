@@ -432,6 +432,18 @@ void AThugAIController::ReportStimulus(EStimulusKind Kind, FVector Location, boo
 	}
 }
 
+FVector AThugAIController::GetAimPointOn(const AActor* Target) const
+{
+	if (!Target)
+	{
+		return FVector::ZeroVector;
+	}
+	// Crouched she is only as tall as her capsule centre: a parapet at that height covers her.
+	const ACharacter* TargetCharacter = Cast<ACharacter>(Target);
+	const float Height = TargetCharacter && TargetCharacter->bIsCrouched ? 0.f : ChestHeight;
+	return Target->GetActorLocation() + FVector(0.f, 0.f, Height);
+}
+
 APawn* AThugAIController::FindPlayerPawn() const
 {
 	const UWorld* World = GetWorld();
@@ -464,7 +476,7 @@ void AThugAIController::UpdateArcherSight()
 	{
 		return;
 	}
-	const FVector Chest = Candidate->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	const FVector Chest = GetAimPointOn(Candidate);
 	const bool bInRange = FVector::Dist(Candidate->GetActorLocation(), Me->GetActorLocation()) <= ArcherAggroRange;
 	const bool bVisible = bInRange && !IsHiddenInSmoke(Candidate) && HasLineTo(Chest, Candidate);
 	if (bVisible)
@@ -825,9 +837,13 @@ void AThugAIController::ReportMoveResult(EPathFollowingRequestResult::Type Resul
 	{
 		return;
 	}
+	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
+	if (NavSystem && !NavSystem->GetDefaultNavDataInstance() && GetNowSeconds() < NavigationGraceSeconds)
+	{
+		return;
+	}
 	bLoggedMoveFailure = true;
 
-	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
 	const FString Reason = !NavSystem
 		? TEXT("there is no navigation system in this world")
 		: (NavSystem->GetDefaultNavDataInstance() == nullptr
@@ -968,7 +984,7 @@ void AThugAIController::TickGunner(float DeltaSeconds, const FVector& ToTarget)
 
 	StopMovement();
 	FaceTarget(Thug, ToTarget);
-	const FVector Chest = TargetActor->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	const FVector Chest = GetAimPointOn(TargetActor);
 
 	// Aimed at while out in the open: he ducks, if there is anywhere to duck to. A peek is committed.
 	if (bAimedAt && GunnerPhase == EGunnerPhase::Open && BeginCover(TEXT("aimed at")))
@@ -1127,7 +1143,7 @@ FVector AThugAIController::FindPeekPoint() const
 		return CoverPoint;
 	}
 	const UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
-	const FVector Chest = TargetActor->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	const FVector Chest = GetAimPointOn(TargetActor);
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(ThugPeek), false, Me);
 	Params.AddIgnoredActor(TargetActor);
 	for (const float Radius : { 100.f, 180.f, 260.f })
@@ -1276,7 +1292,10 @@ bool AThugAIController::FindCoverPointRing(const FVector& Threat, FVector& OutPo
 			{
 				continue;
 			}
-			if (!World->LineTraceTestByChannel(Eye, Candidate, ECC_Visibility, Params))
+			const FVector Side = FVector::CrossProduct((Candidate - Eye).GetSafeNormal2D(), FVector::UpVector) * Radius;
+			if (!World->LineTraceTestByChannel(Eye, Candidate, ECC_Visibility, Params)
+				|| !World->LineTraceTestByChannel(Eye, Candidate + Side, ECC_Visibility, Params)
+				|| !World->LineTraceTestByChannel(Eye, Candidate - Side, ECC_Visibility, Params))
 			{
 				continue;
 			}
@@ -1358,7 +1377,7 @@ void AThugAIController::TickArcher(float DeltaSeconds, const FVector& ToTarget)
 	FaceTarget(Thug, ToTarget);
 
 	// Lead on her velocity, at the chest, allowing for the drop.
-	const FVector Chest = TargetActor->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	const FVector Chest = GetAimPointOn(TargetActor);
 	const UWorld* World = GetWorld();
 	const float GravityZ = World ? World->GetGravityZ() : -980.f;
 	const FVector Aim = ComputeLeadAimPoint(Bow->GetArrowSpawnLocation(), Chest, TargetActor->GetVelocity(),
@@ -1409,7 +1428,7 @@ bool AThugAIController::StartArcherRelocation(const TCHAR* Why)
 		return false;
 	}
 	const FVector Player = TargetActor->GetActorLocation();
-	const FVector Chest = Player + FVector(0.f, 0.f, ChestHeight);
+	const FVector Chest = GetAimPointOn(TargetActor);
 	const float HalfHeight = Thug->GetCapsuleComponent() ? Thug->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 96.f;
 	AGrappleAnchor* Best = nullptr;
 	FVector BestLanding = FVector::ZeroVector;
@@ -1610,7 +1629,7 @@ void AThugAIController::FireAtTarget()
 	}
 
 	// Scatter the shot by rotating the aim inside a cone; the weapon traces the control rotation.
-	const FVector Chest = TargetActor->GetActorLocation() + FVector(0.f, 0.f, ChestHeight);
+	const FVector Chest = GetAimPointOn(TargetActor);
 	const FVector AimDirection = (Chest - Thug->GetPawnViewLocation()).GetSafeNormal();
 	const FVector Scattered = FMath::VRandCone(AimDirection, FMath::DegreesToRadians(AimSpreadDegrees));
 
