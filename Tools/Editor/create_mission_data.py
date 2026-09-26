@@ -56,6 +56,8 @@ CH01_FIELDS = [
     ("mission_number", 1),
     ("end_card_line", "Okay. That's not one of mine."),
     ("show_objective_text", True),
+    # Kate and Clint can swap here while switching is being tested; later chapters decide per story.
+    ("allow_switching", True),
 ]
 
 # (ObjectiveId, Title, Description). find_arrow is the chapter's closing beat: an arrow that
