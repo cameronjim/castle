@@ -89,7 +89,27 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   generator places them; verify asserts every landing point is above a building roof.
   Anchor lookup uses a 25 m spatial grid.
 
-## PLANNED: bow and arrows
+## Bow and arrows (built 2026-09-26; the rules below hold, with these notes)
+- Data: `UBowDefinition` (DA_Bow_Kate 0.8 s draw, DA_Bow_Clint 1.0 s) and
+  `UArrowDefinition` (DA_Arrow_Standard 40 damage, cap 30, recoverable; DA_Arrow_Grapple
+  cap 6, recoverable, hit effect Grapple). `UBowComponent` on the player; `AArrowProjectile`
+  with gravity, sticks into what it hits for 30 s, recovered within 150 cm.
+- The quiver replaced the weapon slots: `Bow` (null means fists on left click), six
+  arrow slots with standard always in slot 1, `ActiveArrowSlot`, keycards. Keys 1 to 6
+  and the wheel skip empty slots. The mission grants `StartingBow` and `StartingArrows`;
+  CH01 gives Kate's bow, 30 standard, 6 grapple. `Clear()` returns to the grant.
+- Q fires a grapple arrow at the marked anchor from the quiver without changing the
+  nocked slot. Damage scales with draw from 40% to 100% of the arrow's damage.
+- Arrows collide as WorldDynamic, not on the Weapon channel, because the invisible
+  traversal ledge blocks sit on that channel along every roof edge.
+- Reticle while drawing: a ring whose radius is the current spread projected at 1500 cm,
+  plus a draw bar that flashes in the perfect window. Drawing forces aim mode and walk
+  speed.
+- Known gap: there is no draw animation. The bow blends from the left palm socket to a
+  point in front of the left shoulder while drawing and rides across the back when
+  holstered. A layered upper-body aim animation is stage 3 work.
+
+## Bow and arrows, original rules
 - Draw is a hold: 0 to `FullDrawSeconds` (0.8 Kate, 1.0 Clint). Release below 25% draw
   cancels. Power scales damage from 40% to 100% and spread from 4 degrees to 0.5.
 - Arrows are projectiles with gravity, 6000 cm/s at full draw, penetration off. Headshot
