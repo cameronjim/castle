@@ -1,7 +1,9 @@
 """Create the weapon, bow and arrow data and wire it into the player.
 
     /Game/Blueprints/Weapons/DA_Weapon_Hands      melee, 15 damage: left click while no bow is owned
-    /Game/Blueprints/Weapons/M_Bow                dark purple, the placeholder bow's material
+    /Game/Blueprints/Weapons/M_Bow                dark purple, the placeholder bow's material, with a
+                                                  purple glow round the grip (|z| under 5 cm)
+    /Game/Blueprints/Weapons/M_ArrowNock          a Color parameter that also glows: the nocks
     /Game/Blueprints/Weapons/SM_Bow_Placeholder   a 120 cm bow from three cylinders (riser and two
                                                   limbs raked back to tips at x -12, z +-60); +X is
                                                   where the arrow goes, grip at the origin. The
@@ -36,6 +38,11 @@ PLAYER_PATH = "/Game/Blueprints/Player"
 
 BOW_MATERIAL = "M_Bow"
 BOW_MATERIAL_RGB = (0.10, 0.03, 0.16)
+BOW_GRIP_HALF = 5.0                # cm either side of the grip centre (the mesh origin) that glows
+BOW_GLOW_RGB = (0.55, 0.15, 1.0)
+BOW_GLOW = 1.2                     # before _materials.EMISSIVE_INTENSITY_FACTOR
+NOCK_MATERIAL = "M_ArrowNock"
+NOCK_GLOW = 1.5                    # times the nock's Color, before the factor
 BOW_MESH = "SM_Bow_Placeholder"
 
 # Palm of the left hand on the UEFN mannequin (a socket on hand_l, found by introspecting
@@ -179,6 +186,31 @@ def first(result):
     return result[0] if isinstance(result, tuple) else result
 
 
+def _build_bow(material):
+    """Dark purple, roughness 0.45, and a band of purple glow round the grip in local space."""
+    import _materials as m  # noqa: PLC0415
+
+    m.connect_property(m.constant3(material, BOW_MATERIAL_RGB, -600, -200), unreal.MaterialProperty.MP_BASE_COLOR)
+    m.set_scalar_property(material, 0.45, unreal.MaterialProperty.MP_ROUGHNESS, -600, 0)
+    local = m.expr(material, "MaterialExpressionLocalPosition", -1300, 200, None, "LocalPosition")
+    height = m.absolute(material, m.component_mask(material, local, b=True, x=-1150, y=200), -1000, 200)
+    grip = m.below(material, height, BOW_GRIP_HALF, -850, 200, 2.0)
+    glow = tuple(v * BOW_GLOW * m.EMISSIVE_INTENSITY_FACTOR for v in BOW_GLOW_RGB)
+    m.connect_property(m.multiply(material, grip, m.constant3(material, glow, -500, 300), -300, 200),
+                       unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+
+def _build_arrow_nock(material):
+    """Color (the arrow sets it) as the base, and the same colour glowing."""
+    import _materials as m  # noqa: PLC0415
+
+    color = m.vector_param(material, "Color", (0.45, 0.1, 0.75), -700, -100)
+    m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
+    m.connect_property(m.multiply(material, color, None, -400, 100, const_b=NOCK_GLOW * m.EMISSIVE_INTENSITY_FACTOR),
+                       unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    m.set_scalar_property(material, 0.4, unreal.MaterialProperty.MP_ROUGHNESS, -400, 250)
+
+
 def build_bow_mesh():
     """Riser, two limbs raked back to the string tips. cm, +X forward, +Z up the bow."""
     prim = unreal.GeometryScript_Primitives
@@ -298,7 +330,10 @@ def run():
 
     hands = create_data_asset("DA_Weapon_Hands", "WeaponDefinition", weapon_values("DA_Weapon_Hands"))
 
-    material = c.ensure_constant_color_material(BOW_MATERIAL, WEAPON_PATH, BOW_MATERIAL_RGB, 0.45)
+    import _materials as m  # noqa: PLC0415
+
+    material = m.ensure_look_material(c.asset_path(WEAPON_PATH, BOW_MATERIAL), _build_bow)
+    m.ensure_look_material(c.asset_path(WEAPON_PATH, NOCK_MATERIAL), _build_arrow_nock)
     mesh = ensure_bow_mesh(material)
     projectiles = ensure_projectile_blueprints()
 

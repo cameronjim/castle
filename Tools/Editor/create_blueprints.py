@@ -7,7 +7,8 @@
     /Game/Blueprints/Player/BP_Kate                   parent SandboxCharacter_CMC (170 cm, purple
                                                       suit, UEFN mannequin, motion-matched ABP);
                                                       BP_HawkeyeCharacter when the sample is absent
-    /Game/Characters/Kate/M_KateSuit, M_KateSuitDark  her stand-in materials
+    /Game/Characters/Kate/M_KateSuit, M_KateSuitDark  her stand-in materials (the suit: matte black
+                                                      with purple arm panels and chest chevron)
     /Game/Blueprints/Player/BP_HawkeyePlayerController parent AHawkeyePlayerController
     /Game/Blueprints/Player/BP_HawkeyeGameMode         parent AHawkeyeGameMode
     /Game/Blueprints/UI/WBP_Flashback                 parent UFlashbackWidget
@@ -60,9 +61,23 @@ KATE_NAME = "BP_Kate"
 KATE_MATERIAL_PATH = "/Game/Characters/Kate"
 M_KATE_SUIT = KATE_MATERIAL_PATH + "/M_KateSuit"
 M_KATE_SUIT_DARK = KATE_MATERIAL_PATH + "/M_KateSuitDark"
-KATE_SUIT_COLOR = (0.25, 0.05, 0.35)
+KATE_SUIT_COLOR = (0.19, 0.035, 0.34)         # the purple panels (bluer, so warm lamps leave it purple)
+KATE_SUIT_BLACK = (0.018, 0.016, 0.022)        # the matte black under-layer
 KATE_SUIT_DARK_COLOR = (0.08, 0.08, 0.08)
 KATE_SUIT_ROUGHNESS = 0.6
+KATE_SUIT_BLACK_ROUGHNESS = 0.8
+KATE_SUIT_PANEL_ROUGHNESS = 0.45
+# The suit's panels, in the UEFN mannequin's bind pose (cm, mesh space: +Y forward, A-pose; the
+# shoulders at |x| 18, the wrists at |x| about 46, the chest front at y > 3). The mannequin's one
+# material slot has no usable UV layout for panels, so the mask comes from the pre-skinned position,
+# which moves with the skin however she is posed.
+KATE_ARM_PANEL_X = (19.0, 44.0)                # purple from the shoulder to the glove
+KATE_ARM_PANEL_MIN_Z = 92.0
+KATE_CHEVRON_TIP_Z = 116.0                     # the V's point, on the sternum
+KATE_CHEVRON_SLOPE = 0.9                       # cm up per cm out
+KATE_CHEVRON_HALF_WIDTH = 3.5                  # cm, measured up the body
+KATE_CHEVRON_MAX_X = 17.0
+KATE_CHEST_FRONT_Y = 3.0
 KATE_CAPSULE_RADIUS = 30.0
 KATE_CAPSULE_HALF_HEIGHT = 85.0
 KATE_MESH_SCALE = 0.93
@@ -314,13 +329,44 @@ def configure_body(bp):
         c.save(bp)
 
 
+def _build_kate_suit(material):
+    """Matte black with purple arm panels and a purple chevron on the chest, masked by the
+    mannequin's pre-skinned (bind-pose) position, carried to the pixel shader by a vertex
+    interpolator (the position is only available per vertex)."""
+    import _materials as m  # noqa: PLC0415
+
+    bind = m.expr(material, "MaterialExpressionPreSkinnedPosition", -2000, 0, None, "PreSkinnedPosition")
+    carried = m.expr(material, "MaterialExpressionVertexInterpolator", -1850, 0, None, "VertexInterpolator")
+    m.connect(bind, "", carried, "")
+    x = m.absolute(material, m.component_mask(material, carried, r=True, x=-1700, y=-100), -1550, -100)
+    y = m.component_mask(material, carried, g=True, x=-1700, y=0)
+    z = m.component_mask(material, carried, b=True, x=-1700, y=100)
+
+    arms = m.mul_all(material, [m.band(material, x, KATE_ARM_PANEL_X[0], KATE_ARM_PANEL_X[1], -1400, -300, 3.0),
+                                m.step(material, z, KATE_ARM_PANEL_MIN_Z, -1400, -200, 3.0)], -900, -300)
+    # The chevron: |z - (tip + slope * |x|)| under the half width, on the front of the chest.
+    line = m.add(material, m.multiply(material, x, None, -1400, 100, const_b=KATE_CHEVRON_SLOPE), None, -1250, 100,
+                 const_b=KATE_CHEVRON_TIP_Z)
+    off = m.absolute(material, m.subtract(material, z, line, -1100, 100), -950, 100)
+    chevron = m.mul_all(material, [m.below(material, off, KATE_CHEVRON_HALF_WIDTH, -800, 100, 3.0),
+                                   m.below(material, x, KATE_CHEVRON_MAX_X, -800, 200, 3.0),
+                                   m.step(material, y, KATE_CHEST_FRONT_Y, -800, 300, 3.0)], -500, 100)
+    panel = m.maximum(material, arms, chevron, -300, 0)
+    color = m.lerp(material, m.constant3(material, KATE_SUIT_BLACK, -300, -250),
+                   m.constant3(material, KATE_SUIT_COLOR, -300, -150), panel, -100, -200)
+    m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
+    m.connect_property(m.lerp(material, None, None, panel, -100, 100, const_a=KATE_SUIT_BLACK_ROUGHNESS,
+                              const_b=KATE_SUIT_PANEL_ROUGHNESS), unreal.MaterialProperty.MP_ROUGHNESS)
+
+
 def ensure_kate_materials():
-    """M_KateSuit (purple) and M_KateSuitDark at /Game/Characters/Kate, both skeletal-mesh usable."""
+    """M_KateSuit (black with purple panels) and M_KateSuitDark at /Game/Characters/Kate, both
+    skeletal-mesh usable."""
     import _materials as m  # noqa: PLC0415 - only this step needs the material helpers
 
     c.ensure_directory(KATE_MATERIAL_PATH)
     return (
-        m.ensure_material(M_KATE_SUIT, m._build_flat(KATE_SUIT_COLOR, KATE_SUIT_ROUGHNESS), skeletal=True),
+        m.ensure_look_material(M_KATE_SUIT, _build_kate_suit, skeletal=True),
         m.ensure_material(
             M_KATE_SUIT_DARK, m._build_flat(KATE_SUIT_DARK_COLOR, KATE_SUIT_ROUGHNESS), skeletal=True),
     )
