@@ -97,6 +97,13 @@ EXPECTED = (
         WEAPON_PATH + "/DA_Bow_Clint",
         WEAPON_PATH + "/DA_Arrow_Standard",
         WEAPON_PATH + "/DA_Arrow_Grapple",
+        WEAPON_PATH + "/DA_Arrow_Putty",
+        WEAPON_PATH + "/DA_Arrow_Bola",
+        WEAPON_PATH + "/DA_Arrow_Smoke",
+        WEAPON_PATH + "/DA_Arrow_EMP",
+        WEAPON_PATH + "/DA_Arrow_Explosive",
+        WEAPON_PATH + "/M_ArrowFx",
+        WEAPON_PATH + "/M_ArrowGlow",
         WEAPON_PATH + "/BP_Arrow_Standard",
         WEAPON_PATH + "/BP_Arrow_Grapple",
         WEAPON_PATH + "/SM_Bow_Placeholder",
@@ -459,6 +466,15 @@ def check_weapon_data():
         "DA_Arrow_Standard": [("slot", 1), ("damage", 40.0), ("cap", 30), ("recoverable", True),
                               ("on_hit_effect", "NONE")],
         "DA_Arrow_Grapple": [("slot", 2), ("cap", 6), ("recoverable", True), ("on_hit_effect", "GRAPPLE")],
+        # The trick arrows, in their fixed slots (claude-docs/gameplay-semantics.md, "trick arrows").
+        "DA_Arrow_Putty": [("slot", 3), ("damage", 10.0), ("cap", 4), ("recoverable", False),
+                           ("on_hit_effect", "PUTTY")],
+        "DA_Arrow_Bola": [("slot", 4), ("damage", 10.0), ("cap", 4), ("recoverable", True), ("on_hit_effect", "BOLA")],
+        "DA_Arrow_Smoke": [("slot", 5), ("damage", 0.0), ("cap", 3), ("recoverable", False),
+                           ("on_hit_effect", "SMOKE")],
+        "DA_Arrow_EMP": [("slot", 6), ("damage", 0.0), ("cap", 3), ("recoverable", False), ("on_hit_effect", "EMP")],
+        "DA_Arrow_Explosive": [("slot", 7), ("damage", 80.0), ("cap", 2), ("recoverable", False),
+                               ("on_hit_effect", "EXPLOSIVE")],
     }
 
     for name, fields in expected.items():
@@ -480,7 +496,10 @@ def check_weapon_data():
         say("  {0}.bow_mesh = {1}".format(bow, mesh))
         if "SM_Bow_Placeholder" not in str(mesh or ""):
             fail(bow + ".bow_mesh is not SM_Bow_Placeholder")
-    for arrow, projectile in (("DA_Arrow_Standard", "BP_Arrow_Standard"), ("DA_Arrow_Grapple", "BP_Arrow_Grapple")):
+    arrow_projectiles = [("DA_Arrow_Standard", "BP_Arrow_Standard"), ("DA_Arrow_Grapple", "BP_Arrow_Grapple")] + [
+        (name, "BP_Arrow_Standard") for name in ("DA_Arrow_Putty", "DA_Arrow_Bola", "DA_Arrow_Smoke", "DA_Arrow_EMP",
+                                                 "DA_Arrow_Explosive")]
+    for arrow, projectile in arrow_projectiles:
         cls = prop(c.load_or_none(c.asset_path(WEAPON_PATH, arrow)), "projectile_class")
         say("  {0}.projectile_class = {1}".format(arrow, name_of(cls)))
         if projectile not in str(name_of(cls)):
@@ -517,7 +536,8 @@ def check_data_assets():
         wanted_ids = ["reach_roof", "cross_block", "clear_roof", "find_arrow"]
         if ids != wanted_ids:
             fail("DA_CH01_Rooftops objectives are {0}, expected {1}".format(ids, wanted_ids))
-        wanted = [("DA_Arrow_Standard", 30), ("DA_Arrow_Grapple", 6)]
+        wanted = [("DA_Arrow_Standard", 30), ("DA_Arrow_Grapple", 6), ("DA_Arrow_Putty", 2), ("DA_Arrow_Bola", 2),
+                  ("DA_Arrow_Smoke", 1), ("DA_Arrow_EMP", 1)]
         if len(grants) != len(wanted) or any(
                 name not in arrow or count != want for (arrow, count), (name, want) in zip(grants, wanted)):
             fail("DA_CH01_Rooftops.starting_arrows is {0}, expected {1}".format(grants, wanted))
