@@ -39,7 +39,7 @@ bool FCastleCameraTargetsTest::RunTest(const FString& Parameters)
 
 	const FCastleCameraTargets Hip = Kate->ComputeCameraTargets(false);
 	TestEqual(TEXT("Hip arm is 350"), Hip.ArmLength, 350.f);
-	TestEqual(TEXT("Hip socket is lifted 60"), Hip.SocketOffset, FVector(0.f, 0.f, 60.f));
+	TestEqual(TEXT("Hip socket is lifted 60 and 70 right"), Hip.SocketOffset, FVector(0.f, 70.f, 60.f));
 	TestEqual(TEXT("Hip FOV is 90"), Hip.FieldOfView, 90.f);
 
 	const FCastleCameraTargets Aim = Kate->ComputeCameraTargets(true);
@@ -81,7 +81,7 @@ bool FCastleCameraAimBlend::RunTest(const FString& Parameters)
 	Kate->StopAim();
 	Kate->TestTickAim(Kate->TestAimBlendSeconds());
 	TestTrue(TEXT("Back to 350"), FMath::IsNearlyEqual(Boom->TargetArmLength, 350.f, 0.01f));
-	TestTrue(TEXT("Back to centre"), Boom->SocketOffset.Equals(FVector(0.f, 0.f, 60.f), 0.01f));
+	TestTrue(TEXT("Back to the hip offset"), Boom->SocketOffset.Equals(FVector(0.f, 70.f, 60.f), 0.01f));
 	TestTrue(TEXT("Back to the hip FOV"), FMath::IsNearlyEqual(Kate->GetCurrentFOV(), 90.f, 0.01f));
 	return true;
 }

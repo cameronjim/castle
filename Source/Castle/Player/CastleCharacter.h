@@ -243,6 +243,9 @@ protected:
 	/** Moves the aim blend one frame and writes arm length, socket offset and FOV. */
 	void UpdateCamera(float DeltaSeconds);
 
+	/** Hides the body from its own camera while a wall has pulled the lens in to it. */
+	void UpdateBodyVisibilityForCamera();
+
 	/** Accumulates how long move input has been held; resets on the first frame without it. */
 	void UpdateMoveInputTiming(float DeltaSeconds);
 
@@ -461,9 +464,9 @@ protected:
 
 	// --- Camera ---------------------------------------------------------------------------------
 
-	/** Where the camera sits while not aiming: behind and above, the body low in frame. */
+	/** Where the camera sits while not aiming: behind, above and a little right, so the body sits left of centre. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera")
-	FCastleCameraTargets HipCamera = { 350.f, FVector(0.f, 0.f, 60.f), 90.f };
+	FCastleCameraTargets HipCamera = { 350.f, FVector(0.f, 70.f, 60.f), 90.f };
 
 	/** Where it sits while aiming: in close over the right shoulder. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera")
@@ -482,6 +485,14 @@ protected:
 	/** Radius of the sphere the arm sweeps to find walls. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
 	float CameraProbeSize = 12.f;
+
+	/**
+	 * When a wall pulls the lens closer than this to the arm's pivot, the body is hidden from the
+	 * player's view (it still casts its shadow). Otherwise backing into a tenement fills the
+	 * screen with the inside of Kate's shoulder.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
+	float CameraHideBodyDistance = 100.f;
 
 	// --- Look -----------------------------------------------------------------------------------
 

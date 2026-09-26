@@ -702,7 +702,25 @@ void ACastleCharacter::Tick(float DeltaSeconds)
 	UpdateFalling(DeltaSeconds);
 	UpdateMaxWalkSpeed();
 	UpdateCamera(DeltaSeconds);
+	UpdateBodyVisibilityForCamera();
 	UpdateBodyLocomotion();
+}
+
+void ACastleCharacter::UpdateBodyVisibilityForCamera()
+{
+	USkeletalMeshComponent* Body = GetMesh();
+	if (!Body || !CameraBoom || !FollowCamera)
+	{
+		return;
+	}
+
+	// The arm places the lens after this tick, so this reads last frame's; a frame late is fine.
+	const float LensDistance = FVector::Dist(FollowCamera->GetComponentLocation(), CameraBoom->GetComponentLocation());
+	const bool bTooClose = LensDistance < CameraHideBodyDistance;
+	if (Body->bOwnerNoSee != bTooClose)
+	{
+		Body->SetOwnerNoSee(bTooClose);
+	}
 }
 
 void ACastleCharacter::UpdateBodyLocomotion()
@@ -920,6 +938,10 @@ FString ACastleCharacter::GetMovementDebugText() const
 	if (Movement && Movement->IsFalling())
 	{
 		State = TEXT("air");
+	}
+	else if (Speed < 10.f && CurrentGait != ECastleGait::Slide)
+	{
+		State = bIsCrouched ? TEXT("crouch") : TEXT("idle");
 	}
 	else
 	{

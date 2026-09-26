@@ -195,7 +195,7 @@ bool FCastleCharacterThirdPersonRig::RunTest(const FString& Parameters)
 
 	const USpringArmComponent* Boom = Kate->GetCameraBoom();
 	TestEqual(TEXT("The boom is 350 cm long"), Boom->TargetArmLength, 350.f);
-	TestEqual(TEXT("Its socket is lifted 60 cm"), Boom->SocketOffset, FVector(0.f, 0.f, 60.f));
+	TestEqual(TEXT("Its socket is lifted 60 cm and 70 right"), Boom->SocketOffset, FVector(0.f, 70.f, 60.f));
 	TestTrue(TEXT("The control rotation turns the boom"), Boom->bUsePawnControlRotation);
 	TestTrue(TEXT("With camera lag on"), Boom->bEnableCameraLag);
 	TestEqual(TEXT("At lag speed 10"), Boom->CameraLagSpeed, 10.f);
