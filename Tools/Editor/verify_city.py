@@ -19,6 +19,10 @@ Prints one line per check and a final ``[Castle] verify_city PASS`` or ``FAIL``:
 * one City_Ledge_ BP_TraversableBlock per roof edge the generator considers, hidden and
   blocking only the Traversable channel, its Ledge_1 spline ending on the parapet's outer
   corners within 5 cm; the parkour test blocks and park walls at their heights
+* the fire escapes match the generator (count, buildings 10 to 30 m, landings from 330 cm up at
+  330 cm spacing, each on its building's facade line), none below 330 cm, none within the lamp
+  clearance of a lamp pole or head, no two landings overlapping; each has its rail ledge
+  (Ledge_1 on the outer top rail within 5 cm) and the bars are drawn in M_SteelPainted
 * chapter 1's fight: four City_Thug_ (one gunner, two bats, one fists), the RoofPair on the
   cross_block roof, two City_Patrol_ points 40 m apart, City_ThugGroup_clear_roof, and every
   thug's feet on the navmesh (the navmesh is built in the editor world first, not saved)
@@ -257,8 +261,9 @@ def check_spawner(district, actors):
     data = spawner.get_editor_property("data")
     ledges = gen.ledge_spots(district)
     anchors = gen.anchor_spots(district)
+    escapes = gen.fire_escape_spots(district)
     want = gen.city_props_hash(ledges, anchors, spawner.get_editor_property("ledge_class"),
-                               spawner.get_editor_property("anchor_class"))
+                               spawner.get_editor_property("anchor_class"), escapes)
     check(data is not None and str(data.get_editor_property("source_hash")) == want,
           "its props asset matches the generator's ledges and anchors",
           "{0}, hash {1}".format(c.safe_name(data), str(data.get_editor_property("source_hash")) if data else "-"))
@@ -268,11 +273,136 @@ def check_spawner(district, actors):
     spawned = spawner.spawn_all()
     unreal.log("[Castle] info  SpawnAll: {0} actors, ledges {1:.0f} ms, anchors {2:.0f} ms (editor world)".format(
         spawned, spawner.get_load_ledge_spawn_seconds() * 1000.0, spawner.get_anchor_spawn_seconds() * 1000.0))
-    check(spawner.get_spawned_ledge_count() == len(ledges) and spawner.get_spawned_anchor_count() == len(anchors),
-          "SpawnAll spawns every ledge and anchor",
-          "{0}/{1} ledges, {2}/{3} anchors".format(spawner.get_spawned_ledge_count(), len(ledges),
-                                                   spawner.get_spawned_anchor_count(), len(anchors)))
+    check(spawner.get_spawned_ledge_count() == len(ledges) and spawner.get_spawned_anchor_count() == len(anchors)
+          and spawner.get_spawned_fire_escape_count() == len(escapes),
+          "SpawnAll spawns every ledge, anchor and fire-escape landing",
+          "{0}/{1} ledges, {2}/{3} anchors, {4}/{5} landings".format(
+              spawner.get_spawned_ledge_count(), len(ledges), spawner.get_spawned_anchor_count(), len(anchors),
+              spawner.get_spawned_fire_escape_count(), len(escapes)))
     return spawner
+
+
+def _landing_quad(actor, margin=0.0):
+    loc = actor.get_actor_location()
+    return gen._landing_corners(loc.x, loc.y, actor.get_actor_rotation().yaw, margin)
+
+
+def check_fire_escapes(district, actors, spawner):
+    """Fire escapes: generator match, heights, clearances, rail ledges, material."""
+    expected = gen.fire_escape_spots(district)
+    records = {r["id"]: r for r in district.buildings}
+    landings = list(spawner.get_spawned_fire_escapes()) if spawner is not None else []
+    rail_ledges = list(spawner.get_spawned_fire_escape_ledges()) if spawner is not None else []
+    want_labels = {gen.FIRE_ESCAPE_PREFIX + "{0}_{1}".format(e[0], e[1]) for e in expected}
+    labels = {a.get_actor_label() for a in landings}
+    heights = sorted({records[e[0]]["height_m"] for e in expected})
+    check(labels == want_labels and len(landings) == len(expected),
+          "fire-escape landings match the generator",
+          "{0} landings on {1} buildings ({2} expected); buildings {3:.1f} to {4:.1f} m tall{5}".format(
+              len(landings), len({e[0] for e in expected}), len(expected),
+              heights[0] if heights else 0.0, heights[-1] if heights else 0.0,
+              "; unexpected " + ", ".join(sorted(labels - want_labels)[:3]) + "; missing "
+              + ", ".join(sorted(want_labels - labels)[:3]) if labels != want_labels else ""))
+    eligible = sum(1 for r in district.buildings
+                   if gen.FIRE_ESCAPE_MIN_HEIGHT_M <= r["height_m"] <= gen.FIRE_ESCAPE_MAX_HEIGHT_M)
+    unreal.log("[Castle] info  fire escapes on {0} of {1} buildings 10 to 30 m tall; {2} parts drawn".format(
+        len({e[0] for e in expected}), eligible, spawner.get_fire_escape_instance_count() if spawner else 0))
+
+    rings = {r["id"]: geo.clean_ring(district.ring_cm(r["outer"]), min_edge=5.0, collinear_tol=2.0)
+             for r in district.buildings}
+    low, off_floor, off_facade, high = [], [], [], []
+    by_building = {}
+    for a in landings:
+        osm = tag_value(a, "osm:")
+        floor = int(tag_value(a, "floor:") or 0)
+        loc = a.get_actor_location()
+        if loc.z < gen.FIRE_ESCAPE_FLOOR - 0.5:
+            low.append("{0} {1:.0f}".format(a.get_actor_label(), loc.z))
+        if abs(loc.z - floor * gen.FIRE_ESCAPE_FLOOR) > 0.5:
+            off_floor.append(a.get_actor_label())
+        if osm in rings and closest_point_on_ring((loc.x, loc.y), rings[osm]) > 5.0:
+            off_facade.append(a.get_actor_label())
+        if osm in records and loc.z > records[osm]["height_m"] * 100.0 - gen.FIRE_ESCAPE_ROOF_CLEARANCE + 0.5:
+            high.append(a.get_actor_label())
+        by_building.setdefault(osm, []).append(floor)
+    gaps = [osm for osm, floors in by_building.items() if sorted(floors) != list(range(1, len(floors) + 1))]
+    check(landings and not low, "no fire-escape landing below 330 cm (the outer edge clears the sidewalk)",
+          "; ".join(low[:5]))
+    check(not off_floor and not gaps, "landings every 330 cm from the second floor, no floor missing",
+          ", ".join((off_floor + gaps)[:5]))
+    check(not off_facade, "every landing sits on its building's facade line (within 5 cm)", ", ".join(off_facade[:5]))
+    check(not high, "every top landing is at least {0:.0f} cm under its roof".format(gen.FIRE_ESCAPE_ROOF_CLEARANCE),
+          ", ".join(high[:5]))
+
+    # Lamps: every pole and head against every landing at or below the pole's height.
+    poles = [(a.get_actor_location(), a) for l, a in actors.items() if l.startswith(gen.LAMP_POLE_PREFIX)]
+    heads = [(a.get_actor_location(), a) for l, a in actors.items() if l.startswith(gen.LAMP_HEAD_PREFIX)]
+    near_lamp = []
+    for a in landings:
+        loc = a.get_actor_location()
+        quad = _landing_quad(a)
+        for p, pole in poles:
+            if loc.z - gen.FIRE_ESCAPE_SLAB[2] <= p.z + gen.LAMP_POLE_HEIGHT and abs(p.x - loc.x) < 400 and abs(p.y - loc.y) < 400 \
+                    and gen._point_quad_distance((p.x, p.y), quad) < gen.LAMP_POLE_DIAMETER * 0.5 + 5.0:
+                near_lamp.append("{0} / {1}".format(a.get_actor_label(), pole.get_actor_label()))
+        for h, head in heads:
+            if abs(h.z - (loc.z + gen.FIRE_ESCAPE_RAIL * 0.5)) < gen.FIRE_ESCAPE_RAIL + 30.0 \
+                    and abs(h.x - loc.x) < 400 and abs(h.y - loc.y) < 400 \
+                    and gen._point_quad_distance((h.x, h.y), quad) < 25.0:
+                near_lamp.append("{0} / {1}".format(a.get_actor_label(), head.get_actor_label()))
+    check(not near_lamp, "no fire-escape landing intersects a street lamp", "; ".join(near_lamp[:5]))
+
+    # Landings against each other: same floor height, different buildings, bucketed by 5 m.
+    grid = {}
+    for a in landings:
+        loc = a.get_actor_location()
+        grid.setdefault((int(loc.x // 500), int(loc.y // 500), int(round(loc.z))), []).append(a)
+    overlaps = []
+    for (gx, gy, gz), items in grid.items():
+        for a in items:
+            qa = _landing_quad(a)
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for b in grid.get((gx + dx, gy + dy, gz), []):
+                        if b.get_actor_label() <= a.get_actor_label():
+                            continue
+                        if gen._rects_overlap(qa, _landing_quad(b)):
+                            overlaps.append("{0} / {1}".format(a.get_actor_label(), b.get_actor_label()))
+    check(not overlaps, "no two fire-escape landings intersect", "; ".join(overlaps[:5]))
+
+    # The rail ledges: one per landing, Ledge_1 on the outer top rail (2 cm proud), hidden, trace only.
+    wrong = []
+    channel = gen.traversable_channel()
+    for landing, ledge in zip(landings, rail_ledges):
+        if ledge is None:
+            wrong.append(landing.get_actor_label() + " no ledge")
+            continue
+        spline = next((comp for comp in ledge.get_components_by_class(unreal.SplineComponent)
+                       if comp.get_name() == gen.LEDGE_SPLINE), None)
+        if spline is None or spline.get_number_of_spline_points() < 2:
+            wrong.append(landing.get_actor_label() + " no spline")
+            continue
+        t = landing.get_actor_transform()
+        outer = gen.FIRE_ESCAPE_GAP + gen.FIRE_ESCAPE_SLAB[1] + 2.0
+        half = gen.FIRE_ESCAPE_SLAB[0] * 0.5
+        want = [t.transform_location(unreal.Vector(half, outer, gen.FIRE_ESCAPE_RAIL)),
+                t.transform_location(unreal.Vector(-half, outer, gen.FIRE_ESCAPE_RAIL))]
+        ends = [spline.get_location_at_spline_point(i, unreal.SplineCoordinateSpace.WORLD)
+                for i in (0, spline.get_number_of_spline_points() - 1)]
+        error = max(max(abs(e.x - w.x), abs(e.y - w.y), abs(e.z - w.z)) for e, w in zip(ends, want))
+        if error > LEDGE_TOLERANCE_CM:
+            wrong.append("{0} {1:.1f} cm".format(landing.get_actor_label(), error))
+        for mesh in ledge.get_components_by_class(unreal.StaticMeshComponent):
+            if mesh.get_editor_property("visible") or (channel is not None and mesh.get_collision_response_to_channel(
+                    unreal.CollisionChannel.ECC_PAWN) != unreal.CollisionResponseType.ECR_IGNORE):
+                wrong.append(landing.get_actor_label() + " ledge visible or blocks Pawn")
+                break
+    check(len(rail_ledges) == len(landings) and not wrong,
+          "every landing has its traversable ledge on the outer top rail (within 5 cm), hidden, trace only",
+          "; ".join(wrong[:5]))
+    material = spawner.get_editor_property("fire_escape_material") if spawner is not None else None
+    check(material is not None and "M_SteelPainted" in c.safe_name(material) and spawner.get_fire_escape_instance_count() > 0,
+          "fire-escape bars drawn in M_SteelPainted", c.safe_name(material))
 
 
 NAV_QUERY_EXTENT = unreal.Vector(50.0, 50.0, 150.0)   # cm; how far off a foot may be from the navmesh
@@ -378,6 +508,7 @@ def run():
         # Spawned transient, so the editor's actor listing leaves them out; add them by label.
         for actor in list(spawner.get_spawned_ledges()) + list(spawner.get_spawned_anchors()):
             actors[actor.get_actor_label()] = actor
+        # Fire escapes go by their own lists (check_fire_escapes); keep their ledges out of the roof-ledge check.
     buildings = {label[len(gen.BUILDING_PREFIX):]: a for label, a in actors.items()
                  if label.startswith(gen.BUILDING_PREFIX)}
 
@@ -503,6 +634,7 @@ def run():
 
     check_anchors(district, actors)
     check_ledges(district, actors)
+    check_fire_escapes(district, actors, spawner)
     check_thugs(district, actors, records)
 
     prison = [a.get_actor_label() for a in all_actors
