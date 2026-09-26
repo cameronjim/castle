@@ -12,6 +12,11 @@
     /Game/Blueprints/Weapons/BP_Arrow_Grapple     parent AGrappleArrowProjectile
     /Game/Blueprints/Weapons/DA_Bow_Kate          UBowDefinition, 0.8 s draw
     /Game/Blueprints/Weapons/DA_Bow_Clint         UBowDefinition, 1.0 s draw (unused until Clint)
+    /Game/Blueprints/Weapons/DA_Bow_Archer        UBowDefinition for Barney's archers (BP_Archer): 1.2 s
+                                                  draw, 5000 cm/s, no perfect bonus, no headshot bonus
+    /Game/Blueprints/Weapons/DA_Arrow_Trickshot   UArrowDefinition, 30 damage, black shaft and purple
+                                                  vanes; picked up as DA_Arrow_Standard, toast
+                                                  "Trickshot's arrow" the first time
     /Game/Blueprints/Weapons/DA_Arrow_Standard    UArrowDefinition, slot 1, 40 damage, cap 30
     /Game/Blueprints/Weapons/DA_Arrow_Grapple     UArrowDefinition, slot 2, cap 6, OnHitEffect Grapple
     /Game/Blueprints/Weapons/DA_Arrow_Putty       slot 3, 10 damage, cap 4, Putty (claude-docs/
@@ -92,7 +97,19 @@ def bow_values(name, mesh):
         return [("display_name", "Kate's recurve"), ("full_draw_seconds", 0.8)] + common
     if name == "DA_Bow_Clint":
         return [("display_name", "Clint's recurve"), ("full_draw_seconds", 1.0)] + common
+    if name == "DA_Bow_Archer":
+        # An AI release is always at full draw: no perfect bonus, and no headshot bonus so 30 is 30.
+        # The UE4 mannequin the thugs wear has hand_l, not the UEFN palm socket.
+        archer = dict(common)
+        archer.update({"max_speed": 5000.0, "min_spread": 1.0, "perfect_bonus": 0.0, "headshot_multiplier": 1.0,
+                       "hand_socket": "hand_l"})
+        return [("display_name", "Trickshot crew recurve"), ("full_draw_seconds", 1.2)] + list(archer.items())
     return []
+
+
+# Barney's crew: black shafts, Kate-bright purple vanes and nock, so one stuck in a wall reads as his.
+TRICKSHOT_SHAFT = (0.02, 0.02, 0.025)
+TRICKSHOT_VANES = (0.55, 0.08, 0.95)
 
 
 def arrow_values(name, projectile_classes):
@@ -117,6 +134,23 @@ def arrow_values(name, projectile_classes):
             ("cap", 6),
             ("recoverable", True),
             ("on_hit_effect", enum_value("ArrowHitEffect", "GRAPPLE")),
+        ]
+    if name == "DA_Arrow_Trickshot":
+        return [
+            ("display_name", "Trickshot's arrow"),
+            ("short_name", "Trickshot"),
+            ("slot", 1),
+            ("projectile_class", projectile_classes.get("BP_Arrow_Standard")),
+            ("damage", 30.0),
+            ("cap", 30),
+            ("recoverable", True),
+            ("on_hit_effect", enum_value("ArrowHitEffect", "NONE")),
+            ("recover_as", projectile_classes.get("DA_Arrow_Standard")),
+            ("pickup_toast", "Trickshot's arrow"),
+            ("override_colors", True),
+            ("shaft_color", unreal.LinearColor(*TRICKSHOT_SHAFT, 1.0)),
+            ("fletching_color", unreal.LinearColor(*TRICKSHOT_VANES, 1.0)),
+            ("nock_color", unreal.LinearColor(*TRICKSHOT_VANES, 1.0)),
         ]
     trick = TRICK_ARROWS.get(name)
     if trick is not None:
@@ -185,6 +219,11 @@ def same_value(current, wanted):
     # 0.6000000238 and a string comparison would rewrite the asset on every run.
     if isinstance(wanted, float) and isinstance(current, (int, float)):
         return abs(float(current) - wanted) < 1e-4
+    if isinstance(wanted, unreal.LinearColor) and isinstance(current, unreal.LinearColor):
+        return all(abs(getattr(current, ch) - getattr(wanted, ch)) < 1e-4 for ch in ("r", "g", "b", "a"))
+    # A hard object reference compares by path (two Python handles to one asset are not ==).
+    if isinstance(wanted, unreal.Object) and isinstance(current, unreal.Object):
+        return current.get_path_name() == wanted.get_path_name()
 
     return str(current) == str(wanted)
 
@@ -439,9 +478,13 @@ def run():
     projectiles = ensure_projectile_blueprints()
 
     bows = {name: create_data_asset(name, "BowDefinition", bow_values(name, mesh))
-            for name in ("DA_Bow_Kate", "DA_Bow_Clint")}
+            for name in ("DA_Bow_Kate", "DA_Bow_Clint", "DA_Bow_Archer")}
     arrows = {name: create_data_asset(name, "ArrowDefinition", arrow_values(name, projectiles))
               for name in ARROW_NAMES}
+    # Trickshot's arrow goes back in the quiver as a standard one, so it comes after the standard.
+    arrows["DA_Arrow_Trickshot"] = create_data_asset(
+        "DA_Arrow_Trickshot", "ArrowDefinition",
+        arrow_values("DA_Arrow_Trickshot", dict(projectiles, DA_Arrow_Standard=arrows.get("DA_Arrow_Standard"))))
 
     # Without these the inventory falls back to transient stand-ins, which work but are not the
     # assets a designer can tune.
