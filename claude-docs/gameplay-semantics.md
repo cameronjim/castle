@@ -64,8 +64,12 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   (a child with the sample's level-visual lookups off) along every roof edge of 1 m or
   more, hidden, blocking only that channel, 2 cm proud of the facade; 3,723 on the
   district. Verify checks every spline end against the parapet corners within 5 cm.
-  Known cost: saved as actors, they make the district map 72 MB; moving them to
-  load-time spawning from data is a stage 2 cleanup.
+- Ledges and grapple anchors are not saved in the map. `generate_city.py` writes their
+  transforms into `DA_EastVillage_CityProps` (`UCityLedgeData`) and one `ACityLedgeSpawner`
+  spawns them at load: all anchors and the ledges within 100 m immediately (about 180 ms),
+  the rest nearest-first at 4 ms per frame, done about 5 s after load. The grapple grid is
+  rebuilt after the spawn. The district map is 2.8 MB (was 72 MB). Street lamps are still
+  saved actors.
 - Landing above 400 cm triggers the placeholder dip (roll and stumble not built).
   Grapple landings never trigger it. Fall damage begins at 900 cm and never kills from a
   rooftop you can reach by grapple.
