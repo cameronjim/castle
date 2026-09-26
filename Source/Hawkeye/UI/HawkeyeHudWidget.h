@@ -10,6 +10,7 @@ class UBorder;
 class UBowComponent;
 class UCanvasPanel;
 class UHawkeyeHotbarWidget;
+class UHawkeyeObjectiveWidget;
 class UGrappleComponent;
 class UImage;
 class UInventoryComponent;
@@ -82,6 +83,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "HUD|Hotbar")
 	UHawkeyeHotbarWidget* GetHotbar() const { return Hotbar; }
+
+	// --- Objective marker and compass -----------------------------------------------------------
+
+	/** The objective marker, compass and toasts, built into the HUD's overlay. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	UHawkeyeObjectiveWidget* GetObjectiveMarker() const { return ObjectiveMarker; }
 
 	// --- Reticle --------------------------------------------------------------------------------
 
@@ -357,6 +364,9 @@ protected:
 	/** Weapon currently bound to OnAmmoChanged, so the binding can be swapped on pickup. */
 	UPROPERTY(Transient)
 	TObjectPtr<UWeaponComponent> BoundWeapon = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Objective")
+	TObjectPtr<UHawkeyeObjectiveWidget> ObjectiveMarker = nullptr;
 
 	/** The hotbar along the bottom of the screen. Built into the HUD's own overlay. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hotbar")

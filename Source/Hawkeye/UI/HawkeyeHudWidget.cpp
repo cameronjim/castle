@@ -25,6 +25,7 @@
 #include "Player/HawkeyeCharacter.h"
 #include "Player/GrappleComponent.h"
 #include "UI/HawkeyeHotbarWidget.h"
+#include "UI/HawkeyeObjectiveWidget.h"
 #include "World/GrappleAnchor.h"
 
 TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
@@ -59,6 +60,15 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 
 		BuildReticle(Root);
 		BuildGrappleMarker(Root);
+
+		ObjectiveMarker = WidgetTree->ConstructWidget<UHawkeyeObjectiveWidget>(
+			UHawkeyeObjectiveWidget::StaticClass(), TEXT("ObjectiveMarker"));
+		ObjectiveMarker->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UOverlaySlot* MarkerSlot = Cast<UOverlaySlot>(Root->AddChild(ObjectiveMarker)))
+		{
+			MarkerSlot->SetHorizontalAlignment(HAlign_Fill);
+			MarkerSlot->SetVerticalAlignment(VAlign_Fill);
+		}
 
 		// The hotbar is its own widget so it can be styled and tested on its own, but it lives
 		// inside the HUD's overlay rather than being a second thing the controller manages.
