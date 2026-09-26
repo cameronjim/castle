@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimSequence.h"
+#include "Combat/MeleeComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SpotLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -50,6 +51,47 @@ bool FCastleThugStreetLook::RunTest(const FString& Parameters)
 	TestTrue(TEXT("The bat never collides; the swing is a sweep"),
 		Held->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleThugBatHangsThenSwings, "Castle.Thug.BatHangsThenSwings",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleThugBatHangsThenSwings::RunTest(const FString& Parameters)
+{
+	FCastleTestWorld TestWorld;
+	AThugCharacter* Thug = Cast<AThugCharacter>(TestWorld.SpawnActor(
+		AThugCharacter::StaticClass(), FVector::ZeroVector, FRotator(0.f, 90.f, 0.f)));
+	if (!TestNotNull(TEXT("Thug spawned"), Thug))
+	{
+		return false;
+	}
+	Thug->Weapon = EThugWeapon::Bat;
+	UMeleeComponent* Melee = Thug->GetMeleeComponent();
+
+	// Walking: down along the leg, not out in front like a spear.
+	const FVector Hang = Thug->ComputeBatDirection();
+	TestTrue(TEXT("Walking, the bat hangs down"), Hang.Z < -0.9f);
+	TestTrue(TEXT("Not pointing ahead"), FVector::DotProduct(Hang, Thug->GetActorForwardVector()) < 0.3f);
+
+	const FCastleMeleeAttack Swing = Thug->GetMeleeAttack();
+	TestTrue(TEXT("The swing starts"), Melee->StartAttack(Swing));
+	Melee->AdvanceAttack(Swing.WindupSeconds * 0.5f);
+	const FVector Rising = Thug->ComputeBatDirection();
+	TestTrue(TEXT("Halfway through the wind-up it is on its way up"), Rising.Z > Hang.Z + 0.2f && Rising.Z < -0.1f);
+	Melee->AdvanceAttack(Swing.WindupSeconds * 0.5f - 0.01f);
+	const FVector Cocked = Thug->ComputeBatDirection();
+	TestTrue(TEXT("At the end of the wind-up it is level"), FMath::Abs(Cocked.Z) < 0.2f);
+	TestTrue(TEXT("Drawn back behind him"), FVector::DotProduct(Cocked, Thug->GetActorForwardVector()) < 0.f);
+
+	Melee->AdvanceAttack(0.01f + Thug->BatSwingSeconds);
+	const FVector Swung = Thug->ComputeBatDirection();
+	TestTrue(TEXT("After the swing it is level"), FMath::Abs(Swung.Z) < 0.2f);
+	TestTrue(TEXT("Across in front of him"), FVector::DotProduct(Swung, Thug->GetActorForwardVector()) > 0.3f);
+
+	Melee->AdvanceAttack(Swing.RecoverSeconds);
+	TestFalse(TEXT("The swing is over"), Melee->IsAttacking());
+	TestTrue(TEXT("And the bat hangs down again"), Thug->ComputeBatDirection().Equals(Hang, 0.01f));
 	return true;
 }
 
