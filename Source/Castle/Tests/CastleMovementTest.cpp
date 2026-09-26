@@ -3,7 +3,9 @@
 #include "Camera/CameraComponent.h"
 #include "Combat/HealthComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/RootMotionSource.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Misc/AutomationTest.h"
 #include "Player/CastleCharacter.h"
@@ -221,20 +223,93 @@ bool FCastleLandingRoll::RunTest(const FString& Parameters)
 {
 	const FCastleTestWorld TestWorld;
 	ACastleAimTestCharacter* Kate = CastleMovementTest::Spawn(TestWorld);
-	if (!TestNotNull(TEXT("Kate spawned"), Kate))
+	UCharacterMovementComponent* Movement = Kate ? Kate->GetCharacterMovement() : nullptr;
+	if (!Movement)
 	{
+		AddError(TEXT("Could not spawn a character with movement."));
 		return false;
 	}
+	Movement->SetMovementMode(MOVE_Walking);
+	const float Standing = Kate->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+	const float MaxHealth = Kate->GetHealthComponent()->GetMaxHealth();
 
 	Kate->TestSetMoveInput(1.f, 1.f);
+	Kate->TestSetMoveDirection(FVector(0.f, 1.f, 0.f));
 	Kate->TestApplyLanding(390.f);
 	TestFalse(TEXT("A 3.9 m drop does not roll"), Kate->IsRecoveringFromLanding());
-	TestEqual(TEXT("Nor cost health"), Kate->GetHealthComponent()->GetCurrentHealth(),
-		Kate->GetHealthComponent()->GetMaxHealth());
+	TestEqual(TEXT("Nor cost health"), Kate->GetHealthComponent()->GetCurrentHealth(), MaxHealth);
 
 	Kate->TestApplyLanding(450.f);
-	TestTrue(TEXT("A 4.5 m drop rolls"), Kate->IsRecoveringFromLanding());
-	TestEqual(TEXT("At half speed"), Kate->MaxWalkSpeed(), Kate->TestRunSpeed() * 0.5f);
+	TestTrue(TEXT("A 4.5 m drop while moving rolls"), Kate->IsRolling());
+	TestEqual(TEXT("The roll lasts 0.5 s"), Kate->TestRollSeconds(), 0.5f);
+	TestTrue(TEXT("Along the move direction"), Kate->GetRollDirection().Equals(FVector(0.f, 1.f, 0.f), 0.01f));
+	TestTrue(TEXT("Facing it"), FMath::IsNearlyEqual(Kate->GetActorRotation().Yaw, 90.f, 0.5f));
+	TestEqual(TEXT("The capsule drops to half-height 50"), Kate->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight(), 50.f);
+	TestTrue(TEXT("Input is locked at the start"), Kate->IsLandingInputLocked());
+	TestEqual(TEXT("No fall damage below 9 m"), Kate->GetHealthComponent()->GetCurrentHealth(), MaxHealth);
+	const FRootMotionSource* Carry = Movement->GetRootMotionSource(FName(TEXT("LandingRoll"))).Get();
+	if (TestNotNull(TEXT("A root motion force carries the roll"), Carry))
+	{
+		TestEqual(TEXT("Over 0.5 s"), Carry->Duration, 0.5f);
+		const FRootMotionSource_ConstantForce* Force = static_cast<const FRootMotionSource_ConstantForce*>(Carry);
+		TestTrue(TEXT("200 cm in 0.5 s along the stick"), Force->Force.Equals(FVector(0.f, 400.f, 0.f), 0.5f));
+	}
+
+	Kate->TestTickLanding(0.25f);
+	TestTrue(TEXT("Halfway the camera is pitched 8 degrees down"), FMath::IsNearlyEqual(Kate->GetLandingCameraPitch(), -8.f, 0.01f));
+	Kate->TestTickLanding(0.09f);
+	TestTrue(TEXT("At 0.34 s input is still locked"), Kate->IsLandingInputLocked());
+	Kate->TestTickLanding(0.02f);
+	TestFalse(TEXT("At 0.36 s it is free"), Kate->IsLandingInputLocked());
+	TestTrue(TEXT("Still rolling"), Kate->IsRolling());
+	TestEqual(TEXT("Still low"), Kate->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight(), 50.f);
+	Kate->TestTickLanding(0.13f);
+	TestTrue(TEXT("At 0.49 s still rolling"), Kate->IsRolling());
+	Kate->TestTickLanding(0.02f);
+	TestFalse(TEXT("At 0.51 s the roll is over"), Kate->IsRecoveringFromLanding());
+	TestEqual(TEXT("Standing height again"), Kate->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight(), Standing);
+	TestEqual(TEXT("The camera is level again"), Kate->GetLandingCameraPitch(), 0.f);
+	TestTrue(TEXT("The body is back on its mount"),
+		Kate->GetMesh()->GetRelativeRotation().Equals(GetDefault<ACastleAimTestCharacter>()->GetMesh()->GetRelativeRotation(), 0.1f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleLandingStumble, "Castle.Movement.LandingStumble",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleLandingStumble::RunTest(const FString& Parameters)
+{
+	const FCastleTestWorld TestWorld;
+	ACastleAimTestCharacter* Kate = CastleMovementTest::Spawn(TestWorld);
+	UCharacterMovementComponent* Movement = Kate ? Kate->GetCharacterMovement() : nullptr;
+	if (!Movement)
+	{
+		AddError(TEXT("Could not spawn a character with movement."));
+		return false;
+	}
+	Movement->SetMovementMode(MOVE_Walking);
+	const float Standing = Kate->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+
+	Kate->TestSetMoveInput(0.f, 0.f);
+	Kate->TestApplyLanding(600.f);
+	TestTrue(TEXT("A 6 m drop standing still stumbles"), Kate->IsStumbling());
+	TestFalse(TEXT("Not a roll"), Kate->IsRolling());
+	TestEqual(TEXT("The stumble lasts 0.4 s"), Kate->TestStumbleSeconds(), 0.4f);
+	TestEqual(TEXT("The capsule stays at standing height"), Kate->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight(), Standing);
+	TestFalse(TEXT("Input is not locked"), Kate->IsLandingInputLocked());
+	TestEqual(TEXT("Speed starts at 0"), Kate->GetLandingSpeedFactor(), 0.f);
+
+	Kate->TestSetMoveInput(1.f, 1.f);
+	Kate->TestTickLanding(0.2f);
+	TestTrue(TEXT("Halfway it is half"), FMath::IsNearlyEqual(Kate->GetLandingSpeedFactor(), 0.5f, 0.01f));
+	TestTrue(TEXT("Half of a run"), FMath::IsNearlyEqual(Kate->MaxWalkSpeed(), Kate->TestRunSpeed() * 0.5f, 1.f));
+	TestEqual(TEXT("No camera pitch in a stumble"), Kate->GetLandingCameraPitch(), 0.f);
+	Kate->TestTickLanding(0.19f);
+	TestTrue(TEXT("At 0.39 s still stumbling"), Kate->IsStumbling());
+	Kate->TestTickLanding(0.02f);
+	TestFalse(TEXT("At 0.41 s it is over"), Kate->IsRecoveringFromLanding());
+	TestEqual(TEXT("Full speed"), Kate->GetLandingSpeedFactor(), 1.f);
+	TestEqual(TEXT("A run again"), Kate->MaxWalkSpeed(), Kate->TestRunSpeed());
 	return true;
 }
 

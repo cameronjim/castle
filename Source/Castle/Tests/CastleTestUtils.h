@@ -270,6 +270,15 @@ public:
 	/** Stands in for Landed() after a fall of FallHeight. */
 	void TestApplyLanding(float FallHeight) { ApplyLanding(FallHeight); }
 
+	/** Stands in for one Tick of the landing roll, stumble or dip. */
+	void TestTickLanding(float DeltaSeconds) { UpdateLanding(DeltaSeconds); UpdateMaxWalkSpeed(); }
+
+	/** Stands in for Input_Move having pointed the stick this way (world, flattened). */
+	void TestSetMoveDirection(const FVector& Direction) { LastMoveWorldDirection = Direction.GetSafeNormal2D(); }
+
+	float TestRollSeconds() const { return RollSeconds; }
+	float TestStumbleSeconds() const { return StumbleSeconds; }
+
 	/** Stands in for one Tick of the dodge (its invulnerability and cooldown). */
 	void TestTickDodge(float DeltaSeconds) { UpdateDodge(DeltaSeconds); }
 
