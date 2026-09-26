@@ -4,7 +4,9 @@
 #include "Combat/WeaponDefinition.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerStart.h"
 #include "HAL/PlatformFileManager.h"
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
@@ -102,6 +104,22 @@ bool FCastleDrawBow::Update()
 	{
 		Test->AddError(TEXT("No inventory on the player pawn; check BP_CastleCharacter."));
 		return true;
+	}
+
+	// Back at the PlayerStart looking through Kate's own camera. When the group runs in one
+	// process the map is not reopened, so an earlier shot may have moved, hidden or left her.
+	ACastlePlayerController* PC = CastleUiShot::FindController();
+	APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	if (Pawn)
+	{
+		TActorIterator<APlayerStart> Start(Pawn->GetWorld());
+		if (Start)
+		{
+			Pawn->TeleportTo(Start->GetActorLocation(), Start->GetActorRotation(), false, true);
+			PC->SetControlRotation(Start->GetActorRotation());
+		}
+		Pawn->SetActorHiddenInGame(false);
+		PC->SetViewTarget(Pawn);
 	}
 
 	UWeaponDefinition* Hands = LoadObject<UWeaponDefinition>(nullptr, CastleUiShot::HandsPath);
