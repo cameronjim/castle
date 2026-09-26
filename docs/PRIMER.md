@@ -125,7 +125,7 @@ updates. Nothing is hand-placed, so nothing is lost when we regenerate.
 4. **Verify**: scripts load every asset and check it's wired correctly.
 5. **Render**: a test loads the map and takes screenshots so we can both see the room without
    opening the editor.
-6. **Commit and push**: small commits, all lowercase, to github.com/cameronjim/castle.
+6. **Commit and push**: small commits, all lowercase, to github.com/cameronjim/hawkeye.
 
 All of that needs the editor closed, because a running editor locks the compiled DLL. That's
 the one rule you have to remember: **close the game or editor window before I build.**

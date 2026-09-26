@@ -26,7 +26,7 @@ How to work in this repo, whether you're Cameron, Claude, or a subagent.
    each doc is its own commit. Message: lowercase imperative summary under 70 chars,
    optional blank line and a short why. No co-author, no generated-by trailer, nothing
    after the body. `git push origin main` after every commit or two. Remote:
-   https://github.com/cameronjim/castle.git
+   https://github.com/cameronjim/hawkeye.git
 
 ## Agent work
 - **Read the relevant `claude-docs` file first, every time.** Context from a previous
