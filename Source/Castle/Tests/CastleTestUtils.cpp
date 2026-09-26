@@ -196,6 +196,13 @@ void ACastleAimTestCharacter::TestSetSprinting(bool bInSprinting)
 	UpdateMaxWalkSpeed();
 }
 
+void ACastleAimTestCharacter::TestSetMoveInput(float Magnitude, float HeldSeconds)
+{
+	MoveInputMagnitude = Magnitude;
+	MoveInputHeldSeconds = HeldSeconds;
+	UpdateMaxWalkSpeed();
+}
+
 float ACastleAimTestCharacter::MaxWalkSpeed() const
 {
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();

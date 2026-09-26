@@ -210,14 +210,26 @@ public:
 	/** Stands in for Input_SprintStarted / Input_SprintCompleted. */
 	void TestSetSprinting(bool bInSprinting);
 
-	/** Stands in for one Tick of the aim FOV blend. */
-	void TestTickAim(float DeltaSeconds) { UpdateAimFOV(DeltaSeconds); }
+	/** Stands in for one Tick of the camera blend (arm length, shoulder offset, FOV). */
+	void TestTickAim(float DeltaSeconds) { UpdateCamera(DeltaSeconds); }
+
+	/** Stands in for Input_Move having reported a stick of this size, held this long. */
+	void TestSetMoveInput(float Magnitude, float HeldSeconds);
+
+	/** Stands in for one Tick of the slide. */
+	void TestTickSlide(float DeltaSeconds) { UpdateSlide(DeltaSeconds); }
+
+	/** Stands in for Landed() after a fall of FallHeight. */
+	void TestApplyLanding(float FallHeight) { ApplyLanding(FallHeight); }
 
 	float TestWalkSpeed() const { return WalkSpeed; }
+	float TestRunSpeed() const { return RunSpeed; }
 	float TestSprintSpeed() const { return SprintSpeed; }
-	float TestAimSpeedMultiplier() const { return AimSpeedMultiplier; }
-	float TestAimFOV() const { return AimFOV; }
-	float TestHipFOV() const { return HipFOV; }
+	float TestCrouchSpeed() const { return CrouchSpeed; }
+	float TestSlideSeconds() const { return SlideSeconds; }
+	float TestJumpHeight() const { return JumpHeight; }
+	float TestAimFOV() const { return AimCamera.FieldOfView; }
+	float TestHipFOV() const { return HipCamera.FieldOfView; }
 	float TestAimBlendSeconds() const { return AimBlendSeconds; }
 
 	float MaxWalkSpeed() const;

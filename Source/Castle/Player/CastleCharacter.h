@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "Player/CastleMovementTypes.h"
 #include "Settings/CastleSettings.h"
 #include "CastleCharacter.generated.h"
 
@@ -21,15 +22,19 @@ class UWeaponComponent;
 struct FInputActionValue;
 
 /**
- * The player character, in third person: a spring arm behind and above the body, the camera on
- * the end of it, and the body turning to face the way it moves. The mesh is fully visible and
- * the idle/walk helper in LocomotionAnim.h drives it.
+ * The player character, in third person: a spring arm behind and above the body that probes
+ * against the world, the camera on the end of it, and the body turning to face the way it moves
+ * (or the camera, while aiming). Aim blends the arm in to the right shoulder.
  *
- * TODO(stage2): this is the placeholder rig. The camera task replaces it with the tuned one
- * (aim offset to the shoulder, collision probe, lag tuning); do not tune the numbers here.
+ * Movement picks a gait every frame (walk, run, sprint, crouch, slide) from how hard the stick
+ * is pushed and for how long; every number is a property so BP_Kate can tune it. Landings are
+ * measured from the top of the arc: a long drop dips speed and camera (the roll placeholder)
+ * and a very long one costs health, never all of it.
  *
- * Create a Blueprint child (BP_CastleCharacter), assign the Input assets, and let
- * Tools/Editor/create_blueprints.py fill in the mesh and animations.
+ * TODO(stage2): body animation is the idle/walk/run helper in LocomotionAnim.h until the Game
+ * Animation Sample's motion-matched locomotion replaces it.
+ *
+ * BP_CastleCharacter is the input-wired base; BP_Kate is the playable child.
  */
 UCLASS(Blueprintable, BlueprintType)
 class CASTLE_API ACastleCharacter : public ACharacter
@@ -88,8 +93,8 @@ public:
 	bool IsLockedOutByTakedown() const;
 
 	/**
-	 * Starts aiming: the camera blends to AimFOV, the walk speed drops to
-	 * WalkSpeed * AimSpeedMultiplier, and the weapon tightens its spread cone.
+	 * Starts aiming: the camera blends in to AimCamera over the right shoulder, the body turns to
+	 * face the camera, the speed drops to WalkSpeed, and the weapon tightens its spread cone.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Castle|Aim")
 	void StartAim();
@@ -119,6 +124,79 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Input")
 	FVector2D ComputeLookDelta(FVector2D RawInput, bool bAiming) const;
 
+	// --- Camera ---------------------------------------------------------------------------------
+
+	/** Arm length, shoulder offset and FOV the camera settles at for this aim state. No blending. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Camera")
+	FCastleCameraTargets ComputeCameraTargets(bool bAiming) const;
+
+	/** 0 at the hip, 1 fully aimed; moves over AimBlendSeconds. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Camera")
+	float GetAimBlendAlpha() const { return AimAlpha; }
+
+	// --- Gait -----------------------------------------------------------------------------------
+
+	/**
+	 * Which gait these inputs ask for. Slide beats crouch beats sprint beats aim; otherwise a full
+	 * stick (or any keyboard press) runs, a medium stick runs once held for RunAfterHeldSeconds,
+	 * and a light one walks.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
+	ECastleGait SelectGait(float InputMagnitude, float InputHeldSeconds, bool bWantsSprint, bool bCrouched,
+		bool bSliding, bool bAiming) const;
+
+	/** Top ground speed for a gait, cm/s. The slide starts at SlideSpeed and eases to CrouchSpeed. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
+	float GetGaitSpeed(ECastleGait Gait) const;
+
+	/** The gait chosen on the last update. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
+	ECastleGait GetGait() const { return CurrentGait; }
+
+	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
+	bool IsSliding() const { return bIsSliding; }
+
+	/**
+	 * Starts a slide: only while sprinting on the ground above SlideMinSpeed. Shrinks the capsule
+	 * to the crouched height for SlideSeconds, then stands back up. Returns true when it started.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Movement")
+	bool StartSlide();
+
+	// --- Falling --------------------------------------------------------------------------------
+
+	/**
+	 * Fraction of MaxHealth a fall of this height costs: 0 below FallDamageMinHeight, then
+	 * FallDamageMinFraction rising to FallDamageMaxFraction at FallDamageMaxHeight and capped there.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	float ComputeFallDamageFraction(float FallHeight) const;
+
+	/** Height of the last landing, from the top of the arc to the ground, cm. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	float GetLastFallHeight() const { return LastFallHeight; }
+
+	/** How far below the top of the current arc the character is, cm. 0 on the ground. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	float GetCurrentFallHeight() const;
+
+	/** True for LandingRecoverSeconds after a landing from above RollHeight. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	bool IsRecoveringFromLanding() const { return LandingRecoverRemaining > 0.f; }
+
+	// --- Debug ----------------------------------------------------------------------------------
+
+	/** One line for the HUD: gait, ground speed, fall height. Shown when castle.DebugMovement is 1. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Debug")
+	FString GetMovementDebugText() const;
+
+	/** Reads the castle.DebugMovement console variable. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Debug")
+	static bool IsMovementDebugEnabled();
+
+	/** Ends a slide before jumping: a character cannot jump while crouched. */
+	virtual void Jump() override;
+
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Castle|Character")
 	void OnInteractPressed();
@@ -132,6 +210,11 @@ protected:
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	//~ End APawn interface
+
+	//~ Begin ACharacter interface
+	virtual void Landed(const FHitResult& Hit) override;
+	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
+	//~ End ACharacter interface
 
 	/** Adds DefaultMappingContext to the local player's Enhanced Input subsystem. */
 	void AddDefaultMappingContext();
@@ -154,20 +237,44 @@ protected:
 	void Input_SlotScroll(const FInputActionValue& Value);
 	void Input_Inventory(const FInputActionValue& Value);
 
-	/** Walk speed for the current sprint/aim combination, written to CharacterMovement. */
+	/** Picks the gait and writes its speed to CharacterMovement (walking and crouched). */
 	void UpdateMaxWalkSpeed();
 
-	/** Moves the camera FOV one frame towards its target. */
-	void UpdateAimFOV(float DeltaSeconds);
+	/** Moves the aim blend one frame and writes arm length, socket offset and FOV. */
+	void UpdateCamera(float DeltaSeconds);
 
-	/** Swaps the body between IdleAnim and WalkAnim. There is no AnimBP; see LocomotionAnim.h. */
+	/** Accumulates how long move input has been held; resets on the first frame without it. */
+	void UpdateMoveInputTiming(float DeltaSeconds);
+
+	/** Counts the slide down, steers it, and stands up at the end. */
+	void UpdateSlide(float DeltaSeconds);
+
+	/** Tracks the top of the arc while falling and counts the landing recovery down. */
+	void UpdateFalling(float DeltaSeconds);
+
+	/** Stands back up and restores friction. Safe when not sliding. */
+	void EndSlide();
+
+	/** Roll placeholder and fall damage for a landing FallHeight below the top of the arc. */
+	void ApplyLanding(float FallHeight);
+
+	/** Swaps the body between IdleAnim, WalkAnim, RunAnim and FallAnim. See LocomotionAnim.h. */
 	void UpdateBodyLocomotion();
+
+	/** Aiming faces the camera; otherwise the body turns towards where it moves. */
+	void ApplyRotationMode();
+
+	/**
+	 * Copies the tuning properties onto the boom and CharacterMovement. Run at BeginPlay so a
+	 * Blueprint child's values win over the constructor's.
+	 */
+	void ApplyTuningToComponents();
 
 	// --- Components -----------------------------------------------------------------------------
 
 	/**
-	 * Placeholder boom: 350 behind the capsule, socket lifted 60, turned by the control rotation,
-	 * camera lag 10. TODO(stage2): replaced by the tuned camera rig in the next task.
+	 * Turned by the control rotation; lags behind in position and rotation; probes with a sphere on
+	 * the Camera channel and pulls in against walls. Length and offset are driven every frame.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<USpringArmComponent> CameraBoom;
@@ -257,25 +364,124 @@ protected:
 
 	// --- Movement tuning ------------------------------------------------------------------------
 
+	/** Light stick input, and the speed while aiming. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0"))
-	float WalkSpeed = 450.f;
+	float WalkSpeed = 250.f;
+
+	/** The default on foot. Keyboard input is always full, so the keyboard runs unless sprinting. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0"))
+	float RunSpeed = 500.f;
+
+	/** Sprint held. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0"))
+	float SprintSpeed = 700.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0"))
-	float SprintSpeed = 750.f;
+	float CrouchSpeed = 200.f;
 
+	/** Stick deflection at or above which the character runs straight away. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FullInputThreshold = 0.9f;
+
+	/** Stick deflection below which the character always walks. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LightInputThreshold = 0.4f;
+
+	/** A medium stick breaks from walk into run after being held this long. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0"))
+	float RunAfterHeldSeconds = 0.2f;
+
+	/** Apex of a standing jump, cm. JumpZVelocity is derived from it and gravity at BeginPlay. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0"))
+	float JumpHeight = 90.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float JumpAirControl = 0.3f;
+
+	/** Yaw the body turns at, degrees per second, towards movement or (aiming) the camera. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Movement", meta = (ClampMin = "0.0"))
+	float TurnRateDegrees = 720.f;
+
+	/** Sprint input is held. Only moves the character at SprintSpeed while it is on its feet. */
 	UPROPERTY(BlueprintReadOnly, Category = "Castle|Movement")
 	bool bIsSprinting = false;
 
-	// --- Camera (placeholder) -------------------------------------------------------------------
+	// --- Slide ----------------------------------------------------------------------------------
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
-	float CameraBoomLength = 350.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Slide", meta = (ClampMin = "0.05"))
+	float SlideSeconds = 0.7f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera")
-	FVector CameraBoomSocketOffset = FVector(0.f, 0.f, 60.f);
+	/** Speed at the start of a slide; eases down to CrouchSpeed by the end. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Slide", meta = (ClampMin = "0.0"))
+	float SlideSpeed = 750.f;
+
+	/** A sprint slower than this crouches instead of sliding. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Slide", meta = (ClampMin = "0.0"))
+	float SlideMinSpeed = 350.f;
+
+	/** Ground friction while sliding; low so the slide carries. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Slide", meta = (ClampMin = "0.0"))
+	float SlideGroundFriction = 0.5f;
+
+	/** Capsule half-height while crouched or sliding, cm. Applied at BeginPlay. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Slide", meta = (ClampMin = "10.0"))
+	float CrouchedCapsuleHalfHeight = 50.f;
+
+	// --- Falling --------------------------------------------------------------------------------
+
+	/** A landing from above this height rolls: a short speed and camera dip. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float RollHeight = 400.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float LandingRecoverSeconds = 0.3f;
+
+	/** Speed multiplier for the length of the roll. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LandingSpeedMultiplier = 0.5f;
+
+	/** How far the camera drops at the bottom of the roll, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float LandingCameraDip = 30.f;
+
+	/** Falls shorter than this cost nothing. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float FallDamageMinHeight = 900.f;
+
+	/** Falls from here up cost FallDamageMaxFraction; about the tallest tenement on the block. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float FallDamageMaxHeight = 2500.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FallDamageMinFraction = 0.1f;
+
+	/** The cap. A fall never kills either way: damage stops one point short of the last. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FallDamageMaxFraction = 0.6f;
+
+	// --- Camera ---------------------------------------------------------------------------------
+
+	/** Where the camera sits while not aiming: behind and above, the body low in frame. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera")
+	FCastleCameraTargets HipCamera = { 350.f, FVector(0.f, 0.f, 60.f), 90.f };
+
+	/** Where it sits while aiming: in close over the right shoulder. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera")
+	FCastleCameraTargets AimCamera = { 180.f, FVector(0.f, 45.f, 55.f), 70.f };
+
+	/** Seconds the camera takes to travel the whole way between HipCamera and AimCamera. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
+	float AimBlendSeconds = 0.15f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
 	float CameraLagSpeed = 10.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
+	float CameraRotationLagSpeed = 12.f;
+
+	/** Radius of the sphere the arm sweeps to find walls. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
+	float CameraProbeSize = 12.f;
 
 	// --- Look -----------------------------------------------------------------------------------
 
@@ -311,22 +517,6 @@ protected:
 
 	// --- Aim ------------------------------------------------------------------------------------
 
-	/** Field of view when not aiming. The camera starts here and returns here. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "10.0", ClampMax = "170.0"))
-	float HipFOV = 90.f;
-
-	/** Field of view while aiming. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "10.0", ClampMax = "170.0"))
-	float AimFOV = 70.f;
-
-	/** Seconds the camera takes to travel the whole way between HipFOV and AimFOV. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "0.0"))
-	float AimBlendSeconds = 0.15f;
-
-	/** WalkSpeed is multiplied by this while aiming. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float AimSpeedMultiplier = 0.6f;
-
 	UPROPERTY(BlueprintReadOnly, Category = "Castle|Aim")
 	bool bIsAiming = false;
 
@@ -339,9 +529,21 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Animation")
 	TObjectPtr<UAnimSequence> WalkAnim;
 
+	/** Played above RunAnimSpeedThreshold. Falls back to WalkAnim when unset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Animation")
+	TObjectPtr<UAnimSequence> RunAnim;
+
+	/** Played while falling. Falls back to the ground animation when unset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Animation")
+	TObjectPtr<UAnimSequence> FallAnim;
+
 	/** WalkAnim above this much ground speed, IdleAnim below it. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Animation", meta = (ClampMin = "0.0"))
 	float WalkAnimSpeedThreshold = 20.f;
+
+	/** RunAnim above this much ground speed; between walk and run speed so each reads. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Castle|Animation", meta = (ClampMin = "0.0"))
+	float RunAnimSpeedThreshold = 375.f;
 
 	// --- Noise ----------------------------------------------------------------------------------
 
@@ -363,6 +565,51 @@ protected:
 
 	UFUNCTION()
 	void HandleDeath(UHealthComponent* Health, AActor* Killer);
+
+	// --- Runtime state --------------------------------------------------------------------------
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Castle|Movement")
+	ECastleGait CurrentGait = ECastleGait::Walk;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Castle|Slide")
+	bool bIsSliding = false;
+
+	/** Seconds of slide left. */
+	UPROPERTY(Transient)
+	float SlideRemaining = 0.f;
+
+	/** Ground direction the slide travels in, fixed when it starts. */
+	UPROPERTY(Transient)
+	FVector SlideDirection = FVector::ForwardVector;
+
+	/** GroundFriction before the slide lowered it. */
+	UPROPERTY(Transient)
+	float PreSlideGroundFriction = 8.f;
+
+	/** Length of the last move input, 0..1. Keyboard is always 1. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Castle|Movement")
+	float MoveInputMagnitude = 0.f;
+
+	/** How long move input has been held without a break. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Castle|Movement")
+	float MoveInputHeldSeconds = 0.f;
+
+	/** Set by Input_Move, cleared by the next Tick: how the tick knows the stick was let go. */
+	bool bMoveInputThisFrame = false;
+
+	/** Highest capsule Z since the character last left the ground. */
+	UPROPERTY(Transient)
+	float FallApexZ = 0.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Castle|Falling")
+	float LastFallHeight = 0.f;
+
+	UPROPERTY(Transient)
+	float LandingRecoverRemaining = 0.f;
+
+	/** Aim blend, 0 hip to 1 aimed, moved at 1 / AimBlendSeconds. */
+	UPROPERTY(Transient)
+	float AimAlpha = 0.f;
 
 private:
 	FTimerHandle NoiseTimerHandle;

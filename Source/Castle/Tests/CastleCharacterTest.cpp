@@ -42,21 +42,24 @@ bool FCastleCharacterAimSlowsAndTightens::RunTest(const FString& Parameters)
 	}
 	Weapon->GiveWeapon(12, 24);
 
-	const float Walk = Frank->TestWalkSpeed();
+	// Keyboard input: always full, so the character runs.
+	Frank->TestSetMoveInput(1.f, 0.f);
 
 	TestFalse(TEXT("Starts hip-firing"), Frank->IsAiming());
-	TestEqual(TEXT("At full walk speed"), Frank->MaxWalkSpeed(), Walk);
+	TestEqual(TEXT("At run speed"), Frank->MaxWalkSpeed(), Frank->TestRunSpeed());
 
 	Frank->StartAim();
 	TestTrue(TEXT("Aiming"), Frank->IsAiming());
-	TestEqual(TEXT("Walk speed is multiplied down"),
-		Frank->MaxWalkSpeed(), Walk * Frank->TestAimSpeedMultiplier());
+	TestEqual(TEXT("Aiming drops to a walk"), Frank->MaxWalkSpeed(), Frank->TestWalkSpeed());
 	TestTrue(TEXT("The weapon is aiming too"), Weapon->IsAiming());
 	TestEqual(TEXT("And uses the tight cone"), Weapon->GetCurrentSpreadDegrees(), Weapon->AimSpreadDegrees);
+	TestTrue(TEXT("Aiming faces the camera"), Frank->GetCharacterMovement()->bUseControllerDesiredRotation);
+	TestFalse(TEXT("Not the movement direction"), Frank->GetCharacterMovement()->bOrientRotationToMovement);
 
 	Frank->StopAim();
 	TestFalse(TEXT("No longer aiming"), Frank->IsAiming());
-	TestEqual(TEXT("Walk speed restored"), Frank->MaxWalkSpeed(), Walk);
+	TestEqual(TEXT("Run speed restored"), Frank->MaxWalkSpeed(), Frank->TestRunSpeed());
+	TestTrue(TEXT("Back to facing where it moves"), Frank->GetCharacterMovement()->bOrientRotationToMovement);
 	TestFalse(TEXT("The weapon lowered as well"), Weapon->IsAiming());
 
 	return true;
@@ -173,9 +176,9 @@ bool FCastleCharacterLookSensitivity::RunTest(const FString& Parameters)
 }
 
 /**
- * The placeholder third-person rig from docs/plans/02-prototype.md step 1: a 350 cm boom lifted
- * 60, turned by the control rotation, the camera on its end, and a body that faces where it
- * walks with nothing hidden. The camera task retunes these; this only pins the shape.
+ * The third-person rig from claude-docs/gameplay-semantics.md: a 350 cm boom lifted 60, turned
+ * by the control rotation, lagging in position and rotation, probing against walls on the Camera
+ * channel, the camera on its end, and a body that faces where it walks with nothing hidden.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleCharacterThirdPersonRig, "Castle.Character.ThirdPersonRig",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
@@ -196,6 +199,10 @@ bool FCastleCharacterThirdPersonRig::RunTest(const FString& Parameters)
 	TestTrue(TEXT("The control rotation turns the boom"), Boom->bUsePawnControlRotation);
 	TestTrue(TEXT("With camera lag on"), Boom->bEnableCameraLag);
 	TestEqual(TEXT("At lag speed 10"), Boom->CameraLagSpeed, 10.f);
+	TestTrue(TEXT("Rotation lags too"), Boom->bEnableCameraRotationLag);
+	TestTrue(TEXT("The boom probes for walls"), Boom->bDoCollisionTest);
+	TestEqual(TEXT("On the Camera channel"), Boom->ProbeChannel.GetValue(), ECC_Camera);
+	TestTrue(TEXT("With a real sphere"), Boom->ProbeSize > 0.f);
 	TestTrue(TEXT("The camera hangs off the boom"), Kate->GetFollowCamera()->GetAttachParent() == Boom);
 	TestFalse(TEXT("And leaves the rotating to it"), Kate->GetFollowCamera()->bUsePawnControlRotation);
 

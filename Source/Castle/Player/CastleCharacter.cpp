@@ -23,8 +23,15 @@
 #include "Player/LocomotionAnim.h"
 #include "Settings/CastleSettingsSubsystem.h"
 #include "Components/PawnNoiseEmitterComponent.h"
+#include "HAL/IConsoleManager.h"
 #include "TimerManager.h"
 #include "World/InteractionComponent.h"
+
+static TAutoConsoleVariable<int32> CVarCastleDebugMovement(
+	TEXT("castle.DebugMovement"),
+	0,
+	TEXT("1 shows the player's gait, ground speed and fall height on the HUD, for reading playtest screenshots."),
+	ECVF_Default);
 
 ACastleCharacter::ACastleCharacter()
 {
@@ -37,19 +44,25 @@ ACastleCharacter::ACastleCharacter()
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationRoll = false;
 
-	// TODO(stage2): placeholder rig; the camera task replaces it. Do not tune these here.
+	// The arm sweeps a small sphere on the Camera channel and pulls in when it hits, so backing
+	// into a tenement puts the camera at the wall rather than inside it.
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(GetCapsuleComponent());
-	CameraBoom->TargetArmLength = CameraBoomLength;
-	CameraBoom->SocketOffset = CameraBoomSocketOffset;
+	CameraBoom->TargetArmLength = HipCamera.ArmLength;
+	CameraBoom->SocketOffset = HipCamera.SocketOffset;
 	CameraBoom->bUsePawnControlRotation = true;
 	CameraBoom->bEnableCameraLag = true;
 	CameraBoom->CameraLagSpeed = CameraLagSpeed;
+	CameraBoom->bEnableCameraRotationLag = true;
+	CameraBoom->CameraRotationLagSpeed = CameraRotationLagSpeed;
+	CameraBoom->bDoCollisionTest = true;
+	CameraBoom->ProbeSize = CameraProbeSize;
+	CameraBoom->ProbeChannel = ECC_Camera;
 
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
-	FollowCamera->SetFieldOfView(HipFOV);
+	FollowCamera->SetFieldOfView(HipCamera.FieldOfView);
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 	TakedownComponent = CreateDefaultSubobject<UTakedownComponent>(TEXT("TakedownComponent"));
@@ -63,10 +76,11 @@ ACastleCharacter::ACastleCharacter()
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 
 	// The whole body is visible, to the owner as well: in third person it is what the player
-	// looks at. It sits at the template's standard offset under the capsule, facing +X.
+	// looks at. Feet on the bottom of the capsule, facing +X.
+	static constexpr float CapsuleHalfHeight = 88.f;
 	if (USkeletalMeshComponent* BodyMesh = GetMesh())
 	{
-		BodyMesh->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -96.f), FRotator(0.f, -90.f, 0.f));
+		BodyMesh->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -CapsuleHalfHeight), FRotator(0.f, -90.f, 0.f));
 		BodyMesh->SetOwnerNoSee(false);
 		BodyMesh->bCastDynamicShadow = true;
 		BodyMesh->SetCastShadow(true);
@@ -75,14 +89,19 @@ ACastleCharacter::ACastleCharacter()
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		Movement->MaxWalkSpeed = WalkSpeed;
+		Movement->MaxWalkSpeedCrouched = CrouchSpeed;
 		Movement->NavAgentProps.bCanCrouch = true;
+		Movement->bCanWalkOffLedgesWhenCrouching = true;
 		Movement->bOrientRotationToMovement = true;
-		Movement->JumpZVelocity = 480.f;
-		Movement->AirControl = 0.35f;
+		Movement->bUseControllerDesiredRotation = false;
+		Movement->RotationRate = FRotator(0.f, TurnRateDegrees, 0.f);
+		// sqrt(2 g h) for a 90 cm apex at standard gravity; BeginPlay recomputes it from JumpHeight.
+		Movement->JumpZVelocity = 420.f;
+		Movement->AirControl = JumpAirControl;
+		Movement->SetCrouchedHalfHeight(CrouchedCapsuleHalfHeight);
 	}
 
-	// Lets the player crouch under and through geometry without the capsule popping.
-	GetCapsuleComponent()->SetCapsuleSize(34.f, 88.f);
+	GetCapsuleComponent()->SetCapsuleSize(34.f, CapsuleHalfHeight);
 
 	// The Pawn profile ignores Visibility, so bullets need their own channel to land on the
 	// player at all - without this the thugs' shots went straight through.
@@ -97,12 +116,9 @@ void ACastleCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	ApplyTuningToComponents();
 	UpdateMaxWalkSpeed();
-
-	if (FollowCamera)
-	{
-		FollowCamera->SetFieldOfView(HipFOV);
-	}
+	UpdateCamera(0.f);
 
 	if (HealthComponent)
 	{
@@ -371,6 +387,17 @@ void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 		return;
 	}
 
+	// Keyboard diagonals come in at 1.41; the gait only cares how hard the stick is pushed.
+	MoveInputMagnitude = FMath::Min(MoveInput.Size(), 1.f);
+	bMoveInputThisFrame = true;
+	UpdateMaxWalkSpeed();
+
+	// A slide keeps the direction it started in; UpdateSlide does the pushing.
+	if (bIsSliding)
+	{
+		return;
+	}
+
 	const FRotator YawRotation(0.f, Controller->GetControlRotation().Yaw, 0.f);
 	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X), MoveInput.Y);
 	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), MoveInput.X);
@@ -431,6 +458,7 @@ void ACastleCharacter::Input_Look(const FInputActionValue& Value)
 
 void ACastleCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 {
+	UE_LOG(LogCastle, Verbose, TEXT("%s: sprint start at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
 	bIsSprinting = true;
 
 	// You cannot sprint down the sights; the aim drops before the speed goes up.
@@ -446,6 +474,7 @@ void ACastleCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 
 void ACastleCharacter::Input_SprintCompleted(const FInputActionValue& /*Value*/)
 {
+	UE_LOG(LogCastle, Verbose, TEXT("%s: sprint stop at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
 	bIsSprinting = false;
 	UpdateMaxWalkSpeed();
 }
@@ -469,6 +498,7 @@ void ACastleCharacter::StartAim()
 
 	bIsAiming = true;
 	UpdateMaxWalkSpeed();
+	ApplyRotationMode();
 
 	if (UWeaponComponent* Weapon = GetWeaponComponent())
 	{
@@ -490,10 +520,97 @@ void ACastleCharacter::StopAim()
 
 	bIsAiming = false;
 	UpdateMaxWalkSpeed();
+	ApplyRotationMode();
 
 	if (UWeaponComponent* Weapon = GetWeaponComponent())
 	{
 		Weapon->SetAiming(false);
+	}
+}
+
+void ACastleCharacter::ApplyTuningToComponents()
+{
+	if (CameraBoom)
+	{
+		CameraBoom->CameraLagSpeed = CameraLagSpeed;
+		CameraBoom->CameraRotationLagSpeed = CameraRotationLagSpeed;
+		CameraBoom->ProbeSize = CameraProbeSize;
+	}
+
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement)
+	{
+		return;
+	}
+
+	Movement->RotationRate = FRotator(0.f, TurnRateDegrees, 0.f);
+	Movement->AirControl = JumpAirControl;
+	Movement->MaxWalkSpeedCrouched = CrouchSpeed;
+	Movement->SetCrouchedHalfHeight(CrouchedCapsuleHalfHeight);
+
+	// Apex h = v^2 / 2g, so the designer tunes the height and the velocity follows gravity.
+	const float Gravity = FMath::Abs(Movement->GetGravityZ());
+	if (Gravity > KINDA_SMALL_NUMBER && JumpHeight > 0.f)
+	{
+		Movement->JumpZVelocity = FMath::Sqrt(2.f * Gravity * JumpHeight);
+	}
+	ApplyRotationMode();
+}
+
+void ACastleCharacter::ApplyRotationMode()
+{
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->bOrientRotationToMovement = !bIsAiming;
+		Movement->bUseControllerDesiredRotation = bIsAiming;
+	}
+}
+
+ECastleGait ACastleCharacter::SelectGait(float InputMagnitude, float InputHeldSeconds, bool bWantsSprint,
+	bool bCrouched, bool bSliding, bool bAiming) const
+{
+	if (bSliding)
+	{
+		return ECastleGait::Slide;
+	}
+	if (bCrouched)
+	{
+		return ECastleGait::Crouch;
+	}
+	if (bWantsSprint)
+	{
+		return ECastleGait::Sprint;
+	}
+	if (bAiming)
+	{
+		return ECastleGait::Walk;
+	}
+	if (InputMagnitude >= FullInputThreshold)
+	{
+		return ECastleGait::Run;
+	}
+	if (InputMagnitude >= LightInputThreshold && InputHeldSeconds > RunAfterHeldSeconds)
+	{
+		return ECastleGait::Run;
+	}
+	return ECastleGait::Walk;
+}
+
+float ACastleCharacter::GetGaitSpeed(ECastleGait Gait) const
+{
+	switch (Gait)
+	{
+	case ECastleGait::Run:
+		return RunSpeed;
+	case ECastleGait::Sprint:
+		return SprintSpeed;
+	case ECastleGait::Crouch:
+		return CrouchSpeed;
+	case ECastleGait::Slide:
+		return SlideSpeed;
+	case ECastleGait::Walk:
+	default:
+		return WalkSpeed;
 	}
 }
 
@@ -505,69 +622,319 @@ void ACastleCharacter::UpdateMaxWalkSpeed()
 		return;
 	}
 
-	if (bIsSprinting)
+	CurrentGait = SelectGait(MoveInputMagnitude, MoveInputHeldSeconds, bIsSprinting, bIsCrouched, bIsSliding, bIsAiming);
+	float Speed = GetGaitSpeed(CurrentGait);
+	if (CurrentGait == ECastleGait::Slide && SlideSeconds > 0.f)
 	{
-		Movement->MaxWalkSpeed = SprintSpeed;
-		return;
+		const float Progress = 1.f - FMath::Clamp(SlideRemaining / SlideSeconds, 0.f, 1.f);
+		Speed = FMath::Lerp(SlideSpeed, CrouchSpeed, Progress);
+	}
+	if (LandingRecoverRemaining > 0.f)
+	{
+		Speed *= LandingSpeedMultiplier;
 	}
 
-	Movement->MaxWalkSpeed = bIsAiming ? WalkSpeed * AimSpeedMultiplier : WalkSpeed;
+	// Crouch and slide move on the crouched speed; everything else on the walking one.
+	const bool bLow = CurrentGait == ECastleGait::Crouch || CurrentGait == ECastleGait::Slide;
+	Movement->MaxWalkSpeed = bLow ? RunSpeed : Speed;
+	Movement->MaxWalkSpeedCrouched = bLow ? Speed : CrouchSpeed;
+}
+
+FCastleCameraTargets ACastleCharacter::ComputeCameraTargets(bool bAiming) const
+{
+	return bAiming ? AimCamera : HipCamera;
 }
 
 float ACastleCharacter::GetCurrentFOV() const
 {
-	return FollowCamera ? FollowCamera->FieldOfView : HipFOV;
+	return FollowCamera ? FollowCamera->FieldOfView : HipCamera.FieldOfView;
 }
 
-void ACastleCharacter::UpdateAimFOV(float DeltaSeconds)
+void ACastleCharacter::UpdateCamera(float DeltaSeconds)
 {
-	if (!FollowCamera)
+	// Constant rate, so the blend really takes AimBlendSeconds; the smoothstep only shapes it.
+	const float Target = bIsAiming ? 1.f : 0.f;
+	AimAlpha = AimBlendSeconds > 0.f
+		? FMath::FInterpConstantTo(AimAlpha, Target, DeltaSeconds, 1.f / AimBlendSeconds)
+		: Target;
+
+	FCastleCameraTargets Blend = FCastleCameraTargets::Lerp(
+		ComputeCameraTargets(false), ComputeCameraTargets(true), FMath::SmoothStep(0.f, 1.f, AimAlpha));
+
+	// The roll placeholder: the camera sinks and comes back up over the recovery.
+	if (LandingRecoverRemaining > 0.f && LandingRecoverSeconds > 0.f)
 	{
-		return;
+		const float Phase = 1.f - LandingRecoverRemaining / LandingRecoverSeconds;
+		Blend.SocketOffset.Z -= LandingCameraDip * FMath::Sin(PI * Phase);
 	}
 
-	const float TargetFOV = bIsAiming ? AimFOV : HipFOV;
-	const float Current = FollowCamera->FieldOfView;
-	if (FMath::IsNearlyEqual(Current, TargetFOV, 0.01f))
+	if (CameraBoom)
 	{
-		return;
+		CameraBoom->TargetArmLength = Blend.ArmLength;
+		CameraBoom->SocketOffset = Blend.SocketOffset;
 	}
-
-	if (AimBlendSeconds <= 0.f)
+	if (FollowCamera)
 	{
-		FollowCamera->SetFieldOfView(TargetFOV);
-		return;
+		FollowCamera->SetFieldOfView(Blend.FieldOfView);
 	}
+}
 
-	// Constant rate rather than an exponential ease, so the blend really takes AimBlendSeconds.
-	const float Step = FMath::Abs(HipFOV - AimFOV) / AimBlendSeconds * DeltaSeconds;
-	FollowCamera->SetFieldOfView(FMath::FInterpConstantTo(Current, TargetFOV, 1.f, Step));
+void ACastleCharacter::UpdateMoveInputTiming(float DeltaSeconds)
+{
+	if (bMoveInputThisFrame)
+	{
+		MoveInputHeldSeconds += DeltaSeconds;
+	}
+	else
+	{
+		MoveInputHeldSeconds = 0.f;
+		MoveInputMagnitude = 0.f;
+	}
+	bMoveInputThisFrame = false;
 }
 
 void ACastleCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	UpdateAimFOV(DeltaSeconds);
+	UpdateMoveInputTiming(DeltaSeconds);
+	UpdateSlide(DeltaSeconds);
+	UpdateFalling(DeltaSeconds);
+	UpdateMaxWalkSpeed();
+	UpdateCamera(DeltaSeconds);
 	UpdateBodyLocomotion();
 }
 
 void ACastleCharacter::UpdateBodyLocomotion()
 {
-	UAnimSequence* Wanted = GetVelocity().Size2D() > WalkAnimSpeedThreshold ? WalkAnim : IdleAnim;
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const float Speed = GetVelocity().Size2D();
+
+	UAnimSequence* Wanted = IdleAnim;
+	if (Movement && Movement->IsFalling() && FallAnim)
+	{
+		Wanted = FallAnim;
+	}
+	else if (Speed > RunAnimSpeedThreshold && RunAnim)
+	{
+		Wanted = RunAnim;
+	}
+	else if (Speed > WalkAnimSpeedThreshold)
+	{
+		Wanted = WalkAnim;
+	}
 	CastleLocomotion::PlayIfChanged(GetMesh(), Wanted, CurrentLocomotionAnim);
 }
 
 void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 {
+	// The slide stands itself up; a second press mid-slide is not a crouch.
+	if (bIsSliding)
+	{
+		return;
+	}
+
 	if (bIsCrouched)
 	{
 		UnCrouch();
 	}
-	else
+	else if (!(bIsSprinting && StartSlide()))
 	{
 		Crouch();
 	}
+	UpdateMaxWalkSpeed();
+}
+
+bool ACastleCharacter::StartSlide()
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement || bIsSliding || !bIsSprinting || !Movement->IsMovingOnGround())
+	{
+		return false;
+	}
+
+	const float Speed = GetVelocity().Size2D();
+	if (Speed < SlideMinSpeed)
+	{
+		return false;
+	}
+
+	bIsSliding = true;
+	SlideRemaining = SlideSeconds;
+	SlideDirection = GetVelocity().GetSafeNormal2D();
+	PreSlideGroundFriction = Movement->GroundFriction;
+	Movement->GroundFriction = SlideGroundFriction;
+
+	// Straight to the movement component, so the capsule is low this frame rather than next tick.
+	Movement->bWantsToCrouch = true;
+	Movement->Crouch();
+	UpdateMaxWalkSpeed();
+
+	UE_LOG(LogCastle, Log, TEXT("%s: slide start at %.0f cm/s, capsule half-height %.0f"),
+		*GetNameSafe(this), Speed, GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight());
+	return true;
+}
+
+void ACastleCharacter::UpdateSlide(float DeltaSeconds)
+{
+	if (!bIsSliding)
+	{
+		return;
+	}
+
+	SlideRemaining -= DeltaSeconds;
+	AddMovementInput(SlideDirection, 1.f);
+	if (SlideRemaining <= 0.f)
+	{
+		EndSlide();
+	}
+}
+
+void ACastleCharacter::EndSlide()
+{
+	if (!bIsSliding)
+	{
+		return;
+	}
+
+	bIsSliding = false;
+	SlideRemaining = 0.f;
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->GroundFriction = PreSlideGroundFriction;
+		// UnCrouch checks for headroom; under a low ceiling the character stays crouched.
+		Movement->bWantsToCrouch = false;
+		Movement->UnCrouch();
+	}
+	UpdateMaxWalkSpeed();
+
+	UE_LOG(LogCastle, Log, TEXT("%s: slide end at %.0f cm/s, crouched=%d"),
+		*GetNameSafe(this), GetVelocity().Size2D(), bIsCrouched ? 1 : 0);
+}
+
+void ACastleCharacter::Jump()
+{
+	EndSlide();
+	Super::Jump();
+}
+
+void ACastleCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PrevMovementMode, PreviousCustomMode);
+
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (Movement && Movement->IsFalling())
+	{
+		// Measured from the top of the arc, so a jump off a roof counts its rise as well.
+		FallApexZ = GetActorLocation().Z;
+		EndSlide();
+	}
+}
+
+void ACastleCharacter::UpdateFalling(float DeltaSeconds)
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (Movement && Movement->IsFalling())
+	{
+		FallApexZ = FMath::Max(FallApexZ, GetActorLocation().Z);
+	}
+
+	if (LandingRecoverRemaining > 0.f)
+	{
+		LandingRecoverRemaining = FMath::Max(0.f, LandingRecoverRemaining - DeltaSeconds);
+	}
+}
+
+float ACastleCharacter::GetCurrentFallHeight() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (!Movement || !Movement->IsFalling())
+	{
+		return 0.f;
+	}
+	return FMath::Max(0.f, FMath::Max(FallApexZ, GetActorLocation().Z) - GetActorLocation().Z);
+}
+
+void ACastleCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+
+	const float Z = GetActorLocation().Z;
+	ApplyLanding(FMath::Max(0.f, FMath::Max(FallApexZ, Z) - Z));
+}
+
+float ACastleCharacter::ComputeFallDamageFraction(float FallHeight) const
+{
+	if (FallHeight < FallDamageMinHeight)
+	{
+		return 0.f;
+	}
+
+	const float Span = FallDamageMaxHeight - FallDamageMinHeight;
+	const float Alpha = Span > 0.f ? FMath::Clamp((FallHeight - FallDamageMinHeight) / Span, 0.f, 1.f) : 1.f;
+	return FMath::Lerp(FallDamageMinFraction, FallDamageMaxFraction, Alpha);
+}
+
+void ACastleCharacter::ApplyLanding(float FallHeight)
+{
+	LastFallHeight = FallHeight;
+	if (FallHeight >= 50.f)
+	{
+		UE_LOG(LogCastle, Log, TEXT("%s: landed from %.0f cm at %.0f cm/s"),
+			*GetNameSafe(this), FallHeight, GetVelocity().Size2D());
+	}
+
+	if (FallHeight > RollHeight)
+	{
+		// TODO(stage2): the parkour step swaps this for a real roll (moving) or stumble (standing).
+		LandingRecoverRemaining = LandingRecoverSeconds;
+	}
+
+	const float Fraction = ComputeFallDamageFraction(FallHeight);
+	if (Fraction > 0.f && HealthComponent && HealthComponent->IsAlive())
+	{
+		// Soft by design: a fall takes a chunk, never the last point.
+		const float Damage = FMath::Min(Fraction * HealthComponent->GetMaxHealth(),
+			HealthComponent->GetCurrentHealth() - 1.f);
+		if (Damage > 0.f)
+		{
+			HealthComponent->ApplyDamage(Damage, nullptr);
+			UE_LOG(LogCastle, Log, TEXT("%s: fall damage %.1f (%.0f%% of max) from %.0f cm, health now %.1f"),
+				*GetNameSafe(this), Damage, Fraction * 100.f, FallHeight, HealthComponent->GetCurrentHealth());
+		}
+	}
+	UpdateMaxWalkSpeed();
+}
+
+bool ACastleCharacter::IsMovementDebugEnabled()
+{
+	return CVarCastleDebugMovement.GetValueOnGameThread() != 0;
+}
+
+FString ACastleCharacter::GetMovementDebugText() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const float Speed = GetVelocity().Size2D();
+
+	const TCHAR* State = TEXT("walk");
+	if (Movement && Movement->IsFalling())
+	{
+		State = TEXT("air");
+	}
+	else
+	{
+		switch (CurrentGait)
+		{
+		case ECastleGait::Run: State = TEXT("run"); break;
+		case ECastleGait::Sprint: State = TEXT("sprint"); break;
+		case ECastleGait::Crouch: State = TEXT("crouch"); break;
+		case ECastleGait::Slide: State = TEXT("slide"); break;
+		default: break;
+		}
+	}
+
+	return FString::Printf(TEXT("%s  %.0f cm/s  fall %.0f cm  last landing %.0f cm%s"),
+		State, Speed, GetCurrentFallHeight(), LastFallHeight, IsRecoveringFromLanding() ? TEXT("  (roll)") : TEXT(""));
 }
 
 bool ACastleCharacter::IsLockedOutByTakedown() const
