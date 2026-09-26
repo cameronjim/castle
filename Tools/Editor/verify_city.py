@@ -25,6 +25,7 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
   330 cm spacing, each on its building's facade line), none below 330 cm, none within the lamp
   clearance of a lamp pole or head, no two landings overlapping; each has its rail ledge
   (Ledge_1 on the outer top rail within 5 cm) and the bars are drawn in M_SteelPainted
+* the partner: City_ClintStart and City_Clint (BP_Clint) 5 m behind the PlayerStart, on the navmesh.
 * chapter 1's fight: four City_Thug_ (one gunner, two bats, one fists), the RoofPair on the
   cross_block roof, two City_Patrol_ points 40 m apart, City_ThugGroup_clear_roof, and every
   thug's feet on the navmesh (the navmesh is built in the editor world first, not saved)
@@ -615,6 +616,28 @@ def check_thugs(district, actors, records):
     check(not off, "every thug starts on the navmesh", ", ".join(off))
 
 
+def check_clint(district, actors):
+    """City_ClintStart and City_Clint (BP_Clint) 5 m behind the PlayerStart, his feet on the navmesh."""
+    marker = actors.get(gen.CLINT_START_LABEL)
+    clint = actors.get(gen.CLINT_LABEL)
+    check(isinstance(marker, unreal.TargetPoint), gen.CLINT_START_LABEL + " placed (ATargetPoint)")
+    check(clint is not None and gen.CLINT_BP_NAME in c.class_name(clint.get_class()), gen.CLINT_LABEL + " is BP_Clint",
+          c.class_name(clint.get_class()) if clint is not None else "missing")
+    start = next((a for a in c.all_level_actors() if isinstance(a, unreal.PlayerStart)), None)
+    if clint is None or start is None:
+        return
+    loc, s_loc = clint.get_actor_location(), start.get_actor_location()
+    gap = math.hypot(loc.x - s_loc.x, loc.y - s_loc.y)
+    check(abs(gap - gen.CLINT_BEHIND_START) <= 1.0, "Clint 5 m from the PlayerStart", "{0:.1f} cm".format(gap))
+    world, built = build_navigation()
+    if not built:
+        return
+    feet = loc - unreal.Vector(0.0, 0.0, gen.CLINT_HALF_HEIGHT)
+    result = unreal.HawkeyeNavigationLibrary.project_to_navigation(world, feet, NAV_QUERY_EXTENT)
+    ok = bool(result[0]) if isinstance(result, tuple) else result is not None
+    check(ok, "Clint starts on the navmesh", "feet z {0:.0f}".format(feet.z))
+
+
 def run():
     if not gen.data_available():
         check(False, "OSM data present", "run Tools\\fetch-osm.ps1")
@@ -771,6 +794,7 @@ def run():
           gen.STARS_LABEL + " present in M_NightStars with no collision",
           str(sky_comp.get_collision_profile_name()) if sky_comp is not None else "missing")
     check_thugs(district, actors, records)
+    check_clint(district, actors)
 
     prison = [a.get_actor_label() for a in all_actors
               if not gen.is_chapter_actor(a.get_actor_label())

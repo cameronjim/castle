@@ -28,7 +28,7 @@ IA_NAMES = [
     "IA_Move", "IA_Look", "IA_LookStick", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
     "IA_Aim", "IA_Reload", "IA_Takedown", "IA_Interact", "IA_Pause", "IA_Skip",
     "IA_Slot1", "IA_Slot2", "IA_Slot3", "IA_Slot4", "IA_Slot5", "IA_Slot6", "IA_SlotScroll",
-    "IA_Inventory", "IA_Grapple", "IA_Melee",
+    "IA_Inventory", "IA_Grapple", "IA_Melee", "IA_SwitchCharacter", "IA_PartnerMark",
 ]
 
 CHARACTER_INPUT_PROPS = [
@@ -59,6 +59,7 @@ GAMEPAD_MAPPINGS = [
     ("IA_SlotScroll", "Gamepad_DPad_Right"),
     ("IA_Slot1", "Gamepad_DPad_Up"),
     ("IA_Slot2", "Gamepad_DPad_Down"),
+    ("IA_SwitchCharacter", "Gamepad_LeftShoulder"),
 ]
 
 # Pause is bound on the controller so it survives the pawn being locked out or dead.
@@ -110,6 +111,12 @@ EXPECTED = (
         WEAPON_PATH + "/M_Bow",
         "/Game/Missions/DA_CH01_Rooftops",
         "/Game/Maps/L_District_EastVillage",
+        c.asset_path(PLAYER_PATH, "BP_Clint"),
+        "/Game/Characters/Clint/M_ClintJacket",
+        "/Game/Characters/Clint/M_ClintTrim",
+        c.asset_path(AI_PATH, "BP_PartnerController"),
+        AI_PATH + "/Partner/ST_Partner",
+        "/Game/Data/DT_Dialogue",
     ]
 )
 
@@ -453,6 +460,104 @@ def check_kate():
         fail("BP_Kate.InventoryComponent.hands_definition is not DA_Weapon_Hands")
 
 
+def _parent_tag(path, name):
+    try:
+        data = unreal.EditorAssetLibrary.find_asset_data(c.asset_path(path, name))
+        return str(data.get_tag_value("ParentClass") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _default_object(path, name):
+    cls = c.load_generated_class(path, name)
+    return unreal.get_default_object(cls) if cls is not None else None
+
+
+def check_clint():
+    kate_parent, clint_parent = _parent_tag(PLAYER_PATH, "BP_Kate"), _parent_tag(PLAYER_PATH, "BP_Clint")
+    say("  BP_Clint parent = {0} (BP_Kate: {1})".format(clint_parent, kate_parent))
+    if not clint_parent or clint_parent != kate_parent:
+        fail("BP_Clint's parent {0} is not BP_Kate's {1}".format(clint_parent, kate_parent))
+    cdo = _default_object(PLAYER_PATH, "BP_Clint")
+    if cdo is None:
+        fail("BP_Clint_C")
+        return
+    capsule = prop(cdo, "capsule_component")
+    half = prop(capsule, "capsule_half_height") if capsule is not None else None
+    body = prop(cdo, "mesh")
+    scale = prop(body, "relative_scale3d") if body is not None else None
+    say("  BP_Clint capsule half-height {0}, mesh scale {1}, mesh {2}".format(
+        half, scale, name_of(prop(body, "skeletal_mesh_asset") if body is not None else None)))
+    if half is None or abs(float(half) - 92.5) > 0.5:
+        fail("BP_Clint capsule half-height is {0}, expected 92.5 (185 cm)".format(half))
+    if scale is None or abs(scale.x - 1.0) > 1e-3:
+        fail("BP_Clint's mannequin is scaled {0}, expected 1.0".format(scale))
+    slot0 = body.get_material(0) if body is not None else None
+    say("  BP_Clint.Mesh slot 0 = {0}".format(name_of(slot0)))
+    if name_of(slot0) != "M_ClintJacket":
+        fail("BP_Clint wears {0}, expected M_ClintJacket".format(name_of(slot0)))
+    inventory = prop(cdo, "inventory_component")
+    grants = [(name_of(prop(g, "arrow")), prop(g, "count")) for g in list(prop(inventory, "own_starting_arrows") or [])]
+    bow = prop(inventory, "own_starting_bow")
+    say("  BP_Clint quiver: own={0} bow={1} arrows={2}".format(prop(inventory, "use_own_starting_quiver"), bow, grants))
+    if not prop(inventory, "use_own_starting_quiver") or "DA_Bow_Clint" not in str(bow or ""):
+        fail("BP_Clint does not carry his own DA_Bow_Clint quiver")
+    if [(n.split(".")[-1], k) for n, k in grants] != [("DA_Arrow_Standard", 30), ("DA_Arrow_Grapple", 4)]:
+        fail("BP_Clint's arrows are {0}, expected 30 standard and 4 grapple".format(grants))
+
+
+def check_partner():
+    """BP_Clint, the partner controller and ST_Partner, DT_Dialogue and the switching wiring."""
+    say("---- partner ----")
+    check_clint()
+    for who in ("BP_Kate", "BP_Clint"):
+        who_cdo = _default_object(PLAYER_PATH, who)
+        name = str(prop(who_cdo, "character_name")) if who_cdo is not None else ""
+        controller = name_of(prop(who_cdo, "ai_controller_class")) if who_cdo is not None else "None"
+        say("  {0}: character_name={1} ai_controller_class={2}".format(who, name, controller))
+        if name != who[3:]:
+            fail("{0}.CharacterName is '{1}', expected '{2}'".format(who, name, who[3:]))
+        if "BP_PartnerController" not in controller:
+            fail("{0}.AIControllerClass is {1}, expected BP_PartnerController_C".format(who, controller))
+
+    tree = c.load_or_none(AI_PATH + "/Partner/ST_Partner")
+    states = unreal.HawkeyePartnerTreeBuilder.count_partner_states(tree) if tree is not None else -1
+    controller = _default_object(AI_PATH, "BP_PartnerController")
+    controller_tree = prop(controller, "partner_state_tree") if controller is not None else None
+    say("  ST_Partner: {0} states; BP_PartnerController.partner_state_tree = {1}".format(states, name_of(controller_tree)))
+    if states != 5:
+        fail("ST_Partner has {0} states under its root, expected 5".format(states))
+    if name_of(controller_tree) != "ST_Partner":
+        fail("BP_PartnerController does not run ST_Partner")
+
+    table = c.load_or_none("/Game/Data/DT_Dialogue")
+    rows = list(unreal.DataTableFunctionLibrary.get_data_table_row_names(table)) if table is not None else []
+    say("  DT_Dialogue: {0} rows".format(len(rows)))
+    for speaker in ("kate", "clint"):
+        for situation in ("idle_roam", "after_fight", "objective_near", "low_health"):
+            count = sum(1 for r in rows if str(r).startswith("{0}_{1}_".format(speaker, situation)))
+            if count != 6:
+                fail("DT_Dialogue has {0} {1} {2} lines, expected 6".format(count, speaker, situation))
+
+    pc = _default_object(PLAYER_PATH, "BP_HawkeyePlayerController")
+    banter = prop(pc, "banter") if pc is not None else None
+    table_name = name_of(prop(banter, "dialogue_table") if banter is not None else None)
+    say("  BP_HawkeyePlayerController: switch={0} mark={1} banter table={2}".format(
+        name_of(prop(pc, "switch_character_action")), name_of(prop(pc, "partner_mark_action")), table_name))
+    if name_of(prop(pc, "switch_character_action")) != "IA_SwitchCharacter":
+        fail("BP_HawkeyePlayerController.SwitchCharacterAction is not IA_SwitchCharacter")
+    if name_of(prop(pc, "partner_mark_action")) != "IA_PartnerMark":
+        fail("BP_HawkeyePlayerController.PartnerMarkAction is not IA_PartnerMark")
+    if table_name != "DT_Dialogue":
+        fail("BP_HawkeyePlayerController's banter has no DT_Dialogue")
+
+    chapter = c.load_or_none("/Game/Missions/DA_CH01_Rooftops")
+    allowed = prop(chapter, "allow_switching") if chapter is not None else None
+    say("  DA_CH01_Rooftops.allow_switching = {0}".format(allowed))
+    if not allowed:
+        fail("DA_CH01_Rooftops does not allow switching")
+
+
 def check_weapon_data():
     """DA_Weapon_Hands, the bows and arrows, and the places they have to be wired into."""
     say("---- weapon data ----")
@@ -547,6 +652,7 @@ SKELETAL_MESH_COMPONENTS = (
     (AI_PATH, "BP_Thug", ("mesh",)),
     (PLAYER_PATH, "BP_HawkeyeCharacter", ("mesh",)),
     (PLAYER_PATH, "BP_Kate", ("mesh",)),
+    (PLAYER_PATH, "BP_Clint", ("mesh",)),
 )
 
 
@@ -610,6 +716,7 @@ def main():
     check_thug_presentation()
     check_third_person()
     check_kate()
+    check_partner()
     check_skeletal_material_usage()
     check_weapon_data()
     check_data_assets()
