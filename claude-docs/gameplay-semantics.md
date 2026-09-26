@@ -144,6 +144,24 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   point in front of the left shoulder while drawing and rides across the back when
   holstered. A layered upper-body aim animation is stage 3 work.
 
+## Trick arrows (specified 2026-09-26)
+- Slot order is fixed: 1 standard, 2 grapple, 3 putty, 4 bola, 5 smoke, 6 EMP, 7
+  explosive. Keys 1 to 6, the mouse wheel, and the radial wheel select; explosive is
+  reached by wheel or radial. Holding Tab (View on a pad) opens the radial with game time
+  at 0.2; release selects the highlighted segment. Tapping Tab still opens the inventory.
+- Putty: 10 damage; a thug hit, or within 200 cm of the impact, is staggered then held
+  4 s (no movement, AI paused, a blob on him). On a wall it leaves a blob for 10 s. Cap 4.
+- Bola: 10 damage; trips a thug for 2.5 s through the ragdoll-and-recover path. Cap 4,
+  recoverable.
+- Smoke: a 500 cm cloud for 8 s. Thugs inside it, or whose line of sight to the player
+  crosses it, are blinded; Kate crouching inside it is undetectable. Cap 3.
+- EMP: a 600 cm pulse. Street lamps in the radius go out for 20 s, gunners' pistols jam
+  for 6 s. Cap 3.
+- Explosive: 80 damage at the centre falling linearly to 0 at 400 cm, knocks thugs down
+  2 s, camera shake, a flash. Kate takes the damage too if she is inside. Cap 2.
+- Thug AI honours `bHeld`, `bBlinded`, and `bJammed`. CH01 grants 2 putty, 2 bola,
+  1 smoke, 1 EMP for testing.
+
 ## Bow and arrows, original rules
 - Draw is a hold: 0 to `FullDrawSeconds` (0.8 Kate, 1.0 Clint). Release below 25% draw
   cancels. Power scales damage from 40% to 100% and spread from 4 degrees to 0.5.
