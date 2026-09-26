@@ -73,7 +73,10 @@ def expr(material, class_name, x=0, y=0, props=None, context=""):
             context or material.get_name(), class_name))
         return None
     try:
-        node = _mel().create_material_expression(material, cls, x, y)
+        if isinstance(material, unreal.MaterialFunction):
+            node = _mel().create_material_expression_in_function(material, cls, x, y)
+        else:
+            node = _mel().create_material_expression(material, cls, x, y)
     except Exception as exc:  # noqa: BLE001
         c.log_error("create_material_expression " + class_name, exc)
         return None
@@ -277,13 +280,15 @@ def _split(full_path):
     return full_path.rsplit("/", 1)[0], full_path.rsplit("/", 1)[1]
 
 
-def usage_flags(skeletal=False, nanite=False):
+def usage_flags(skeletal=False, nanite=False, instanced=False):
     """The bUsedWith* property names a material has to carry for a given kind of mesh."""
     flags = []
     if skeletal:
         flags.append("used_with_skeletal_mesh")
     if nanite:
         flags.append("used_with_nanite")
+    if instanced:
+        flags.append("used_with_instanced_static_meshes")
     return flags
 
 
@@ -321,7 +326,7 @@ def ensure_usage(material, flags, full_path=""):
     return True
 
 
-def ensure_material(full_path, build_fn, rebuild=False, skeletal=False, nanite=False):
+def ensure_material(full_path, build_fn, rebuild=False, skeletal=False, nanite=False, instanced=False):
     """Idempotent Material. ``build_fn(material)`` wires the graph on first creation.
 
     An existing material is returned untouched unless ``rebuild`` is True, in which case its
@@ -329,7 +334,7 @@ def ensure_material(full_path, build_fn, rebuild=False, skeletal=False, nanite=F
     material as usable on those mesh types, and are checked on every run, not only on creation.
     """
     package_path, name = _split(full_path)
-    flags = usage_flags(skeletal, nanite)
+    flags = usage_flags(skeletal, nanite, instanced)
     existing = c.load_or_none(full_path)
     if existing is not None and not rebuild:
         if ensure_usage(existing, flags, full_path):
@@ -513,6 +518,12 @@ def _build_concrete(material):
 
 def _build_concrete_floor(material):
     """Darker concrete with a world-aligned 100 cm grout grid."""
+    connect_property(_concrete_floor_color(material), unreal.MaterialProperty.MP_BASE_COLOR)
+    set_scalar_property(material, 0.95, unreal.MaterialProperty.MP_ROUGHNESS, 100, 300)
+
+
+def _concrete_floor_color(material):
+    """The concrete floor's base colour node: two greys, a 100 cm grout grid, dirt at the foot."""
     fine = noise(material, 0.05, -1600, -400, levels=4)
     dark = constant3(material, (0.10, 0.10, 0.10), -1600, -200)
     light = constant3(material, (0.16, 0.16, 0.16), -1600, -60)
@@ -534,25 +545,23 @@ def _build_concrete_floor(material):
     tiled = lerp(material, base, grout, grout_mask, -100, 0)
 
     floor_dirt = height_darken(material, floor_meters=3.0, floor_value=0.7, x=-900, y=700)
-    final = multiply(material, tiled, floor_dirt, 100, 0)
-    connect_property(final, unreal.MaterialProperty.MP_BASE_COLOR)
-
-    set_scalar_property(material, 0.95, unreal.MaterialProperty.MP_ROUGHNESS, 100, 300)
+    return multiply(material, tiled, floor_dirt, 100, 0)
 
 
-STEEL_PAINTED_BUILD = "black-iron-1"   # metadata tag CastleBuild (pre-rename key, kept); a different value rebuilds the graph
+STEEL_PAINTED_BUILD = "black-iron-snow-7"   # metadata tag CastleBuild (pre-rename key, kept); a different value rebuilds the graph
 
 
 def _build_steel_painted(material):
-    """Black iron (base 0.02) with noise scuffs showing duller metal: fire escapes, lamp poles, doors."""
+    """Black iron (base 0.02) with noise scuffs showing duller metal: fire escapes, lamp poles, doors.
+    Snow (MF_Snow) settles on its upward faces: fire-escape landings, rail tops."""
     scuff = noise(material, 0.6, -900, -400, levels=3)
     paint = constant3(material, (0.02, 0.02, 0.02), -900, -200)
     worn = constant3(material, (0.07, 0.07, 0.07), -900, -60)
     base = lerp(material, paint, worn, scuff, -600, -200)
-    connect_property(base, unreal.MaterialProperty.MP_BASE_COLOR)
-
-    set_scalar_property(material, 0.5, unreal.MaterialProperty.MP_ROUGHNESS, -600, 150)
-    set_scalar_property(material, 0.6, unreal.MaterialProperty.MP_METALLIC, -600, 280)
+    snow = snowed(material, base, constant(material, 0.5, -600, 150))
+    metallic = lerp(material, None, None, None, -200, 280, const_a=0.6, const_b=0.0)
+    connect(snow, "Mask", metallic, "Alpha")
+    connect_property(metallic, unreal.MaterialProperty.MP_METALLIC)
 
 
 def ensure_steel_painted():
@@ -642,6 +651,529 @@ def _build_fluorescent_flicker(material):
     connect_property(constant3(material, (0.02, 0.02, 0.02), -800, 700),
                      unreal.MaterialProperty.MP_BASE_COLOR)
     set_scalar_property(material, 0.4, unreal.MaterialProperty.MP_ROUGHNESS, -800, 850)
+
+
+# --------------------------------------------------------------------------------------
+# the East Village night look: snow and facade material functions, the facade, prop, pavement,
+# lamp-head and star materials. Colours are the Fraction and Aja palette (purple, cream, grey,
+# black) with warm windows. generate_city.py, create_blueprints.py and create_weapon_data.py
+# call these.
+# --------------------------------------------------------------------------------------
+
+# Metadata tag on every look asset. A different value rebuilds each one once (functions first).
+LOOK_BUILD = "night-12"
+LOOK_TAG = "HawkeyeBuild"
+
+MF_SNOW = MATERIALS_PATH + "/MF_Snow"
+MF_FACADE = MATERIALS_PATH + "/MF_Facade"
+M_FACADE = MATERIALS_PATH + "/M_Facade"
+M_PROP = MATERIALS_PATH + "/M_Prop"
+M_SIDEWALK_SNOW = MATERIALS_PATH + "/M_SidewalkSnow"
+M_PARK_SNOW = MATERIALS_PATH + "/M_ParkSnow"
+M_STREET_ASPHALT = MATERIALS_PATH + "/M_StreetAsphalt"
+M_LAMP_HEAD = MATERIALS_PATH + "/M_LampHead"
+M_NIGHT_STARS = MATERIALS_PATH + "/M_NightStars"
+
+# Snow: world-aligned on faces whose normal is more than SNOW_NORMAL_Z up.
+SNOW_COLOR = (0.62, 0.60, 0.55)      # cream white
+SNOW_ROUGHNESS = 0.6
+SNOW_NORMAL_Z = 0.7
+SNOW_EDGE = 12.5                     # 1 / the normal-Z range the edge blends over (0.08)
+SNOW_SPARKLE_CELL = 3.0              # cm; one glint cell
+SNOW_SPARKLE_FRACTION = 0.0006       # of cells that glint
+SNOW_SPARKLE = 1.0                   # emissive, before EMISSIVE_INTENSITY_FACTOR
+SNOW_SPARKLE_DISTANCE = 1200.0       # cm; glints fade out by here, before they alias into grain
+
+# Facade grid, cm, world-aligned.
+FLOOR_PITCH = 330.0
+BAY_PITCH = 160.0
+WINDOW_W = 110.0
+WINDOW_H = 150.0
+WINDOW_SILL = 95.0                   # window bottom above its floor line
+FRAME = 9.0                          # lintel/sill trim round each window
+UPPER_FLOORS_FROM = 420.0            # z; below is the storefront band
+STORE_PITCH = 320.0
+STORE_W = 256.0
+STORE_BOTTOM = 40.0
+STORE_TOP = 300.0
+SIGN_TOP = 395.0
+STOREFRONT_MIN_TOP = 700.0           # only buildings this tall get storefronts and a cornice
+CORNICE_FROM_TOP = (90.0, 145.0)     # cm under the top of the mesh (the parapet top)
+CORNICE_INK = 13.0                   # the black line under the cornice
+LIT_STORE_FRACTION = 0.6
+WINDOW_GLASS = (0.015, 0.018, 0.03)
+WINDOW_LIT = (1.0, 0.62, 0.30)       # warm
+ROOF_COLOR = (0.05, 0.05, 0.055)
+SIGN_COLOR = (0.025, 0.02, 0.03)
+INK = (0.008, 0.008, 0.01)
+
+# name: (wall, trim, lit fraction)
+FACADE_STYLES = {
+    "BrickRed": ((0.23, 0.075, 0.055), (0.55, 0.50, 0.40), 0.35),
+    "BrickBrown": ((0.17, 0.09, 0.06), (0.50, 0.46, 0.38), 0.35),
+    "BrickPurple": ((0.13, 0.065, 0.10), (0.52, 0.48, 0.42), 0.35),
+    "Brownstone": ((0.16, 0.095, 0.07), (0.09, 0.055, 0.04), 0.35),
+    "Stone": ((0.38, 0.35, 0.30), (0.17, 0.16, 0.15), 0.35),
+    "Painted": ((0.17, 0.17, 0.19), (0.03, 0.03, 0.035), 0.15),
+}
+WINDOW_GLOW = 0.7                    # before EMISSIVE_INTENSITY_FACTOR; warm orange, not clipped to white
+
+STAR_CELLS = 250.0                   # per unit of view direction; a star is about 3 pixels at 720p (smaller
+                                     # ones flicker between jitter samples and the upscaler drops them)
+STAR_FRACTION = 0.003
+STAR_BRIGHTNESS = 6.0
+STAR_COLOR = (0.8, 0.85, 1.0)
+
+
+def mi_facade_path(style):
+    return MATERIALS_PATH + "/MI_Facade_" + style
+
+
+def _tagged(asset):
+    try:
+        return unreal.EditorAssetLibrary.get_metadata_tag(asset, LOOK_TAG) == LOOK_BUILD
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _tag(asset):
+    unreal.EditorAssetLibrary.set_metadata_tag(asset, LOOK_TAG, LOOK_BUILD)
+
+
+def _clear_function(mf):
+    """Delete every expression in a material function. delete_all_material_expressions_in_function
+    skips some (old inputs survived each rebuild and every call grew duplicate pins), so this deletes
+    one at a time until the function is empty."""
+    for _attempt in range(10):
+        remaining = list(_mel().get_material_function_expressions(mf))
+        if not remaining:
+            return
+        for expression in remaining:
+            _mel().delete_material_expression_in_function(mf, expression)
+    c.log("FAILED", c.safe_name(mf), "{0} expressions would not delete".format(
+        len(_mel().get_material_function_expressions(mf))))
+
+
+def ensure_material_function(full_path, build_fn):
+    """Idempotent MaterialFunction, rebuilt when its LOOK_BUILD tag is out of date."""
+    package_path, name = _split(full_path)
+    mf = c.load_or_none(full_path)
+    if mf is not None and _tagged(mf):
+        c.log("exists", full_path)
+        return mf
+    created = mf is None
+    try:
+        if created:
+            c.ensure_directory(package_path)
+            factory = c.new_factory("MaterialFunctionFactoryNew")
+            mf = c.asset_tools().create_asset(name, package_path, unreal.MaterialFunction, factory)
+            if mf is None:
+                c.log("FAILED", full_path, "create_asset returned None")
+                return None
+        else:
+            _clear_function(mf)
+        build_fn(mf)
+        _mel().update_material_function(mf)
+        _tag(mf)
+        c.save(mf)
+        c.log("created" if created else "updated", full_path, LOOK_BUILD)
+        return mf
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("ensure_material_function " + full_path, exc)
+        return mf
+
+
+def ensure_look_material(full_path, build_fn, skeletal=False, instanced=False):
+    """ensure_material, rebuilt once whenever LOOK_BUILD changes."""
+    existing = c.load_or_none(full_path)
+    if existing is not None and _tagged(existing):
+        return ensure_material(full_path, build_fn, skeletal=skeletal, instanced=instanced)
+    material = ensure_material(full_path, build_fn, rebuild=True, skeletal=skeletal, instanced=instanced)
+    if material is not None:
+        _tag(material)
+        c.save(material)
+    return material
+
+
+def function_input(mf, name, scalar, sort, x, y, default):
+    """A function input. Every caller here connects every input, so there is no default; ``default``
+    documents the value the input was tuned with."""
+    del default
+    kind = unreal.FunctionInputType.FUNCTION_INPUT_SCALAR if scalar else unreal.FunctionInputType.FUNCTION_INPUT_VECTOR3
+    return expr(mf, "MaterialExpressionFunctionInput", x, y,
+                [("input_name", name), ("input_type", kind), ("sort_priority", sort)], "FunctionInput " + name)
+
+
+def function_output(mf, name, sort, source, x, y):
+    node = expr(mf, "MaterialExpressionFunctionOutput", x, y,
+                [("output_name", name), ("sort_priority", sort)], "FunctionOutput " + name)
+    connect(source, "", node, "")
+    return node
+
+
+def function_call(material, mf, x=0, y=0):
+    node = expr(material, "MaterialExpressionMaterialFunctionCall", x, y, None, "MaterialFunctionCall")
+    if node is not None and mf is not None:
+        c.set_props(node, [("material_function", mf)], "MaterialFunctionCall")
+    return node
+
+
+def vector_param(material, name, rgb, x=0, y=0):
+    return expr(material, "MaterialExpressionVectorParameter", x, y, [
+        ("parameter_name", name), ("default_value", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))], name)
+
+
+def scalar_param(material, name, value, x=0, y=0):
+    return expr(material, "MaterialExpressionScalarParameter", x, y, [
+        ("parameter_name", name), ("default_value", float(value))], name)
+
+
+def floor_node(material, input_node, x=0, y=0):
+    node = expr(material, "MaterialExpressionFloor", x, y, None, "Floor")
+    connect(input_node, "", node, "")
+    return node
+
+
+def dot(material, a_node, b_node, x=0, y=0):
+    node = expr(material, "MaterialExpressionDotProduct", x, y, None, "Dot")
+    connect(a_node, "", node, "A")
+    connect(b_node, "", node, "B")
+    return node
+
+
+def below(material, input_node, edge, x=0, y=0, sharpness=2.0):
+    """saturate((edge - x) * sharpness): 1 under the edge, 0 over it."""
+    flipped = multiply(material, input_node, None, x, y, const_b=-float(sharpness))
+    return clamp01(material, add(material, flipped, None, x + 150, y, const_b=float(edge) * float(sharpness)), x + 300, y)
+
+
+def band(material, input_node, lo, hi, x=0, y=0, sharpness=2.0):
+    """1 between lo and hi, soft over 1 / sharpness at each edge."""
+    return multiply(material, step(material, input_node, lo, x, y, sharpness),
+                    below(material, input_node, hi, x, y + 60, sharpness), x + 450, y)
+
+
+def hash01(material, seed_node, x=0, y=0):
+    """frac(sin(seed) * 43758.5453), twice: the usual shader hash, 0..1. The second pass works on a
+    small argument; the GPU's sine of a large seed is coarse enough that the first alone left the
+    top thousandth of the range (the stars) almost empty."""
+    first_pass = frac(material, multiply(material, sine(material, seed_node, x, y), None, x + 100, y, const_b=43758.5453),
+                      x + 200, y)
+    second = add(material, multiply(material, first_pass, None, x + 300, y, const_b=91.7), None, x + 400, y, const_b=3.1)
+    return frac(material, multiply(material, sine(material, second, x + 500, y), None, x + 600, y, const_b=43758.5453),
+                x + 700, y)
+
+
+def append(material, a_node, b_node, x=0, y=0):
+    node = expr(material, "MaterialExpressionAppendVector", x, y, None, "Append")
+    connect(a_node, "", node, "A")
+    connect(b_node, "", node, "B")
+    return node
+
+
+def hash13(material, cells_node, x=0, y=0):
+    """0..1 from a 3D integer cell, without sine (Dave Hoskins' hash13):
+    p = frac(cell * 0.1031); p += dot(p, p.zyx + 31.32); frac((p.x + p.y) * p.z). The sine hash
+    loses its top thousandth on the GPU, which is exactly the part stars and glints are cut from."""
+    p = frac(material, multiply(material, cells_node, None, x, y, const_b=0.1031), x + 120, y)
+    zyx = append(material, append(material, component_mask(material, p, b=True, x=x + 240, y=y + 60),
+                                  component_mask(material, p, g=True, x=x + 240, y=y + 120), x + 360, y + 80),
+                 component_mask(material, p, r=True, x=x + 240, y=y + 180), x + 480, y + 100)
+    p = add(material, p, dot(material, p, add(material, zyx, None, x + 600, y + 100, const_b=31.32), x + 720, y + 60),
+            x + 840, y)
+    xy = add(material, component_mask(material, p, r=True, x=x + 960, y=y), component_mask(material, p, g=True, x=x + 960,
+                                                                                          y=y + 60), x + 1080, y)
+    return frac(material, multiply(material, xy, component_mask(material, p, b=True, x=x + 960, y=y + 120), x + 1200, y),
+                x + 1320, y)
+
+
+def mul_all(material, nodes, x=0, y=0):
+    out = nodes[0]
+    for i, node in enumerate(nodes[1:]):
+        out = multiply(material, out, node, x + i * 120, y)
+    return out
+
+
+# --- functions -------------------------------------------------------------------------------
+
+
+def _build_snow_function(mf):
+    """BaseColor, Roughness, Coverage in; the same with snow on faces pointing up, plus the glints."""
+    base = function_input(mf, "BaseColor", False, 0, -1600, -400, (0.2, 0.2, 0.2))
+    rough = function_input(mf, "Roughness", True, 1, -1600, -250, 0.8)
+    coverage = function_input(mf, "Coverage", True, 2, -1600, -100, 1.0)
+
+    normal = expr(mf, "MaterialExpressionVertexNormalWS", -1600, 100)
+    nz = component_mask(mf, normal, b=True, x=-1400, y=100)
+    up = step(mf, nz, SNOW_NORMAL_Z, -1250, 100, sharpness=SNOW_EDGE)
+    mask = multiply(mf, up, coverage, -700, 0)
+
+    color = lerp(mf, base, constant3(mf, SNOW_COLOR, -800, -500), mask, -400, -400)
+    roughness = lerp(mf, rough, None, mask, -400, -250, const_b=SNOW_ROUGHNESS)
+
+    # Glints: a hash of 3 cm world cells, a few in a thousand lit.
+    wp = world_position(mf, -1800, 400)
+    cells = floor_node(mf, divide(mf, wp, None, -1650, 400, const_b=SNOW_SPARKLE_CELL), -1500, 400)
+    glint = step(mf, hash13(mf, cells, -2900, 700), 1.0 - SNOW_SPARKLE_FRACTION, -750, 400, sharpness=2000.0)
+    near = below(mf, expr(mf, "MaterialExpressionPixelDepth", -1200, 600, None, "PixelDepth"), SNOW_SPARKLE_DISTANCE,
+                 -1000, 600, sharpness=1.0 / 500.0)
+    glint = multiply(mf, glint, near, -600, 500)
+    sparkle = SNOW_SPARKLE * EMISSIVE_INTENSITY_FACTOR
+    emissive = multiply(mf, multiply(mf, glint, mask, -450, 400),
+                        constant3(mf, (sparkle, sparkle, sparkle * 1.1), -450, 520), -300, 400)
+
+    function_output(mf, "BaseColor", 0, color, 0, -400)
+    function_output(mf, "Roughness", 1, roughness, 0, -250)
+    function_output(mf, "Emissive", 2, emissive, 0, 400)
+    function_output(mf, "Mask", 3, mask, 0, 100)
+
+
+def _build_facade_function(mf):
+    """A tenement facade from world position alone: window grid, storefront band, cornice.
+
+    The horizontal facade coordinate is world XY projected on the face's own tangent (up crossed
+    with the vertex normal), so every face of every footprint gets a straight grid whatever its
+    angle and the grid restarts at each corner instead of smearing round it the way a world-aligned
+    planar projection would. Z is world height. The top of the mesh (object bounds) puts the
+    cornice under the parapet. Roofs and other flat faces get roof grey.
+    """
+    wall = function_input(mf, "WallColor", False, 0, -3000, -900, (0.2, 0.08, 0.06))
+    trim = function_input(mf, "TrimColor", False, 1, -3000, -760, (0.55, 0.5, 0.4))
+    lit_color = function_input(mf, "LitColor", False, 2, -3000, -620, WINDOW_LIT)
+    lit_fraction = function_input(mf, "LitFraction", True, 3, -3000, -480, 0.35)
+    glow = function_input(mf, "WindowGlow", True, 4, -3000, -340, 3.0)
+
+    wp = world_position(mf, -3000, 0)
+    x = component_mask(mf, wp, r=True, x=-2800, y=-60)
+    y = component_mask(mf, wp, g=True, x=-2800, y=0)
+    z = component_mask(mf, wp, b=True, x=-2800, y=60)
+    normal = expr(mf, "MaterialExpressionVertexNormalWS", -3000, 250)
+    nx = component_mask(mf, normal, r=True, x=-2800, y=200)
+    ny = component_mask(mf, normal, g=True, x=-2800, y=260)
+    nz = component_mask(mf, normal, b=True, x=-2800, y=320)
+
+    # 1 on walls, 0 on roofs and parapet tops.
+    vertical = below(mf, absolute(mf, nz, -2650, 320), 0.45, -2500, 320, sharpness=10.0)
+    u = subtract(mf, multiply(mf, y, nx, -2600, 0), multiply(mf, x, ny, -2600, 80), -2450, 40)
+    d = add(mf, multiply(mf, x, nx, -2600, 160), multiply(mf, y, ny, -2600, 220), -2450, 190)
+    obj_z = component_mask(mf, expr(mf, "MaterialExpressionObjectPositionWS", -3000, 450), b=True, x=-2800, y=450)
+    size_z = component_mask(mf, expr(mf, "MaterialExpressionObjectBounds", -3000, 520), b=True, x=-2800, y=520)
+    top = add(mf, obj_z, multiply(mf, size_z, None, -2650, 520, const_b=0.5), -2500, 480)
+    rel = subtract(mf, top, z, -2350, 400)
+    tall = step(mf, top, STOREFRONT_MIN_TOP, -2350, 560)
+
+    # Upper floors.
+    du = multiply(mf, absolute(mf, subtract(mf, frac(mf, divide(mf, u, None, -2300, -200, const_b=BAY_PITCH), -2150, -200),
+                                            None, -2000, -200, const_b=0.5), -1850, -200), None, -1700, -200, const_b=BAY_PITCH)
+    vz = multiply(mf, frac(mf, divide(mf, z, None, -2300, -80, const_b=FLOOR_PITCH), -2150, -80), None, -2000, -80,
+                  const_b=FLOOR_PITCH)
+    win = multiply(mf, below(mf, du, WINDOW_W * 0.5, -1550, -240),
+                   band(mf, vz, WINDOW_SILL, WINDOW_SILL + WINDOW_H, -1550, -120), -1000, -200)
+    frame = multiply(mf, below(mf, du, WINDOW_W * 0.5 + FRAME, -1550, -360),
+                     band(mf, vz, WINDOW_SILL - FRAME, WINDOW_SILL + WINDOW_H + FRAME * 1.5, -1550, -480), -1000, -400)
+    upper = mul_all(mf, [step(mf, z, UPPER_FLOORS_FROM, -1550, 0), step(mf, rel, CORNICE_FROM_TOP[1] + 20.0, -1550, 60),
+                         vertical], -1000, 0)
+
+    # Ground floor: storefront glass and the sign band over it.
+    sdu = multiply(mf, absolute(mf, subtract(mf, frac(mf, divide(mf, u, None, -2300, 700, const_b=STORE_PITCH), -2150, 700),
+                                             None, -2000, 700, const_b=0.5), -1850, 700), None, -1700, 700, const_b=STORE_PITCH)
+    ground = mul_all(mf, [below(mf, z, SIGN_TOP + 5.0, -1550, 900), tall, vertical], -1000, 900)
+    store = mul_all(mf, [below(mf, sdu, STORE_W * 0.5, -1550, 700), band(mf, z, STORE_BOTTOM, STORE_TOP, -1550, 780), ground],
+                    -800, 700)
+    sign = mul_all(mf, [band(mf, z, STORE_TOP, SIGN_TOP, -1550, 1000), ground], -800, 1000)
+
+    # Cornice under the parapet, a black ink line under it.
+    cornice = mul_all(mf, [band(mf, rel, CORNICE_FROM_TOP[0], CORNICE_FROM_TOP[1], -1550, 1150), tall, vertical], -800, 1150)
+    ink = mul_all(mf, [band(mf, rel, CORNICE_FROM_TOP[1], CORNICE_FROM_TOP[1] + CORNICE_INK, -1550, 1250), tall, vertical],
+                  -800, 1250)
+
+    # Each facade plane a little lighter or darker than its neighbours. The plane offset is floored to
+    # a metre first: raw world position jitters in the low bits, and the hash turns that into noise.
+    d_seed = multiply(mf, floor_node(mf, divide(mf, d, None, -2450, 1400, const_b=100.0), -2350, 1400), None, -2300, 1400,
+                      const_b=1.37)
+    tone = add(mf, multiply(mf, hash01(mf, d_seed, -2150, 1400), None, -1700, 1400, const_b=0.3), None, -1550, 1400,
+               const_b=0.85)
+    base = lerp(mf, constant3(mf, ROOF_COLOR, -1300, 1500), multiply(mf, wall, tone, -1300, 1400), vertical, -600, 1400)
+    base = lerp(mf, base, trim, multiply(mf, frame, upper, -600, -400), -400, 1400)
+    base = lerp(mf, base, trim, cornice, -250, 1400)
+    base = lerp(mf, base, constant3(mf, INK, -400, 1560), ink, -100, 1400)
+    base = lerp(mf, base, constant3(mf, SIGN_COLOR, -250, 1560), sign, 50, 1400)
+
+    # Which windows are lit: a hash of the bay, the floor and the facade plane.
+    bay = floor_node(mf, divide(mf, u, None, -2300, 1700, const_b=BAY_PITCH), -2150, 1700)
+    storey = floor_node(mf, divide(mf, z, None, -2300, 1800, const_b=FLOOR_PITCH), -2150, 1800)
+    seed = add(mf, add(mf, multiply(mf, bay, None, -2000, 1700, const_b=12.9898),
+                       multiply(mf, storey, None, -2000, 1800, const_b=78.233), -1850, 1750), d_seed, -1700, 1750)
+    lit_upper = clamp01(mf, multiply(mf, subtract(mf, lit_fraction, hash01(mf, seed, -1550, 1750), -1100, 1750), None, -950, 1750,
+                                     const_b=1000.0), -800, 1750)
+    shop = floor_node(mf, divide(mf, u, None, -2300, 1950, const_b=STORE_PITCH), -2150, 1950)
+    shop_seed = add(mf, multiply(mf, shop, None, -2000, 1950, const_b=12.9898), d_seed, -1850, 1950)
+    lit_shop = below(mf, hash01(mf, add(mf, shop_seed, None, -1700, 1950, const_b=3.1), -1550, 1950),
+                     LIT_STORE_FRACTION, -1100, 1950, sharpness=1000.0)
+    glass_upper = multiply(mf, win, upper, -800, -200)
+    lit = add(mf, multiply(mf, glass_upper, lit_upper, -600, 1750), multiply(mf, store, lit_shop, -600, 1950), -450, 1850)
+    glass = maximum(mf, glass_upper, store, -600, 1600)
+    glass_color = lerp(mf, constant3(mf, WINDOW_GLASS, -450, 1650), multiply(mf, lit_color, None, -450, 1700, const_b=0.3),
+                       clamp01(mf, lit, -300, 1850), -250, 1650)
+    base = lerp(mf, base, glass_color, glass, 200, 1400)
+    emissive = multiply(mf, multiply(mf, lit_color, glow, -250, 2000), lit, -100, 2000)
+    roughness = lerp(mf, None, None, glass, 200, 1600, const_a=0.85, const_b=0.2)
+
+    function_output(mf, "BaseColor", 0, base, 500, 1400)
+    function_output(mf, "Roughness", 1, roughness, 500, 1600)
+    function_output(mf, "Emissive", 2, emissive, 500, 2000)
+
+
+def ensure_snow_function():
+    return ensure_material_function(MF_SNOW, _build_snow_function)
+
+
+def ensure_facade_function():
+    return ensure_material_function(MF_FACADE, _build_facade_function)
+
+
+def snowed(material, color, roughness, coverage=None, extra_emissive=None, x=-400, y=0):
+    """Runs (color, roughness) through MF_Snow and connects the result to the material's outputs."""
+    snow = function_call(material, ensure_snow_function(), x, y)
+    connect(color, "", snow, "BaseColor")
+    connect(roughness, "", snow, "Roughness")
+    connect(coverage if coverage is not None else constant(material, 1.0, x - 250, y + 150), "", snow, "Coverage")
+    connect_property(snow, unreal.MaterialProperty.MP_BASE_COLOR, "BaseColor")
+    connect_property(snow, unreal.MaterialProperty.MP_ROUGHNESS, "Roughness")
+    if extra_emissive is not None:
+        total = add(material, extra_emissive, None, x + 250, y + 200)
+        connect(snow, "Emissive", total, "B")
+        connect_property(total, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    else:
+        connect_property(snow, unreal.MaterialProperty.MP_EMISSIVE_COLOR, "Emissive")
+    return snow
+
+
+# --- materials -------------------------------------------------------------------------------
+
+
+def _patchy(material, scale, low, high, x, y):
+    """World-noise coverage, clamped: low/high are the noise range before the clamp to 0..1. Plain
+    (not turbulent) noise: turbulence folds it into thin ridges that read as cracks."""
+    return clamp01(material, noise(material, scale, x, y, out_min=low, out_max=high, levels=2, turbulence=False),
+                   x + 200, y)
+
+
+def _build_facade(material):
+    wall = vector_param(material, "WallColor", FACADE_STYLES["BrickRed"][0], -1400, -300)
+    trim = vector_param(material, "TrimColor", FACADE_STYLES["BrickRed"][1], -1400, -150)
+    lit_color = vector_param(material, "LitColor", WINDOW_LIT, -1400, 0)
+    lit_fraction = scalar_param(material, "LitFraction", 0.35, -1400, 150)
+    glow = scalar_param(material, "WindowGlow", WINDOW_GLOW * EMISSIVE_INTENSITY_FACTOR, -1400, 250)
+    facade = function_call(material, ensure_facade_function(), -1000, 0)
+    for node, pin in ((wall, "WallColor"), (trim, "TrimColor"), (lit_color, "LitColor"),
+                      (lit_fraction, "LitFraction"), (glow, "WindowGlow")):
+        connect(node, "", facade, pin)
+    # Roofs: mostly snow, with dark patches where it has blown off or been cleared.
+    coverage = _patchy(material, 0.004, -0.2, 2.2, -1000, 400)
+    snow = function_call(material, ensure_snow_function(), -500, 0)
+    connect(facade, "BaseColor", snow, "BaseColor")
+    connect(facade, "Roughness", snow, "Roughness")
+    connect(coverage, "", snow, "Coverage")
+    total = add(material, None, None, -200, 200)
+    connect(facade, "Emissive", total, "A")
+    connect(snow, "Emissive", total, "B")
+    connect_property(snow, unreal.MaterialProperty.MP_BASE_COLOR, "BaseColor")
+    connect_property(snow, unreal.MaterialProperty.MP_ROUGHNESS, "Roughness")
+    connect_property(total, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+
+def _build_prop(material):
+    """Flat Color / Roughness parameters under a snow layer: every clutter prop and the ground."""
+    color = vector_param(material, "Color", (0.2, 0.2, 0.2), -900, -100)
+    rough = scalar_param(material, "Roughness", 0.7, -900, 50)
+    snowed(material, color, rough)
+
+
+def _build_sidewalk_snow(material):
+    """Concrete flags with trodden snow over most of them."""
+    base = _concrete_floor_color(material)
+    coverage = _patchy(material, 0.006, -1.2, 2.0, -900, 500)
+    snowed(material, base, constant(material, 0.9, -700, 300), coverage)
+
+
+def _build_park_snow(material):
+    """Snow over the grass, the odd patch of grass showing."""
+    grass = constant3(material, (0.04, 0.09, 0.035), -900, -100)
+    coverage = _patchy(material, 0.004, 0.4, 3.0, -900, 300)
+    snowed(material, grass, constant(material, 0.95, -700, 100), coverage)
+
+
+def _build_street_asphalt(material):
+    """Wet black asphalt: near-black with wet patches that catch the lamps. No snow."""
+    fine = noise(material, 0.05, -900, -300, levels=3)
+    color = lerp(material, constant3(material, (0.025, 0.025, 0.028), -900, -150),
+                 constant3(material, (0.045, 0.045, 0.05), -900, -50), fine, -600, -200)
+    connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
+    wet = noise(material, 0.003, -900, 150, levels=2)
+    connect_property(lerp(material, None, None, wet, -600, 150, const_a=0.25, const_b=0.75),
+                     unreal.MaterialProperty.MP_ROUGHNESS)
+
+
+def _build_lamp_head(material):
+    """The street lamp head: the Color/Intensity glow on its underside only, black iron elsewhere,
+    snow on top. Same parameter names as M_Emissive, so MI_StreetLamp only changes parent."""
+    color, intensity = _emissive_params(material, -1300, -200)
+    normal = expr(material, "MaterialExpressionVertexNormalWS", -1300, 200)
+    down = below(material, component_mask(material, normal, b=True, x=-1100, y=200), -0.6, -950, 200, sharpness=10.0)
+    glow = multiply(material, multiply(material, color, intensity, -900, -100), down, -700, 0)
+    snowed(material, constant3(material, (0.02, 0.02, 0.02), -700, -300), constant(material, 0.5, -700, -200),
+           extra_emissive=glow)
+
+
+def _build_night_stars(material):
+    """Additive stars on the inside of a sky sphere: a hash of the view direction in fine cells, so
+    they hold still as the camera turns, fading out toward the horizon."""
+    c.set_props(material, [("blend_mode", unreal.BlendMode.BLEND_ADDITIVE),
+                           ("shading_model", unreal.MaterialShadingModel.MSM_UNLIT),
+                           ("two_sided", True)], "M_NightStars")
+    view = multiply(material, expr(material, "MaterialExpressionCameraVectorWS", -1500, 0), None, -1350, 0, const_b=-1.0)
+    cells = floor_node(material, multiply(material, view, None, -1200, 0, const_b=STAR_CELLS), -1050, 0)
+    star = step(material, hash13(material, cells, -2600, -300), 1.0 - STAR_FRACTION, -300, 0, sharpness=5000.0)
+    # Some brighter than others.
+    brightness = add(material, multiply(material, hash13(material, add(material, cells, None, -1050, 200, const_b=17.0),
+                                                         -2600, 300), None, -300, 200, const_b=0.8), None, -150, 200,
+                     const_b=0.2)
+    fade = clamp01(material, add(material, multiply(material, component_mask(material, view, b=True, x=-1200, y=400),
+                                                    None, -1050, 400, const_b=3.0), None, -900, 400, const_b=-0.15), -750, 400)
+    tint = constant3(material, tuple(v * STAR_BRIGHTNESS for v in STAR_COLOR), -300, 500)
+    connect_property(mul_all(material, [star, brightness, fade, tint], 0, 200), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+
+def ensure_city_look():
+    """Every city look material and the facade instances. Returns a dict keyed by short name."""
+    c.ensure_directory(MATERIALS_PATH)
+    ensure_snow_function()
+    ensure_facade_function()
+    out = {
+        "facade": ensure_look_material(M_FACADE, _build_facade),
+        "prop": ensure_look_material(M_PROP, _build_prop, instanced=True),
+        "sidewalk": ensure_look_material(M_SIDEWALK_SNOW, _build_sidewalk_snow),
+        "park": ensure_look_material(M_PARK_SNOW, _build_park_snow),
+        "asphalt": ensure_look_material(M_STREET_ASPHALT, _build_street_asphalt),
+        "lamp_head": ensure_look_material(M_LAMP_HEAD, _build_lamp_head),
+        "stars": ensure_look_material(M_NIGHT_STARS, _build_night_stars),
+    }
+    facades = {}
+    for style, (wall, trim, lit_fraction) in sorted(FACADE_STYLES.items()):
+        facades[style] = ensure_material_instance(
+            mi_facade_path(style), out["facade"],
+            vectors=[("WallColor", wall), ("TrimColor", trim), ("LitColor", WINDOW_LIT)],
+            scalars=[("LitFraction", lit_fraction), ("WindowGlow", WINDOW_GLOW * EMISSIVE_INTENSITY_FACTOR)])
+    out["facades"] = facades
+    return out
+
+
+def ensure_prop_instance(name, rgb, roughness):
+    """MI_Prop_<name> under M_Prop."""
+    parent = ensure_look_material(M_PROP, _build_prop, instanced=True)
+    return ensure_material_instance(MATERIALS_PATH + "/MI_Prop_" + name, parent,
+                                    vectors=[("Color", rgb)], scalars=[("Roughness", roughness)])
 
 
 # --------------------------------------------------------------------------------------
