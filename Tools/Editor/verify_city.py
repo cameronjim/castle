@@ -638,6 +638,35 @@ def check_clint(district, actors):
     check(ok, "Clint starts on the navmesh", "feet z {0:.0f}".format(feet.z))
 
 
+def check_safehouse(district, actors):
+    """City_Safehouse (ASafehouse) on the chosen storefront, its door on the facade facing the park,
+    standing on the pavement, with the purple door material and an entry zone in front of it."""
+    actor = actors.get(gen.SAFEHOUSE_LABEL)
+    ok = check(actor is not None and "Safehouse" in c.class_name(actor.get_class()),
+               gen.SAFEHOUSE_LABEL + " placed (ASafehouse)",
+               c.class_name(actor.get_class()) if actor is not None else "missing")
+    spot = gen.safehouse_spot(district)
+    check(spot is not None, "a building fronting the park qualifies for the safehouse")
+    if not ok or spot is None:
+        return
+    loc = actor.get_actor_location()
+    off = math.hypot(loc.x - spot["x"], loc.y - spot["y"])
+    check(off <= 1.0, "safehouse door on its facade point", "{0:.1f} cm off, osm {1}".format(off, spot["rec"]["id"]))
+    check(abs(((actor.get_actor_rotation().yaw - spot["yaw"]) + 180.0) % 360.0 - 180.0) <= 0.5,
+          "safehouse faces out of the building", "yaw {0:.1f}".format(actor.get_actor_rotation().yaw))
+    check(gen.SIDEWALK_TOP - 30.0 <= loc.z <= gen.SIDEWALK_TOP + 30.0, "safehouse stands on the pavement",
+          "z {0:.0f}".format(loc.z))
+    tags = [str(t) for t in actor.get_editor_property("tags")]
+    check("osm:" + spot["rec"]["id"] in tags, "safehouse tagged with its building", ", ".join(tags))
+    door = actor.get_editor_property("door")
+    mats = door.get_editor_property("override_materials") if door is not None else []
+    check(len(mats) >= 1 and mats[0] is not None and mats[0].get_name() == gen.MI_BEACON.split("/")[-1],
+          "safehouse door is the purple beacon material", mats[0].get_name() if len(mats) >= 1 and mats[0] else "none")
+    check(str(actor.get_editor_property("safehouse_id")) == gen.SAFEHOUSE_ID, "safehouse id " + gen.SAFEHOUSE_ID)
+    unreal.log("[Hawkeye] info  safehouse: osm {0} ({1}) at ({2:.0f}, {3:.0f}, {4:.0f}) yaw {5:.0f}".format(
+        spot["rec"]["id"], spot["address"] or "no address", loc.x, loc.y, loc.z, actor.get_actor_rotation().yaw))
+
+
 def run():
     if not gen.data_available():
         check(False, "OSM data present", "run Tools\\fetch-osm.ps1")
@@ -795,6 +824,7 @@ def run():
           str(sky_comp.get_collision_profile_name()) if sky_comp is not None else "missing")
     check_thugs(district, actors, records)
     check_clint(district, actors)
+    check_safehouse(district, actors)
 
     prison = [a.get_actor_label() for a in all_actors
               if not gen.is_chapter_actor(a.get_actor_label())
