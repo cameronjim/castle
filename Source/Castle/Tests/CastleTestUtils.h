@@ -15,6 +15,8 @@
 #include "UObject/Script.h"
 #include "CastleTestUtils.generated.h"
 
+class AGrappleAnchor;
+class UBoxComponent;
 class UFlashbackDefinition;
 class UHealthComponent;
 class UInventoryComponent;
@@ -195,6 +197,17 @@ public:
 
 	UFUNCTION()
 	void HandleFlashbackFinished(UFlashbackDefinition* Flashback);
+
+	// --- Grapple --------------------------------------------------------------------------------
+	UPROPERTY() int32 GrappleLandedCount = 0;
+	UPROPERTY() int32 GrappleCancelledCount = 0;
+	UPROPERTY() TObjectPtr<AGrappleAnchor> LastGrappleAnchor = nullptr;
+
+	UFUNCTION()
+	void HandleGrappleLanded(AGrappleAnchor* Anchor);
+
+	UFUNCTION()
+	void HandleGrappleCancelled(AGrappleAnchor* Anchor);
 };
 
 /**
@@ -271,4 +284,22 @@ public:
 
 	virtual bool CanBeTakenDown_Implementation(AActor* Attacker) override { return !bAlerted; }
 	virtual void OnTakedown_Implementation(AActor* Attacker) override { ++TakedownReceivedCount; }
+};
+
+/**
+ * A box that blocks every channel, for line-of-sight and sweep tests. Tests never load Content,
+ * and a box component needs no mesh. Size it with SetExtent.
+ */
+UCLASS()
+class CASTLE_API ACastleTestBlocker : public AActor
+{
+	GENERATED_BODY()
+
+public:
+	ACastleTestBlocker();
+
+	void SetExtent(const FVector& HalfExtent);
+
+	UPROPERTY()
+	TObjectPtr<UBoxComponent> Box;
 };

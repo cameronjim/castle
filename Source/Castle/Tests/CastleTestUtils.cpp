@@ -5,6 +5,7 @@
 #include "Player/InventoryComponent.h"
 
 #include "Combat/HealthComponent.h"
+#include "Components/BoxComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -213,4 +214,31 @@ void UCastleTestListener::HandleSettingsChanged(FCastleSettings Settings)
 {
 	++SettingsChangedCount;
 	LastLookSensitivity = Settings.LookSensitivity;
+}
+
+void UCastleTestListener::HandleGrappleLanded(AGrappleAnchor* Anchor)
+{
+	++GrappleLandedCount;
+	LastGrappleAnchor = Anchor;
+}
+
+void UCastleTestListener::HandleGrappleCancelled(AGrappleAnchor* Anchor)
+{
+	++GrappleCancelledCount;
+	LastGrappleAnchor = Anchor;
+}
+
+ACastleTestBlocker::ACastleTestBlocker()
+{
+	Box = CreateDefaultSubobject<UBoxComponent>(TEXT("Box"));
+	RootComponent = Box;
+	Box->SetBoxExtent(FVector(50.f));
+	Box->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Box->SetCollisionObjectType(ECC_WorldStatic);
+	Box->SetCollisionResponseToAllChannels(ECR_Block);
+}
+
+void ACastleTestBlocker::SetExtent(const FVector& HalfExtent)
+{
+	Box->SetBoxExtent(HalfExtent, /*bUpdateOverlaps=*/false);
 }
