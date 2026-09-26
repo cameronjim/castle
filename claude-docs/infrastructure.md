@@ -110,6 +110,30 @@ Cook content (checks for broken references and packaging problems without a full
 & "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" -run=Cook -TargetPlatform=Windows -unattended -nullrhi -stdout
 ```
 
+## Game Animation Sample (not in git)
+
+Kate's locomotion comes from Epic's Game Animation Sample, installed at
+`C:\Users\camer\code\GASP`. `Tools/Editor/import_gasp.py` copies about 2,030 packages
+(2 GB, mostly `Content/Characters/UEFN_Mannequin`) into `Content/` at the same paths.
+Those paths are in `.gitignore`: the repo is public and Epic's sample content shouldn't be
+republished, and 2 GB is past the free LFS quota. Consequences:
+
+- `BP_Kate` (committed) derives from `SandboxCharacter_CMC` (ignored). **A fresh clone must
+  have the sample installed at that path and run `Tools\create-content.ps1` once before
+  `BP_Kate` will load.** `verify_gasp.py` checks the copy.
+- Plugins enabled for it: PoseSearch, Chooser, AnimationWarping, MotionWarping,
+  CurveExpression, DrawDebugLibrary, Mover (the AnimBP uses it), MovieSceneAnimMixer,
+  GameplayCameras, SmartObjects, StateTree, GameplayStateTree, GameplayInteractions,
+  FullBodyIK. The sample's console variables and gameplay tags are copied into `Config/`.
+- Parent chain: `BP_Kate` → `SandboxCharacter_CMC` → `BP_CastleCharacter` →
+  `ACastleCharacter`. The sample's own input context is emptied and its graph bindings are
+  dropped on possession; C++ bridges `WantsToSprint`, `WantsToWalk`, `WantsToStrafe`,
+  `WantsToAim`, `WantsToCrouch`, and `FullMovementInput` into it each tick. Its camera is
+  switched off at runtime. Its graph sets movement speeds (run 500, stop 200, aimed strafe
+  180), overriding ours on Kate only; thugs keep the native speeds.
+- The full `Castle.Screenshot` group has hung once mid-run; run `Castle.Screenshot.Kate`
+  and the others separately.
+
 ## City generation from OpenStreetMap
 
 The district is generated, never hand-placed. Scripts under `Tools/`:

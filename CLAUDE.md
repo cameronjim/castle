@@ -28,6 +28,13 @@ rule is here.
 | `claude-docs/` | Engineering reference for anyone (human or agent) writing code here. |
 | `Tools/` | Editor Python scripts and PowerShell helpers for headless asset creation and builds. |
 
+## One-time setup a fresh clone needs
+
+Epic's Game Animation Sample must exist at `C:\Users\camer\code\GASP` (created from the
+Epic Launcher, Samples tab). Its assets are copied into `Content/` by
+`Tools\create-content.ps1` and are git-ignored; `BP_Kate` won't load without them. See
+`claude-docs/infrastructure.md`.
+
 ## Toolchain
 
 - Engine: `C:\Program Files\Epic Games\UE_5.8`
