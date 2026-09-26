@@ -10,6 +10,8 @@
     3c. create_world_blueprints   WBP_Hud, BP_Thug, BP_GrappleAnchor, BP_TraversableBlock
     3d. create_weapon_data        DA_Weapon_Hands, the bows and arrows
     4. create_mission_data        DA_CH01_Rooftops
+    4b. create_partner            BP_Clint, ST_Partner, BP_PartnerController, DT_Dialogue (after the
+                                  weapon data, for DA_Bow_Clint)
     5. fixup_redirectors          resave past any redirector the GASP copy brought in, then
                                   delete it
     6. generate_city              L_District_EastVillage from OpenStreetMap, after everything
@@ -42,6 +44,7 @@ STEPS = [
     ("world blueprints", "create_world_blueprints"),
     ("weapon data", "create_weapon_data"),
     ("mission data", "create_mission_data"),
+    ("partner", "create_partner"),
     ("fix up redirectors", "fixup_redirectors"),
     ("city", "generate_city"),
 ]

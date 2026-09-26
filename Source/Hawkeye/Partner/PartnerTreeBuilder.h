@@ -26,7 +26,7 @@ class HAWKEYE_API UHawkeyePartnerTreeBuilder : public UBlueprintFunctionLibrary
 public:
 	/**
 	 * Creates (or rebuilds in place) the StateTree asset at PackageName (e.g.
-	 * "/Game/Blueprints/AI/StateTree/ST_Partner") and compiles it. Returns the tree, dirty and unsaved,
+	 * "/Game/Blueprints/AI/Partner/ST_Partner") and compiles it. Returns the tree, dirty and unsaved,
 	 * or null when compiling failed (the compiler's messages are logged). The caller saves it.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Partner")
