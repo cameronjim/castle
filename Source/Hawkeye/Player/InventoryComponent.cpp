@@ -267,6 +267,50 @@ bool UInventoryComponent::SelectPreviousArrowSlot()
 	return Slot != INDEX_NONE && SelectArrowSlot(Slot);
 }
 
+int32 UInventoryComponent::RefillToCaps()
+{
+	int32 Added = 0;
+	for (FHawkeyeQuiverSlot& Entry : Arrows)
+	{
+		if (Entry.Arrow && Entry.Count < Entry.Arrow->Cap)
+		{
+			Added += Entry.Arrow->Cap - Entry.Count;
+			Entry.Count = Entry.Arrow->Cap;
+		}
+	}
+	if (Added > 0)
+	{
+		OnInventoryChanged.Broadcast();
+	}
+	return Added;
+}
+
+void UInventoryComponent::RestoreQuiver(UBowDefinition* InBow, const TArray<FHawkeyeQuiverSlot>& InArrows, int32 InActiveSlot)
+{
+	const int32 OldSlot = ActiveArrowSlot;
+	Arrows.Reset();
+	Arrows.SetNum(HawkeyeQuiverSlotCount);
+	Bow = InBow;
+	for (const FHawkeyeQuiverSlot& Saved : InArrows)
+	{
+		const int32 Index = Saved.Arrow ? SlotToIndex(Saved.Arrow->Slot) : INDEX_NONE;
+		if (Index != INDEX_NONE)
+		{
+			Arrows[Index].Arrow = Saved.Arrow;
+			Arrows[Index].Count = FMath::Clamp(Saved.Count, 0, FMath::Max(Saved.Arrow->Cap, 0));
+		}
+	}
+	EnsureStandardSlot();
+	ApplyHandsToWeapon();
+	const int32 ActiveIndex = SlotToIndex(InActiveSlot);
+	ActiveArrowSlot = ActiveIndex != INDEX_NONE && !Arrows[ActiveIndex].IsEmpty() ? InActiveSlot : 1;
+	if (OldSlot != ActiveArrowSlot)
+	{
+		OnActiveArrowSlotChanged.Broadcast(OldSlot, ActiveArrowSlot);
+	}
+	OnInventoryChanged.Broadcast();
+}
+
 // --- Mission ----------------------------------------------------------------------------------------
 
 void UInventoryComponent::Clear()

@@ -151,6 +151,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
 	void SetArrowCount(int32 Slot, int32 Count);
 
+	/**
+	 * Every filled slot back up to its arrow's Cap: the safehouse restock. Empty slots stay empty
+	 * (a trick arrow has to be found before it can be refilled). Returns how many arrows went in.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
+	int32 RefillToCaps();
+
+	/** All seven slots, index 0 being slot 1. The save reads this. */
+	const TArray<FHawkeyeQuiverSlot>& GetArrowSlots() const { return Arrows; }
+
+	/**
+	 * Loading a save: replaces the bow, every slot and the active slot wholesale. Counts clamp to
+	 * caps; standard arrows are put back in slot 1 if the save had none; an empty active slot falls
+	 * back to slot 1.
+	 */
+	void RestoreQuiver(UBowDefinition* InBow, const TArray<FHawkeyeQuiverSlot>& InArrows, int32 InActiveSlot);
+
 	// --- Mission ----------------------------------------------------------------------------------
 
 	/** Drops everything and rebuilds StartingBow and StartingArrows, slot 1 active. */
