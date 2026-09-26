@@ -23,6 +23,22 @@ void AThugGroupObjective::BeginPlay()
 		UE_LOG(LogHawkeye, Warning, TEXT("%s: no thug tagged '%s'; objective '%s' can never complete."),
 			*GetName(), *GroupTag.ToString(), *ObjectiveId.ToString());
 	}
+
+	// Placed where the group stands, so the HUD marker can point at the fight like at a volume.
+	if (UMissionSubsystem* Missions = UMissionSubsystem::Get(this); Missions && !ObjectiveId.IsNone())
+	{
+		Missions->RegisterObjectiveLocation(ObjectiveId, GetActorLocation());
+	}
+}
+
+void AThugGroupObjective::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UMissionSubsystem* Missions = UMissionSubsystem::Get(this); Missions && !ObjectiveId.IsNone())
+	{
+		Missions->UnregisterObjectiveLocation(ObjectiveId);
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 int32 AThugGroupObjective::RegisterGroup()

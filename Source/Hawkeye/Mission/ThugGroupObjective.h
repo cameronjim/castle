@@ -56,7 +56,9 @@ public:
 	bool IsCleared() const { return bCleared; }
 
 protected:
+	/** Also registers the actor's location as ObjectiveId's marker point. */
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UFUNCTION()
 	void HandleMemberDeath(UHealthComponent* Health, AActor* Killer);
