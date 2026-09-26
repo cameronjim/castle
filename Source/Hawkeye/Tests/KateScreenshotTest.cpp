@@ -46,6 +46,7 @@
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 #include "Tests/PartnerScreenshots.h"
+#include "Tests/SaveScreenshots.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -106,8 +107,10 @@
  *                           toast, looking on toward cross_block
  *   (these three come first, while reach_roof is still the current objective)
  *
- *   partner_follow.png, partner_shoot.png, banter.png, switch_clint.png: the partner pass, run last
+ *   partner_follow.png, partner_shoot.png, banter.png, switch_clint.png: the partner pass
  *                           (PartnerScreenshotTest.cpp)
+ *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass, run last
+ *                           (SaveRoundTripTest.cpp)
  *
  * The district's placed thugs are frozen (thinking off) for every shot but their own, and Kate is
  * invulnerable through the roof fight so a swing cannot end the pass.
@@ -2797,6 +2800,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	HawkeyeAddPartnerShots(this);
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.DebugMovement 0")));
+
+	// The safehouse, the main menu and a death that loads the last save. Last: it reloads the map.
+	HawkeyeAddSaveShots(this);
 	return true;
 }
 
