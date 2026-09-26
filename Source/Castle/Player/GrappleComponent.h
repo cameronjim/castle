@@ -24,10 +24,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrapp
  * and shoots it through the bow at that anchor, whatever quiver slot is active (Q, or a release
  * with the grapple slot nocked); when it arrives the character
  * zips along a straight line to the anchor's landing point at ZipSpeed, in Flying mode with
- * gravity and movement input off (the camera still turns). Firing again mid-zip is allowed once
+ * gravity and movement input off (the camera still turns). From the ground the line starts at a
+ * launch point ZipLaunchHeight above where she stood, reached by a ZipHopSeconds hop, so a level
+ * or downward line clears her own parapet. Firing again mid-zip is allowed once
  * ZipProgress reaches ChainMinProgress and redirects the zip to the new anchor. A zip blocked by
- * anything but the anchor's own building (the one under its landing point, and any neighbour
- * sharing its corner) stops and drops the character. Arrows stay in the
+ * anything but the anchor's own building (the one under its landing point, and any static actor
+ * within SupportRadius of the anchor) or, until she is ZipStartIgnoreRadius clear of the start,
+ * the geometry round where she stood (her own roof and parapet), stops and drops the character.
+ * Jump or crouch mid-zip lets go (CancelZip). Arrows stay in the
  * anchor and go back in the quiver when the character is within RecoverRadius of it.
  *
  * Anchors are bucketed into a GridCellSize grid the first time they are needed, so the query
@@ -121,6 +125,34 @@ public:
 	/** Where the character's capsule centre ends a zip to Anchor. */
 	FVector ComputeZipEnd(const AGrappleAnchor* Anchor) const;
 
+	/** Where the straight line of a zip starts from a capsule centre at Start: ZipLaunchHeight up from the ground, Start itself mid-air. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	FVector ComputeZipLaunch(const FVector& Start, bool bFromGround) const;
+
+	/**
+	 * Offline, the same rules as a real zip: would a zip to Anchor from a capsule centre at From
+	 * (on the ground when bFromGround) get there? Sweeps the capsule from the launch point,
+	 * ignoring the start supports until ZipStartIgnoreRadius (plus the capsule radius) from From
+	 * and the anchor supports all the way. OutBlocker names what stops it.
+	 */
+	bool IsZipClear(const FVector& From, const AGrappleAnchor* Anchor, bool bFromGround, AActor** OutBlocker = nullptr) const;
+
+	/** In the hop before the straight line. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	bool IsHopping() const { return bZipping && bHopping; }
+
+	/** Where the current zip's straight line starts. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	FVector GetZipLaunch() const { return ZipLaunch; }
+
+	/** Where the character stood (or hung in the air) when the current zip started. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	FVector GetZipStart() const { return ZipStart; }
+
+	/** The geometry round the start is still being ignored. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	bool IsIgnoringStartSupports() const { return bZipping && bStartSupportsIgnored; }
+
 	UPROPERTY(BlueprintAssignable, Category = "Grapple")
 	FOnGrappleLandedSignature OnGrappleLanded;
 
@@ -165,6 +197,24 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
 	float SupportRadius = 150.f;
+
+	/**
+	 * From the ground, the straight line starts this far above the capsule centre she stood at:
+	 * her feet 120 cm up clear a 90 cm parapet, so level and downward lines work. cm.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float ZipLaunchHeight = 120.f;
+
+	/** The hop up to the launch point before the straight line, s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float ZipHopSeconds = 0.15f;
+
+	/**
+	 * Static geometry within this of where she stood (her own roof, parapet and fire escape) does
+	 * not block the zip; it counts again once the capsule is this far plus its radius away. cm.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float ZipStartIgnoreRadius = 250.f;
 
 	/** Within this of an anchor, its stuck arrows go back in the quiver, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
@@ -213,8 +263,17 @@ protected:
 	 */
 	void FindAnchorSupports(const AGrappleAnchor* Anchor, TArray<AActor*>& OutSupports) const;
 
+	/** The static actors within ZipStartIgnoreRadius of Start and the one under it. */
+	void FindStartSupports(const FVector& Start, TArray<AActor*>& OutSupports) const;
+
 	/** Starts or stops the capsule ignoring the current supports. */
 	void SetSupportsIgnored(bool bIgnore);
+
+	/** Stops ignoring the start supports that are not also anchor supports. */
+	void ReleaseStartSupports();
+
+	/** How far from the start the capsule centre must be before the start supports count again. */
+	float GetStartReleaseDistance() const;
 
 	ACharacter* GetCharacter() const;
 
@@ -229,6 +288,7 @@ protected:
 	TWeakObjectPtr<AGrappleAnchor> TargetAnchor;
 	TWeakObjectPtr<AGrappleAnchor> ZipAnchor;
 	TArray<TWeakObjectPtr<AActor>> ZipIgnoredSupports;
+	TArray<TWeakObjectPtr<AActor>> ZipStartSupports;
 	TWeakObjectPtr<AGrappleArrowProjectile> InFlightArrow;
 
 	/** Built on the first query (anchors are placed with the level) and by RebuildAnchorGrid. */
@@ -245,7 +305,11 @@ protected:
 	float ZipProgress = 0.f;
 
 	FVector ZipStart = FVector::ZeroVector;
+	FVector ZipLaunch = FVector::ZeroVector;
 	FVector ZipEnd = FVector::ZeroVector;
+	bool bHopping = false;
+	bool bStartSupportsIgnored = false;
+	float HopElapsed = 0.f;
 	float ZipLength = 0.f;
 	float ZipTravelled = 0.f;
 	float PreZipGravityScale = 1.f;

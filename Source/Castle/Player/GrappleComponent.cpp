@@ -430,6 +430,112 @@ void UGrappleComponent::FindAnchorSupports(const AGrappleAnchor* Anchor, TArray<
 	}
 }
 
+void UGrappleComponent::FindStartSupports(const FVector& Start, TArray<AActor*>& OutSupports) const
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GrappleStartSupport), true, GetOwner());
+	const ACharacter* Character = GetCharacter();
+	const float HalfHeight = Character && Character->GetCapsuleComponent()
+		? Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 90.f;
+	FHitResult Hit;
+	if (World->LineTraceSingleByChannel(Hit, Start, Start - FVector(0.f, 0.f, HalfHeight + 50.f), ECC_WorldStatic, Params)
+		&& Hit.GetActor())
+	{
+		OutSupports.AddUnique(Hit.GetActor());
+	}
+	TArray<FOverlapResult> Overlaps;
+	World->OverlapMultiByObjectType(Overlaps, Start, FQuat::Identity, FCollisionObjectQueryParams(ECC_WorldStatic),
+		FCollisionShape::MakeSphere(ZipStartIgnoreRadius), Params);
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		if (AActor* Actor = Overlap.GetActor())
+		{
+			OutSupports.AddUnique(Actor);
+		}
+	}
+}
+
+float UGrappleComponent::GetStartReleaseDistance() const
+{
+	const ACharacter* Character = GetCharacter();
+	const float Radius = Character && Character->GetCapsuleComponent() ? Character->GetCapsuleComponent()->GetScaledCapsuleRadius() : 34.f;
+	return ZipStartIgnoreRadius + Radius;
+}
+
+FVector UGrappleComponent::ComputeZipLaunch(const FVector& Start, bool bFromGround) const
+{
+	return bFromGround ? Start + FVector(0.f, 0.f, ZipLaunchHeight) : Start;
+}
+
+bool UGrappleComponent::IsZipClear(const FVector& From, const AGrappleAnchor* Anchor, bool bFromGround, AActor** OutBlocker) const
+{
+	const UWorld* World = GetWorld();
+	const ACharacter* Character = GetCharacter();
+	const UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
+	if (OutBlocker)
+	{
+		*OutBlocker = nullptr;
+	}
+	if (!World || !Capsule || !Anchor)
+	{
+		return false;
+	}
+	const FVector Launch = ComputeZipLaunch(From, bFromGround);
+	const FVector End = ComputeZipEnd(Anchor);
+	TArray<AActor*> AnchorSupports;
+	FindAnchorSupports(Anchor, AnchorSupports);
+	TArray<AActor*> StartSupports;
+	FindStartSupports(From, StartSupports);
+
+	// Where the start supports count again: the first point on the line that far from From.
+	const float Release = GetStartReleaseDistance();
+	const FVector Line = End - Launch;
+	const float Length = Line.Size();
+	FVector ReleasePoint = End;
+	if (Length > KINDA_SMALL_NUMBER)
+	{
+		const FVector Dir = Line / Length;
+		const FVector Offset = Launch - From;
+		const float B = FVector::DotProduct(Offset, Dir);
+		const float C = Offset.SizeSquared() - Release * Release;
+		const float Disc = B * B - C;
+		const float S = Disc >= 0.f ? -B + FMath::Sqrt(Disc) : 0.f;
+		ReleasePoint = Launch + Dir * FMath::Clamp(S, 0.f, Length);
+	}
+
+	const FCollisionShape Shape = FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius(), Capsule->GetScaledCapsuleHalfHeight());
+	FCollisionResponseParams Responses(Capsule->GetCollisionResponseToChannels());
+	auto Sweep = [&](const FVector& A, const FVector& B, bool bIgnoreStart) -> bool
+	{
+		if (A.Equals(B, 0.1f))
+		{
+			return true;
+		}
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GrappleZipClear), false, Character);
+		Params.AddIgnoredActor(Anchor);
+		Params.AddIgnoredActors(AnchorSupports);
+		if (bIgnoreStart)
+		{
+			Params.AddIgnoredActors(StartSupports);
+		}
+		FHitResult Hit;
+		if (World->SweepSingleByChannel(Hit, A, B, FQuat::Identity, Capsule->GetCollisionObjectType(), Shape, Params, Responses))
+		{
+			if (OutBlocker)
+			{
+				*OutBlocker = Hit.GetActor();
+			}
+			return false;
+		}
+		return true;
+	};
+	return Sweep(Launch, ReleasePoint, true) && Sweep(ReleasePoint, End, false);
+}
+
 void UGrappleComponent::SetSupportsIgnored(bool bIgnore)
 {
 	const ACharacter* Character = GetCharacter();
@@ -445,6 +551,36 @@ void UGrappleComponent::SetSupportsIgnored(bool bIgnore)
 			Capsule->IgnoreActorWhenMoving(Actor, bIgnore);
 		}
 	}
+	for (const TWeakObjectPtr<AActor>& Support : ZipStartSupports)
+	{
+		if (AActor* Actor = Support.Get())
+		{
+			// Released start supports are already back; letting go of everything includes them.
+			if (!bIgnore || bStartSupportsIgnored)
+			{
+				Capsule->IgnoreActorWhenMoving(Actor, bIgnore);
+			}
+		}
+	}
+}
+
+void UGrappleComponent::ReleaseStartSupports()
+{
+	const ACharacter* Character = GetCharacter();
+	UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
+	if (!Capsule || !bStartSupportsIgnored)
+	{
+		return;
+	}
+	bStartSupportsIgnored = false;
+	for (const TWeakObjectPtr<AActor>& Support : ZipStartSupports)
+	{
+		AActor* Actor = Support.Get();
+		if (Actor && !ZipIgnoredSupports.Contains(Support))
+		{
+			Capsule->IgnoreActorWhenMoving(Actor, false);
+		}
+	}
 }
 
 bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
@@ -456,6 +592,8 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 		return false;
 	}
 
+	// From the ground there is a hop to the launch point; a chain or a mid-air zip goes straight.
+	const bool bFromGround = !bZipping && Movement->IsMovingOnGround();
 	if (bZipping)
 	{
 		// A chain: the old building stops being ignored, the new one starts.
@@ -473,14 +611,18 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 
 	ZipAnchor = Anchor;
 	ZipStart = Character->GetActorLocation();
+	ZipLaunch = ComputeZipLaunch(ZipStart, bFromGround);
 	ZipEnd = ComputeZipEnd(Anchor);
-	ZipLength = FVector::Dist(ZipStart, ZipEnd);
+	ZipLength = FVector::Dist(ZipLaunch, ZipEnd);
 	ZipTravelled = 0.f;
 	ZipProgress = 0.f;
 	bZipping = true;
+	bHopping = bFromGround && ZipHopSeconds > 0.f;
+	HopElapsed = 0.f;
 
 	// The line ends on the anchor's roof and clips its parapet on the way in; that building is
-	// expected. Anything else in the way cancels the zip.
+	// expected, and so is the roof and parapet she leaves from until she is clear of them.
+	// Anything else in the way cancels the zip.
 	TArray<AActor*> Supports;
 	FindAnchorSupports(Anchor, Supports);
 	ZipIgnoredSupports.Reset();
@@ -488,6 +630,14 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 	{
 		ZipIgnoredSupports.Add(Support);
 	}
+	TArray<AActor*> StartSupports;
+	FindStartSupports(ZipStart, StartSupports);
+	ZipStartSupports.Reset();
+	for (AActor* Support : StartSupports)
+	{
+		ZipStartSupports.Add(Support);
+	}
+	bStartSupportsIgnored = true;
 	SetSupportsIgnored(true);
 
 	Movement->GravityScale = 0.f;
@@ -500,10 +650,11 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 		Character->SetActorRotation(FRotator(0.f, Direction.Rotation().Yaw, 0.f));
 	}
 
-	UE_LOG(LogCastle, Log, TEXT("%s: zip to %s, %.0f cm at %.0f cm/s (%.2f s), ignoring %s%s"),
+	UE_LOG(LogCastle, Log, TEXT("%s: zip to %s, %.0f cm at %.0f cm/s (%.2f s), %s, line %+.0f cm, ignoring %s%s and %d start support(s)"),
 		*GetNameSafe(Character), *GetNameSafe(Anchor), ZipLength, ZipSpeed, ZipLength / ZipSpeed,
-		*GetNameSafe(Supports.Num() > 0 ? Supports[0] : nullptr),
-		Supports.Num() > 1 ? *FString::Printf(TEXT(" and %d more"), Supports.Num() - 1) : TEXT(""));
+		bHopping ? *FString::Printf(TEXT("hop %.0f cm in %.2f s"), ZipLaunchHeight, ZipHopSeconds) : TEXT("no hop"),
+		ZipEnd.Z - ZipLaunch.Z, *GetNameSafe(Supports.Num() > 0 ? Supports[0] : nullptr),
+		Supports.Num() > 1 ? *FString::Printf(TEXT(" and %d more"), Supports.Num() - 1) : TEXT(""), StartSupports.Num());
 	return true;
 }
 
@@ -515,9 +666,24 @@ void UGrappleComponent::AdvanceZip(float DeltaSeconds)
 		return;
 	}
 
+	if (bHopping)
+	{
+		// Up to the launch point, easing out, through whatever she stood on or beside.
+		HopElapsed += DeltaSeconds;
+		const float Alpha = FMath::Clamp(HopElapsed / ZipHopSeconds, 0.f, 1.f);
+		Character->SetActorLocation(FMath::Lerp(ZipStart, ZipLaunch, FMath::Sin(Alpha * HALF_PI)), false, nullptr,
+			ETeleportType::None);
+		if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
+		{
+			Movement->Velocity = FVector::ZeroVector;
+		}
+		bHopping = Alpha < 1.f;
+		return;
+	}
+
 	ZipTravelled = FMath::Min(ZipTravelled + ZipSpeed * DeltaSeconds, ZipLength);
 	const FVector Target = ZipLength > 0.f
-		? ZipStart + (ZipEnd - ZipStart) / ZipLength * ZipTravelled
+		? ZipLaunch + (ZipEnd - ZipLaunch) / ZipLength * ZipTravelled
 		: ZipEnd;
 
 	FHitResult Hit;
@@ -536,6 +702,10 @@ void UGrappleComponent::AdvanceZip(float DeltaSeconds)
 		return;
 	}
 
+	if (bStartSupportsIgnored && FVector::Dist(Character->GetActorLocation(), ZipStart) > GetStartReleaseDistance())
+	{
+		ReleaseStartSupports();
+	}
 	ZipProgress = ZipLength > 0.f ? ZipTravelled / ZipLength : 1.f;
 	if (ZipTravelled >= ZipLength)
 	{
@@ -552,6 +722,9 @@ void UGrappleComponent::EndZipMovement()
 	}
 	SetSupportsIgnored(false);
 	ZipIgnoredSupports.Reset();
+	ZipStartSupports.Reset();
+	bStartSupportsIgnored = false;
+	bHopping = false;
 	if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
 	{
 		Movement->GravityScale = PreZipGravityScale;
@@ -589,12 +762,14 @@ void UGrappleComponent::CancelZip()
 	}
 
 	AGrappleAnchor* Anchor = ZipAnchor.Get();
+	ACharacter* Character = GetCharacter();
+	UE_LOG(LogCastle, Log, TEXT("%s: let go of the zip to %s at %.0f%% (%s); falling"), *GetNameSafe(Character),
+		*GetNameSafe(Anchor), ZipProgress * 100.f, Character ? *Character->GetActorLocation().ToCompactString() : TEXT("?"));
 	bZipping = false;
 	ZipProgress = 0.f;
 	EndZipMovement();
 	ZipAnchor.Reset();
 
-	ACharacter* Character = GetCharacter();
 	if (Character && Character->GetCharacterMovement())
 	{
 		Character->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
