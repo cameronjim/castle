@@ -12,6 +12,8 @@ Prints one line per check and a final ``[Castle] verify_city PASS`` or ``FAIL``:
 * the BP_GameMode_EastVillage override starting DA_CH01_Rooftops, one City_Obj_* volume per
   chapter-1 objective sitting above its roof, the street lamps (light, pole, head) matching the
   generator, and no prison-build actors (thugs, keycards, doors, pickups)
+* the grapple anchors match the generator, and every anchor's landing point is on a roof: a
+  trace from just above it down 50 cm hits a City_Bldg mesh
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
     UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
@@ -68,6 +70,90 @@ def has_collision(component, static_mesh):
         return True, ""
     except Exception as exc:  # noqa: BLE001
         return False, "{0}: {1}".format(type(exc).__name__, exc)
+
+
+LANDING_PROBE_UP = 20.0     # cm above the landing point the probe starts
+LANDING_PROBE_DOWN = 50.0   # cm below it the probe must hit a roof by
+
+
+def _of_type(result, cls):
+    """The first value of type cls in a Geometry Script return (a value or a tuple of out-params)."""
+    for item in (result if isinstance(result, tuple) else (result,)):
+        if isinstance(item, cls):
+            return item
+    return None
+
+
+class MeshProbe(object):
+    """Ray casts against building meshes with Geometry Script's BVH. The editor world has no
+    physics scene in a commandlet, so a collision trace from Python always misses; this casts
+    the same ray against the same triangles the complex-as-simple collision is built from."""
+
+    def __init__(self):
+        self.cache = {}
+
+    def _bvh(self, static_mesh):
+        key = static_mesh.get_path_name()
+        if key not in self.cache:
+            mesh = unreal.DynamicMesh()
+            unreal.GeometryScript_AssetUtils.copy_mesh_from_static_mesh_v2(
+                static_mesh, mesh, unreal.GeometryScriptCopyMeshFromAssetOptions(),
+                unreal.GeometryScriptMeshReadLOD(), True)
+            bvh = _of_type(unreal.GeometryScript_MeshSpatial.build_bvh_for_mesh(mesh),
+                           unreal.GeometryScriptDynamicMeshBVH)
+            self.cache[key] = (mesh, bvh)
+        return self.cache[key]
+
+    def hits_down(self, actor, point):
+        """True when a ray from LANDING_PROBE_UP above point hits actor's mesh within
+        LANDING_PROBE_DOWN below point."""
+        static_mesh = actor.get_editor_property("static_mesh_component").get_editor_property("static_mesh")
+        if static_mesh is None:
+            return False
+        mesh, bvh = self._bvh(static_mesh)
+        if bvh is None:
+            return False
+        origin = point - actor.get_actor_location() + unreal.Vector(0.0, 0.0, LANDING_PROBE_UP)
+        hit = _of_type(unreal.GeometryScript_MeshSpatial.find_nearest_ray_intersection_with_mesh(
+            mesh, bvh, origin, unreal.Vector(0.0, 0.0, -1.0), unreal.GeometryScriptSpatialQueryOptions()),
+            unreal.GeometryScriptRayHitResult)
+        return bool(hit is not None and hit.hit and hit.ray_parameter <= LANDING_PROBE_UP + LANDING_PROBE_DOWN)
+
+
+def check_anchors(district, actors):
+    anchors = {label: a for label, a in actors.items() if label.startswith(gen.ANCHOR_PREFIX)}
+    expected = gen.anchor_spots(district)
+    labels_ok = set(anchors) == {gen.ANCHOR_PREFIX + str(i) for i in range(len(expected))}
+    check(labels_ok, "grapple anchors match the generator",
+          "{0} anchors, {1} expected, on {2} roofs".format(len(anchors), len(expected), len({s[6] for s in expected})))
+
+    buildings = []
+    for label, actor in actors.items():
+        if label.startswith(gen.BUILDING_PREFIX):
+            origin, extent = actor.get_actor_bounds(False)
+            buildings.append((label, actor, origin, extent))
+
+    probe = MeshProbe()
+    off_roof = []
+    heights = []
+    for label, anchor in sorted(anchors.items()):
+        landing = anchor.get_landing_point()
+        point = landing.get_world_location() if landing is not None else anchor.get_actor_location()
+        found = None
+        for b_label, actor, origin, extent in buildings:
+            if abs(point.x - origin.x) <= extent.x and abs(point.y - origin.y) <= extent.y \
+                    and probe.hits_down(actor, point):
+                found = b_label
+                break
+        if found is None:
+            off_roof.append(label)
+        heights.append(anchor.get_actor_location().z - point.z)
+    check(anchors and not off_roof, "every anchor's landing point is on a City_Bldg roof (50 cm probe)",
+          "{0} of {1} off a roof{2}".format(len(off_roof), len(anchors),
+                                            ": " + ", ".join(off_roof[:5]) if off_roof else ""))
+    if heights:
+        unreal.log("[Castle] info  anchors sit {0:.0f} to {1:.0f} cm above their landing points".format(
+            min(heights), max(heights)))
 
 
 def run():
@@ -204,6 +290,8 @@ def run():
     check(len(lights) == expected and lights == poles == heads, "street lamps match the generator",
           "{0} lights, {1} poles, {2} heads, {3} expected, {4} casting shadows".format(
               len(lights), len(poles), len(heads), expected, shadowed))
+
+    check_anchors(district, actors)
 
     prison = [a.get_actor_label() for a in all_actors
               if any(w in gen.actor_class_name(a) for w in gen.PRISON_CLASS_WORDS)]
