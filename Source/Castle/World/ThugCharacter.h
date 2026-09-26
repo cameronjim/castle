@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Combat/MeleeComponent.h"
 #include "Combat/Takedownable.h"
 #include "GameFramework/Character.h"
 #include "ThugCharacter.generated.h"
@@ -10,7 +11,9 @@
 class APickupActor;
 class UAnimSequence;
 class UHealthComponent;
-class USpotLightComponent;
+class UMaterialInstanceDynamic;
+class UStaticMesh;
+class UStaticMeshComponent;
 class UWeaponComponent;
 
 /** What a thug currently believes about the player. See claude-docs/gameplay-semantics.md. */
@@ -21,15 +24,26 @@ enum class EThugAlertState : uint8
 	Calm,
 	/** Heard or half-saw something. Investigates. Takedown still valid. */
 	Suspicious,
-	/** Has confirmed the player. Shoots. Takedown refused. */
+	/** Has confirmed the player. Attacks. Takedown refused. */
 	Alerted
+};
+
+/** What a thug fights with. Only the Pistol thug shoots; Fists and Bat rush in and swing. */
+UENUM(BlueprintType)
+enum class EThugWeapon : uint8
+{
+	Fists,
+	Bat,
+	/** The gunner: keeps the hitscan pistol, 12 a hit. */
+	Pistol
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAlertStateChangedSignature, EThugAlertState, OldState, EThugAlertState, NewState);
 
 /**
- * A street thug: 100 HP, a hitscan pistol, an alert state, and a body that drops what it was
- * carrying. TODO(stage2): melee rush, gunner, archer and heavy variants are planned.
+ * A Tracksuit thug: 100 HP, a weapon (fists, a bat or the gunner's pistol), an alert state, and a
+ * body that drops what it was carrying. Punches and arrows stagger him, Kate's heavy knocks him
+ * down for KnockdownSeconds, and he ragdolls when he dies. TODO(stage3): archer and heavy variants.
  *
  * AThugAIController drives the state; this class owns the state itself so a Blueprint, a
  * takedown or a bullet can all read and change it without knowing about the controller.
@@ -48,6 +62,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	UWeaponComponent* GetWeaponComponent() const { return WeaponComponent; }
 
+	/** The swing the Fists and Bat thugs use. */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	UMeleeComponent* GetMeleeComponent() const { return MeleeComponent; }
+
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	EThugAlertState GetAlertState() const { return AlertState; }
 
@@ -58,10 +76,45 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	bool IsAlerted() const { return AlertState == EThugAlertState::Alerted; }
 
+	// --- Combat ---------------------------------------------------------------------------------
+
+	/** Fists, Bat or Pistol. Set per placed thug; the generator sets the district's four. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	EThugWeapon Weapon = EThugWeapon::Pistol;
+
+	/** True for the Pistol thug: he keeps his distance and shoots instead of rushing. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
+	bool IsGunner() const { return Weapon == EThugWeapon::Pistol; }
+
+	/** The swing for his weapon: BatAttack for a Bat thug, FistsAttack otherwise. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
+	FCastleMeleeAttack GetMeleeAttack() const { return Weapon == EThugWeapon::Bat ? BatAttack : FistsAttack; }
+
+	/** 15 damage after a 0.6 s telegraphed wind-up, then 0.6 s to recover. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FCastleMeleeAttack FistsAttack;
+
+	/** 25 damage after the same wind-up, a little more reach. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FCastleMeleeAttack BatAttack;
+
+	/** The bat he carries; shown in his right hand only when Weapon is Bat. Assigned in BP_Thug. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	TObjectPtr<UStaticMesh> BatMesh;
+
+	/** Shows the bat for a Bat thug and hides it for anyone else. Runs at BeginPlay. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Combat")
+	void RefreshHeldWeapon();
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Components")
+	UStaticMeshComponent* GetHeldWeaponComponent() const { return HeldWeaponComponent; }
+
+	// --- Hit reactions --------------------------------------------------------------------------
+
 	/**
 	 * A hit he survives (an arrow, a punch): a brief stagger. He stops, is shoved HitShoveSpeed
-	 * away from HitBy, his AI holds off for StaggerSeconds, and he is Alerted if he was not.
-	 * Bound to the health component's OnStaggered, so every staggering hit arrives here.
+	 * away from HitBy, drops any swing he was winding up, his AI holds off for StaggerSeconds, and
+	 * he is Alerted if he was not. Bound to the health component's OnStaggered.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Thug")
 	void HitReaction(AActor* HitBy);
@@ -70,6 +123,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	bool IsStaggered() const { return StaggerRemaining > 0.f; }
 
+	/**
+	 * Kate's heavy: he goes over (a ragdoll when the mesh can, otherwise only the state), stays down
+	 * KnockdownSeconds, then stands back up where his body landed. His swing is dropped, his AI
+	 * holds off, and he is Alerted. There is no get-up animation; standing up is a snap.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void Knockdown(AActor* By);
+
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	bool IsKnockedDown() const { return bKnockedDown; }
+
+	/** Staggered or on the floor: the AI does nothing. */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	bool IsIncapacitated() const { return IsStaggered() || bKnockedDown; }
+
+	/** Counts a knockdown down and stands him up at the end. Called from Tick; public for tests. */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void UpdateKnockdown(float DeltaSeconds);
+
 	/** How long a hit reaction holds him, seconds. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
 	float StaggerSeconds = 0.5f;
@@ -77,6 +149,27 @@ public:
 	/** Speed of the shove away from whoever hit him, cm/s. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
 	float HitShoveSpeed = 250.f;
+
+	/** Seconds a heavy keeps him on the floor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
+	float KnockdownSeconds = 3.f;
+
+	/** Speed the body is thrown away from the hit at, cm/s. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
+	float KnockdownLaunchSpeed = 450.f;
+
+	/** Pulses the body's emissive for HitFlashSeconds. Every hit that costs him health calls it. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Hit")
+	void FlashHit();
+
+	/** 1 the instant he is hit, fading to 0 over HitFlashSeconds. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Hit")
+	float GetHitFlashAlpha() const { return HitFlashSeconds > 0.f ? HitFlashRemaining / HitFlashSeconds : 0.f; }
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
+	float HitFlashSeconds = 0.1f;
+
+	// --- Patrol and loot ------------------------------------------------------------------------
 
 	/** Points this thug walks between while Calm. Place ATargetPoints and fill this in. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Patrol")
@@ -129,25 +222,22 @@ public:
 	// --- Animation ------------------------------------------------------------------------------
 
 	/**
-	 * Plays Idle or Walk depending on ground speed, and only when the choice changes.
+	 * Plays Idle, Walk or Run depending on ground speed, and only when the choice changes.
 	 *
 	 * The mannequin pack's AnimBP does not compile headless, so thugs drove nothing and stood
-	 * in a T-pose. Two sequences on the mesh's single-node animation slot is all a patrolling
+	 * in a T-pose. Sequences on the mesh's single-node animation slot are all a patrolling
 	 * thug needs, and it is something a test can assert on.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Thug|Animation")
 	void UpdateLocomotionAnimation();
 
-	/** WalkAnim above WalkAnimSpeedThreshold of ground speed, IdleAnim below it. */
+	/** RunAnim above RunAnimSpeedThreshold, WalkAnim above WalkAnimSpeedThreshold, IdleAnim below. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Animation")
 	UAnimSequence* SelectLocomotionAnim() const;
 
 	/** The sequence the mesh is currently playing, or null. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Animation")
 	UAnimSequence* GetCurrentLocomotionAnim() const { return CurrentLocomotionAnim; }
-
-	UFUNCTION(BlueprintPure, Category = "Thug|Components")
-	USpotLightComponent* GetFlashlight() const { return Flashlight; }
 
 	/** Idle pose. Assigned in BP_Thug from the mannequin pack. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Animation")
@@ -156,6 +246,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Animation")
 	TObjectPtr<UAnimSequence> WalkAnim;
 
+	/** Played above RunAnimSpeedThreshold (the melee rush). Falls back to WalkAnim when unset. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Animation")
+	TObjectPtr<UAnimSequence> RunAnim;
+
 	/** Optional. Only used when the mesh has no physics asset to ragdoll with. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Animation")
 	TObjectPtr<UAnimSequence> DeathAnim;
@@ -163,6 +257,10 @@ public:
 	/** Ground speed in uu/s above which the thug is walking rather than standing. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Animation", meta = (ClampMin = "0.0"))
 	float WalkAnimSpeedThreshold = 20.f;
+
+	/** Ground speed in uu/s above which the rush plays RunAnim. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Animation", meta = (ClampMin = "0.0"))
+	float RunAnimSpeedThreshold = 350.f;
 
 	//~ Begin ITakedownable interface
 	virtual bool CanBeTakenDown_Implementation(AActor* Attacker) override;
@@ -180,8 +278,23 @@ protected:
 	UFUNCTION()
 	void HandleStaggered(UHealthComponent* Health, AActor* DamageInstigator);
 
-	/** Snaps the flashlight to the head socket when the mesh has one. Runs once at BeginPlay. */
-	void AttachFlashlight();
+	UFUNCTION()
+	void HandleHealthChanged(UHealthComponent* Health, float NewHealth, float Delta, AActor* DamageInstigator);
+
+	/** One dynamic material instance per slot, so his flashes are his alone. Runs at BeginPlay. */
+	void CreateBodyMaterials();
+
+	/** Writes the hit flash and the swing telegraph into the body's materials. Called from Tick. */
+	void UpdateMaterialPulse(float DeltaSeconds);
+
+	/** Throws the mesh into a ragdoll for a knockdown. False when it cannot simulate. */
+	bool BeginKnockdownRagdoll(AActor* By);
+
+	/** Ends a knockdown: the capsule moves to where the body lies and the mesh snaps back upright. */
+	void StandUp();
+
+	/** Tells the brain (or, without one, the state) that By just hurt him. */
+	void AlertTo(AActor* By);
 
 	/** Starts the no-physics fallback: tip the mesh over and drop it, away from the killer. */
 	void BeginProceduralCollapse(AActor* Killer);
@@ -207,18 +320,29 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
 	TObjectPtr<UWeaponComponent> WeaponComponent;
 
-	/**
-	 * Head torch. Kept from the prison build; it doubles as the stealth tell: the cone
-	 * is where the thug is looking, so the player can route around it.
-	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
-	TObjectPtr<USpotLightComponent> Flashlight;
+	TObjectPtr<UMeleeComponent> MeleeComponent;
 
-	/** Socket the flashlight hangs off when the mesh has one; otherwise it sits on the capsule. */
+	/** The bat, in the right hand. Empty and hidden unless Weapon is Bat. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
+	TObjectPtr<UStaticMeshComponent> HeldWeaponComponent;
+
+	/** Socket the bat hangs off. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Components")
-	FName FlashlightSocketName = FName(TEXT("head"));
+	FName HeldWeaponSocketName = FName(TEXT("hand_r"));
 
-	/** Whichever of IdleAnim / WalkAnim is playing, so Tick only re-plays on a real change. */
+	/** Scalar parameter on the body material pulsed by FlashHit. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Hit")
+	FName HitFlashParameter = FName(TEXT("HitFlash"));
+
+	/** Scalar parameter held at 1 through a swing's wind-up: the mask glows red. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Hit")
+	FName TelegraphParameter = FName(TEXT("Telegraph"));
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> BodyMaterials;
+
+	/** Whichever of IdleAnim / WalkAnim / RunAnim is playing, so Tick only re-plays on a real change. */
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimSequence> CurrentLocomotionAnim;
 
@@ -232,6 +356,18 @@ protected:
 private:
 	/** Seconds of stagger left. */
 	float StaggerRemaining = 0.f;
+
+	bool bKnockedDown = false;
+	bool bKnockdownRagdoll = false;
+	float KnockdownRemaining = 0.f;
+	float HitFlashRemaining = 0.f;
+
+	/** What the materials were last given, so the parameters are only written on a change. */
+	float LastFlashWritten = -1.f;
+	float LastTelegraphWritten = -1.f;
+
+	/** The mesh's mount on the capsule, restored when he stands back up. */
+	FTransform MeshRelativeTransform = FTransform::Identity;
 
 	bool bLootDropped = false;
 	bool bLimp = false;

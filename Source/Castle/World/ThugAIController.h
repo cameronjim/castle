@@ -27,8 +27,12 @@ enum class EStimulusKind : uint8
  *
  * Calm       patrol PatrolPoints, waiting PatrolWaitSeconds at each
  * Suspicious walk to the last stimulus, wait InvestigateSeconds, back to Calm
- * Alerted    face the player and fire every FireInterval inside EngageRange, close in otherwise;
- *            drops to Suspicious after LoseTargetSeconds with no perception
+ * Alerted    by weapon. The gunner (EThugWeapon::Pistol) faces the player and fires every
+ *            FireInterval inside EngageRange, closing in otherwise. Fists and Bat rush in at
+ *            RushSpeed; inside MeleeEngageRange (250) they wind up a swing and keep closing to
+ *            MeleeCloseDistance (120), swing again after MeleeCooldownSeconds, and back off
+ *            MeleeBackOffDistance after every MeleeSwingsBeforeBackOff swings.
+ *            Drops to Suspicious after LoseTargetSeconds with no perception.
  */
 UCLASS(Blueprintable, BlueprintType)
 class CASTLE_API AThugAIController : public AAIController
@@ -78,6 +82,44 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.0"))
 	float EngageRange = 1200.f;
 
+	// --- Melee rush (Fists and Bat) --------------------------------------------------------------
+
+	/** Walking speed while Alerted with a melee weapon, cm/s. Calm and Suspicious walk at the pawn's own speed. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Melee", meta = (ClampMin = "0.0"))
+	float RushSpeed = 450.f;
+
+	/** Inside this he commits: the swing's wind-up starts while he is still closing. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Melee", meta = (ClampMin = "0.0"))
+	float MeleeEngageRange = 250.f;
+
+	/** How close he gets before he stops and lets the swing land, centre to centre. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Melee", meta = (ClampMin = "0.0"))
+	float MeleeCloseDistance = 120.f;
+
+	/** Seconds after a swing ends before the next can start. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Melee", meta = (ClampMin = "0.0"))
+	float MeleeCooldownSeconds = 1.2f;
+
+	/** Swings in a row before he steps back. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Melee", meta = (ClampMin = "1"))
+	int32 MeleeSwingsBeforeBackOff = 2;
+
+	/** How far he steps back after MeleeSwingsBeforeBackOff swings, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Melee", meta = (ClampMin = "0.0"))
+	float MeleeBackOffDistance = 200.f;
+
+	/** The longest a back-off lasts before he comes again, arrived or not. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Melee", meta = (ClampMin = "0.0"))
+	float MeleeBackOffMaxSeconds = 1.5f;
+
+	/** True while he is stepping back after a pair of swings. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Melee")
+	bool IsBackingOff() const { return bBackingOff; }
+
+	/** Swings since the last back-off. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Melee")
+	int32 GetSwingsSinceBackOff() const { return SwingsSinceBackOff; }
+
 	/** How often the state machine runs. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.01"))
 	float ThinkIntervalSeconds = 0.25f;
@@ -113,9 +155,23 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	FVector GetLastStimulusLocation() const { return LastStimulusLocation; }
 
-	/** The pawn the thug is shooting at while Alerted, or nullptr. */
+	/** The pawn the thug is attacking while Alerted, or nullptr. */
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	AActor* GetTarget() const { return TargetActor; }
+
+	/** Points him at Target, as a sighting would. A hit from the player does this too. */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void SetTarget(AActor* Target) { TargetActor = Target; }
+
+	/**
+	 * Off: the think timer stops, he stands where he is, and perception is ignored. For scripted
+	 * moments and the screenshot pass. On: the state machine picks up where it left off.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void SetThinkingEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	bool IsThinkingEnabled() const { return bThinkingEnabled; }
 
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
@@ -154,6 +210,18 @@ protected:
 	/** One shot at TargetActor through the thug's weapon, scattered by AimSpreadDegrees. */
 	void FireAtTarget();
 
+	/** The gunner's Alerted step: close to EngageRange, then stand and shoot. */
+	void TickGunner(float DeltaSeconds, const FVector& ToTarget);
+
+	/** The Fists and Bat Alerted step: rush, wind up inside MeleeEngageRange, swing, back off. */
+	void TickMeleeRush(float DeltaSeconds, const FVector& ToTarget);
+
+	/** Counts a finished swing, starts the cooldown, and steps back after enough of them. */
+	void FinishSwing(const FVector& ToTarget);
+
+	/** RushSpeed while Alerted with a melee weapon, the pawn's own walking speed otherwise. */
+	void ApplyMoveSpeed();
+
 	void SetState(EThugAlertState NewState);
 
 	UPROPERTY(Transient)
@@ -185,6 +253,18 @@ private:
 
 	/** Latches after the first failed move so a broken navmesh logs once, not four times a second. */
 	bool bLoggedMoveFailure = false;
+
+	bool bThinkingEnabled = true;
+
+	/** Melee rush state. */
+	bool bWasSwinging = false;
+	bool bBackingOff = false;
+	int32 SwingsSinceBackOff = 0;
+	float MeleeCooldownRemaining = 0.f;
+	float BackOffElapsed = 0.f;
+
+	/** The pawn's own MaxWalkSpeed, read at possession; the rush speed is laid over it. */
+	float BaseWalkSpeed = 300.f;
 
 	FTimerHandle ThinkTimerHandle;
 };

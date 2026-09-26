@@ -6,12 +6,15 @@
 #include "Animation/AnimSequence.h"
 #include "Castle.h"
 #include "Combat/HealthComponent.h"
+#include "Combat/MeleeComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Components/SpotLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "Player/LocomotionAnim.h"
 #include "World/PickupActor.h"
@@ -40,6 +43,25 @@ AThugCharacter::AThugCharacter()
 	WeaponComponent->FireRate = 180.f;
 	WeaponComponent->Range = 4000.f;
 
+	// A thug's swing never lands on the thug beside him.
+	MeleeComponent = CreateDefaultSubobject<UMeleeComponent>(TEXT("MeleeComponent"));
+	MeleeComponent->IgnoreTag = FName(TEXT("Thug"));
+
+	// The wind-up is the telegraph and the dodge window: long enough to read, not so long it
+	// stops being a threat. Recovery is what leaves room to hit back.
+	FistsAttack.Name = FName(TEXT("fists"));
+	FistsAttack.Damage = 15.f;
+	FistsAttack.WindupSeconds = 0.6f;
+	FistsAttack.RecoverSeconds = 0.6f;
+	FistsAttack.Range = 120.f;
+	FistsAttack.Radius = 35.f;
+	FistsAttack.bStagger = true;
+
+	BatAttack = FistsAttack;
+	BatAttack.Name = FName(TEXT("bat"));
+	BatAttack.Damage = 25.f;
+	BatAttack.Range = 140.f;
+
 	GetCapsuleComponent()->SetCapsuleSize(34.f, 96.f);
 
 	// Both the capsule and the mesh block bullets. The capsule is the guarantee - a greybox
@@ -57,6 +79,13 @@ AThugCharacter::AThugCharacter()
 		SkeletalMesh->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -96.f), FRotator(0.f, -90.f, 0.f));
 	}
 
+	// The bat rides in the right hand. No collision: the swing is a sweep, not the prop.
+	HeldWeaponComponent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HeldWeapon"));
+	HeldWeaponComponent->SetupAttachment(GetMesh(), HeldWeaponSocketName);
+	HeldWeaponComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HeldWeaponComponent->SetCanEverAffectNavigation(false);
+	HeldWeaponComponent->SetVisibility(false);
+
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		Movement->MaxWalkSpeed = 300.f;
@@ -64,24 +93,11 @@ AThugCharacter::AThugCharacter()
 		// the control rotation instead, and the controller points that at the player the moment
 		// he is seen - so an alerted thug closing the distance played a forward walk cycle while
 		// travelling sideways or backwards. AThugAIController turns him to face a target only
-		// when he has stopped to shoot.
+		// when he has stopped to shoot or swing.
 		Movement->bUseControllerDesiredRotation = false;
 		Movement->bOrientRotationToMovement = true;
 		Movement->RotationRate = FRotator(0.f, 360.f, 0.f);
 	}
-
-	Flashlight = CreateDefaultSubobject<USpotLightComponent>(TEXT("Flashlight"));
-	Flashlight->SetupAttachment(GetMesh() ? static_cast<USceneComponent*>(GetMesh()) : GetCapsuleComponent());
-	Flashlight->SetRelativeLocation(FVector(20.f, 0.f, 60.f));
-	Flashlight->SetIntensity(3000.f);
-	Flashlight->SetIntensityUnits(ELightUnits::Candelas);
-	Flashlight->SetInnerConeAngle(25.f);
-	Flashlight->SetOuterConeAngle(35.f);
-	Flashlight->SetAttenuationRadius(2500.f);
-	Flashlight->SetLightColor(FLinearColor(0.85f, 0.92f, 1.f));
-	Flashlight->SetCastShadows(true);
-	Flashlight->SetMobility(EComponentMobility::Movable);
-	Flashlight->SetVisibility(true);
 
 	bUseControllerRotationYaw = false;
 
@@ -98,6 +114,7 @@ void AThugCharacter::PostInitializeComponents()
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &AThugCharacter::HandleDeath);
 		HealthComponent->OnStaggered.AddDynamic(this, &AThugCharacter::HandleStaggered);
+		HealthComponent->OnHealthChanged.AddDynamic(this, &AThugCharacter::HandleHealthChanged);
 	}
 }
 
@@ -105,7 +122,12 @@ void AThugCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	AttachFlashlight();
+	if (const USkeletalMeshComponent* SkeletalMesh = GetMesh())
+	{
+		MeshRelativeTransform = SkeletalMesh->GetRelativeTransform();
+	}
+	RefreshHeldWeapon();
+	CreateBodyMaterials();
 	UpdateLocomotionAnimation();
 }
 
@@ -120,18 +142,120 @@ void AThugCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
+	UpdateMaterialPulse(DeltaSeconds);
 	if (bLimp)
 	{
 		return;
 	}
 
 	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
-	UpdateLocomotionAnimation();
+	UpdateKnockdown(DeltaSeconds);
+	if (!bKnockedDown)
+	{
+		UpdateLocomotionAnimation();
+	}
+}
+
+void AThugCharacter::RefreshHeldWeapon()
+{
+	if (!HeldWeaponComponent)
+	{
+		return;
+	}
+
+	const bool bShowBat = Weapon == EThugWeapon::Bat && BatMesh != nullptr;
+	if (bShowBat && HeldWeaponComponent->GetStaticMesh() != BatMesh)
+	{
+		HeldWeaponComponent->SetStaticMesh(BatMesh);
+	}
+	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
+	{
+		if (SkeletalMesh->DoesSocketExist(HeldWeaponSocketName)
+			&& HeldWeaponComponent->GetAttachSocketName() != HeldWeaponSocketName)
+		{
+			HeldWeaponComponent->AttachToComponent(
+				SkeletalMesh, FAttachmentTransformRules::KeepRelativeTransform, HeldWeaponSocketName);
+		}
+	}
+	HeldWeaponComponent->SetVisibility(bShowBat);
+}
+
+void AThugCharacter::CreateBodyMaterials()
+{
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset())
+	{
+		return;
+	}
+
+	BodyMaterials.Reset();
+	for (int32 Slot = 0; Slot < SkeletalMesh->GetNumMaterials(); ++Slot)
+	{
+		if (UMaterialInstanceDynamic* Instance = SkeletalMesh->CreateAndSetMaterialInstanceDynamic(Slot))
+		{
+			BodyMaterials.Add(Instance);
+		}
+	}
+}
+
+void AThugCharacter::FlashHit()
+{
+	HitFlashRemaining = HitFlashSeconds;
+}
+
+void AThugCharacter::UpdateMaterialPulse(float DeltaSeconds)
+{
+	HitFlashRemaining = FMath::Max(0.f, HitFlashRemaining - DeltaSeconds);
+	const float Flash = GetHitFlashAlpha();
+	const float Telegraph = MeleeComponent && MeleeComponent->IsWindingUp() && !bLimp ? 1.f : 0.f;
+	if (Flash == LastFlashWritten && Telegraph == LastTelegraphWritten)
+	{
+		return;
+	}
+
+	LastFlashWritten = Flash;
+	LastTelegraphWritten = Telegraph;
+	for (UMaterialInstanceDynamic* Instance : BodyMaterials)
+	{
+		if (Instance)
+		{
+			Instance->SetScalarParameterValue(HitFlashParameter, Flash);
+			Instance->SetScalarParameterValue(TelegraphParameter, Telegraph);
+		}
+	}
+}
+
+void AThugCharacter::HandleHealthChanged(UHealthComponent* /*Health*/, float /*NewHealth*/, float Delta, AActor* /*DamageInstigator*/)
+{
+	if (Delta < 0.f)
+	{
+		FlashHit();
+	}
 }
 
 void AThugCharacter::HandleStaggered(UHealthComponent* /*Health*/, AActor* DamageInstigator)
 {
 	HitReaction(DamageInstigator);
+}
+
+void AThugCharacter::AlertTo(AActor* By)
+{
+	// Being hit is how he finds out: he turns on whoever did it.
+	if (AThugAIController* Brain = Cast<AThugAIController>(GetController()))
+	{
+		if (By)
+		{
+			Brain->ReportStimulus(EStimulusKind::Hearing, By->GetActorLocation(), true, Brain->GunshotLoudnessThreshold);
+			if (Cast<APawn>(By))
+			{
+				Brain->SetTarget(By);
+			}
+		}
+	}
+	else if (AlertState != EThugAlertState::Alerted)
+	{
+		SetAlertState(EThugAlertState::Alerted);
+	}
 }
 
 void AThugCharacter::HitReaction(AActor* HitBy)
@@ -143,12 +267,20 @@ void AThugCharacter::HitReaction(AActor* HitBy)
 
 	StaggerRemaining = StaggerSeconds;
 
-	// Stop whatever he was doing and shove him back a step, away from the hit.
+	// A punch in the wind-up interrupts the swing: hitting first is the counter.
+	if (MeleeComponent)
+	{
+		MeleeComponent->CancelAttack();
+	}
+
+	// Stop whatever he was doing and shove him back a step, away from the hit. On the floor the
+	// ragdoll is the reaction; a shove would only drag the empty capsule about.
 	if (AController* MyController = GetController())
 	{
 		MyController->StopMovement();
 	}
-	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (Movement && !bKnockedDown)
 	{
 		Movement->StopMovementImmediately();
 		FVector Away = HitBy ? (GetActorLocation() - HitBy->GetActorLocation()).GetSafeNormal2D()
@@ -160,45 +292,148 @@ void AThugCharacter::HitReaction(AActor* HitBy)
 		LaunchCharacter(Away * HitShoveSpeed, true, false);
 	}
 
-	// Being shot is how he finds out: he turns on whoever did it.
-	if (AThugAIController* Brain = Cast<AThugAIController>(GetController()))
-	{
-		if (HitBy)
-		{
-			Brain->ReportStimulus(EStimulusKind::Hearing, HitBy->GetActorLocation(), true,
-				Brain->GunshotLoudnessThreshold);
-		}
-	}
-	else if (AlertState != EThugAlertState::Alerted)
-	{
-		SetAlertState(EThugAlertState::Alerted);
-	}
+	AlertTo(HitBy);
 
 	UE_LOG(LogCastle, Log, TEXT("%s: hit reaction (by %s), staggered %.2f s, health %.1f."), *GetName(),
 		*GetNameSafe(HitBy), StaggerSeconds, HealthComponent->GetCurrentHealth());
 }
 
-void AThugCharacter::AttachFlashlight()
+void AThugCharacter::Knockdown(AActor* By)
 {
-	USkeletalMeshComponent* SkeletalMesh = GetMesh();
-	if (!Flashlight || !SkeletalMesh)
+	if (bLimp || !HealthComponent || !HealthComponent->IsAlive())
 	{
 		return;
 	}
 
-	// The head socket points the cone where the thug is looking. Without one the light stays
-	// on the mesh root, which still faces forward because the capsule does.
-	if (SkeletalMesh->DoesSocketExist(FlashlightSocketName))
+	bKnockedDown = true;
+	KnockdownRemaining = KnockdownSeconds;
+	StaggerRemaining = 0.f;
+	if (MeleeComponent)
 	{
-		Flashlight->AttachToComponent(
-			SkeletalMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, FlashlightSocketName);
-		Flashlight->SetRelativeLocationAndRotation(FVector(10.f, 0.f, 0.f), FRotator(0.f, 90.f, -90.f));
+		MeleeComponent->CancelAttack();
+	}
+	if (AController* MyController = GetController())
+	{
+		MyController->StopMovement();
+	}
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->StopMovementImmediately();
+		Movement->DisableMovement();
+	}
+	// Kate walks over him while he is down; the capsule still takes hits and arrows.
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	}
+
+	bKnockdownRagdoll = BeginKnockdownRagdoll(By);
+	AlertTo(By);
+
+	UE_LOG(LogCastle, Log, TEXT("%s: knocked down by %s for %.1f s (%s), health %.1f."), *GetName(), *GetNameSafe(By),
+		KnockdownSeconds, bKnockdownRagdoll ? TEXT("ragdoll") : TEXT("no ragdoll"), HealthComponent->GetCurrentHealth());
+}
+
+bool AThugCharacter::BeginKnockdownRagdoll(AActor* By)
+{
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset() || !SkeletalMesh->GetPhysicsAsset())
+	{
+		return false;
+	}
+
+	MeshRelativeTransform = SkeletalMesh->GetRelativeTransform();
+	SkeletalMesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+	SkeletalMesh->SetCollisionProfileName(TEXT("Ragdoll"));
+	SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	SkeletalMesh->SetAllBodiesSimulatePhysics(true);
+	SkeletalMesh->SetSimulatePhysics(true);
+	SkeletalMesh->WakeAllRigidBodies();
+	if (!SkeletalMesh->IsSimulatingPhysics())
+	{
+		StandUp();
+		return false;
+	}
+
+	FVector Away = By ? (GetActorLocation() - By->GetActorLocation()).GetSafeNormal2D() : -GetActorForwardVector();
+	if (Away.IsNearlyZero())
+	{
+		Away = -GetActorForwardVector();
+	}
+	SkeletalMesh->SetAllPhysicsLinearVelocity(Away * KnockdownLaunchSpeed + FVector(0.f, 0.f, 150.f));
+	return true;
+}
+
+void AThugCharacter::UpdateKnockdown(float DeltaSeconds)
+{
+	if (!bKnockedDown)
+	{
+		return;
+	}
+	KnockdownRemaining -= DeltaSeconds;
+	if (KnockdownRemaining <= 0.f)
+	{
+		StandUp();
+	}
+}
+
+void AThugCharacter::StandUp()
+{
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	UCapsuleComponent* Capsule = GetCapsuleComponent();
+	if (SkeletalMesh && Capsule && SkeletalMesh->IsSimulatingPhysics())
+	{
+		// Stand where the body came to rest, on whatever floor is under the pelvis.
+		const FVector Pelvis = SkeletalMesh->GetBoneLocation(FName(TEXT("pelvis")));
+		FVector Stand = Pelvis + FVector(0.f, 0.f, Capsule->GetScaledCapsuleHalfHeight());
+		FHitResult Floor;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(ThugStandUp), false, this);
+		if (GetWorld() && GetWorld()->LineTraceSingleByChannel(Floor, Pelvis + FVector(0.f, 0.f, 50.f),
+				Pelvis - FVector(0.f, 0.f, 300.f), ECC_Visibility, Params))
+		{
+			Stand = Floor.ImpactPoint + FVector(0.f, 0.f, Capsule->GetScaledCapsuleHalfHeight() + 2.f);
+		}
+
+		SkeletalMesh->SetSimulatePhysics(false);
+		SkeletalMesh->SetAllBodiesSimulatePhysics(false);
+		SkeletalMesh->SetCollisionProfileName(TEXT("CharacterMesh"));
+		SkeletalMesh->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
+		SetActorLocation(Stand, false, nullptr, ETeleportType::TeleportPhysics);
+		SkeletalMesh->AttachToComponent(Capsule, FAttachmentTransformRules::KeepRelativeTransform);
+		SkeletalMesh->SetRelativeTransform(MeshRelativeTransform);
+	}
+
+	if (Capsule)
+	{
+		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	}
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->SetMovementMode(MOVE_Walking);
+	}
+
+	const bool bWasDown = bKnockedDown;
+	bKnockedDown = false;
+	bKnockdownRagdoll = false;
+	KnockdownRemaining = 0.f;
+
+	// The ragdoll left the bones wherever they fell; re-playing the clip puts him back on his feet.
+	CurrentLocomotionAnim = nullptr;
+	UpdateLocomotionAnimation();
+	if (bWasDown)
+	{
+		UE_LOG(LogCastle, Log, TEXT("%s: back on his feet."), *GetName());
 	}
 }
 
 UAnimSequence* AThugCharacter::SelectLocomotionAnim() const
 {
-	return GetVelocity().Size2D() > WalkAnimSpeedThreshold ? WalkAnim : IdleAnim;
+	const float Speed = GetVelocity().Size2D();
+	if (Speed > RunAnimSpeedThreshold && RunAnim)
+	{
+		return RunAnim;
+	}
+	return Speed > WalkAnimSpeedThreshold ? WalkAnim : IdleAnim;
 }
 
 void AThugCharacter::UpdateLocomotionAnimation()
@@ -231,7 +466,7 @@ void AThugCharacter::SetAlertState(EThugAlertState NewState)
 
 bool AThugCharacter::CanBeTakenDown_Implementation(AActor* /*Attacker*/)
 {
-	// The stealth reward: once he has confirmed you, you have to shoot him.
+	// The stealth reward: once he has confirmed you, you have to fight him.
 	return AlertState != EThugAlertState::Alerted && HealthComponent && HealthComponent->IsAlive();
 }
 
@@ -287,11 +522,12 @@ void AThugCharacter::GoLimp(AActor* Killer)
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
-	// A body on the floor is not still sweeping the corridor with a torch.
-	if (Flashlight)
+	// A swing in progress dies with him; a knockdown ends here.
+	if (MeleeComponent)
 	{
-		Flashlight->SetVisibility(false);
+		MeleeComponent->CancelAttack();
 	}
+	bKnockedDown = false;
 
 	// A greybox thug may have no skeletal mesh at all; ragdoll only when there is something to
 	// sim, and only when the mesh has a physics asset to sim it with.

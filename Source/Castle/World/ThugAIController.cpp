@@ -4,8 +4,10 @@
 
 #include "Castle.h"
 #include "Combat/HealthComponent.h"
+#include "Combat/MeleeComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Engine/World.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "NavigationSystem.h"
 #include "Navigation/PathFollowingComponent.h"
@@ -57,7 +59,40 @@ void AThugAIController::OnPossess(APawn* InPawn)
 
 	LastStimulusLocation = InPawn ? InPawn->GetActorLocation() : FVector::ZeroVector;
 
-	if (UWorld* World = GetWorld())
+	if (const AThugCharacter* Thug = GetThug())
+	{
+		if (const UCharacterMovementComponent* Movement = Thug->GetCharacterMovement())
+		{
+			BaseWalkSpeed = Movement->MaxWalkSpeed;
+		}
+	}
+
+	if (UWorld* World = GetWorld(); World && bThinkingEnabled)
+	{
+		World->GetTimerManager().SetTimer(
+			ThinkTimerHandle, this, &AThugAIController::TickThink, ThinkIntervalSeconds, true);
+	}
+}
+
+void AThugAIController::SetThinkingEnabled(bool bEnabled)
+{
+	if (bThinkingEnabled == bEnabled)
+	{
+		return;
+	}
+	bThinkingEnabled = bEnabled;
+
+	UWorld* World = GetWorld();
+	if (!bEnabled)
+	{
+		StopMovement();
+		if (World)
+		{
+			World->GetTimerManager().ClearTimer(ThinkTimerHandle);
+		}
+		return;
+	}
+	if (World && GetPawn())
 	{
 		World->GetTimerManager().SetTimer(
 			ThinkTimerHandle, this, &AThugAIController::TickThink, ThinkIntervalSeconds, true);
@@ -118,15 +153,31 @@ void AThugAIController::SetState(EThugAlertState NewState)
 	bPatrolWaiting = false;
 	PatrolWaitElapsed = 0.f;
 
+	bBackingOff = false;
+	SwingsSinceBackOff = 0;
+
 	if (NewState != EThugAlertState::Alerted)
 	{
 		StopMovement();
 	}
+	ApplyMoveSpeed();
+}
+
+void AThugAIController::ApplyMoveSpeed()
+{
+	AThugCharacter* Thug = GetThug();
+	UCharacterMovementComponent* Movement = Thug ? Thug->GetCharacterMovement() : nullptr;
+	if (!Movement)
+	{
+		return;
+	}
+	const bool bRush = Thug->IsAlerted() && !Thug->IsGunner();
+	Movement->MaxWalkSpeed = bRush ? RushSpeed : BaseWalkSpeed;
 }
 
 void AThugAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 {
-	if (!Actor || !Actor->IsA<APawn>() || !Cast<APawn>(Actor)->IsPlayerControlled())
+	if (!bThinkingEnabled || !Actor || !Actor->IsA<APawn>() || !Cast<APawn>(Actor)->IsPlayerControlled())
 	{
 		return;
 	}
@@ -200,8 +251,8 @@ void AThugAIController::TickThink()
 void AThugAIController::Think(float DeltaSeconds)
 {
 	AThugCharacter* Thug = GetThug();
-	// A hit reaction owns him for its length: no moving, no shooting.
-	if (!Thug || Thug->IsStaggered())
+	// A hit reaction or a knockdown owns him for its length: no moving, no attacking.
+	if (!Thug || Thug->IsIncapacitated())
 	{
 		return;
 	}
@@ -380,12 +431,24 @@ void AThugAIController::TickAlerted(float DeltaSeconds)
 	const FVector ToTarget = TargetActor->GetActorLocation() - Thug->GetActorLocation();
 
 	// The weapon traces along the control rotation, so the aim always points at him. The body
-	// does not follow it any more (see AThugCharacter's movement setup): it faces where it is
-	// walking, and only squares up once he has stopped.
+	// does not follow it (see AThugCharacter's movement setup): it faces where it is walking, and
+	// only squares up once he has stopped.
 	FRotator FacingRotation = ToTarget.Rotation();
 	FacingRotation.Roll = 0.f;
 	SetControlRotation(FacingRotation);
 
+	if (Thug->IsGunner())
+	{
+		TickGunner(DeltaSeconds, ToTarget);
+	}
+	else
+	{
+		TickMeleeRush(DeltaSeconds, ToTarget);
+	}
+}
+
+void AThugAIController::TickGunner(float DeltaSeconds, const FVector& ToTarget)
+{
 	TimeSinceLastShot += DeltaSeconds;
 
 	if (ToTarget.Size2D() > EngageRange)
@@ -395,13 +458,93 @@ void AThugAIController::TickAlerted(float DeltaSeconds)
 	}
 
 	StopMovement();
-	FaceTarget(Thug, ToTarget);
+	FaceTarget(GetThug(), ToTarget);
 
 	if (TimeSinceLastShot >= FireInterval)
 	{
 		TimeSinceLastShot = 0.f;
 		FireAtTarget();
 	}
+}
+
+void AThugAIController::TickMeleeRush(float DeltaSeconds, const FVector& ToTarget)
+{
+	AThugCharacter* Thug = GetThug();
+	UMeleeComponent* Melee = Thug ? Thug->GetMeleeComponent() : nullptr;
+	if (!Melee)
+	{
+		return;
+	}
+	ApplyMoveSpeed();
+
+	const bool bSwinging = Melee->IsAttacking();
+	if (bWasSwinging && !bSwinging)
+	{
+		FinishSwing(ToTarget);
+	}
+	bWasSwinging = bSwinging;
+	MeleeCooldownRemaining = FMath::Max(0.f, MeleeCooldownRemaining - DeltaSeconds);
+
+	if (bBackingOff)
+	{
+		BackOffElapsed += DeltaSeconds;
+		if (GetMoveStatus() != EPathFollowingStatus::Moving || BackOffElapsed >= MeleeBackOffMaxSeconds)
+		{
+			bBackingOff = false;
+			SwingsSinceBackOff = 0;
+		}
+		return;
+	}
+
+	const float Distance = ToTarget.Size2D();
+	if (!bSwinging && MeleeCooldownRemaining <= 0.f && Distance <= MeleeEngageRange)
+	{
+		const FCastleMeleeAttack Attack = Thug->GetMeleeAttack();
+		UE_LOG(LogCastle, Log, TEXT("%s: telegraphs a %s swing at %s from %.0f cm."), *Thug->GetName(),
+			*Attack.Name.ToString(), *GetNameSafe(TargetActor), Distance);
+		bWasSwinging = Melee->StartAttack(Attack);
+	}
+
+	// Keep closing through the wind-up; stop and square up once he is in reach.
+	if (Distance > MeleeCloseDistance)
+	{
+		RequestMoveToActor(TargetActor, /*AcceptanceRadius=*/MeleeCloseDistance * 0.6f);
+		return;
+	}
+	StopMovement();
+	FaceTarget(Thug, ToTarget);
+}
+
+void AThugAIController::FinishSwing(const FVector& ToTarget)
+{
+	MeleeCooldownRemaining = MeleeCooldownSeconds;
+	++SwingsSinceBackOff;
+	if (SwingsSinceBackOff < MeleeSwingsBeforeBackOff)
+	{
+		return;
+	}
+
+	const AThugCharacter* Thug = GetThug();
+	if (!Thug)
+	{
+		return;
+	}
+	// Only somewhere he can stand: a step back on a roof may be into the parapet. Without a spot
+	// he simply comes again after the cooldown.
+	const FVector Away = -ToTarget.GetSafeNormal2D();
+	FNavLocation Spot;
+	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
+	if (!NavSystem || !NavSystem->ProjectPointToNavigation(
+			Thug->GetActorLocation() + Away * MeleeBackOffDistance, Spot, FVector(50.f, 50.f, 150.f)))
+	{
+		SwingsSinceBackOff = 0;
+		return;
+	}
+	bBackingOff = true;
+	BackOffElapsed = 0.f;
+	RequestMoveToLocation(Spot.Location, /*AcceptanceRadius=*/30.f);
+	UE_LOG(LogCastle, Log, TEXT("%s: backs off %.0f cm after %d swings."), *Thug->GetName(),
+		MeleeBackOffDistance, SwingsSinceBackOff);
 }
 
 void AThugAIController::FaceTarget(APawn* Thug, const FVector& ToTarget)

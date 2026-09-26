@@ -3,6 +3,8 @@
 #include "Animation/AnimSequence.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/SpotLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Misc/AutomationTest.h"
 #include "Player/LocomotionAnim.h"
@@ -12,14 +14,14 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
- * How a thug reads: a torch cone that shows where he is looking, and a body that is idling or
- * walking rather than standing in a T-pose. The mannequin pack's AnimBP does not compile in a
- * headless editor, so the thug drives two sequences itself.
+ * How a thug reads: a street thug in a tracksuit, not a guard with a head torch. No light on him;
+ * the bat shows only in a Bat thug's hand; the body idles or walks rather than standing in a
+ * T-pose (the mannequin pack's AnimBP does not compile headless, so the thug drives sequences).
  */
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleThugHasFlashlight, "Castle.Thug.HasFlashlight",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleThugStreetLook, "Castle.Thug.StreetLook",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleThugHasFlashlight::RunTest(const FString& Parameters)
+bool FCastleThugStreetLook::RunTest(const FString& Parameters)
 {
 	FCastleTestWorld TestWorld;
 
@@ -30,20 +32,23 @@ bool FCastleThugHasFlashlight::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	USpotLightComponent* Flashlight = Thug->GetFlashlight();
-	if (!TestNotNull(TEXT("The thug carries a flashlight"), Flashlight))
+	TestNull(TEXT("Street thugs carry no flashlight"), Thug->FindComponentByClass<USpotLightComponent>());
+
+	UStaticMeshComponent* Held = Thug->GetHeldWeaponComponent();
+	if (!TestNotNull(TEXT("He has a hand to hold a bat in"), Held))
 	{
 		return false;
 	}
-
-	TestTrue(TEXT("It is on"), Flashlight->GetVisibleFlag());
-	TestEqual(TEXT("Cone angles are 25 inner / 35 outer"), Flashlight->OuterConeAngle, 35.f);
-	TestTrue(TEXT("It is movable, so it can follow the head"),
-		Flashlight->Mobility == EComponentMobility::Movable);
-
-	// A body on the floor does not keep sweeping the corridor.
-	Thug->GoLimp(nullptr);
-	TestFalse(TEXT("A downed thug's flashlight is off"), Flashlight->GetVisibleFlag());
+	Thug->BatMesh = NewObject<UStaticMesh>();
+	Thug->Weapon = EThugWeapon::Fists;
+	Thug->RefreshHeldWeapon();
+	TestFalse(TEXT("A Fists thug shows no bat"), Held->GetVisibleFlag());
+	Thug->Weapon = EThugWeapon::Bat;
+	Thug->RefreshHeldWeapon();
+	TestTrue(TEXT("A Bat thug shows it"), Held->GetVisibleFlag());
+	TestTrue(TEXT("And it is the bat mesh"), Held->GetStaticMesh() == Thug->BatMesh.Get());
+	TestTrue(TEXT("The bat never collides; the swing is a sweep"),
+		Held->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 
 	return true;
 }
