@@ -9,7 +9,7 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTakedownPerformedSignature, AActor*, Target);
 
 /**
- * Player-side stealth takedowns: finds a nearby actor tagged "Guard" that the player is standing
+ * Player-side stealth takedowns: finds a nearby actor tagged "Thug" that the player is standing
  * behind, and fires ITakedownable::OnTakedown on it.
  *
  * While a takedown plays the owner is locked out of firing and moving; ACastleCharacter asks
@@ -33,7 +33,7 @@ public:
 
 	/**
 	 * Half-angle, in degrees, of the cone behind the target that the attacker must stand in.
-	 * 60 means the attacker must be within 60 degrees of directly behind the guard.
+	 * 60 means the attacker must be within 60 degrees of directly behind the thug.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float MaxAngleDegrees = 60.f;
@@ -44,14 +44,14 @@ public:
 
 	/** Actor tag a candidate must carry. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown")
-	FName TargetTag = FName(TEXT("Guard"));
+	FName TargetTag = FName(TEXT("Thug"));
 
 	/**
-	 * When false (the default) a guard that vetoes via ITakedownable::CanBeTakenDown - which the
-	 * guard does while Alerted - cannot be taken down. Turn on for a forgiving difficulty mode.
+	 * When false (the default) a thug that vetoes via ITakedownable::CanBeTakenDown - which the
+	 * thug does while Alerted - cannot be taken down. Turn on for a forgiving difficulty mode.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown")
-	bool bAlertedGuardsAreValid = false;
+	bool bAlertedThugsAreValid = false;
 
 	/** Object channel swept for candidates. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown")

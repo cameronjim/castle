@@ -1,6 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "World/GuardCharacter.h"
+#include "World/ThugCharacter.h"
 
 #include "AIController.h"
 #include "Animation/AnimSequence.h"
@@ -16,14 +16,14 @@
 #include "Player/LocomotionAnim.h"
 #include "World/PickupActor.h"
 
-AGuardCharacter::AGuardCharacter()
+AThugCharacter::AThugCharacter()
 {
 	// Ticks to swap between the idle and walk sequences; the mannequin pack's AnimBP does not
-	// compile headless, so the guards drove no animation at all and stood in a T-pose.
+	// compile headless, so the thugs drove no animation at all and stood in a T-pose.
 	PrimaryActorTick.bCanEverTick = true;
 
 	// UTakedownComponent finds candidates by tag, so it has to be set before BeginPlay.
-	Tags.Add(FName(TEXT("Guard")));
+	Tags.Add(FName(TEXT("Thug")));
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 	HealthComponent->MaxHealth = 100.f;
@@ -31,7 +31,7 @@ AGuardCharacter::AGuardCharacter()
 
 	WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
 	WeaponComponent->bHasWeapon = true;
-	// Guards are worse shots than Frank: 12 a hit, so the player survives a few.
+	// Thugs are poor shots: 12 a hit, so the player survives a few.
 	WeaponComponent->Damage = 12.f;
 	WeaponComponent->MagazineSize = 12;
 	WeaponComponent->CurrentAmmo = 12;
@@ -42,7 +42,7 @@ AGuardCharacter::AGuardCharacter()
 	GetCapsuleComponent()->SetCapsuleSize(34.f, 96.f);
 
 	// Both the capsule and the mesh block bullets. The capsule is the guarantee - a greybox
-	// guard with no skeletal mesh still has to be killable - and the mesh is what gives the
+	// thug with no skeletal mesh still has to be killable - and the mesh is what gives the
 	// hit a bone name, which is where the headshot multiplier comes from.
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
 	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
@@ -51,7 +51,7 @@ AGuardCharacter::AGuardCharacter()
 
 		// The mannequin is authored facing its own +Y, so a -90 degree yaw is what points it down
 		// the actor's +X and makes the walk cycle agree with the direction of travel. This lived
-		// only in create_world_blueprints.py, which meant a guard spawned from C++ faced ninety
+		// only in create_world_blueprints.py, which meant a thug spawned from C++ faced ninety
 		// degrees off and nothing in the test suite could see it.
 		SkeletalMesh->SetRelativeLocationAndRotation(FVector(0.f, 0.f, -96.f), FRotator(0.f, -90.f, 0.f));
 	}
@@ -61,8 +61,8 @@ AGuardCharacter::AGuardCharacter()
 		Movement->MaxWalkSpeed = 300.f;
 		// Face where you are actually going. With bUseControllerDesiredRotation the body chased
 		// the control rotation instead, and the controller points that at the player the moment
-		// he is seen - so an alerted guard closing the distance played a forward walk cycle while
-		// travelling sideways or backwards. AGuardAIController turns him to face a target only
+		// he is seen - so an alerted thug closing the distance played a forward walk cycle while
+		// travelling sideways or backwards. AThugAIController turns him to face a target only
 		// when he has stopped to shoot.
 		Movement->bUseControllerDesiredRotation = false;
 		Movement->bOrientRotationToMovement = true;
@@ -87,19 +87,19 @@ AGuardCharacter::AGuardCharacter()
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 }
 
-void AGuardCharacter::PostInitializeComponents()
+void AThugCharacter::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
 
-	// Bound here rather than in BeginPlay: a guard killed the same frame he spawns still has to
+	// Bound here rather than in BeginPlay: a thug killed the same frame he spawns still has to
 	// drop and go limp, and a world that never begins play (tests) still wires the death path.
 	if (HealthComponent)
 	{
-		HealthComponent->OnDeath.AddDynamic(this, &AGuardCharacter::HandleDeath);
+		HealthComponent->OnDeath.AddDynamic(this, &AThugCharacter::HandleDeath);
 	}
 }
 
-void AGuardCharacter::BeginPlay()
+void AThugCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
@@ -107,13 +107,13 @@ void AGuardCharacter::BeginPlay()
 	UpdateLocomotionAnimation();
 }
 
-void AGuardCharacter::Tick(float DeltaSeconds)
+void AThugCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
 	if (bCollapsing)
 	{
-		// A dead guard has no locomotion to update; he only has a floor to reach.
+		// A dead thug has no locomotion to update; he only has a floor to reach.
 		UpdateProceduralCollapse(DeltaSeconds);
 		return;
 	}
@@ -126,7 +126,7 @@ void AGuardCharacter::Tick(float DeltaSeconds)
 	UpdateLocomotionAnimation();
 }
 
-void AGuardCharacter::AttachFlashlight()
+void AThugCharacter::AttachFlashlight()
 {
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	if (!Flashlight || !SkeletalMesh)
@@ -134,7 +134,7 @@ void AGuardCharacter::AttachFlashlight()
 		return;
 	}
 
-	// The head socket points the cone where the guard is looking. Without one the light stays
+	// The head socket points the cone where the thug is looking. Without one the light stays
 	// on the mesh root, which still faces forward because the capsule does.
 	if (SkeletalMesh->DoesSocketExist(FlashlightSocketName))
 	{
@@ -144,31 +144,31 @@ void AGuardCharacter::AttachFlashlight()
 	}
 }
 
-UAnimSequence* AGuardCharacter::SelectLocomotionAnim() const
+UAnimSequence* AThugCharacter::SelectLocomotionAnim() const
 {
 	return GetVelocity().Size2D() > WalkAnimSpeedThreshold ? WalkAnim : IdleAnim;
 }
 
-void AGuardCharacter::UpdateLocomotionAnimation()
+void AThugCharacter::UpdateLocomotionAnimation()
 {
 	if (bLimp)
 	{
 		return;
 	}
 
-	// A greybox guard with no mesh still tracks which animation it would be playing, which is
+	// A greybox thug with no mesh still tracks which animation it would be playing, which is
 	// what the test asserts on; there is simply nothing to play it through.
 	CastleLocomotion::PlayIfChanged(GetMesh(), SelectLocomotionAnim(), CurrentLocomotionAnim);
 }
 
-void AGuardCharacter::SetAlertState(EGuardAlertState NewState)
+void AThugCharacter::SetAlertState(EThugAlertState NewState)
 {
 	if (AlertState == NewState)
 	{
 		return;
 	}
 
-	const EGuardAlertState OldState = AlertState;
+	const EThugAlertState OldState = AlertState;
 	AlertState = NewState;
 
 	UE_LOG(LogCastle, Verbose, TEXT("%s: alert state %d -> %d."),
@@ -177,13 +177,13 @@ void AGuardCharacter::SetAlertState(EGuardAlertState NewState)
 	OnAlertStateChanged.Broadcast(OldState, NewState);
 }
 
-bool AGuardCharacter::CanBeTakenDown_Implementation(AActor* /*Attacker*/)
+bool AThugCharacter::CanBeTakenDown_Implementation(AActor* /*Attacker*/)
 {
 	// The stealth reward: once he has confirmed you, you have to shoot him.
-	return AlertState != EGuardAlertState::Alerted && HealthComponent && HealthComponent->IsAlive();
+	return AlertState != EThugAlertState::Alerted && HealthComponent && HealthComponent->IsAlive();
 }
 
-void AGuardCharacter::OnTakedown_Implementation(AActor* Attacker)
+void AThugCharacter::OnTakedown_Implementation(AActor* Attacker)
 {
 	GoLimp(Attacker);
 	DropLoot();
@@ -196,7 +196,7 @@ void AGuardCharacter::OnTakedown_Implementation(AActor* Attacker)
 	}
 }
 
-void AGuardCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
+void AThugCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 {
 	// Log-level, not Verbose: "did anything I shot actually die" is the first question of
 	// every playtest, and it has to be answerable from the default log.
@@ -207,7 +207,7 @@ void AGuardCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 	DropLoot();
 }
 
-void AGuardCharacter::GoLimp(AActor* Killer)
+void AThugCharacter::GoLimp(AActor* Killer)
 {
 	if (bLimp)
 	{
@@ -241,7 +241,7 @@ void AGuardCharacter::GoLimp(AActor* Killer)
 		Flashlight->SetVisibility(false);
 	}
 
-	// A greybox guard may have no skeletal mesh at all; ragdoll only when there is something to
+	// A greybox thug may have no skeletal mesh at all; ragdoll only when there is something to
 	// sim, and only when the mesh has a physics asset to sim it with.
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	if (!SkeletalMesh || !SkeletalMesh->GetSkeletalMeshAsset())
@@ -275,7 +275,7 @@ void AGuardCharacter::GoLimp(AActor* Killer)
 
 		// A physics asset whose bodies are named for a different skeleton leaves
 		// InitArticulated with no root body, and SetSimulatePhysics silently does nothing.
-		// That is the bug that had guards freezing upright, so never trust it: check.
+		// That is the bug that had thugs freezing upright, so never trust it: check.
 		UE_LOG(LogCastle, Warning,
 			TEXT("%s: physics asset %s did not start simulating (no matching root body); "
 				 "falling back to the procedural collapse."),
@@ -292,13 +292,13 @@ void AGuardCharacter::GoLimp(AActor* Killer)
 	BeginProceduralCollapse(Killer);
 }
 
-bool AGuardCharacter::IsRagdolling() const
+bool AThugCharacter::IsRagdolling() const
 {
 	const USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	return SkeletalMesh != nullptr && SkeletalMesh->IsSimulatingPhysics();
 }
 
-float AGuardCharacter::GetCollapseAlpha() const
+float AThugCharacter::GetCollapseAlpha() const
 {
 	if (!bLimp || CollapseSeconds <= 0.f)
 	{
@@ -307,7 +307,7 @@ float AGuardCharacter::GetCollapseAlpha() const
 	return FMath::Clamp(CollapseElapsed / CollapseSeconds, 0.f, 1.f);
 }
 
-void AGuardCharacter::BeginProceduralCollapse(AActor* Killer)
+void AThugCharacter::BeginProceduralCollapse(AActor* Killer)
 {
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	if (!SkeletalMesh)
@@ -363,7 +363,7 @@ void AGuardCharacter::BeginProceduralCollapse(AActor* Killer)
 	SetActorTickEnabled(true);
 }
 
-void AGuardCharacter::UpdateProceduralCollapse(float DeltaSeconds)
+void AThugCharacter::UpdateProceduralCollapse(float DeltaSeconds)
 {
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	if (!SkeletalMesh)
@@ -390,7 +390,7 @@ void AGuardCharacter::UpdateProceduralCollapse(float DeltaSeconds)
 	}
 }
 
-void AGuardCharacter::DropLoot()
+void AThugCharacter::DropLoot()
 {
 	if (bLootDropped)
 	{

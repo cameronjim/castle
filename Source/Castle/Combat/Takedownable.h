@@ -13,7 +13,7 @@ class UTakedownable : public UInterface
 };
 
 /**
- * Implemented by anything the player can silently take down (guards, wardens).
+ * Implemented by anything the player can silently take down (thugs, wardens).
  * Implement OnTakedown in the actor's Blueprint to play the animation, ragdoll, drop a weapon, etc.
  */
 class CASTLE_API ITakedownable
@@ -28,7 +28,7 @@ public:
 
 	/**
 	 * Lets a target veto a takedown (already alerted, already dead, scripted, ...).
-	 * Guards return false while Alerted.
+	 * Thugs return false while Alerted.
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Takedown")
 	bool CanBeTakenDown(AActor* Attacker);

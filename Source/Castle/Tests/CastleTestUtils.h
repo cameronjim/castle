@@ -9,7 +9,7 @@
 #include "Combat/Takedownable.h"
 #include "Player/CastleCharacter.h"
 #include "Settings/CastleSettings.h"
-#include "World/GuardCharacter.h"
+#include "World/ThugCharacter.h"
 #include "GameFramework/Actor.h"
 #include "UObject/Object.h"
 #include "UObject/Script.h"
@@ -137,13 +137,13 @@ public:
 	UFUNCTION()
 	void HandleTakedownPerformed(AActor* Target);
 
-	// --- Guard ---------------------------------------------------------------------------------
+	// --- Thug ----------------------------------------------------------------------------------
 	UPROPERTY() int32 AlertStateChangedCount = 0;
-	UPROPERTY() EGuardAlertState LastOldAlertState = EGuardAlertState::Calm;
-	UPROPERTY() EGuardAlertState LastNewAlertState = EGuardAlertState::Calm;
+	UPROPERTY() EThugAlertState LastOldAlertState = EThugAlertState::Calm;
+	UPROPERTY() EThugAlertState LastNewAlertState = EThugAlertState::Calm;
 
 	UFUNCTION()
-	void HandleAlertStateChanged(EGuardAlertState OldState, EGuardAlertState NewState);
+	void HandleAlertStateChanged(EThugAlertState OldState, EThugAlertState NewState);
 
 	// --- Mission --------------------------------------------------------------------------------
 	/** Set by the test so HandleMissionStarted can assert the objectives already exist. */
@@ -250,7 +250,7 @@ class CASTLE_API ACastleTestTakedownTarget : public AActor, public ITakedownable
 	GENERATED_BODY()
 
 public:
-	/** Mirrors a guard's AI state: guards return false from CanBeTakenDown while Alerted. */
+	/** Mirrors a thug's AI state: thugs return false from CanBeTakenDown while Alerted. */
 	UPROPERTY()
 	bool bAlerted = false;
 

@@ -323,7 +323,7 @@ bool FCastleViewModelPickupShowsTheGun::RunTest(const FString& Parameters)
 /**
  * Frank's body is the mannequin at a -90 degree yaw, exactly like the guards', so his legs face
  * the way he walks when he looks down at them. Same check, same reason: see
- * Castle.Guard.FacesTravelDirection.
+ * Castle.Thug.FacesTravelDirection.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleViewModelBodyFacesForward, "Castle.ViewModel.BodyFacesForward",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)

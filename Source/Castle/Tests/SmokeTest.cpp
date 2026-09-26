@@ -13,13 +13,13 @@
 #include "Player/CastleCharacter.h"
 #include "Tests/AutomationCommon.h"
 #include "World/DoorActor.h"
-#include "World/GuardCharacter.h"
+#include "World/ThugCharacter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
  * Boots /Game/Maps/L_M01_CellBlockD for real and asserts the level is playable: a mission is
- * running with its four objectives, the five guards and the keycard door exist, and the pawn
+ * running with its four objectives, the five thugs and the keycard door exist, and the pawn
  * the player is driving is an ACastleCharacter.
  *
  * This is the only test that loads Content. It is deliberately shallow - it answers "does the
@@ -45,7 +45,7 @@ static UWorld* FindCastleGameWorld()
 
 /**
  * Navigation. Every map logged "LogCrowdFollowing: Warning: Unable to find RecastNavMesh
- * instance" and no guard ever moved: the NavMeshBoundsVolume was placed but nav data was never
+ * instance" and no thug ever moved: the NavMeshBoundsVolume was placed but nav data was never
  * generated, because runtime generation defaults to Static. Generation is asynchronous, so this
  * polls rather than asserting on one frame.
  */
@@ -90,26 +90,26 @@ bool FCastleAssertM01Navigation::Update()
 }
 
 /**
- * And the payoff: with a navmesh the guards patrol. Passes as soon as any guard is moving,
- * because a guard standing at a patrol point for PatrolWaitSeconds is not a failure.
+ * And the payoff: with a navmesh the thugs patrol. Passes as soon as any thug is moving,
+ * because a thug standing at a patrol point for PatrolWaitSeconds is not a failure.
  */
 DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
-	FCastleAssertGuardsPatrol, FCastleSmokeLoadM01*, Test, float, SecondsLeft);
+	FCastleAssertThugsPatrol, FCastleSmokeLoadM01*, Test, float, SecondsLeft);
 
-bool FCastleAssertGuardsPatrol::Update()
+bool FCastleAssertThugsPatrol::Update()
 {
 	UWorld* World = FindCastleGameWorld();
 	if (!World)
 	{
-		Test->AddError(TEXT("No game world while waiting for the guards to move."));
+		Test->AddError(TEXT("No game world while waiting for the thugs to move."));
 		return true;
 	}
 
-	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
 		if (It->GetVelocity().Size2D() > 1.f)
 		{
-			Test->TestTrue(TEXT("At least one guard is patrolling"), true);
+			Test->TestTrue(TEXT("At least one thug is patrolling"), true);
 			return true;
 		}
 	}
@@ -120,7 +120,7 @@ bool FCastleAssertGuardsPatrol::Update()
 		return false;
 	}
 
-	Test->AddError(TEXT("No guard moved: they are placed but nothing is patrolling."));
+	Test->AddError(TEXT("No thug moved: they are placed but nothing is patrolling."));
 	return true;
 }
 
@@ -152,12 +152,12 @@ bool FCastleAssertM01Playable::Update()
 	}
 
 	// --- world actors -------------------------------------------------------------------------
-	int32 GuardCount = 0;
-	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	int32 ThugCount = 0;
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
-		++GuardCount;
+		++ThugCount;
 	}
-	Test->TestEqual(TEXT("Five guards are placed"), GuardCount, 5);
+	Test->TestEqual(TEXT("Five thugs are placed"), ThugCount, 5);
 
 	int32 DoorCount = 0;
 	for (TActorIterator<ADoorActor> It(World); It; ++It)
@@ -196,13 +196,13 @@ bool FCastleSmokeLoadM01::RunTest(const FString& Parameters)
 {
 	AutomationOpenMap(TEXT("/Game/Maps/L_M01_CellBlockD"));
 
-	// Long enough for BeginPlay, the game mode's StartMission and the guards' first think.
+	// Long enough for BeginPlay, the game mode's StartMission and the thugs' first think.
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(5.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertM01Playable(this));
 
 	// Navigation is built asynchronously and the patrol only starts once it is there.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertM01Navigation(this, 10.f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertGuardsPatrol(this, 10.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleAssertThugsPatrol(this, 10.f));
 
 	return true;
 }

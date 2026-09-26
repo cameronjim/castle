@@ -1,6 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "World/GuardAIController.h"
+#include "World/ThugAIController.h"
 
 #include "Castle.h"
 #include "Combat/HealthComponent.h"
@@ -16,11 +16,11 @@
 #include "Perception/AISenseConfig_Sight.h"
 #include "TimerManager.h"
 
-AGuardAIController::AGuardAIController()
+AThugAIController::AThugAIController()
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	GuardPerception = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("GuardPerception"));
+	ThugPerception = CreateDefaultSubobject<UAIPerceptionComponent>(TEXT("ThugPerception"));
 
 	SightConfig = CreateDefaultSubobject<UAISenseConfig_Sight>(TEXT("SightConfig"));
 	SightConfig->SightRadius = SightRadius;
@@ -38,21 +38,21 @@ AGuardAIController::AGuardAIController()
 	HearingConfig->DetectionByAffiliation.bDetectNeutrals = true;
 	HearingConfig->DetectionByAffiliation.bDetectFriendlies = true;
 
-	GuardPerception->ConfigureSense(*SightConfig);
-	GuardPerception->ConfigureSense(*HearingConfig);
-	GuardPerception->SetDominantSense(SightConfig->GetSenseImplementation());
+	ThugPerception->ConfigureSense(*SightConfig);
+	ThugPerception->ConfigureSense(*HearingConfig);
+	ThugPerception->SetDominantSense(SightConfig->GetSenseImplementation());
 
-	SetPerceptionComponent(*GuardPerception);
+	SetPerceptionComponent(*ThugPerception);
 }
 
-void AGuardAIController::OnPossess(APawn* InPawn)
+void AThugAIController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);
 
-	if (GuardPerception)
+	if (ThugPerception)
 	{
-		GuardPerception->OnTargetPerceptionUpdated.AddDynamic(
-			this, &AGuardAIController::HandleTargetPerceptionUpdated);
+		ThugPerception->OnTargetPerceptionUpdated.AddDynamic(
+			this, &AThugAIController::HandleTargetPerceptionUpdated);
 	}
 
 	LastStimulusLocation = InPawn ? InPawn->GetActorLocation() : FVector::ZeroVector;
@@ -60,27 +60,27 @@ void AGuardAIController::OnPossess(APawn* InPawn)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().SetTimer(
-			ThinkTimerHandle, this, &AGuardAIController::TickThink, ThinkIntervalSeconds, true);
+			ThinkTimerHandle, this, &AThugAIController::TickThink, ThinkIntervalSeconds, true);
 	}
 }
 
-void AGuardAIController::OnUnPossess()
+void AThugAIController::OnUnPossess()
 {
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(ThinkTimerHandle);
 	}
 
-	if (GuardPerception)
+	if (ThugPerception)
 	{
-		GuardPerception->OnTargetPerceptionUpdated.RemoveDynamic(
-			this, &AGuardAIController::HandleTargetPerceptionUpdated);
+		ThugPerception->OnTargetPerceptionUpdated.RemoveDynamic(
+			this, &AThugAIController::HandleTargetPerceptionUpdated);
 	}
 
 	Super::OnUnPossess();
 }
 
-void AGuardAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+void AThugAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	if (UWorld* World = GetWorld())
 	{
@@ -90,26 +90,26 @@ void AGuardAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
-AGuardCharacter* AGuardAIController::GetGuard() const
+AThugCharacter* AThugAIController::GetThug() const
 {
-	return Cast<AGuardCharacter>(GetPawn());
+	return Cast<AThugCharacter>(GetPawn());
 }
 
-EGuardAlertState AGuardAIController::GetAlertState() const
+EThugAlertState AThugAIController::GetAlertState() const
 {
-	const AGuardCharacter* Guard = GetGuard();
-	return Guard ? Guard->GetAlertState() : EGuardAlertState::Calm;
+	const AThugCharacter* Thug = GetThug();
+	return Thug ? Thug->GetAlertState() : EThugAlertState::Calm;
 }
 
-void AGuardAIController::SetState(EGuardAlertState NewState)
+void AThugAIController::SetState(EThugAlertState NewState)
 {
-	AGuardCharacter* Guard = GetGuard();
-	if (!Guard || Guard->GetAlertState() == NewState)
+	AThugCharacter* Thug = GetThug();
+	if (!Thug || Thug->GetAlertState() == NewState)
 	{
 		return;
 	}
 
-	Guard->SetAlertState(NewState);
+	Thug->SetAlertState(NewState);
 
 	// Each state starts from a clean slate; a re-entry must not inherit the last one's clocks.
 	InvestigateElapsed = 0.f;
@@ -118,13 +118,13 @@ void AGuardAIController::SetState(EGuardAlertState NewState)
 	bPatrolWaiting = false;
 	PatrolWaitElapsed = 0.f;
 
-	if (NewState != EGuardAlertState::Alerted)
+	if (NewState != EThugAlertState::Alerted)
 	{
 		StopMovement();
 	}
 }
 
-void AGuardAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
+void AThugAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus Stimulus)
 {
 	if (!Actor || !Actor->IsA<APawn>() || !Cast<APawn>(Actor)->IsPlayerControlled())
 	{
@@ -144,10 +144,10 @@ void AGuardAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulu
 		Stimulus.Strength);
 }
 
-void AGuardAIController::ReportStimulus(EStimulusKind Kind, FVector Location, bool bSuccessful, float Loudness)
+void AThugAIController::ReportStimulus(EStimulusKind Kind, FVector Location, bool bSuccessful, float Loudness)
 {
-	AGuardCharacter* Guard = GetGuard();
-	if (!Guard)
+	AThugCharacter* Thug = GetThug();
+	if (!Thug)
 	{
 		return;
 	}
@@ -164,9 +164,9 @@ void AGuardAIController::ReportStimulus(EStimulusKind Kind, FVector Location, bo
 		UnseenSeconds = 0.f;
 
 		// A glimpse makes him suspicious; only a sustained look confirms it (see Think).
-		if (Guard->GetAlertState() == EGuardAlertState::Calm)
+		if (Thug->GetAlertState() == EThugAlertState::Calm)
 		{
-			SetState(EGuardAlertState::Suspicious);
+			SetState(EThugAlertState::Suspicious);
 		}
 		return;
 	}
@@ -181,31 +181,31 @@ void AGuardAIController::ReportStimulus(EStimulusKind Kind, FVector Location, bo
 	// A gunshot is unambiguous; footsteps are not.
 	if (Loudness >= GunshotLoudnessThreshold)
 	{
-		SetState(EGuardAlertState::Alerted);
+		SetState(EThugAlertState::Alerted);
 		UnseenSeconds = 0.f;
 		return;
 	}
 
-	if (Guard->GetAlertState() == EGuardAlertState::Calm)
+	if (Thug->GetAlertState() == EThugAlertState::Calm)
 	{
-		SetState(EGuardAlertState::Suspicious);
+		SetState(EThugAlertState::Suspicious);
 	}
 }
 
-void AGuardAIController::TickThink()
+void AThugAIController::TickThink()
 {
 	Think(ThinkIntervalSeconds);
 }
 
-void AGuardAIController::Think(float DeltaSeconds)
+void AThugAIController::Think(float DeltaSeconds)
 {
-	AGuardCharacter* Guard = GetGuard();
-	if (!Guard)
+	AThugCharacter* Thug = GetThug();
+	if (!Thug)
 	{
 		return;
 	}
 
-	if (const UHealthComponent* Health = Guard->GetHealthComponent())
+	if (const UHealthComponent* Health = Thug->GetHealthComponent())
 	{
 		if (!Health->IsAlive())
 		{
@@ -227,27 +227,27 @@ void AGuardAIController::Think(float DeltaSeconds)
 	// A sustained sighting is the only thing that promotes Suspicious to Alerted.
 	if (bSeesTarget && SeenSeconds >= SightConfirmSeconds)
 	{
-		SetState(EGuardAlertState::Alerted);
+		SetState(EThugAlertState::Alerted);
 	}
 
-	switch (Guard->GetAlertState())
+	switch (Thug->GetAlertState())
 	{
-	case EGuardAlertState::Calm:
+	case EThugAlertState::Calm:
 		TickCalm(DeltaSeconds);
 		break;
-	case EGuardAlertState::Suspicious:
+	case EThugAlertState::Suspicious:
 		TickSuspicious(DeltaSeconds);
 		break;
-	case EGuardAlertState::Alerted:
+	case EThugAlertState::Alerted:
 		TickAlerted(DeltaSeconds);
 		break;
 	}
 }
 
-void AGuardAIController::TickCalm(float DeltaSeconds)
+void AThugAIController::TickCalm(float DeltaSeconds)
 {
-	const AGuardCharacter* Guard = GetGuard();
-	if (!Guard || Guard->PatrolPoints.Num() == 0)
+	const AThugCharacter* Thug = GetThug();
+	if (!Thug || Thug->PatrolPoints.Num() == 0)
 	{
 		return;
 	}
@@ -255,31 +255,31 @@ void AGuardAIController::TickCalm(float DeltaSeconds)
 	if (bPatrolWaiting)
 	{
 		PatrolWaitElapsed += DeltaSeconds;
-		if (PatrolWaitElapsed < Guard->PatrolWaitSeconds)
+		if (PatrolWaitElapsed < Thug->PatrolWaitSeconds)
 		{
 			return;
 		}
 
 		bPatrolWaiting = false;
 		PatrolWaitElapsed = 0.f;
-		PatrolIndex = (PatrolIndex + 1) % Guard->PatrolPoints.Num();
+		PatrolIndex = (PatrolIndex + 1) % Thug->PatrolPoints.Num();
 	}
 
 	AdvancePatrol();
 }
 
-void AGuardAIController::AdvancePatrol()
+void AThugAIController::AdvancePatrol()
 {
-	AGuardCharacter* Guard = GetGuard();
-	if (!Guard || !Guard->PatrolPoints.IsValidIndex(PatrolIndex))
+	AThugCharacter* Thug = GetThug();
+	if (!Thug || !Thug->PatrolPoints.IsValidIndex(PatrolIndex))
 	{
 		return;
 	}
 
-	AActor* Point = Guard->PatrolPoints[PatrolIndex];
+	AActor* Point = Thug->PatrolPoints[PatrolIndex];
 	if (!IsValid(Point))
 	{
-		PatrolIndex = (PatrolIndex + 1) % FMath::Max(Guard->PatrolPoints.Num(), 1);
+		PatrolIndex = (PatrolIndex + 1) % FMath::Max(Thug->PatrolPoints.Num(), 1);
 		return;
 	}
 
@@ -289,7 +289,7 @@ void AGuardAIController::AdvancePatrol()
 		return;
 	}
 
-	const float DistanceSq = FVector::DistSquared2D(Guard->GetActorLocation(), Point->GetActorLocation());
+	const float DistanceSq = FVector::DistSquared2D(Thug->GetActorLocation(), Point->GetActorLocation());
 	if (DistanceSq <= FMath::Square(120.f))
 	{
 		bPatrolWaiting = true;
@@ -300,17 +300,17 @@ void AGuardAIController::AdvancePatrol()
 	RequestMoveToActor(Point, /*AcceptanceRadius=*/60.f);
 }
 
-void AGuardAIController::RequestMoveToActor(AActor* Goal, float AcceptanceRadius)
+void AThugAIController::RequestMoveToActor(AActor* Goal, float AcceptanceRadius)
 {
 	ReportMoveResult(MoveToActor(Goal, AcceptanceRadius), GetNameSafe(Goal));
 }
 
-void AGuardAIController::RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius)
+void AThugAIController::RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius)
 {
 	ReportMoveResult(MoveToLocation(Goal, AcceptanceRadius), Goal.ToCompactString());
 }
 
-void AGuardAIController::ReportMoveResult(EPathFollowingRequestResult::Type Result, const FString& GoalDescription)
+void AThugAIController::ReportMoveResult(EPathFollowingRequestResult::Type Result, const FString& GoalDescription)
 {
 	if (Result != EPathFollowingRequestResult::Failed || bLoggedMoveFailure)
 	{
@@ -330,16 +330,16 @@ void AGuardAIController::ReportMoveResult(EPathFollowingRequestResult::Type Resu
 		*GetName(), *GoalDescription, *Reason);
 }
 
-void AGuardAIController::TickSuspicious(float DeltaSeconds)
+void AThugAIController::TickSuspicious(float DeltaSeconds)
 {
 	if (GetMoveStatus() == EPathFollowingStatus::Moving)
 	{
 		return;
 	}
 
-	const AGuardCharacter* Guard = GetGuard();
-	const float DistanceSq = Guard
-		? FVector::DistSquared2D(Guard->GetActorLocation(), LastStimulusLocation)
+	const AThugCharacter* Thug = GetThug();
+	const float DistanceSq = Thug
+		? FVector::DistSquared2D(Thug->GetActorLocation(), LastStimulusLocation)
 		: 0.f;
 
 	if (DistanceSq > FMath::Square(120.f))
@@ -352,21 +352,21 @@ void AGuardAIController::TickSuspicious(float DeltaSeconds)
 	InvestigateElapsed += DeltaSeconds;
 	if (InvestigateElapsed >= InvestigateSeconds)
 	{
-		SetState(EGuardAlertState::Calm);
+		SetState(EThugAlertState::Calm);
 	}
 }
 
-void AGuardAIController::TickAlerted(float DeltaSeconds)
+void AThugAIController::TickAlerted(float DeltaSeconds)
 {
-	AGuardCharacter* Guard = GetGuard();
-	if (!Guard)
+	AThugCharacter* Thug = GetThug();
+	if (!Thug)
 	{
 		return;
 	}
 
 	if (UnseenSeconds >= LoseTargetSeconds)
 	{
-		SetState(EGuardAlertState::Suspicious);
+		SetState(EThugAlertState::Suspicious);
 		return;
 	}
 
@@ -376,10 +376,10 @@ void AGuardAIController::TickAlerted(float DeltaSeconds)
 		return;
 	}
 
-	const FVector ToTarget = TargetActor->GetActorLocation() - Guard->GetActorLocation();
+	const FVector ToTarget = TargetActor->GetActorLocation() - Thug->GetActorLocation();
 
 	// The weapon traces along the control rotation, so the aim always points at him. The body
-	// does not follow it any more (see AGuardCharacter's movement setup): it faces where it is
+	// does not follow it any more (see AThugCharacter's movement setup): it faces where it is
 	// walking, and only squares up once he has stopped.
 	FRotator FacingRotation = ToTarget.Rotation();
 	FacingRotation.Roll = 0.f;
@@ -394,7 +394,7 @@ void AGuardAIController::TickAlerted(float DeltaSeconds)
 	}
 
 	StopMovement();
-	FaceTarget(Guard, ToTarget);
+	FaceTarget(Thug, ToTarget);
 
 	if (TimeSinceLastShot >= FireInterval)
 	{
@@ -403,23 +403,23 @@ void AGuardAIController::TickAlerted(float DeltaSeconds)
 	}
 }
 
-void AGuardAIController::FaceTarget(APawn* Guard, const FVector& ToTarget)
+void AThugAIController::FaceTarget(APawn* Thug, const FVector& ToTarget)
 {
 	// Standing still, bOrientRotationToMovement has no direction to work from, so the turn is
-	// made by hand. Yaw only: a guard does not lean over to shoot down at you.
+	// made by hand. Yaw only: a thug does not lean over to shoot down at you.
 	const FVector Flat = ToTarget.GetSafeNormal2D();
-	if (!Guard || Flat.IsNearlyZero())
+	if (!Thug || Flat.IsNearlyZero())
 	{
 		return;
 	}
 
-	Guard->SetActorRotation(FRotator(0.f, Flat.Rotation().Yaw, 0.f));
+	Thug->SetActorRotation(FRotator(0.f, Flat.Rotation().Yaw, 0.f));
 }
 
-void AGuardAIController::FireAtTarget()
+void AThugAIController::FireAtTarget()
 {
-	AGuardCharacter* Guard = GetGuard();
-	UWeaponComponent* Weapon = Guard ? Guard->GetWeaponComponent() : nullptr;
+	AThugCharacter* Thug = GetThug();
+	UWeaponComponent* Weapon = Thug ? Thug->GetWeaponComponent() : nullptr;
 	if (!Weapon || !IsValid(TargetActor))
 	{
 		return;
@@ -432,7 +432,7 @@ void AGuardAIController::FireAtTarget()
 	}
 
 	// Scatter the shot by rotating the aim inside a cone; the weapon traces the control rotation.
-	const FVector AimDirection = (TargetActor->GetActorLocation() - Guard->GetPawnViewLocation()).GetSafeNormal();
+	const FVector AimDirection = (TargetActor->GetActorLocation() - Thug->GetPawnViewLocation()).GetSafeNormal();
 	const FVector Scattered = FMath::VRandCone(AimDirection, FMath::DegreesToRadians(AimSpreadDegrees));
 
 	FRotator AimRotation = Scattered.Rotation();

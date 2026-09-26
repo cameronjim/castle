@@ -70,8 +70,8 @@ bool UTakedownComponent::IsValidTakedownTarget(const AActor* Target, const FVect
 		return false;
 	}
 
-	// Guards veto this while Alerted; bAlertedGuardsAreValid ignores the veto.
-	if (!bAlertedGuardsAreValid &&
+	// Thugs veto this while Alerted; bAlertedThugsAreValid ignores the veto.
+	if (!bAlertedThugsAreValid &&
 		!ITakedownable::Execute_CanBeTakenDown(const_cast<AActor*>(Target), const_cast<AActor*>(Owner)))
 	{
 		return false;

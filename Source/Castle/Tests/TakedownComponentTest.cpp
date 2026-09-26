@@ -62,16 +62,16 @@ bool FCastleTakedownRangeCheck::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Default range"), Takedown->Range, 150.f);
 	TestEqual(TEXT("Default cone"), Takedown->MaxAngleDegrees, 60.f);
 
-	AActor* Guard = TestWorld.SpawnActor(ACastleTestTakedownTarget::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator);
-	if (!Guard)
+	AActor* Thug = TestWorld.SpawnActor(ACastleTestTakedownTarget::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator);
+	if (!Thug)
 	{
-		AddError(TEXT("Failed to spawn the test guard."));
+		AddError(TEXT("Failed to spawn the test thug."));
 		return false;
 	}
-	Guard->Tags.Add(FName(TEXT("Guard")));
+	Thug->Tags.Add(FName(TEXT("Thug")));
 
-	TestTrue(TEXT("Inside range is valid"), Takedown->IsValidTakedownTarget(Guard, FVector(-100.f, 0.f, 0.f)));
-	TestFalse(TEXT("Outside range is not"), Takedown->IsValidTakedownTarget(Guard, FVector(-200.f, 0.f, 0.f)));
+	TestTrue(TEXT("Inside range is valid"), Takedown->IsValidTakedownTarget(Thug, FVector(-100.f, 0.f, 0.f)));
+	TestFalse(TEXT("Outside range is not"), Takedown->IsValidTakedownTarget(Thug, FVector(-200.f, 0.f, 0.f)));
 
 	return true;
 }
@@ -91,7 +91,7 @@ bool FCastleTakedownTagRequired::RunTest(const FString& Parameters)
 		AddError(TEXT("Failed to spawn the test actors."));
 		return false;
 	}
-	PlainActor->Tags.Add(FName(TEXT("Guard")));
+	PlainActor->Tags.Add(FName(TEXT("Thug")));
 
 	const FVector Behind(-100.f, 0.f, 0.f);
 
@@ -99,10 +99,10 @@ bool FCastleTakedownTagRequired::RunTest(const FString& Parameters)
 	TestFalse(TEXT("A tagged actor that is not ITakedownable is rejected"), Takedown->IsValidTakedownTarget(PlainActor, Behind));
 	TestFalse(TEXT("Null is rejected"), Takedown->IsValidTakedownTarget(nullptr, Behind));
 
-	Untagged->Tags.Add(FName(TEXT("Guard")));
+	Untagged->Tags.Add(FName(TEXT("Thug")));
 
 	// Asserted piece by piece so a failure says which half of the check went wrong.
-	TestTrue(TEXT("Tag present"), Untagged->ActorHasTag(FName(TEXT("Guard"))));
+	TestTrue(TEXT("Tag present"), Untagged->ActorHasTag(FName(TEXT("Thug"))));
 	TestTrue(TEXT("Implements ITakedownable"), Untagged->GetClass()->ImplementsInterface(UTakedownable::StaticClass()));
 	TestTrue(TEXT("Attacker is behind"),
 		UTakedownComponent::IsBehindTarget(Behind, Untagged->GetActorLocation(), Untagged->GetActorForwardVector(), 60.f));
@@ -112,32 +112,32 @@ bool FCastleTakedownTagRequired::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleTakedownAlertedGuardRejected, "Castle.Takedown.AlertedGuardRejected",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleTakedownAlertedThugRejected, "Castle.Takedown.AlertedThugRejected",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleTakedownAlertedGuardRejected::RunTest(const FString& Parameters)
+bool FCastleTakedownAlertedThugRejected::RunTest(const FString& Parameters)
 {
 	FCastleTestWorld TestWorld;
 	UTakedownComponent* Takedown = NewObject<UTakedownComponent>();
 
-	ACastleTestTakedownTarget* Guard = Cast<ACastleTestTakedownTarget>(
+	ACastleTestTakedownTarget* Thug = Cast<ACastleTestTakedownTarget>(
 		TestWorld.SpawnActor(ACastleTestTakedownTarget::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
-	if (!Guard)
+	if (!Thug)
 	{
-		AddError(TEXT("Failed to spawn the test guard."));
+		AddError(TEXT("Failed to spawn the test thug."));
 		return false;
 	}
-	Guard->Tags.Add(FName(TEXT("Guard")));
+	Thug->Tags.Add(FName(TEXT("Thug")));
 
 	const FVector Behind(-100.f, 0.f, 0.f);
 
-	TestTrue(TEXT("A calm guard can be taken down"), Takedown->IsValidTakedownTarget(Guard, Behind));
+	TestTrue(TEXT("A calm thug can be taken down"), Takedown->IsValidTakedownTarget(Thug, Behind));
 
-	Guard->bAlerted = true;
-	TestFalse(TEXT("An alerted guard cannot"), Takedown->IsValidTakedownTarget(Guard, Behind));
+	Thug->bAlerted = true;
+	TestFalse(TEXT("An alerted thug cannot"), Takedown->IsValidTakedownTarget(Thug, Behind));
 
-	Takedown->bAlertedGuardsAreValid = true;
-	TestTrue(TEXT("bAlertedGuardsAreValid overrides the veto"), Takedown->IsValidTakedownTarget(Guard, Behind));
+	Takedown->bAlertedThugsAreValid = true;
+	TestTrue(TEXT("bAlertedThugsAreValid overrides the veto"), Takedown->IsValidTakedownTarget(Thug, Behind));
 
 	return true;
 }

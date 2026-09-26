@@ -22,7 +22,7 @@
 #include "Player/CastleCharacter.h"
 #include "Tests/AutomationCommon.h"
 #include "UnrealClient.h"
-#include "World/GuardCharacter.h"
+#include "World/ThugCharacter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -35,7 +35,7 @@
  *                                   corridor2.png, exitroom.png - the room, pawn hidden
  *   Castle.Screenshot.M01Viewmodel  viewmodel_fists.png, viewmodel_lookdown.png,
  *                                   viewmodel_hip.png, viewmodel_aim.png, viewmodel_fire.png,
- *                                   guard_walking.png, guard_dead.png - the pawn visible
+ *                                   thug_walking.png, thug_dead.png - the pawn visible
  *   Castle.Screenshot.Settings      UI/settings.png - the pause menu's Settings screen
  *
  * Both need a real RHI, so they are explicit no-ops in the normal -nullrhi suite:
@@ -196,11 +196,11 @@ bool FCastleGiveWeapon::Update()
 	return true;
 }
 
-/** Frame a guard from behind while he walks, and report whether his body leads or trails. */
+/** Frame a thug from behind while he walks, and report whether his body leads or trails. */
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
-	FCastleFrameWalkingGuard, FAutomationTestBase*, Test);
+	FCastleFrameWalkingThug, FAutomationTestBase*, Test);
 
-bool FCastleFrameWalkingGuard::Update()
+bool FCastleFrameWalkingThug::Update()
 {
 	UWorld* World = FindScreenshotWorld();
 	APawn* Pawn = FindScreenshotPawn();
@@ -209,9 +209,9 @@ bool FCastleFrameWalkingGuard::Update()
 		return true;
 	}
 
-	AGuardCharacter* Walking = nullptr;
+	AThugCharacter* Walking = nullptr;
 	float BestSpeed = 20.f;
-	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
 		const float Speed = It->GetVelocity().Size2D();
 		if (!It->IsLimp() && Speed > BestSpeed)
@@ -223,14 +223,14 @@ bool FCastleFrameWalkingGuard::Update()
 
 	if (!Walking)
 	{
-		Test->AddWarning(TEXT("No guard was moving; skipped guard_walking.png."));
+		Test->AddWarning(TEXT("No thug was moving; skipped thug_walking.png."));
 		return true;
 	}
 
 	const float Facing = CastleLocomotion::GetFacingAlongVelocity(Walking->GetMesh(), Walking->GetVelocity());
 	Test->AddInfo(FString::Printf(TEXT("%s at %.0f cm/s, mesh faces travel by %.2f."),
 		*Walking->GetName(), BestSpeed, Facing));
-	// A guard turning at the end of his patrol leg is legitimately off-axis for half a second,
+	// A thug turning at the end of his patrol leg is legitimately off-axis for half a second,
 	// so only a body actually travelling against its own facing is an error.
 	if (Facing < -0.2f)
 	{
@@ -312,25 +312,25 @@ bool FCastleFireAndShoot::Update()
 }
 
 /**
- * Kill the guard nearest the player and leave the camera looking at him, so the next shot
+ * Kill the thug nearest the player and leave the camera looking at him, so the next shot
  * answers the only question that matters: is he on the floor or still standing up?
  */
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
-	FCastleKillNearestGuard, FAutomationTestBase*, Test);
+	FCastleKillNearestThug, FAutomationTestBase*, Test);
 
-bool FCastleKillNearestGuard::Update()
+bool FCastleKillNearestThug::Update()
 {
 	UWorld* World = FindScreenshotWorld();
 	APawn* Pawn = FindScreenshotPawn();
 	if (!World || !Pawn)
 	{
-		Test->AddError(TEXT("No world or pawn to kill a guard from."));
+		Test->AddError(TEXT("No world or pawn to kill a thug from."));
 		return true;
 	}
 
-	AGuardCharacter* Nearest = nullptr;
+	AThugCharacter* Nearest = nullptr;
 	float NearestDistanceSquared = TNumericLimits<float>::Max();
-	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
 		const float DistanceSquared = FVector::DistSquared(It->GetActorLocation(), Pawn->GetActorLocation());
 		if (DistanceSquared < NearestDistanceSquared)
@@ -342,18 +342,18 @@ bool FCastleKillNearestGuard::Update()
 
 	if (!Nearest || !Nearest->GetHealthComponent())
 	{
-		Test->AddWarning(TEXT("No guard in the map to kill; skipping guard_dead.png."));
+		Test->AddWarning(TEXT("No thug in the map to kill; skipping thug_dead.png."));
 		return true;
 	}
 
 	// Stand two metres back from him and look at his chest, then kill him.
-	const FVector GuardLocation = Nearest->GetActorLocation();
-	const FVector Behind = GuardLocation - FVector(220.f, 0.f, 0.f);
+	const FVector ThugLocation = Nearest->GetActorLocation();
+	const FVector Behind = ThugLocation - FVector(220.f, 0.f, 0.f);
 	const FVector Eye = FVector(Behind.X, Behind.Y, 170.f);
-	Pawn->TeleportTo(Eye, (GuardLocation - Eye).Rotation(), false, true);
+	Pawn->TeleportTo(Eye, (ThugLocation - Eye).Rotation(), false, true);
 	if (APlayerController* PC = World->GetFirstPlayerController())
 	{
-		PC->SetControlRotation((GuardLocation - Eye).Rotation());
+		PC->SetControlRotation((ThugLocation - Eye).Rotation());
 	}
 
 	Nearest->GetHealthComponent()->ApplyDamage(9999.f, Pawn);
@@ -366,9 +366,9 @@ bool FCastleKillNearestGuard::Update()
 
 /** Stand back from the body that just fell and look down at it. */
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
-	FCastleLookAtDeadGuard, FAutomationTestBase*, Test);
+	FCastleLookAtDeadThug, FAutomationTestBase*, Test);
 
-bool FCastleLookAtDeadGuard::Update()
+bool FCastleLookAtDeadThug::Update()
 {
 	UWorld* World = FindScreenshotWorld();
 	APawn* Pawn = FindScreenshotPawn();
@@ -377,7 +377,7 @@ bool FCastleLookAtDeadGuard::Update()
 		return true;
 	}
 
-	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
 		if (!It->IsLimp() || !It->GetMesh())
 		{
@@ -397,15 +397,15 @@ bool FCastleLookAtDeadGuard::Update()
 		return true;
 	}
 
-	Test->AddWarning(TEXT("No limp guard to frame for guard_dead.png."));
+	Test->AddWarning(TEXT("No limp thug to frame for thug_dead.png."));
 	return true;
 }
 
-/** Report which death path the nearest guard actually took, once the dust has settled. */
+/** Report which death path the nearest thug actually took, once the dust has settled. */
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(
-	FCastleReportGuardDeathPath, FAutomationTestBase*, Test);
+	FCastleReportThugDeathPath, FAutomationTestBase*, Test);
 
-bool FCastleReportGuardDeathPath::Update()
+bool FCastleReportThugDeathPath::Update()
 {
 	UWorld* World = FindScreenshotWorld();
 	if (!World)
@@ -413,7 +413,7 @@ bool FCastleReportGuardDeathPath::Update()
 		return true;
 	}
 
-	for (TActorIterator<AGuardCharacter> It(World); It; ++It)
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
 		if (It->IsLimp())
 		{
@@ -508,7 +508,7 @@ bool FCastleScreenshotM01Cell::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("doorway.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
-	// The end of corridor 1, looking into the guard station. This is the shot that answers
+	// The end of corridor 1, looking into the thug station. This is the shot that answers
 	// whether the keycard door at x = 2900 reads as the way forward, and whether the art pass's
 	// door frame fights with the door Blueprint's own.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastlePlaceCamera(this, FVector(2150.f, 0.f, 170.f), FRotator(-2.f, 0.f, 0.f), true));
@@ -577,20 +577,20 @@ bool FCastleScreenshotM01Viewmodel::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleFireAndShoot(this, TEXT("viewmodel_fire.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
-	// A guard mid-patrol, framed off his shoulder: the shot that answers "do they walk forwards".
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleFrameWalkingGuard(this));
+	// A thug mid-patrol, framed off his shoulder: the shot that answers "do they walk forwards".
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleFrameWalkingThug(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("guard_walking.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("thug_walking.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
-	// And the other half of the playtest: a guard who is supposed to end up on the floor.
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleKillNearestGuard(this));
+	// And the other half of the playtest: a thug who is supposed to end up on the floor.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKillNearestThug(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleLookAtDeadGuard(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleLookAtDeadThug(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("guard_dead.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleTakeRoomShot(this, TEXT("thug_dead.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleReportGuardDeathPath(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleReportThugDeathPath(this));
 
 	return true;
 }

@@ -9,90 +9,90 @@
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "PhysicsEngine/SkeletalBodySetup.h"
 #include "Tests/CastleTestUtils.h"
-#include "World/GuardCharacter.h"
+#include "World/ThugCharacter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace CastleRagdollTest
 {
-	static AGuardCharacter* SpawnGuard(const FCastleTestWorld& TestWorld)
+	static AThugCharacter* SpawnThug(const FCastleTestWorld& TestWorld)
 	{
-		return Cast<AGuardCharacter>(TestWorld.SpawnActor(
-			AGuardCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
+		return Cast<AThugCharacter>(TestWorld.SpawnActor(
+			AThugCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
 	}
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGuardGoLimpDisablesTheGuard, "Castle.Guard.GoLimpDisablesTheGuard",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleThugGoLimpDisablesTheThug, "Castle.Thug.GoLimpDisablesTheThug",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleGuardGoLimpDisablesTheGuard::RunTest(const FString& Parameters)
+bool FCastleThugGoLimpDisablesTheThug::RunTest(const FString& Parameters)
 {
 	const FCastleTestWorld TestWorld;
-	AGuardCharacter* Guard = CastleRagdollTest::SpawnGuard(TestWorld);
-	if (!Guard)
+	AThugCharacter* Thug = CastleRagdollTest::SpawnThug(TestWorld);
+	if (!Thug)
 	{
-		AddError(TEXT("Could not spawn the guard."));
+		AddError(TEXT("Could not spawn the thug."));
 		return false;
 	}
 
-	UCapsuleComponent* Capsule = Guard->GetCapsuleComponent();
-	UCharacterMovementComponent* Movement = Guard->GetCharacterMovement();
+	UCapsuleComponent* Capsule = Thug->GetCapsuleComponent();
+	UCharacterMovementComponent* Movement = Thug->GetCharacterMovement();
 
-	TestTrue(TEXT("The capsule collides while the guard is alive"),
+	TestTrue(TEXT("The capsule collides while the thug is alive"),
 		Capsule && Capsule->GetCollisionEnabled() != ECollisionEnabled::NoCollision);
 
-	Guard->GoLimp(nullptr);
+	Thug->GoLimp(nullptr);
 
 	TestTrue(TEXT("The capsule stops colliding"),
 		Capsule && Capsule->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 	TestTrue(TEXT("Movement is disabled"),
 		Movement && Movement->MovementMode == EMovementMode::MOVE_None);
-	TestNull(TEXT("The AI no longer possesses the body"), Guard->GetController());
+	TestNull(TEXT("The AI no longer possesses the body"), Thug->GetController());
 
 	// Takedown then bullet, or bullet then death delegate: GoLimp has to be safe twice.
-	Guard->GoLimp(nullptr);
+	Thug->GoLimp(nullptr);
 	TestTrue(TEXT("A second GoLimp is harmless"),
 		Capsule && Capsule->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGuardDeathGoesLimpOnce, "Castle.Guard.DeathGoesLimpOnce",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleThugDeathGoesLimpOnce, "Castle.Thug.DeathGoesLimpOnce",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleGuardDeathGoesLimpOnce::RunTest(const FString& Parameters)
+bool FCastleThugDeathGoesLimpOnce::RunTest(const FString& Parameters)
 {
 	const FCastleTestWorld TestWorld;
-	AGuardCharacter* Guard = CastleRagdollTest::SpawnGuard(TestWorld);
-	if (!Guard)
+	AThugCharacter* Thug = CastleRagdollTest::SpawnThug(TestWorld);
+	if (!Thug)
 	{
-		AddError(TEXT("Could not spawn the guard."));
+		AddError(TEXT("Could not spawn the thug."));
 		return false;
 	}
 
-	UHealthComponent* Health = Guard->GetHealthComponent();
+	UHealthComponent* Health = Thug->GetHealthComponent();
 	if (!Health)
 	{
-		AddError(TEXT("The guard has no health component."));
+		AddError(TEXT("The thug has no health component."));
 		return false;
 	}
 
-	TestEqual(TEXT("Guards have 100 HP"), Health->MaxHealth, 100.f);
+	TestEqual(TEXT("Thugs have 100 HP"), Health->MaxHealth, 100.f);
 
 	Health->ApplyDamage(150.f, nullptr);
 
-	TestFalse(TEXT("The guard is dead"), Health->IsAlive());
+	TestFalse(TEXT("The thug is dead"), Health->IsAlive());
 	TestTrue(TEXT("And the body went limp"),
-		Guard->GetCapsuleComponent()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
+		Thug->GetCapsuleComponent()->GetCollisionEnabled() == ECollisionEnabled::NoCollision);
 
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGuardMeshCanRagdoll, "Castle.Guard.MeshCanRagdoll",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleThugMeshCanRagdoll, "Castle.Thug.MeshCanRagdoll",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 /**
- * Guards were freezing upright on death, and every spawn logged
+ * Thugs were freezing upright on death, and every spawn logged
  *
  *     USkeletalMeshComponent::InitArticulated : Could not find root physics body
  *
@@ -102,9 +102,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGuardMeshCanRagdoll, "Castle.Guard.MeshC
  * does nothing, and the corpse stands there. The High pack's copy is the real 26 KB asset and
  * carries the same internal package path, so it drops straight in.
  *
- * This is the guard against that regressing: bodies exist, and one of them is on the root.
+ * This is the thug against that regressing: bodies exist, and one of them is on the root.
  */
-bool FCastleGuardMeshCanRagdoll::RunTest(const FString& Parameters)
+bool FCastleThugMeshCanRagdoll::RunTest(const FString& Parameters)
 {
 	USkeletalMesh* Mannequin = LoadObject<USkeletalMesh>(
 		nullptr, TEXT("/Game/Mannequin/Character/Mesh/SK_Mannequin"));
@@ -170,25 +170,25 @@ bool FCastleGuardMeshCanRagdoll::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGuardTakedownNamesTheAttacker, "Castle.Guard.TakedownNamesTheAttacker",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleThugTakedownNamesTheAttacker, "Castle.Thug.TakedownNamesTheAttacker",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleGuardTakedownNamesTheAttacker::RunTest(const FString& Parameters)
+bool FCastleThugTakedownNamesTheAttacker::RunTest(const FString& Parameters)
 {
 	const FCastleTestWorld TestWorld;
-	AGuardCharacter* Guard = CastleRagdollTest::SpawnGuard(TestWorld);
+	AThugCharacter* Thug = CastleRagdollTest::SpawnThug(TestWorld);
 	AActor* Attacker = TestWorld.SpawnActor(
 		AActor::StaticClass(), FVector(-100.f, 0.f, 0.f), FRotator::ZeroRotator);
-	if (!Guard || !Attacker)
+	if (!Thug || !Attacker)
 	{
-		AddError(TEXT("Could not spawn the guard or the attacker."));
+		AddError(TEXT("Could not spawn the thug or the attacker."));
 		return false;
 	}
 
-	UHealthComponent* Health = Guard->GetHealthComponent();
+	UHealthComponent* Health = Thug->GetHealthComponent();
 	if (!Health)
 	{
-		AddError(TEXT("The guard has no health component."));
+		AddError(TEXT("The thug has no health component."));
 		return false;
 	}
 
@@ -197,9 +197,9 @@ bool FCastleGuardTakedownNamesTheAttacker::RunTest(const FString& Parameters)
 
 	// A takedown used to route its damage with no instigator, so every stealth kill logged
 	// "killed by None" and nothing downstream could tell who did it.
-	ITakedownable::Execute_OnTakedown(Guard, Attacker);
+	ITakedownable::Execute_OnTakedown(Thug, Attacker);
 
-	TestEqual(TEXT("The guard died once"), Listener->DeathCount, 1);
+	TestEqual(TEXT("The thug died once"), Listener->DeathCount, 1);
 	TestEqual(TEXT("And the takedown named the attacker"),
 		static_cast<AActor*>(Listener->LastKiller), Attacker);
 

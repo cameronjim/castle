@@ -26,7 +26,7 @@ enum class EPickupType : uint8
  * A thing on the floor the player walks up to and presses Interact on. One class covers the
  * pistol, the keycard and spare ammo; which one it is, is data.
  *
- * Guards spawn these from AGuardCharacter::DropOnDeath.
+ * Thugs spawn these from AThugCharacter::DropOnDeath.
  */
 UCLASS(Blueprintable, BlueprintType)
 class CASTLE_API APickupActor : public AActor, public IInteractable
@@ -72,7 +72,7 @@ public:
 	TObjectPtr<UStaticMeshComponent> Mesh;
 
 	/**
-	 * Four boxes the pickup's shape is assembled from: slide, frame, grip and trigger guard for
+	 * Four boxes the pickup's shape is assembled from: slide, frame, grip and trigger thug for
 	 * the pistol, body and stripe for the keycard. Fixed components rather than script-created
 	 * subobjects because a Blueprint CDO's component templates have to exist in C++ for the
 	 * content script to be able to write to them reliably.
