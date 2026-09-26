@@ -44,12 +44,35 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   on a hit. Hotbar slots are Hands, Bow, Reserved until arrows exist.
 
 ## PLANNED: traversal
-- Vault: obstacle top between 60 and 110 cm, clear on the far side. Mantle: 110 to 200
-  cm with a standing surface. Ledge grab: 200 to 260 cm, hang, then climb up or drop.
-  Auto-parkour picks the move while sprinting into an obstacle; a manual key does the
-  same at any speed. A traversal move never locks input longer than its animation.
-- Landing above 400 cm triggers a roll if the player is moving, a stumble if not. Fall
-  damage begins at 900 cm and never kills from a rooftop you can reach by grapple.
+- Parkour (built 2026-09-26). Vault and mantle run through the Game Animation Sample's
+  traversal (`AC_TraversalLogic` on the sample character, called by reflection from
+  `GaspTraversal.cpp`); ledge grab, hang, climb, and drop are ours in `UParkourComponent`,
+  which is also the fallback when the sample finds no traversable block or montage.
+  Vault: obstacle top 60 to 110 cm with a back edge within 120 cm and a floor beyond that
+  fits the capsule. Mantle: up to 200 cm with room to stand, or over a thin top such as a
+  parapet onto a floor no more than 120 cm below. Ledge grab: 200 to 260 cm; hang with
+  feet 145 cm below the edge and the capsule 36 cm off the wall; jump climbs, crouch
+  drops. Falling past a ledge 150 to 260 cm above the feet catches it. Auto triggers
+  within 120 cm while sprinting at 300 cm/s or more, and refuses a vault whose far floor
+  is more than 150 cm down (the jump key allows up to 400), so sprinting at a parapet
+  never throws the character off a roof. Durations: vault 0.5 s, mantle 0.8 s, jump to
+  hang 0.35 s, catch 0.15 s, climb 1.0 s; input is locked only that long, except that the
+  sample's montages hold input until they blend out.
+- Traversable ledges: the sample detects `LevelBlock_Traversable` actors on the
+  `GameTraceChannel1` sweep (our Weapon channel) with four `Ledge_1..4` splines whose up
+  vector is the ledge's outward normal. The generator places `BP_TraversableBlock`
+  (a child with the sample's level-visual lookups off) along every roof edge of 1 m or
+  more, hidden, blocking only that channel, 2 cm proud of the facade; 3,723 on the
+  district. Verify checks every spline end against the parapet corners within 5 cm.
+  Known cost: saved as actors, they make the district map 72 MB; moving them to
+  load-time spawning from data is a stage 2 cleanup.
+- Landing above 400 cm triggers the placeholder dip (roll and stumble not built).
+  Grapple landings never trigger it. Fall damage begins at 900 cm and never kills from a
+  rooftop you can reach by grapple.
+- Camera looking up: between +20 and +60 degrees of pitch the arm shortens 350 to 220,
+  the socket Z rises 60 to 110, and the pivot lifts 0 to 150 cm in world space (without
+  the lift the lens sat on the pavement). Pitch is clamped to [-70, +75]. Above about
+  53 degrees Kate drops out of the bottom of the frame rather than filling it.
 - Grapple arrow (built 2026-09-26): valid anchors are within 2500 cm, farther than 300 cm
   (so the anchor just landed beside doesn't stay lit), within 30 degrees of the camera
   forward, and in line of sight from the camera; the closest by angle wins and shows a
