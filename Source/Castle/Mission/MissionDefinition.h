@@ -4,11 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "Combat/ArrowDefinition.h"
 #include "MissionDefinition.generated.h"
 
+class UBowDefinition;
 class UMissionObjective;
 class UFlashbackDefinition;
-class UWeaponDefinition;
 class UWorld;
 
 /**
@@ -52,11 +53,15 @@ public:
 	FText EndCardLine;
 
 	/**
-	 * Weapons Frank starts this mission carrying, on top of his fists. Empty (the default) is
-	 * Hands only, which is how the escape begins. Nothing carries between missions.
+	 * The bow this chapter starts with. Null means none until one is picked up: left click is
+	 * Hands. Nothing carries between chapters.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
-	TArray<TSoftObjectPtr<UWeaponDefinition>> StartingWeapons;
+	TSoftObjectPtr<UBowDefinition> StartingBow;
+
+	/** Arrows in the quiver at the start, one entry per type. Standard arrows are slot 1 even at zero. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
+	TArray<FCastleArrowGrant> StartingArrows;
 
 	/** Flashback slideshow played when this mission completes. Optional. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")

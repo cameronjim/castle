@@ -4,7 +4,6 @@
 
 #include "Castle.h"
 #include "CastlePlayerController.h"
-#include "Combat/WeaponDefinition.h"
 #include "GameFramework/Pawn.h"
 #include "Mission/MissionDefinition.h"
 #include "Player/InventoryComponent.h"
@@ -92,7 +91,7 @@ void ACastleGameMode::RestartMission(float Delay)
 
 	bRestartPending = true;
 
-	// Starting over means starting over: the hotbar goes back to what the mission grants.
+	// Starting over means starting over: the quiver goes back to what the mission grants.
 	if (UInventoryComponent* Inventory = FindPlayerInventory())
 	{
 		Inventory->Clear();
@@ -140,18 +139,9 @@ void ACastleGameMode::HandleMissionStarted(UMissionDefinition* Mission)
 		return;
 	}
 
-	// Nothing carries between missions: the mission's own data asset says what Frank starts
-	// with, and everything else he has to find again.
-	TArray<UWeaponDefinition*> Starting;
-	for (const TSoftObjectPtr<UWeaponDefinition>& Soft : Mission->StartingWeapons)
-	{
-		if (UWeaponDefinition* Definition = Soft.LoadSynchronous())
-		{
-			Starting.Add(Definition);
-		}
-	}
-
-	Inventory->ApplyStartingWeapons(Starting);
+	// Nothing carries between chapters: the chapter's own data asset says which bow and arrows
+	// she starts with, and everything else she has to find again.
+	Inventory->ApplyMissionStart(Mission);
 }
 
 void ACastleGameMode::HandleMissionComplete(UMissionDefinition* Mission)
@@ -159,7 +149,7 @@ void ACastleGameMode::HandleMissionComplete(UMissionDefinition* Mission)
 	UE_LOG(LogCastle, Log, TEXT("Mission complete: %s"),
 		Mission ? *Mission->MissionName.ToString() : TEXT("<none>"));
 
-	// Before the end card, so the last frame of gameplay is not a hotbar the player keeps.
+	// Before the end card, so the last frame of gameplay is not a quiver the player keeps.
 	if (UInventoryComponent* Inventory = FindPlayerInventory())
 	{
 		Inventory->Clear();

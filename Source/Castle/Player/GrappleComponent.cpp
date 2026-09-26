@@ -4,6 +4,8 @@
 
 #include "Camera/CameraComponent.h"
 #include "Castle.h"
+#include "Combat/ArrowDefinition.h"
+#include "Combat/BowComponent.h"
 #include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/OverlapResult.h"
@@ -12,6 +14,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/CastleCharacter.h"
+#include "Player/InventoryComponent.h"
 #include "World/GrappleAnchor.h"
 #include "World/GrappleArrowProjectile.h"
 
@@ -52,6 +55,35 @@ void UGrappleComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 ACharacter* UGrappleComponent::GetCharacter() const
 {
 	return Cast<ACharacter>(GetOwner());
+}
+
+UInventoryComponent* UGrappleComponent::GetInventory() const
+{
+	const AActor* Owner = GetOwner();
+	return Owner ? Owner->FindComponentByClass<UInventoryComponent>() : nullptr;
+}
+
+int32 UGrappleComponent::FindGrappleSlot() const
+{
+	const UInventoryComponent* Inventory = GetInventory();
+	return Inventory ? Inventory->FindArrowSlotByEffect(EArrowHitEffect::Grapple) : INDEX_NONE;
+}
+
+int32 UGrappleComponent::GetGrappleArrows() const
+{
+	const UInventoryComponent* Inventory = GetInventory();
+	const int32 Slot = FindGrappleSlot();
+	return (Inventory && Slot != INDEX_NONE) ? Inventory->GetArrowCount(Slot) : 0;
+}
+
+void UGrappleComponent::SetGrappleArrows(int32 Count)
+{
+	UInventoryComponent* Inventory = GetInventory();
+	const int32 Slot = FindGrappleSlot();
+	if (Inventory && Slot != INDEX_NONE)
+	{
+		Inventory->SetArrowCount(Slot, Count);
+	}
 }
 
 // --- Targeting ----------------------------------------------------------------------------------
@@ -239,30 +271,24 @@ bool UGrappleComponent::TryFire()
 		return false;
 	}
 
-	// TODO(stage3): spend from the quiver's grapple slot instead of this stand-in count.
-	if (GrappleArrows <= 0)
+	// Whatever slot is nocked, Q (and a release with the grapple slot active) spends from the
+	// grapple slot of the quiver.
+	UInventoryComponent* Inventory = GetInventory();
+	const int32 Slot = FindGrappleSlot();
+	UArrowDefinition* Definition = (Inventory && Slot != INDEX_NONE) ? Inventory->GetArrowSlot(Slot).Arrow.Get() : nullptr;
+	if (!Definition || !Inventory->ConsumeArrow(Slot))
 	{
 		UE_LOG(LogCastle, Log, TEXT("%s: no grapple arrows left"), *GetNameSafe(GetOwner()));
 		return false;
 	}
-	--GrappleArrows;
 	++UseCount;
 
 	const AActor* Owner = GetOwner();
-	UWorld* World = GetWorld();
-	AGrappleArrowProjectile* Arrow = nullptr;
-	if (World && Owner && ArrowClass)
-	{
-		const FVector Start = Owner->GetActorTransform().TransformPosition(ArrowLaunchOffset);
-		FActorSpawnParameters SpawnParams;
-		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		SpawnParams.Owner = const_cast<AActor*>(Owner);
-		Arrow = World->SpawnActor<AGrappleArrowProjectile>(ArrowClass, Start, FRotator::ZeroRotator, SpawnParams);
-	}
+	AGrappleArrowProjectile* Arrow = SpawnGrappleArrow(Definition, Anchor);
 
 	UE_LOG(LogCastle, Log, TEXT("%s: grapple arrow at %s, %.0f cm away, %d left"), *GetNameSafe(Owner),
 		*GetNameSafe(Anchor), Owner ? FVector::Dist(Owner->GetActorLocation(), Anchor->GetMarkerLocation()) : 0.f,
-		GrappleArrows);
+		GetGrappleArrows());
 
 	if (!Arrow)
 	{
@@ -274,6 +300,46 @@ bool UGrappleComponent::TryFire()
 	InFlightArrow = Arrow;
 	Arrow->Launch(Anchor, this);
 	return true;
+}
+
+AGrappleArrowProjectile* UGrappleComponent::SpawnGrappleArrow(UArrowDefinition* Definition, const AGrappleAnchor* Anchor) const
+{
+	AActor* Owner = GetOwner();
+	UWorld* World = GetWorld();
+	if (!World || !Owner || !Anchor)
+	{
+		return nullptr;
+	}
+
+	// Through the bow when there is one, so it leaves the hand; the definition's class wins when
+	// it is a grapple projectile (BP_Arrow_Grapple), ArrowClass otherwise.
+	AGrappleArrowProjectile* Arrow = nullptr;
+	if (const UBowComponent* Bow = Owner->FindComponentByClass<UBowComponent>())
+	{
+		const FVector Start = Bow->GetArrowSpawnLocation();
+		const FVector Direction = (Anchor->GetMarkerLocation() - Start).GetSafeNormal();
+		AArrowProjectile* Spawned = Bow->SpawnArrowProjectile(Definition, ArrowClass, Direction);
+		Arrow = Cast<AGrappleArrowProjectile>(Spawned);
+		if (Spawned && !Arrow)
+		{
+			UE_LOG(LogCastle, Warning, TEXT("%s: %s's projectile %s is not a grapple arrow; using %s."),
+				*GetNameSafe(Owner), *GetNameSafe(Definition), *GetNameSafe(Spawned->GetClass()), *GetNameSafe(ArrowClass));
+			Spawned->Destroy();
+		}
+	}
+	if (!Arrow && ArrowClass)
+	{
+		const FVector Start = Owner->GetActorTransform().TransformPosition(ArrowLaunchOffset);
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		SpawnParams.Owner = Owner;
+		Arrow = World->SpawnActor<AGrappleArrowProjectile>(ArrowClass, Start, FRotator::ZeroRotator, SpawnParams);
+	}
+	if (Arrow)
+	{
+		Arrow->InitArrow(Definition, nullptr, 0.f, Owner, nullptr);
+	}
+	return Arrow;
 }
 
 void UGrappleComponent::HandleArrowArrived(AGrappleArrowProjectile* Arrow, AGrappleAnchor* Anchor)
@@ -306,9 +372,14 @@ int32 UGrappleComponent::RecoverNearbyArrows()
 	}
 	if (Recovered > 0)
 	{
-		GrappleArrows += Recovered;
+		UInventoryComponent* Inventory = GetInventory();
+		const int32 Slot = FindGrappleSlot();
+		if (Inventory && Slot != INDEX_NONE)
+		{
+			Inventory->AddArrows(Inventory->GetArrowSlot(Slot).Arrow, Recovered);
+		}
 		UE_LOG(LogCastle, Log, TEXT("%s: recovered %d grapple arrow(s), %d now"), *GetNameSafe(Owner), Recovered,
-			GrappleArrows);
+			GetGrappleArrows());
 	}
 	return Recovered;
 }

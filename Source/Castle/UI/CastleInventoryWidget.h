@@ -26,8 +26,8 @@ struct CASTLE_API FCastleInventoryRow
 };
 
 /**
- * The Tab screen: everything Frank is carrying, read-only. Weapons with their slot number and
- * ammo, keycards by id, spare rounds per weapon.
+ * The Tab screen: everything Kate is carrying, read-only. The bow, the quiver with each slot's
+ * number and count, and keycards by id.
  *
  * Like the rest of the UI it builds its own layout, because WBP_Inventory is script-generated
  * and has no designer graph. ACastlePlayerController owns it and pauses the game while it is
@@ -55,7 +55,7 @@ public:
 	void RefreshRows();
 
 	/**
-	 * Every line the screen shows, in order: weapons, then keycards, then spare ammo.
+	 * Every line the screen shows, in order: the bow, then the quiver, then keycards.
 	 * Pure, so a test can assert on the contents without building Slate.
 	 */
 	UFUNCTION(BlueprintPure, Category = "Inventory|UI")

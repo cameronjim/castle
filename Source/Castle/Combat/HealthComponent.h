@@ -15,7 +15,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_FourParams(FOnHealthChangedSignature, UHealth
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnDeathSignature, UHealthComponent*, HealthComponent, AActor*, Killer);
 
-/** Fired by a melee hit above StaggerThreshold. Bullets never stagger. */
+/** Fired by a melee hit above StaggerThreshold, or an arrow hit. Bullets never stagger. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStaggeredSignature, UHealthComponent*, HealthComponent, AActor*, DamageInstigator);
 
 /**
@@ -69,6 +69,13 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	float ApplyMeleeDamage(float DamageAmount, AActor* DamageInstigator = nullptr, bool bStagger = true);
+
+	/**
+	 * Fires OnStaggered without any damage of its own, for a hit that already did its damage
+	 * elsewhere (an arrow's point damage). Nothing while dead.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Health")
+	void Stagger(AActor* DamageInstigator = nullptr);
 
 	/** Restores health up to MaxHealth. Returns the amount actually healed. No-op while dead. */
 	UFUNCTION(BlueprintCallable, Category = "Health")

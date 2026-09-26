@@ -15,6 +15,7 @@
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "Player/LocomotionAnim.h"
 #include "World/PickupActor.h"
+#include "World/ThugAIController.h"
 
 AThugCharacter::AThugCharacter()
 {
@@ -96,6 +97,7 @@ void AThugCharacter::PostInitializeComponents()
 	if (HealthComponent)
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &AThugCharacter::HandleDeath);
+		HealthComponent->OnStaggered.AddDynamic(this, &AThugCharacter::HandleStaggered);
 	}
 }
 
@@ -123,7 +125,57 @@ void AThugCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
+	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
 	UpdateLocomotionAnimation();
+}
+
+void AThugCharacter::HandleStaggered(UHealthComponent* /*Health*/, AActor* DamageInstigator)
+{
+	HitReaction(DamageInstigator);
+}
+
+void AThugCharacter::HitReaction(AActor* HitBy)
+{
+	if (bLimp || !HealthComponent || !HealthComponent->IsAlive())
+	{
+		return;
+	}
+
+	StaggerRemaining = StaggerSeconds;
+
+	// Stop whatever he was doing and shove him back a step, away from the hit.
+	if (AController* MyController = GetController())
+	{
+		MyController->StopMovement();
+	}
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->StopMovementImmediately();
+		FVector Away = HitBy ? (GetActorLocation() - HitBy->GetActorLocation()).GetSafeNormal2D()
+			: -GetActorForwardVector();
+		if (Away.IsNearlyZero())
+		{
+			Away = -GetActorForwardVector();
+		}
+		LaunchCharacter(Away * HitShoveSpeed, true, false);
+	}
+
+	// Being shot is how he finds out: he turns on whoever did it.
+	if (AThugAIController* Brain = Cast<AThugAIController>(GetController()))
+	{
+		if (HitBy)
+		{
+			Brain->ReportStimulus(EStimulusKind::Hearing, HitBy->GetActorLocation(), true,
+				Brain->GunshotLoudnessThreshold);
+		}
+	}
+	else if (AlertState != EThugAlertState::Alerted)
+	{
+		SetAlertState(EThugAlertState::Alerted);
+	}
+
+	UE_LOG(LogCastle, Log, TEXT("%s: hit reaction (by %s), staggered %.2f s, health %.1f."), *GetName(),
+		*GetNameSafe(HitBy), StaggerSeconds, HealthComponent->GetCurrentHealth());
 }
 
 void AThugCharacter::AttachFlashlight()

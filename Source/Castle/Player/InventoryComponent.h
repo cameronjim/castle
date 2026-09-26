@@ -4,52 +4,45 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "Combat/WeaponDefinition.h"
+#include "Combat/ArrowDefinition.h"
 #include "InventoryComponent.generated.h"
 
+class UBowDefinition;
+class UMissionDefinition;
 class UWeaponComponent;
+class UWeaponDefinition;
 
-/** One hotbar slot: what is in it and how much ammo that weapon is carrying. */
+/** One quiver slot: which arrow type it holds and how many are left. */
 USTRUCT(BlueprintType)
-struct CASTLE_API FCastleInventorySlot
+struct CASTLE_API FCastleQuiverSlot
 {
 	GENERATED_BODY()
 
-	/** The weapon occupying this slot, or null while the slot is empty. */
+	/** The arrow type in this slot, or null while the slot is empty. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
-	TObjectPtr<UWeaponDefinition> Weapon = nullptr;
+	TObjectPtr<UArrowDefinition> Arrow = nullptr;
 
-	/** Rounds in the magazine. Always 0 for a melee weapon. */
+	/** Arrows left, 0..Arrow->Cap. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
-	int32 Magazine = 0;
+	int32 Count = 0;
 
-	/** Spare rounds carried for this weapon. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
-	int32 Reserve = 0;
-
-	bool IsEmpty() const { return Weapon == nullptr; }
-
-	/** True for a slot holding a weapon that actually fires bullets. */
-	bool IsRanged() const { return Weapon != nullptr && !Weapon->bIsMelee; }
+	bool IsEmpty() const { return Arrow == nullptr; }
 };
 
-/** Fired whenever a slot's weapon or ammo changes, or a keycard is added. */
+/** Fired whenever the bow, an arrow count or the keycards change. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChangedSignature);
 
-/** Fired when the active slot changes, after the weapon component has been re-pointed. */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnActiveSlotChangedSignature, EHotbarSlot, OldSlot, EHotbarSlot, NewSlot);
+/** Fired when the active quiver slot changes. Slots are 1..6. */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnActiveArrowSlotChangedSignature, int32, OldSlot, int32, NewSlot);
 
 /**
- * What Frank is carrying: three hotbar slots and a ring of keycards.
+ * What Kate carries: a bow (or none), a six-slot quiver, and a keycard ring.
  *
- * Rules (claude-docs/gameplay-semantics.md, "Inventory and hotbar"):
- * Hands are always in slot 0; a slot is empty until its weapon is picked up; selecting an
- * empty slot does nothing; a switch takes SwapSeconds during which Fire is refused; picking
- * a weapon up auto-selects it only when Hands was active; the inventory clears to
- * StartingSlots at mission complete and on restart.
- *
- * UWeaponComponent reads the active slot's definition for its stats and writes its ammo back
- * into the slot, so ammo survives a swap without the weapon component knowing about slots.
+ * Rules (claude-docs/gameplay-semantics.md, "bow and arrows"): standard arrows are always in
+ * slot 1, present even at zero; counts never exceed an arrow's Cap; number keys pick a slot and
+ * the wheel steps through the filled ones, skipping empty slots. Without a bow, left click is
+ * Hands, the melee fallback on the owner's UWeaponComponent. Clear() goes back to what the mission
+ * granted (StartingBow and StartingArrows); nothing carries between missions.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UInventoryComponent : public UActorComponent
@@ -59,157 +52,160 @@ class CASTLE_API UInventoryComponent : public UActorComponent
 public:
 	UInventoryComponent();
 
-	/** Seconds a weapon switch takes. Fire is refused for the whole of it. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = "0.0"))
-	float SwapSeconds = 0.4f;
-
-	/**
-	 * Definition used for slot 0 when DA_Weapon_Hands cannot be loaded (every automation test).
-	 * Left unset in content; the component makes a melee stand-in so Hands is never missing.
-	 */
+	/** DA_Weapon_Hands: the punch used while no bow is owned. A transient stand-in when unset (tests). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
 	TSoftObjectPtr<UWeaponDefinition> HandsDefinition;
 
-	/**
-	 * What the inventory holds after Clear(). Hands are added on top of this and never removed,
-	 * so an empty array means "Hands only" - which is what a mission that grants nothing wants.
-	 */
+	/** DA_Arrow_Standard: what fills slot 1 when nothing else has. A transient stand-in when unset. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
-	TArray<TObjectPtr<UWeaponDefinition>> StartingSlots;
+	TSoftObjectPtr<UArrowDefinition> StandardArrowDefinition;
+
+	/** The bow Clear() hands back. Set from the mission by ApplyStartingQuiver. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+	TObjectPtr<UBowDefinition> StartingBow = nullptr;
+
+	/** The arrows Clear() hands back, one entry per type. Set from the mission by ApplyStartingQuiver. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+	TArray<FCastleQuiverSlot> StartingArrows;
 
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnInventoryChangedSignature OnInventoryChanged;
 
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
-	FOnActiveSlotChangedSignature OnActiveSlotChanged;
+	FOnActiveArrowSlotChangedSignature OnActiveArrowSlotChanged;
+
+	// --- Bow --------------------------------------------------------------------------------------
+
+	UFUNCTION(BlueprintPure, Category = "Inventory|Bow")
+	UBowDefinition* GetBow() const { return Bow; }
+
+	UFUNCTION(BlueprintPure, Category = "Inventory|Bow")
+	bool HasBow() const { return Bow != nullptr; }
+
+	/** Kate now carries Definition (null takes the bow away). Returns true when it changed. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Bow")
+	bool GiveBow(UBowDefinition* Definition);
+
+	// --- Quiver -----------------------------------------------------------------------------------
 
 	/**
-	 * Makes Slot active. Does nothing when the slot is empty or already active.
-	 * Returns true when the switch started. bImmediate skips the swap lockout (mission start).
+	 * Adds Count arrows of Definition to its slot, filling the slot if it was empty (and replacing
+	 * a different type that was there). Clamped to the arrow's Cap. Returns how many went in.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool SelectSlot(EHotbarSlot Slot, bool bImmediate = false);
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
+	int32 AddArrows(UArrowDefinition* Definition, int32 Count);
 
-	/** Next non-empty slot, wrapping. Mouse wheel up. Returns true when the slot changed. */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool SelectNextSlot();
+	/** Takes one arrow from Slot. False (and nothing changes) when the slot is empty or at zero. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
+	bool ConsumeArrow(int32 Slot);
 
-	/** Previous non-empty slot, wrapping. Mouse wheel down. */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool SelectPreviousSlot();
+	/** Makes Slot (1..6) active. Does nothing for an empty or out-of-range slot or the active one. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
+	bool SelectArrowSlot(int32 Slot);
 
-	/**
-	 * Puts Definition in its own slot with a full magazine and its default reserve, replacing
-	 * whatever was there. Auto-selects it only when Hands were active. Returns true when the
-	 * inventory changed.
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool AddWeapon(UWeaponDefinition* Definition);
+	/** Next filled slot, wrapping. Mouse wheel up. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
+	bool SelectNextArrowSlot();
 
-	/**
-	 * AddWeapon, then set that slot to exactly these rounds and push the result to the weapon
-	 * component if it is the one in hand. This is the single path every weapon pickup takes: the
-	 * pickup used to do the same three steps itself, and the one it skipped decided whether the
-	 * view model ever heard about the gun.
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool AddWeaponWithAmmo(UWeaponDefinition* Definition, int32 Magazine, int32 Reserve);
+	/** Previous filled slot, wrapping. Mouse wheel down. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
+	bool SelectPreviousArrowSlot();
 
-	/** Adds reserve rounds for Definition's slot. Returns false when that slot is empty. */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool AddAmmo(UWeaponDefinition* Definition, int32 Rounds);
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	int32 GetActiveArrowSlot() const { return ActiveArrowSlot; }
 
-	/** Adds reserve rounds to one slot by index. Returns false when the slot is empty. */
-	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	bool AddAmmoToSlot(EHotbarSlot Slot, int32 Rounds);
+	/** The arrow type in the active slot. Standard arrows unless another slot was picked. */
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	UArrowDefinition* GetActiveArrow() const;
 
-	/** Drops everything and rebuilds Hands plus StartingSlots, with Hands active. */
+	/** Slot's contents (1..6). Out of range returns an empty slot. */
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	FCastleQuiverSlot GetArrowSlot(int32 Slot) const;
+
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	bool IsArrowSlotEmpty(int32 Slot) const { return GetArrowSlot(Slot).IsEmpty(); }
+
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	int32 GetArrowCount(int32 Slot) const { return GetArrowSlot(Slot).Count; }
+
+	/** The first slot holding an arrow with Effect, or INDEX_NONE. The grapple uses this. */
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	int32 FindArrowSlotByEffect(EArrowHitEffect Effect) const;
+
+	/** Sets Slot's count directly, clamped to its Cap. Debug and tests. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
+	void SetArrowCount(int32 Slot, int32 Count);
+
+	// --- Mission ----------------------------------------------------------------------------------
+
+	/** Drops everything and rebuilds StartingBow and StartingArrows, slot 1 active. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void Clear();
 
-	/** Replaces StartingSlots and rebuilds the inventory from them. Called on mission start. */
+	/** Replaces the starting bow and arrows and rebuilds from them. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void ApplyStartingWeapons(const TArray<UWeaponDefinition*>& Weapons);
+	void ApplyStartingQuiver(UBowDefinition* InBow, const TArray<FCastleQuiverSlot>& Arrows);
 
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	EHotbarSlot GetActiveSlot() const { return ActiveSlot; }
-
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	UWeaponDefinition* GetActiveWeapon() const;
-
-	/** The slot's contents. An out-of-range index returns an empty slot. */
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	FCastleInventorySlot GetSlot(EHotbarSlot Slot) const;
-
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	bool IsSlotEmpty(EHotbarSlot Slot) const;
-
-	/** True while a weapon switch is still running; UWeaponComponent refuses to fire. */
-	UFUNCTION(BlueprintPure, Category = "Inventory")
-	bool IsSwapping() const { return bSwapping; }
-
-	/** Ends the swap lockout now. The swap timer calls this; so does a test with no world. */
+	/** Loads Mission's StartingBow and StartingArrows and applies them. ACastleGameMode calls this on mission start. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
-	void FinishSwapNow();
+	void ApplyMissionStart(const UMissionDefinition* Mission);
 
-	/** Writes the active weapon's ammo back into its slot. Called by UWeaponComponent. */
-	void SetSlotAmmo(EHotbarSlot Slot, int32 Magazine, int32 Reserve);
-
-	// --- Keycards ---------------------------------------------------------------------------
+	// --- Keycards ---------------------------------------------------------------------------------
 
 	UFUNCTION(BlueprintPure, Category = "Inventory|Keycards")
 	bool HasKeycard(FName KeycardId) const;
 
-	/** Adds a keycard to the ring. Returns false when Frank already had it. */
+	/** Adds a keycard to the ring. Returns false when she already had it. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Keycards")
 	bool GiveKeycard(FName KeycardId);
 
 	UFUNCTION(BlueprintPure, Category = "Inventory|Keycards")
 	TSet<FName> GetKeycards() const { return Keycards; }
 
-	/** Hands, created or loaded on demand. Never null outside the class default object. */
+	// --- Hands ------------------------------------------------------------------------------------
+
+	/** Hands, loaded or made on demand. Never null outside the class default object. */
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	UWeaponDefinition* GetHandsDefinition();
+
+	/** Standard arrows, loaded or made on demand. Never null outside the class default object. */
+	UFUNCTION(BlueprintPure, Category = "Inventory")
+	UArrowDefinition* GetStandardArrowDefinition();
 
 protected:
 	//~ Begin UActorComponent interface
 	virtual void BeginPlay() override;
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	//~ End UActorComponent interface
 
-	/** The owner's weapon component, or null for an owner that has none. */
-	UWeaponComponent* FindWeaponComponent() const;
+	/** Puts standard arrows in slot 1 (at zero) if nothing is there. Safe to call repeatedly. */
+	void EnsureStandardSlot();
 
-	/** Points the weapon component at the active slot and hands it that slot's ammo. */
-	void ApplyActiveSlotToWeapon();
+	/** Points the owner's weapon component at Hands, the melee fallback. */
+	void ApplyHandsToWeapon();
 
-	/** Makes sure slot 0 holds a melee definition. Safe to call repeatedly. */
-	void EnsureHands();
+	/** The next filled slot Step away from the active one, or INDEX_NONE. Slots are 1-based. */
+	int32 FindAdjacentArrowSlot(int32 Step) const;
 
-	/** Starts (or, with bImmediate, skips) the swap lockout. */
-	void StartSwap(bool bImmediate);
+	/** Slot 1..6 to an array index, or INDEX_NONE. */
+	static int32 SlotToIndex(int32 Slot);
 
-	/** Index of the next non-empty slot Step places away from the active one, or INDEX_NONE. */
-	int32 FindAdjacentSlot(int32 Step) const;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory|Bow")
+	TObjectPtr<UBowDefinition> Bow = nullptr;
 
-	/** The three slots, in hotbar order. Always CastleHotbarSlotCount long. */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
-	TArray<FCastleInventorySlot> Slots;
+	/** Always CastleQuiverSlotCount long; index 0 is slot 1. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory|Quiver")
+	TArray<FCastleQuiverSlot> Arrows;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
-	EHotbarSlot ActiveSlot = EHotbarSlot::Hands;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory|Quiver")
+	int32 ActiveArrowSlot = 1;
 
 	/** Keycard ids collected so far. Doors check this by id. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory|Keycards")
 	TSet<FName> Keycards;
 
-	/** Transient stand-in for DA_Weapon_Hands, made when no definition asset is available. */
 	UPROPERTY(Transient)
 	TObjectPtr<UWeaponDefinition> FallbackHands = nullptr;
 
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "Inventory")
-	bool bSwapping = false;
-
-private:
-	FTimerHandle SwapTimerHandle;
+	UPROPERTY(Transient)
+	TObjectPtr<UArrowDefinition> FallbackStandardArrow = nullptr;
 };

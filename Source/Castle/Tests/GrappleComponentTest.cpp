@@ -1,10 +1,12 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Combat/ArrowDefinition.h"
 #include "Combat/HealthComponent.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Misc/AutomationTest.h"
 #include "Player/GrappleComponent.h"
+#include "Player/InventoryComponent.h"
 #include "Tests/CastleTestUtils.h"
 #include "World/GrappleAnchor.h"
 #include "World/GrappleArrowProjectile.h"
@@ -19,10 +21,28 @@
  */
 namespace CastleGrappleTest
 {
-	static ACastleAimTestCharacter* SpawnKate(const FCastleTestWorld& TestWorld, const FVector& Location)
+	/** A grapple arrow definition for slot 2, built in code. */
+	static UArrowDefinition* MakeGrappleArrow(UObject* Outer, int32 Cap)
 	{
-		return Cast<ACastleAimTestCharacter>(
+		UArrowDefinition* Arrow = NewObject<UArrowDefinition>(Outer);
+		Arrow->Slot = 2;
+		Arrow->Cap = Cap;
+		Arrow->OnHitEffect = EArrowHitEffect::Grapple;
+		Arrow->bRecoverable = true;
+		return Arrow;
+	}
+
+	/** Kate with GrappleArrows grapple arrows in her quiver (cap 99, so the counts are easy to read). */
+	static ACastleAimTestCharacter* SpawnKate(const FCastleTestWorld& TestWorld, const FVector& Location,
+		int32 GrappleArrows = 99)
+	{
+		ACastleAimTestCharacter* Kate = Cast<ACastleAimTestCharacter>(
 			TestWorld.SpawnActor(ACastleAimTestCharacter::StaticClass(), Location, FRotator::ZeroRotator));
+		if (UInventoryComponent* Inventory = Kate ? Kate->GetInventoryComponent() : nullptr)
+		{
+			Inventory->AddArrows(MakeGrappleArrow(Inventory, 99), GrappleArrows);
+		}
+		return Kate;
 	}
 
 	static AGrappleAnchor* SpawnAnchor(const FCastleTestWorld& TestWorld, const FVector& Location)
@@ -340,6 +360,39 @@ bool FCastleGrappleArrowCount::RunTest(const FString& Parameters)
 	TestTrue(TEXT("The stuck projectile is removed"), !IsValid(Arrow) || Arrow->IsActorBeingDestroyed());
 	TestEqual(TEXT("Nothing more to recover"), Grapple->RecoverNearbyArrows(), 0);
 	TestTrue(TEXT("And the recovered arrow can be fired"), Grapple->TryFire());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGrappleQSpendsFromQuiver, "Castle.Grapple.QSpendsFromQuiver",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FCastleGrappleQSpendsFromQuiver::RunTest(const FString& Parameters)
+{
+	using namespace CastleGrappleTest;
+	const FCastleTestWorld TestWorld;
+	ACastleAimTestCharacter* Kate = SpawnKate(TestWorld, FVector(0.f, 0.f, 200.f), 0);
+	AGrappleAnchor* Anchor = SpawnAnchor(TestWorld, FVector(1500.f, 0.f, 200.f));
+	UInventoryComponent* Inventory = Kate ? Kate->GetInventoryComponent() : nullptr;
+	if (!Inventory || !Anchor)
+	{
+		AddError(TEXT("Could not spawn the scene."));
+		return false;
+	}
+	UGrappleComponent* Grapple = Kate->GetGrappleComponent();
+	Inventory->SetArrowCount(2, 6);
+	Inventory->SetArrowCount(1, 30);
+	TestEqual(TEXT("Standard arrows are nocked"), Inventory->GetActiveArrowSlot(), 1);
+
+	Grapple->UpdateTarget(Kate->GetActorLocation() + FVector(0.f, 0.f, 20.f), FVector::ForwardVector);
+	TestTrue(TEXT("Q fires at the marked anchor whatever is nocked"), Grapple->TryFire());
+	TestEqual(TEXT("One grapple arrow spent from slot 2"), Inventory->GetArrowCount(2), 5);
+	TestEqual(TEXT("The grapple reads the same count"), Grapple->GetGrappleArrows(), 5);
+	TestEqual(TEXT("Standard arrows untouched"), Inventory->GetArrowCount(1), 30);
+	TestEqual(TEXT("And still nocked"), Inventory->GetActiveArrowSlot(), 1);
+	AGrappleArrowProjectile* Arrow = FindArrowInFlight(TestWorld.Get());
+	TestNotNull(TEXT("A grapple projectile left the bow"), Arrow);
+	TestTrue(TEXT("Carrying the quiver's grapple definition"),
+		Arrow && Arrow->GetArrowDefinition() == Inventory->GetArrowSlot(2).Arrow);
 	return true;
 }
 

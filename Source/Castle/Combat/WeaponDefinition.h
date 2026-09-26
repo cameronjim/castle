@@ -7,27 +7,10 @@
 #include "WeaponDefinition.generated.h"
 
 /**
- * The three hotbar slots. The numeric values are the number keys the player presses, minus
- * one, so a slot and its key never drift apart.
- */
-UENUM(BlueprintType)
-enum class EHotbarSlot : uint8
-{
-	/** Always present: bare hands. Left click punches. */
-	Hands = 0,
-	/** The bow and its standard arrows. Empty until the bow task adds DA_Bow_Kate. */
-	Bow = 1,
-	/** Held for the trick-arrow quiver; nothing lives here yet. */
-	Reserved = 2
-};
-
-/** Number of hotbar slots. Kept next to the enum so a fourth slot is one edit. */
-static constexpr int32 CastleHotbarSlotCount = 3;
-
-/**
  * Everything that makes one weapon different from another: damage, ammo, fire rate, spread
- * and melee reach. A new weapon is a new data asset, never a new class. The bow and arrow
- * definitions build on this next (TODO(stage2)); the first-person view model fields are gone.
+ * and melee reach. A new weapon is a new data asset, never a new class. The player's bow and
+ * arrows are UBowDefinition and UArrowDefinition; this is left for Hands (the melee fallback)
+ * and the thugs' hitscan.
  *
  * Create via Content Browser > Miscellaneous > Data Asset > WeaponDefinition, or let
  * Tools/Editor/create_weapon_data.py make DA_Weapon_Hands.
@@ -45,10 +28,6 @@ public:
 	/** Short label for the hotbar box, where there is room for about eight characters. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon")
 	FText ShortName;
-
-	/** Which hotbar slot this weapon occupies. Two weapons can share a slot; the last one wins. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon")
-	EHotbarSlot Slot = EHotbarSlot::Bow;
 
 	/** Damage per hit before the headshot multiplier. For a melee weapon this is the punch. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Weapon", meta = (ClampMin = "0.0"))

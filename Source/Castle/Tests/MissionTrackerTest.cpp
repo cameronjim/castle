@@ -5,7 +5,8 @@
 #include "Mission/MissionDefinition.h"
 #include "Mission/MissionObjective.h"
 #include "Mission/MissionTracker.h"
-#include "Combat/WeaponDefinition.h"
+#include "Combat/ArrowDefinition.h"
+#include "Combat/BowDefinition.h"
 #include "Player/InventoryComponent.h"
 #include "Tests/CastleTestUtils.h"
 
@@ -312,14 +313,15 @@ bool FCastleMissionCompleteClearsTheInventory::RunTest(const FString& Parameters
 	UMissionTracker* Tracker = CastleMissionTest::MakeTracker(Listener);
 
 	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
-	Inventory->SelectSlot(EHotbarSlot::Hands, /*bImmediate=*/true);
+	Inventory->Clear();
 
-	UWeaponDefinition* Pistol = NewObject<UWeaponDefinition>(Inventory);
-	Pistol->Slot = EHotbarSlot::Bow;
-	Pistol->MagazineSize = 12;
-	Pistol->DefaultReserve = 24;
-
-	Inventory->AddWeapon(Pistol);
+	// A bow and grapple arrows found mid-chapter, and a keycard.
+	UArrowDefinition* Grapple = NewObject<UArrowDefinition>(Inventory);
+	Grapple->Slot = 2;
+	Grapple->Cap = 6;
+	Grapple->OnHitEffect = EArrowHitEffect::Grapple;
+	Inventory->GiveBow(NewObject<UBowDefinition>(Inventory));
+	Inventory->AddArrows(Grapple, 6);
 	Inventory->GiveKeycard(FName(TEXT("cellblock")));
 
 	// ACastleGameMode does exactly this on OnMissionComplete, before the end card is shown.
@@ -328,20 +330,19 @@ bool FCastleMissionCompleteClearsTheInventory::RunTest(const FString& Parameters
 	UMissionDefinition* Mission = CastleMissionTest::MakeMission();
 	Tracker->StartMission(Mission);
 
-	TestFalse(TEXT("Frank is carrying the pistol mid-mission"),
-		Inventory->IsSlotEmpty(EHotbarSlot::Bow));
+	TestTrue(TEXT("Kate is carrying the bow mid-chapter"), Inventory->HasBow());
 
 	Tracker->CompleteObjective(FName(TEXT("find_weapon")));
-	TestFalse(TEXT("Still carrying it with one objective left"),
-		Inventory->IsSlotEmpty(EHotbarSlot::Bow));
+	TestFalse(TEXT("Still carrying the grapple arrows with one objective left"), Inventory->IsArrowSlotEmpty(2));
 
 	Tracker->CompleteObjective(FName(TEXT("reach_stairwell")));
 
 	TestEqual(TEXT("The mission completed once"), Listener->MissionCompleteCount, 1);
-	TestTrue(TEXT("And nothing carries out of it"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
+	TestFalse(TEXT("And nothing carries out of it: no bow"), Inventory->HasBow());
+	TestTrue(TEXT("No grapple arrows"), Inventory->IsArrowSlotEmpty(2));
 	TestFalse(TEXT("Keycards included"), Inventory->HasKeycard(FName(TEXT("cellblock"))));
-	TestEqual(TEXT("Hands are back in his hands"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
-	TestFalse(TEXT("Which are never empty"), Inventory->IsSlotEmpty(EHotbarSlot::Hands));
+	TestEqual(TEXT("Standard arrows are nocked"), Inventory->GetActiveArrowSlot(), 1);
+	TestFalse(TEXT("And slot 1 is never empty"), Inventory->IsArrowSlotEmpty(1));
 
 	return true;
 }

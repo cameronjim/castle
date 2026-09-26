@@ -9,7 +9,6 @@
 #include "WeaponComponent.generated.h"
 
 class UDamageType;
-class UInventoryComponent;
 class UWeaponDefinition;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChangedSignature, int32, CurrentAmmo, int32, ReserveAmmo);
@@ -24,7 +23,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnWeaponHitSignature, AActor*, Hit
  * Hitscan weapon and melee swing attached to a pawn. Shots trace from the owner's view point
  * (the player camera, or a thug's eyes); punches sweep from the owner's eyes.
  *
- * TODO(stage2): replaced by bow for the player. The hitscan stays because thugs still shoot.
+ * The player shoots with UBowComponent and uses this only for Hands; thugs still shoot with it.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UWeaponComponent : public UActorComponent
@@ -36,16 +35,15 @@ public:
 
 	/**
 	 * False while the owner is holding no ranged weapon: Fire traces nothing, Reload does
-	 * nothing and the HUD shows no ammo. With an inventory attached this means "the active
-	 * slot is a ranged weapon", so it is false while Hands are up. Thugs have no
-	 * inventory and simply start armed.
+	 * nothing and the HUD shows no ammo. The player's component only ever holds Hands (the
+	 * melee fallback while no bow is owned), so it is always false there. Thugs start armed.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon")
 	bool bHasWeapon = true;
 
 	/**
 	 * The weapon this component is currently firing. Null for a component driven by its own
-	 * properties (thugs), set by UInventoryComponent for the player.
+	 * properties (thugs); Hands for the player, set by UInventoryComponent.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Weapon")
 	TObjectPtr<UWeaponDefinition> ActiveDefinition = nullptr;
@@ -141,8 +139,8 @@ public:
 	void GiveWeapon(int32 Magazine, int32 Reserve);
 
 	/**
-	 * Points the component at Definition and loads its ammo. Called by UInventoryComponent on
-	 * every slot change; a null definition disarms the owner.
+	 * Points the component at Definition and loads its ammo. UInventoryComponent hands the
+	 * player's component Hands; a null definition disarms the owner.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
 	void SetActiveWeapon(UWeaponDefinition* Definition, int32 Magazine, int32 Reserve);
@@ -153,12 +151,6 @@ public:
 	/** True while the active weapon is bare hands. */
 	UFUNCTION(BlueprintPure, Category = "Weapon")
 	bool IsMelee() const;
-
-	/** The inventory that owns this component's ammo. Set by UInventoryComponent. */
-	void SetInventory(UInventoryComponent* InInventory);
-
-	UFUNCTION(BlueprintPure, Category = "Weapon")
-	UInventoryComponent* GetInventory() const;
 
 	/** Disarms the owner. Ammo is kept so a later GiveWeapon can restore it. */
 	UFUNCTION(BlueprintCallable, Category = "Weapon")
@@ -262,9 +254,6 @@ protected:
 	/** Copies ActiveDefinition's stats onto this component's own tuning properties. */
 	void ApplyStatsFromDefinition();
 
-	/** Writes the current magazine and reserve back into the inventory's active slot. */
-	void PushAmmoToInventory();
-
 	/** One punch: a short sphere sweep forward, melee damage on the first thing it meets. */
 	bool FireMelee();
 
@@ -290,9 +279,6 @@ private:
 
 	double LastFireTimeSeconds = TNumericLimits<double>::Lowest();
 	FTimerHandle ReloadTimerHandle;
-
-	/** Weak so a destroyed pawn's inventory never keeps this component's write-back alive. */
-	TWeakObjectPtr<UInventoryComponent> Inventory;
 
 	bool bUseTestTime = false;
 	double TestTimeOverride = 0.0;

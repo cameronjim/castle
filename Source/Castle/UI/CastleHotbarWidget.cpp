@@ -4,6 +4,7 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateColorBrush.h"
+#include "Combat/ArrowDefinition.h"
 #include "Components/Border.h"
 #include "Components/BorderSlot.h"
 #include "Components/HorizontalBox.h"
@@ -27,23 +28,20 @@ TSharedRef<SWidget> UCastleHotbarWidget::RebuildWidget()
 		SlotBoxes.Reset();
 		SlotKeyTexts.Reset();
 		SlotNameTexts.Reset();
-		SlotAmmoTexts.Reset();
+		SlotCountTexts.Reset();
 
-		for (int32 Index = 0; Index < CastleHotbarSlotCount; ++Index)
+		for (int32 QuiverSlot = 1; QuiverSlot <= CastleQuiverSlotCount; ++QuiverSlot)
 		{
-			const FString Suffix = FString::FromInt(Index + 1);
+			const FString Suffix = FString::FromInt(QuiverSlot);
 
-			UBorder* Box = WidgetTree->ConstructWidget<UBorder>(
-				UBorder::StaticClass(), *(TEXT("SlotBox") + Suffix));
+			UBorder* Box = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), *(TEXT("SlotBox") + Suffix));
 			// UBorder's default brush carries no image resource, so SetBrushColor on its own
 			// paints nothing. A colour brush always draws, which is what a slot box needs.
 			Box->SetBrush(FSlateColorBrush(FLinearColor::White));
-			Box->SetPadding(FMargin(10.f, 6.f));
+			Box->SetPadding(FMargin(8.f, 5.f));
 
-			// A size box so all three slots are the same width whatever is written in them;
-			// without it the empty slot shrinks to its dash and the bar looks broken.
-			USizeBox* Sizer = WidgetTree->ConstructWidget<USizeBox>(
-				USizeBox::StaticClass(), *(TEXT("SlotSizer") + Suffix));
+			// A size box so every slot is the same width whatever is written in it.
+			USizeBox* Sizer = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *(TEXT("SlotSizer") + Suffix));
 			Sizer->SetMinDesiredWidth(SlotWidthPixels);
 			if (UBorderSlot* BoxSlot = Cast<UBorderSlot>(Box->AddChild(Sizer)))
 			{
@@ -51,17 +49,19 @@ TSharedRef<SWidget> UCastleHotbarWidget::RebuildWidget()
 				BoxSlot->SetVerticalAlignment(VAlign_Center);
 			}
 
-			UVerticalBox* Stack = WidgetTree->ConstructWidget<UVerticalBox>(
-				UVerticalBox::StaticClass(), *(TEXT("SlotStack") + Suffix));
+			UVerticalBox* Stack = WidgetTree->ConstructWidget<UVerticalBox>(UVerticalBox::StaticClass(), *(TEXT("SlotStack") + Suffix));
 			if (USizeBoxSlot* StackSlot = Cast<USizeBoxSlot>(Sizer->AddChild(Stack)))
 			{
 				StackSlot->SetHorizontalAlignment(HAlign_Center);
 				StackSlot->SetVerticalAlignment(VAlign_Center);
 			}
 
-			auto AddLine = [this, Stack](TArray<TObjectPtr<UTextBlock>>& Into, const FString& Name)
+			auto AddLine = [this, Stack](TArray<TObjectPtr<UTextBlock>>& Into, const FString& Name, int32 FontSize)
 			{
 				UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *Name);
+				FSlateFontInfo Font = Text->GetFont();
+				Font.Size = FontSize;
+				Text->SetFont(Font);
 				if (UVerticalBoxSlot* LineSlot = Cast<UVerticalBoxSlot>(Stack->AddChild(Text)))
 				{
 					LineSlot->SetHorizontalAlignment(HAlign_Center);
@@ -69,13 +69,13 @@ TSharedRef<SWidget> UCastleHotbarWidget::RebuildWidget()
 				Into.Add(Text);
 			};
 
-			AddLine(SlotKeyTexts, TEXT("SlotKey") + Suffix);
-			AddLine(SlotNameTexts, TEXT("SlotName") + Suffix);
-			AddLine(SlotAmmoTexts, TEXT("SlotAmmo") + Suffix);
+			AddLine(SlotKeyTexts, TEXT("SlotKey") + Suffix, 10);
+			AddLine(SlotNameTexts, TEXT("SlotName") + Suffix, 12);
+			AddLine(SlotCountTexts, TEXT("SlotCount") + Suffix, 14);
 
 			if (UHorizontalBoxSlot* RowSlot = Cast<UHorizontalBoxSlot>(SlotRow->AddChild(Box)))
 			{
-				RowSlot->SetPadding(FMargin(6.f, 0.f));
+				RowSlot->SetPadding(FMargin(4.f, 0.f));
 				RowSlot->SetVerticalAlignment(VAlign_Bottom);
 			}
 
@@ -120,7 +120,7 @@ void UCastleHotbarWidget::BindToInventory(UInventoryComponent* Inventory)
 	if (BoundInventory)
 	{
 		BoundInventory->OnInventoryChanged.RemoveDynamic(this, &UCastleHotbarWidget::HandleInventoryChanged);
-		BoundInventory->OnActiveSlotChanged.RemoveDynamic(this, &UCastleHotbarWidget::HandleActiveSlotChanged);
+		BoundInventory->OnActiveArrowSlotChanged.RemoveDynamic(this, &UCastleHotbarWidget::HandleActiveSlotChanged);
 	}
 
 	BoundInventory = Inventory;
@@ -128,7 +128,7 @@ void UCastleHotbarWidget::BindToInventory(UInventoryComponent* Inventory)
 	if (BoundInventory)
 	{
 		BoundInventory->OnInventoryChanged.AddDynamic(this, &UCastleHotbarWidget::HandleInventoryChanged);
-		BoundInventory->OnActiveSlotChanged.AddDynamic(this, &UCastleHotbarWidget::HandleActiveSlotChanged);
+		BoundInventory->OnActiveArrowSlotChanged.AddDynamic(this, &UCastleHotbarWidget::HandleActiveSlotChanged);
 	}
 
 	RefreshSlots();
@@ -139,94 +139,87 @@ void UCastleHotbarWidget::HandleInventoryChanged()
 	RefreshSlots();
 }
 
-void UCastleHotbarWidget::HandleActiveSlotChanged(EHotbarSlot /*OldSlot*/, EHotbarSlot /*NewSlot*/)
+void UCastleHotbarWidget::HandleActiveSlotChanged(int32 /*OldSlot*/, int32 /*NewSlot*/)
 {
 	RefreshSlots();
 }
 
-EHotbarSlot UCastleHotbarWidget::GetActiveSlot() const
+int32 UCastleHotbarWidget::GetActiveSlot() const
 {
-	return BoundInventory ? BoundInventory->GetActiveSlot() : EHotbarSlot::Hands;
+	return BoundInventory ? BoundInventory->GetActiveArrowSlot() : 1;
 }
 
-bool UCastleHotbarWidget::IsSlotActive(EHotbarSlot HotbarSlot) const
+bool UCastleHotbarWidget::IsSlotActive(int32 QuiverSlot) const
 {
-	return BoundInventory != nullptr && BoundInventory->GetActiveSlot() == HotbarSlot;
+	return BoundInventory != nullptr && BoundInventory->GetActiveArrowSlot() == QuiverSlot;
 }
 
-bool UCastleHotbarWidget::IsSlotEmpty(EHotbarSlot HotbarSlot) const
+bool UCastleHotbarWidget::IsSlotEmpty(int32 QuiverSlot) const
 {
-	return !BoundInventory || BoundInventory->IsSlotEmpty(HotbarSlot);
+	return !BoundInventory || BoundInventory->IsArrowSlotEmpty(QuiverSlot);
 }
 
-FText UCastleHotbarWidget::GetSlotKeyText(EHotbarSlot HotbarSlot)
+FText UCastleHotbarWidget::GetSlotKeyText(int32 QuiverSlot)
 {
-	return FText::AsNumber(static_cast<int32>(HotbarSlot) + 1);
+	return FText::AsNumber(QuiverSlot);
 }
 
-FText UCastleHotbarWidget::GetSlotNameText(EHotbarSlot HotbarSlot) const
+FText UCastleHotbarWidget::GetSlotNameText(int32 QuiverSlot) const
 {
 	if (!BoundInventory)
 	{
 		return FText::GetEmpty();
 	}
+	const FCastleQuiverSlot Entry = BoundInventory->GetArrowSlot(QuiverSlot);
+	return Entry.IsEmpty() ? NSLOCTEXT("Castle", "HotbarEmptySlot", "--") : Entry.Arrow->GetShortNameOrDisplayName();
+}
 
-	const FCastleInventorySlot Entry = BoundInventory->GetSlot(HotbarSlot);
+FText UCastleHotbarWidget::GetSlotCountText(int32 QuiverSlot) const
+{
+	if (!BoundInventory)
+	{
+		return FText::GetEmpty();
+	}
+	const FCastleQuiverSlot Entry = BoundInventory->GetArrowSlot(QuiverSlot);
 	if (Entry.IsEmpty())
 	{
-		return NSLOCTEXT("Castle", "HotbarEmptySlot", "--");
-	}
-
-	return Entry.Weapon->GetShortNameOrDisplayName();
-}
-
-FText UCastleHotbarWidget::GetSlotAmmoText(EHotbarSlot HotbarSlot) const
-{
-	if (!BoundInventory)
-	{
 		return FText::GetEmpty();
 	}
-
-	const FCastleInventorySlot Entry = BoundInventory->GetSlot(HotbarSlot);
-	if (!Entry.IsRanged())
-	{
-		// Fists have no ammo, and neither does a slot with nothing in it.
-		return FText::GetEmpty();
-	}
-
-	return FText::FromString(FString::Printf(TEXT("%d / %d"), Entry.Magazine, Entry.Reserve));
+	// Standard arrows are the plentiful ones; a trick arrow's cap is small enough to be worth showing.
+	return QuiverSlot == 1
+		? FText::AsNumber(Entry.Count)
+		: FText::FromString(FString::Printf(TEXT("%d/%d"), Entry.Count, Entry.Arrow->Cap));
 }
 
-FLinearColor UCastleHotbarWidget::GetSlotColor(EHotbarSlot HotbarSlot) const
+FLinearColor UCastleHotbarWidget::GetSlotColor(int32 QuiverSlot) const
 {
-	if (IsSlotEmpty(HotbarSlot))
+	if (IsSlotEmpty(QuiverSlot))
 	{
 		return EmptySlotColor;
 	}
-	return IsSlotActive(HotbarSlot) ? ActiveSlotColor : FilledSlotColor;
+	return IsSlotActive(QuiverSlot) ? ActiveSlotColor : FilledSlotColor;
 }
 
 void UCastleHotbarWidget::RefreshSlots()
 {
-	for (int32 Index = 0; Index < CastleHotbarSlotCount; ++Index)
+	for (int32 Index = 0; Index < CastleQuiverSlotCount; ++Index)
 	{
-		const EHotbarSlot HotbarSlot = static_cast<EHotbarSlot>(Index);
-
+		const int32 QuiverSlot = Index + 1;
 		if (SlotBoxes.IsValidIndex(Index) && SlotBoxes[Index])
 		{
-			SlotBoxes[Index]->SetBrushColor(GetSlotColor(HotbarSlot));
+			SlotBoxes[Index]->SetBrushColor(GetSlotColor(QuiverSlot));
 		}
 		if (SlotKeyTexts.IsValidIndex(Index) && SlotKeyTexts[Index])
 		{
-			SlotKeyTexts[Index]->SetText(GetSlotKeyText(HotbarSlot));
+			SlotKeyTexts[Index]->SetText(GetSlotKeyText(QuiverSlot));
 		}
 		if (SlotNameTexts.IsValidIndex(Index) && SlotNameTexts[Index])
 		{
-			SlotNameTexts[Index]->SetText(GetSlotNameText(HotbarSlot));
+			SlotNameTexts[Index]->SetText(GetSlotNameText(QuiverSlot));
 		}
-		if (SlotAmmoTexts.IsValidIndex(Index) && SlotAmmoTexts[Index])
+		if (SlotCountTexts.IsValidIndex(Index) && SlotCountTexts[Index])
 		{
-			SlotAmmoTexts[Index]->SetText(GetSlotAmmoText(HotbarSlot));
+			SlotCountTexts[Index]->SetText(GetSlotCountText(QuiverSlot));
 		}
 	}
 }

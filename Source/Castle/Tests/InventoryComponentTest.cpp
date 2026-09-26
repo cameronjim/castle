@@ -1,9 +1,11 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Combat/ArrowDefinition.h"
+#include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/WeaponComponent.h"
-#include "Combat/WeaponDefinition.h"
 #include "Misc/AutomationTest.h"
+#include "Mission/MissionDefinition.h"
 #include "Player/CastleCharacter.h"
 #include "Player/InventoryComponent.h"
 #include "Tests/CastleTestUtils.h"
@@ -12,60 +14,60 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
- * The hotbar rules from claude-docs/gameplay-semantics.md, "Inventory and hotbar".
- *
- * Tests never load content, so the weapon definitions here are built with NewObject. The
- * inventory makes its own stand-in for Hands for the same reason.
+ * The quiver rules from claude-docs/gameplay-semantics.md, "bow and arrows": standard arrows are
+ * always slot 1, counts never pass a cap, number keys and the wheel pick filled slots only, and
+ * the mission defines the starting bow and arrows. Definitions are built with NewObject.
  */
 namespace CastleInventoryTest
 {
-	/** A pistol definition with the shipping stats, owned by the outer so it survives the test. */
-	static UWeaponDefinition* MakePistol(UObject* Outer)
+	static UArrowDefinition* MakeArrow(UObject* Outer, int32 Slot, int32 Cap, EArrowHitEffect Effect,
+		const TCHAR* ShortName)
 	{
-		UWeaponDefinition* Definition = NewObject<UWeaponDefinition>(Outer);
-		Definition->DisplayName = FText::FromString(TEXT("Pistol"));
-		Definition->ShortName = FText::FromString(TEXT("Pistol"));
-		Definition->Slot = EHotbarSlot::Bow;
-		Definition->Damage = 34.f;
-		Definition->MagazineSize = 12;
-		Definition->DefaultReserve = 24;
-		return Definition;
+		UArrowDefinition* Arrow = NewObject<UArrowDefinition>(Outer);
+		Arrow->Slot = Slot;
+		Arrow->Cap = Cap;
+		Arrow->OnHitEffect = Effect;
+		Arrow->ShortName = FText::FromString(ShortName);
+		Arrow->DisplayName = FText::FromString(ShortName);
+		return Arrow;
 	}
 
-	static UWeaponDefinition* MakeRifle(UObject* Outer)
+	static UArrowDefinition* MakeStandard(UObject* Outer)
 	{
-		UWeaponDefinition* Definition = NewObject<UWeaponDefinition>(Outer);
-		Definition->DisplayName = FText::FromString(TEXT("Rifle"));
-		Definition->Slot = EHotbarSlot::Reserved;
-		Definition->Damage = 24.f;
-		Definition->MagazineSize = 30;
-		Definition->DefaultReserve = 90;
-		return Definition;
+		return MakeArrow(Outer, 1, 30, EArrowHitEffect::None, TEXT("Arrow"));
 	}
 
-	/** A bare inventory with no owner: enough for every rule that is not about the weapon. */
-	static UInventoryComponent* MakeInventory()
+	static UArrowDefinition* MakeGrapple(UObject* Outer)
 	{
-		UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
-		Inventory->SelectSlot(EHotbarSlot::Hands, /*bImmediate=*/true);
-		return Inventory;
+		return MakeArrow(Outer, 2, 6, EArrowHitEffect::Grapple, TEXT("Grapple"));
+	}
+
+	static FCastleQuiverSlot Grant(UArrowDefinition* Arrow, int32 Count)
+	{
+		FCastleQuiverSlot Slot;
+		Slot.Arrow = Arrow;
+		Slot.Count = Count;
+		return Slot;
 	}
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryStartsWithHands, "Castle.Inventory.StartsWithHands",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryStandardInSlotOne, "Castle.Inventory.StandardAlwaysInSlotOne",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleInventoryStartsWithHands::RunTest(const FString& Parameters)
+bool FCastleInventoryStandardInSlotOne::RunTest(const FString& Parameters)
 {
-	UInventoryComponent* Inventory = CastleInventoryTest::MakeInventory();
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	Inventory->Clear();
 
-	TestEqual(TEXT("Hands are the active slot"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
-	TestFalse(TEXT("And slot 1 is never empty"), Inventory->IsSlotEmpty(EHotbarSlot::Hands));
-	TestTrue(TEXT("Hands are a melee weapon"), Inventory->GetActiveWeapon() != nullptr
-		&& Inventory->GetActiveWeapon()->bIsMelee);
-	TestTrue(TEXT("The pistol slot starts empty"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
-	TestTrue(TEXT("So does the rifle slot"), Inventory->IsSlotEmpty(EHotbarSlot::Reserved));
-
+	TestEqual(TEXT("Slot 1 is active"), Inventory->GetActiveArrowSlot(), 1);
+	TestFalse(TEXT("And holds standard arrows"), Inventory->IsArrowSlotEmpty(1));
+	TestEqual(TEXT("Even at zero"), Inventory->GetArrowCount(1), 0);
+	TestFalse(TEXT("No bow until one is granted"), Inventory->HasBow());
+	for (int32 Slot = 2; Slot <= CastleQuiverSlotCount; ++Slot)
+	{
+		TestTrue(FString::Printf(TEXT("Slot %d starts empty"), Slot), Inventory->IsArrowSlotEmpty(Slot));
+	}
+	TestTrue(TEXT("Out of range reads as empty"), Inventory->IsArrowSlotEmpty(7));
 	return true;
 }
 
@@ -74,79 +76,72 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryEmptySlotIsNoOp, "Castle.Invent
 
 bool FCastleInventoryEmptySlotIsNoOp::RunTest(const FString& Parameters)
 {
-	UInventoryComponent* Inventory = CastleInventoryTest::MakeInventory();
-
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	Inventory->Clear();
 	UCastleTestListener* Listener = NewObject<UCastleTestListener>();
-	Inventory->OnActiveSlotChanged.AddDynamic(Listener, &UCastleTestListener::HandleActiveSlotChanged);
+	Inventory->OnActiveArrowSlotChanged.AddDynamic(Listener, &UCastleTestListener::HandleActiveSlotChanged);
 
-	TestFalse(TEXT("Selecting the empty pistol slot does nothing"),
-		Inventory->SelectSlot(EHotbarSlot::Bow));
-	TestEqual(TEXT("The active slot is unchanged"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
+	TestFalse(TEXT("Key 3 on an empty slot does nothing"), Inventory->SelectArrowSlot(3));
+	TestFalse(TEXT("Nor does a key that is no slot"), Inventory->SelectArrowSlot(9));
+	TestFalse(TEXT("Nor the slot already active"), Inventory->SelectArrowSlot(1));
+	TestEqual(TEXT("Still slot 1"), Inventory->GetActiveArrowSlot(), 1);
 	TestEqual(TEXT("And nothing was broadcast"), Listener->ActiveSlotChangedCount, 0);
-	TestFalse(TEXT("Nothing is swapping either"), Inventory->IsSwapping());
-
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryAutoSelectsOnlyFromHands, "Castle.Inventory.AutoSelectsOnlyFromHands",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventorySelectionSkipsEmpty, "Castle.Inventory.SelectionSkipsEmptySlots",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleInventoryAutoSelectsOnlyFromHands::RunTest(const FString& Parameters)
+bool FCastleInventorySelectionSkipsEmpty::RunTest(const FString& Parameters)
 {
-	UInventoryComponent* Inventory = CastleInventoryTest::MakeInventory();
-	UWeaponDefinition* Pistol = CastleInventoryTest::MakePistol(Inventory);
-	UWeaponDefinition* Rifle = CastleInventoryTest::MakeRifle(Inventory);
+	using namespace CastleInventoryTest;
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	Inventory->Clear();
+	Inventory->AddArrows(MakeArrow(Inventory, 4, 3, EArrowHitEffect::Putty, TEXT("Putty")), 3);
+	UCastleTestListener* Listener = NewObject<UCastleTestListener>();
+	Inventory->OnActiveArrowSlotChanged.AddDynamic(Listener, &UCastleTestListener::HandleActiveSlotChanged);
 
-	TestTrue(TEXT("The pistol goes in"), Inventory->AddWeapon(Pistol));
-	TestEqual(TEXT("And is drawn, because Hands were active"),
-		Inventory->GetActiveSlot(), EHotbarSlot::Bow);
-	TestEqual(TEXT("With a full magazine"), Inventory->GetSlot(EHotbarSlot::Bow).Magazine, 12);
-	TestEqual(TEXT("And its default reserve"), Inventory->GetSlot(EHotbarSlot::Bow).Reserve, 24);
+	TestTrue(TEXT("Wheel up moves on"), Inventory->SelectNextArrowSlot());
+	TestEqual(TEXT("Straight past the empty slots 2 and 3 to 4"), Inventory->GetActiveArrowSlot(), 4);
+	TestEqual(TEXT("Broadcast old slot"), Listener->LastOldArrowSlot, 1);
+	TestEqual(TEXT("And new slot"), Listener->LastNewArrowSlot, 4);
+	TestTrue(TEXT("Wheel up again wraps"), Inventory->SelectNextArrowSlot());
+	TestEqual(TEXT("Back to standard arrows"), Inventory->GetActiveArrowSlot(), 1);
+	TestTrue(TEXT("Wheel down goes back"), Inventory->SelectPreviousArrowSlot());
+	TestEqual(TEXT("To slot 4, not an empty one"), Inventory->GetActiveArrowSlot(), 4);
+	TestTrue(TEXT("Key 1 picks standard arrows"), Inventory->SelectArrowSlot(1));
+	TestEqual(TEXT("Four changes, each broadcast once"), Listener->ActiveSlotChangedCount, 4);
 
-	// Picking a second gun up mid-fight must not take the first one out of his hands.
-	TestTrue(TEXT("The rifle goes in"), Inventory->AddWeapon(Rifle));
-	TestEqual(TEXT("But the pistol stays drawn"), Inventory->GetActiveSlot(), EHotbarSlot::Bow);
-	TestFalse(TEXT("The rifle slot is filled all the same"), Inventory->IsSlotEmpty(EHotbarSlot::Reserved));
-
+	UInventoryComponent* OnlyStandard = NewObject<UInventoryComponent>();
+	OnlyStandard->Clear();
+	TestFalse(TEXT("With only standard arrows the wheel does nothing"), OnlyStandard->SelectNextArrowSlot());
+	TestFalse(TEXT("Either way"), OnlyStandard->SelectPreviousArrowSlot());
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryScrollSkipsEmptySlots, "Castle.Inventory.ScrollSkipsEmptySlots",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryCountsAndCaps, "Castle.Inventory.CountsClampToCap",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleInventoryScrollSkipsEmptySlots::RunTest(const FString& Parameters)
+bool FCastleInventoryCountsAndCaps::RunTest(const FString& Parameters)
 {
-	UInventoryComponent* Inventory = CastleInventoryTest::MakeInventory();
-	UWeaponDefinition* Rifle = CastleInventoryTest::MakeRifle(Inventory);
+	using namespace CastleInventoryTest;
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	Inventory->Clear();
+	UArrowDefinition* Standard = MakeStandard(Inventory);
+	UArrowDefinition* Grapple = MakeGrapple(Inventory);
 
-	// Hands and rifle only: the wheel must jump straight over the empty pistol slot.
-	Inventory->AddWeapon(Rifle);
-	Inventory->SelectSlot(EHotbarSlot::Hands, /*bImmediate=*/true);
+	TestEqual(TEXT("Forty offered, thirty fit"), Inventory->AddArrows(Standard, 40), 30);
+	TestEqual(TEXT("Standard at its cap"), Inventory->GetArrowCount(1), 30);
+	TestEqual(TEXT("A full slot takes nothing more"), Inventory->AddArrows(Standard, 1), 0);
+	TestEqual(TEXT("Grapple arrows go in their own slot"), Inventory->AddArrows(Grapple, 6), 6);
+	TestEqual(TEXT("Found by effect"), Inventory->FindArrowSlotByEffect(EArrowHitEffect::Grapple), 2);
+	TestEqual(TEXT("No putty slot"), Inventory->FindArrowSlotByEffect(EArrowHitEffect::Putty), INDEX_NONE);
 
-	TestTrue(TEXT("Wheel up moves on"), Inventory->SelectNextSlot());
-	TestEqual(TEXT("Straight to the rifle"), Inventory->GetActiveSlot(), EHotbarSlot::Reserved);
-
-	TestTrue(TEXT("Wheel up again wraps"), Inventory->SelectNextSlot());
-	TestEqual(TEXT("Back to Hands"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
-
-	TestTrue(TEXT("Wheel down moves back"), Inventory->SelectPreviousSlot());
-	TestEqual(TEXT("To the rifle, not the empty pistol slot"),
-		Inventory->GetActiveSlot(), EHotbarSlot::Reserved);
-
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryScrollWithOnlyHands, "Castle.Inventory.ScrollWithOnlyHands",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
-
-bool FCastleInventoryScrollWithOnlyHands::RunTest(const FString& Parameters)
-{
-	UInventoryComponent* Inventory = CastleInventoryTest::MakeInventory();
-
-	TestFalse(TEXT("With nothing else carried the wheel does nothing"), Inventory->SelectNextSlot());
-	TestFalse(TEXT("In either direction"), Inventory->SelectPreviousSlot());
-	TestEqual(TEXT("Hands stay active"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
-
+	TestTrue(TEXT("One grapple arrow spent"), Inventory->ConsumeArrow(2));
+	TestEqual(TEXT("Five left"), Inventory->GetArrowCount(2), 5);
+	Inventory->SetArrowCount(2, 0);
+	TestFalse(TEXT("None left, none spent"), Inventory->ConsumeArrow(2));
+	TestFalse(TEXT("An empty slot spends nothing"), Inventory->ConsumeArrow(5));
 	return true;
 }
 
@@ -156,188 +151,142 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryKeycardsLiveHere, "Castle.Inven
 bool FCastleInventoryKeycardsLiveHere::RunTest(const FString& Parameters)
 {
 	FCastleTestWorld TestWorld;
-	ACastleCharacter* Frank = Cast<ACastleCharacter>(TestWorld.SpawnActor(
+	ACastleCharacter* Kate = Cast<ACastleCharacter>(TestWorld.SpawnActor(
 		ACastleCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
-	if (!Frank || !Frank->GetInventoryComponent())
+	if (!Kate || !Kate->GetInventoryComponent())
 	{
 		AddError(TEXT("Could not spawn a character with an inventory."));
 		return false;
 	}
 
-	UInventoryComponent* Inventory = Frank->GetInventoryComponent();
+	UInventoryComponent* Inventory = Kate->GetInventoryComponent();
 	const FName Cellblock(TEXT("cellblock"));
 
-	TestFalse(TEXT("No keycard to start with"), Frank->HasKeycard(Cellblock));
-	TestTrue(TEXT("The pawn's GiveKeycard forwards to the inventory"), Frank->GiveKeycard(Cellblock));
+	TestFalse(TEXT("No keycard to start with"), Kate->HasKeycard(Cellblock));
+	TestTrue(TEXT("The pawn's GiveKeycard forwards to the inventory"), Kate->GiveKeycard(Cellblock));
 	TestTrue(TEXT("The inventory holds it"), Inventory->HasKeycard(Cellblock));
-	TestTrue(TEXT("And the pawn still answers for it"), Frank->HasKeycard(Cellblock));
-	TestFalse(TEXT("A second grant changes nothing"), Frank->GiveKeycard(Cellblock));
-	TestEqual(TEXT("One keycard on the ring"), Frank->GetKeycards().Num(), 1);
+	TestFalse(TEXT("A second grant changes nothing"), Kate->GiveKeycard(Cellblock));
+	TestEqual(TEXT("One keycard on the ring"), Kate->GetKeycards().Num(), 1);
 
 	Inventory->Clear();
-	TestFalse(TEXT("Clearing the inventory takes the keycards with it"), Frank->HasKeycard(Cellblock));
-
+	TestFalse(TEXT("Clearing the inventory takes the keycards with it"), Kate->HasKeycard(Cellblock));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryClearResetsToStartingSlots, "Castle.Inventory.ClearResetsToStartingSlots",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryClearResetsToStartingQuiver, "Castle.Inventory.ClearResetsToStartingQuiver",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleInventoryClearResetsToStartingSlots::RunTest(const FString& Parameters)
+bool FCastleInventoryClearResetsToStartingQuiver::RunTest(const FString& Parameters)
 {
-	UInventoryComponent* Inventory = CastleInventoryTest::MakeInventory();
-	UWeaponDefinition* Pistol = CastleInventoryTest::MakePistol(Inventory);
-	UWeaponDefinition* Rifle = CastleInventoryTest::MakeRifle(Inventory);
+	using namespace CastleInventoryTest;
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	UBowDefinition* Bow = NewObject<UBowDefinition>(Inventory);
+	UArrowDefinition* Standard = MakeStandard(Inventory);
+	UArrowDefinition* Grapple = MakeGrapple(Inventory);
 
-	// This mission hands Frank a pistol; everything else he found on the way.
-	Inventory->ApplyStartingWeapons({ Pistol });
-	TestFalse(TEXT("The starting pistol is carried"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
-	TestEqual(TEXT("And Hands are what he is holding"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
+	Inventory->ApplyStartingQuiver(Bow, { Grant(Standard, 30), Grant(Grapple, 6) });
+	TestTrue(TEXT("The chapter's bow is carried"), Inventory->GetBow() == Bow);
 
-	Inventory->AddWeapon(Rifle);
+	Inventory->ConsumeArrow(1);
+	Inventory->SelectArrowSlot(2);
+	Inventory->AddArrows(MakeArrow(Inventory, 3, 3, EArrowHitEffect::Smoke, TEXT("Smoke")), 2);
 	Inventory->GiveKeycard(FName(TEXT("cellblock")));
-	Inventory->AddAmmoToSlot(EHotbarSlot::Bow, 12);
-	TestEqual(TEXT("The pistol picked up spare rounds"),
-		Inventory->GetSlot(EHotbarSlot::Bow).Reserve, 36);
+	Inventory->GiveBow(nullptr);
 
 	Inventory->Clear();
 
-	TestEqual(TEXT("Hands are active again"), Inventory->GetActiveSlot(), EHotbarSlot::Hands);
-	TestFalse(TEXT("Hands are still there"), Inventory->IsSlotEmpty(EHotbarSlot::Hands));
-	TestFalse(TEXT("The mission's pistol comes back"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
-	TestEqual(TEXT("With its default reserve, not the rounds he found"),
-		Inventory->GetSlot(EHotbarSlot::Bow).Reserve, 24);
-	TestTrue(TEXT("The rifle he found is gone"), Inventory->IsSlotEmpty(EHotbarSlot::Reserved));
-	TestFalse(TEXT("And so are the keycards"), Inventory->HasKeycard(FName(TEXT("cellblock"))));
-
+	TestTrue(TEXT("The bow comes back"), Inventory->GetBow() == Bow);
+	TestEqual(TEXT("Standard arrows back to the grant"), Inventory->GetArrowCount(1), 30);
+	TestEqual(TEXT("Grapple back to the grant"), Inventory->GetArrowCount(2), 6);
+	TestTrue(TEXT("The smoke arrows found on the way are gone"), Inventory->IsArrowSlotEmpty(3));
+	TestEqual(TEXT("Slot 1 active again"), Inventory->GetActiveArrowSlot(), 1);
+	TestFalse(TEXT("And the keycards are gone"), Inventory->HasKeycard(FName(TEXT("cellblock"))));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventorySwapBlocksFire, "Castle.Inventory.SwapBlocksFire",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryMissionStartGrantsQuiver, "Castle.Inventory.MissionStartGrantsQuiver",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleInventorySwapBlocksFire::RunTest(const FString& Parameters)
+bool FCastleInventoryMissionStartGrantsQuiver::RunTest(const FString& Parameters)
 {
-	FCastleTestWorld TestWorld;
-	ACastleCharacter* Frank = Cast<ACastleCharacter>(TestWorld.SpawnActor(
-		ACastleCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
-	UInventoryComponent* Inventory = Frank ? Frank->GetInventoryComponent() : nullptr;
-	UWeaponComponent* Weapon = Frank ? Frank->GetWeaponComponent() : nullptr;
-	if (!Inventory || !Weapon)
-	{
-		AddError(TEXT("Could not spawn a character with an inventory and a weapon."));
-		return false;
-	}
+	using namespace CastleInventoryTest;
+	// CH01's shape: DA_Bow_Kate, 30 standard, 6 grapple. Built in code; tests never load content.
+	UMissionDefinition* Chapter = NewObject<UMissionDefinition>();
+	UBowDefinition* Bow = NewObject<UBowDefinition>(Chapter);
+	Bow->FullDrawSeconds = 0.8f;
+	UArrowDefinition* Standard = MakeStandard(Chapter);
+	UArrowDefinition* Grapple = MakeGrapple(Chapter);
+	Chapter->StartingBow = Bow;
+	FCastleArrowGrant StandardGrant;
+	StandardGrant.Arrow = Standard;
+	StandardGrant.Count = 30;
+	FCastleArrowGrant GrappleGrant;
+	GrappleGrant.Arrow = Grapple;
+	GrappleGrant.Count = 6;
+	Chapter->StartingArrows.Add(StandardGrant);
+	Chapter->StartingArrows.Add(GrappleGrant);
 
-	Weapon->SetTestTimeSeconds(100.0);
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	Inventory->ApplyMissionStart(Chapter);
 
-	UWeaponDefinition* Pistol = CastleInventoryTest::MakePistol(Inventory);
-	Inventory->AddWeapon(Pistol);
+	TestTrue(TEXT("Kate starts with the chapter's bow"), Inventory->GetBow() == Bow);
+	TestTrue(TEXT("Standard arrows in slot 1"), Inventory->GetArrowSlot(1).Arrow == Standard);
+	TestEqual(TEXT("Thirty of them"), Inventory->GetArrowCount(1), 30);
+	TestTrue(TEXT("Grapple arrows in slot 2"), Inventory->GetArrowSlot(2).Arrow == Grapple);
+	TestEqual(TEXT("Six of them"), Inventory->GetArrowCount(2), 6);
 
-	TestEqual(TEXT("The pistol is drawn"), Inventory->GetActiveSlot(), EHotbarSlot::Bow);
-	TestTrue(TEXT("Drawing it takes SwapSeconds"), Inventory->IsSwapping());
-	TestFalse(TEXT("Fire is refused for the whole swap"), Weapon->CanFire());
-	TestFalse(TEXT("And pulling the trigger does nothing"), Weapon->Fire());
-	TestEqual(TEXT("No round was spent"), Weapon->CurrentAmmo, 12);
-
-	Inventory->FinishSwapNow();
-
-	TestFalse(TEXT("The swap is over"), Inventory->IsSwapping());
-	TestTrue(TEXT("And the pistol fires"), Weapon->Fire());
-	TestEqual(TEXT("One round gone"), Weapon->CurrentAmmo, 11);
-	TestEqual(TEXT("Written back into the slot"),
-		Inventory->GetSlot(EHotbarSlot::Bow).Magazine, 11);
-
+	UMissionDefinition* Bare = NewObject<UMissionDefinition>();
+	Inventory->ApplyMissionStart(Bare);
+	TestFalse(TEXT("A chapter that grants nothing leaves her bowless"), Inventory->HasBow());
+	TestFalse(TEXT("With slot 1 still standard arrows"), Inventory->IsArrowSlotEmpty(1));
+	TestEqual(TEXT("At zero"), Inventory->GetArrowCount(1), 0);
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryAmmoSurvivesASwap, "Castle.Inventory.AmmoSurvivesASwap",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryHandsWithoutBow, "Castle.Inventory.HandsWithoutBow",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleInventoryAmmoSurvivesASwap::RunTest(const FString& Parameters)
+bool FCastleInventoryHandsWithoutBow::RunTest(const FString& Parameters)
 {
 	FCastleTestWorld TestWorld;
-	ACastleCharacter* Frank = Cast<ACastleCharacter>(TestWorld.SpawnActor(
+	ACastleCharacter* Kate = Cast<ACastleCharacter>(TestWorld.SpawnActor(
 		ACastleCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
-	UInventoryComponent* Inventory = Frank ? Frank->GetInventoryComponent() : nullptr;
-	UWeaponComponent* Weapon = Frank ? Frank->GetWeaponComponent() : nullptr;
-	if (!Inventory || !Weapon)
-	{
-		AddError(TEXT("Could not spawn a character with an inventory and a weapon."));
-		return false;
-	}
-
-	Weapon->SetTestTimeSeconds(100.0);
-	Inventory->AddWeapon(CastleInventoryTest::MakePistol(Inventory));
-	Inventory->FinishSwapNow();
-
-	Weapon->Fire();
-	Weapon->SetTestTimeSeconds(200.0);
-	Weapon->Fire();
-	TestEqual(TEXT("Two rounds gone"), Weapon->CurrentAmmo, 10);
-
-	Inventory->SelectSlot(EHotbarSlot::Hands);
-	TestFalse(TEXT("Fists are not a ranged weapon"), Weapon->HasWeapon());
-	TestTrue(TEXT("And the component knows it is melee"), Weapon->IsMelee());
-
-	Inventory->SelectSlot(EHotbarSlot::Bow);
-	TestEqual(TEXT("The pistol comes back with the rounds it had"), Weapon->CurrentAmmo, 10);
-	TestEqual(TEXT("And its reserve"), Weapon->ReserveAmmo, 24);
-
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryMeleeDamagesAndCoolsDown, "Castle.Inventory.MeleeDamagesAndCoolsDown",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
-
-bool FCastleInventoryMeleeDamagesAndCoolsDown::RunTest(const FString& Parameters)
-{
-	FCastleTestWorld TestWorld;
-	ACastleCharacter* Frank = Cast<ACastleCharacter>(TestWorld.SpawnActor(
-		ACastleCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
-	UWeaponComponent* Weapon = Frank ? Frank->GetWeaponComponent() : nullptr;
-	if (!Weapon || !Frank->GetInventoryComponent())
+	UWeaponComponent* Weapon = Kate ? Kate->GetWeaponComponent() : nullptr;
+	if (!Weapon || !Kate->GetInventoryComponent())
 	{
 		AddError(TEXT("Could not spawn a character with fists."));
 		return false;
 	}
 
-	// A target 80 cm down +X, inside the 120 cm reach.
 	AActor* Target = TestWorld.SpawnActor(AActor::StaticClass(), FVector(80.f, 0.f, 0.f), FRotator::ZeroRotator);
-	if (!Target)
+	UHealthComponent* Health = Target ? NewObject<UHealthComponent>(Target) : nullptr;
+	if (!Health)
 	{
 		AddError(TEXT("Could not spawn the punching bag."));
 		return false;
 	}
-
-	UHealthComponent* Health = NewObject<UHealthComponent>(Target);
 	Health->RegisterComponent();
-
 	UCastleTestListener* Listener = NewObject<UCastleTestListener>();
 	Health->OnStaggered.AddDynamic(Listener, &UCastleTestListener::HandleStaggered);
 
-	TestTrue(TEXT("Fists are what Frank starts with"), Weapon->IsMelee());
+	TestFalse(TEXT("No bow"), Kate->GetInventoryComponent()->HasBow());
+	TestTrue(TEXT("So left click is Hands"), Weapon->IsMelee());
 	TestFalse(TEXT("Which is not a ranged weapon"), Weapon->HasWeapon());
 
 	Weapon->SetTestTimeSeconds(100.0);
 	TestTrue(TEXT("The punch goes out"), Weapon->Fire());
-
-	// The cooldown is what the rule is about; whether the sweep found the bare AActor depends
-	// on collision, so the damage is asserted through the health component directly below.
 	Weapon->SetTestTimeSeconds(100.3);
 	TestFalse(TEXT("Half the cooldown later the second punch is refused"), Weapon->Fire());
-
 	Weapon->SetTestTimeSeconds(100.7);
 	TestTrue(TEXT("A full cooldown later it lands"), Weapon->Fire());
 
-	// And the damage rule itself: a punch staggers, a bullet does not.
-	Health->ApplyMeleeDamage(Weapon->MeleeDamage, Frank, /*bStagger=*/true);
+	Health->ApplyMeleeDamage(Weapon->MeleeDamage, Kate, /*bStagger=*/true);
 	TestEqual(TEXT("A punch takes MeleeDamage off"), Health->GetCurrentHealth(), 85.f);
 	TestEqual(TEXT("And staggers once"), Listener->StaggeredCount, 1);
-
-	Health->ApplyDamage(10.f, Frank);
+	Health->ApplyDamage(10.f, Kate);
 	TestEqual(TEXT("A bullet never staggers"), Listener->StaggeredCount, 1);
-
+	Health->Stagger(Kate);
+	TestEqual(TEXT("An arrow hit staggers through the same path"), Listener->StaggeredCount, 2);
 	return true;
 }
 
@@ -346,29 +295,27 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleInventoryHotbarWidgetReflectsState, "Cas
 
 bool FCastleInventoryHotbarWidgetReflectsState::RunTest(const FString& Parameters)
 {
-	UInventoryComponent* Inventory = CastleInventoryTest::MakeInventory();
+	using namespace CastleInventoryTest;
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	Inventory->ApplyStartingQuiver(NewObject<UBowDefinition>(Inventory),
+		{ Grant(MakeStandard(Inventory), 30), Grant(MakeGrapple(Inventory), 6) });
 	UCastleHotbarWidget* Hotbar = NewObject<UCastleHotbarWidget>();
 	Hotbar->BindToInventory(Inventory);
 
-	TestEqual(TEXT("Hands are the active box"), Hotbar->GetActiveSlot(), EHotbarSlot::Hands);
-	TestTrue(TEXT("Slot 1 is highlighted"), Hotbar->IsSlotActive(EHotbarSlot::Hands));
-	TestTrue(TEXT("Slot 2 is empty"), Hotbar->IsSlotEmpty(EHotbarSlot::Bow));
-	TestEqual(TEXT("Slot labels are the number keys"),
-		Hotbar->GetSlotKeyText(EHotbarSlot::Reserved).ToString(), FString(TEXT("3")));
-	TestTrue(TEXT("Fists show no ammo"), Hotbar->GetSlotAmmoText(EHotbarSlot::Hands).IsEmpty());
-	TestEqual(TEXT("An empty box is dimmed"),
-		Hotbar->GetSlotColor(EHotbarSlot::Bow), Hotbar->GetSlotColor(EHotbarSlot::Reserved));
+	TestEqual(TEXT("Slot 1 is the active box"), Hotbar->GetActiveSlot(), 1);
+	TestTrue(TEXT("And highlighted"), Hotbar->IsSlotActive(1));
+	TestEqual(TEXT("Standard arrows show a bare count"), Hotbar->GetSlotCountText(1).ToString(), FString(TEXT("30")));
+	TestEqual(TEXT("Grapple arrows show count and cap"), Hotbar->GetSlotCountText(2).ToString(), FString(TEXT("6/6")));
+	TestEqual(TEXT("Under their short name"), Hotbar->GetSlotNameText(2).ToString(), FString(TEXT("Grapple")));
+	TestEqual(TEXT("Labels are the number keys"), Hotbar->GetSlotKeyText(6).ToString(), FString(TEXT("6")));
+	TestTrue(TEXT("Slot 3 is empty"), Hotbar->IsSlotEmpty(3));
+	TestTrue(TEXT("An empty box shows no count"), Hotbar->GetSlotCountText(3).IsEmpty());
+	TestEqual(TEXT("Empty boxes are dimmed alike"), Hotbar->GetSlotColor(3), Hotbar->GetSlotColor(6));
 
-	Inventory->AddWeapon(CastleInventoryTest::MakePistol(Inventory));
-
-	TestEqual(TEXT("The widget follows the inventory"), Hotbar->GetActiveSlot(), EHotbarSlot::Bow);
-	TestTrue(TEXT("Slot 2 is highlighted now"), Hotbar->IsSlotActive(EHotbarSlot::Bow));
-	TestFalse(TEXT("And slot 1 is not"), Hotbar->IsSlotActive(EHotbarSlot::Hands));
-	TestEqual(TEXT("The gun shows its ammo"),
-		Hotbar->GetSlotAmmoText(EHotbarSlot::Bow).ToString(), FString(TEXT("12 / 24")));
-	TestEqual(TEXT("Under its short name"),
-		Hotbar->GetSlotNameText(EHotbarSlot::Bow).ToString(), FString(TEXT("Pistol")));
-
+	Inventory->SelectArrowSlot(2);
+	Inventory->ConsumeArrow(2);
+	TestTrue(TEXT("The widget follows the inventory"), Hotbar->IsSlotActive(2) && !Hotbar->IsSlotActive(1));
+	TestEqual(TEXT("And the count"), Hotbar->GetSlotCountText(2).ToString(), FString(TEXT("5/6")));
 	return true;
 }
 

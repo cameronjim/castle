@@ -122,11 +122,29 @@ void UCastleTestListener::HandleInventoryChanged()
 	++InventoryChangedCount;
 }
 
-void UCastleTestListener::HandleActiveSlotChanged(EHotbarSlot OldSlot, EHotbarSlot NewSlot)
+void UCastleTestListener::HandleActiveSlotChanged(int32 OldSlot, int32 NewSlot)
 {
 	++ActiveSlotChangedCount;
-	LastOldHotbarSlot = OldSlot;
-	LastNewHotbarSlot = NewSlot;
+	LastOldArrowSlot = OldSlot;
+	LastNewArrowSlot = NewSlot;
+}
+
+void UCastleTestListener::HandleDrawChanged(float Fraction)
+{
+	++DrawChangedCount;
+	LastDrawFraction = Fraction;
+}
+
+void UCastleTestListener::HandleArrowFired(UArrowDefinition* /*Arrow*/)
+{
+	++ArrowFiredCount;
+}
+
+void UCastleTestListener::HandleArrowHit(AActor* /*HitActor*/, float Damage, bool bHeadshot)
+{
+	++ArrowHitCount;
+	LastArrowHitDamage = Damage;
+	bLastArrowHitHeadshot = bHeadshot;
 }
 
 void UCastleTestListener::HandleStaggered(UHealthComponent* /*HealthComponent*/, AActor* /*DamageInstigator*/)

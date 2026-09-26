@@ -7,6 +7,7 @@
 #include "Camera/CameraComponent.h"
 #include "Castle.h"
 #include "CastleGameMode.h"
+#include "Combat/BowComponent.h"
 #include "CastlePlayerController.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/TakedownComponent.h"
@@ -110,9 +111,10 @@ ACastleCharacter::ACastleCharacter()
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 	NoiseEmitter = CreateDefaultSubobject<UPawnNoiseEmitterComponent>(TEXT("NoiseEmitter"));
 
-	// The player starts on Hands; the inventory arms the component with whatever slot is active.
+	// Hands only, the melee fallback while no bow is owned; the bow does the shooting.
 	WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
 	WeaponComponent->bHasWeapon = false;
+	BowComponent = CreateDefaultSubobject<UBowComponent>(TEXT("BowComponent"));
 
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 	GrappleComponent = CreateDefaultSubobject<UGrappleComponent>(TEXT("GrappleComponent"));
@@ -378,7 +380,8 @@ void ACastleCharacter::SyncGaspInputState()
 	};
 
 	SetFlag(TEXT("WantsToSprint"), CurrentGait == ECastleGait::Sprint);
-	SetFlag(TEXT("WantsToWalk"), CurrentGait == ECastleGait::Walk || bIsAiming);
+	// Drawing forces the aim, and the aim walks: that is the sample's share of the draw slow-down.
+	SetFlag(TEXT("WantsToWalk"), CurrentGait == ECastleGait::Walk || bIsAiming || IsDrawingBow());
 	SetFlag(TEXT("WantsToStrafe"), bIsAiming);
 	SetFlag(TEXT("WantsToAim"), bIsAiming);
 	SetFlag(TEXT("WantsToCrouch"), bIsCrouched || bIsSliding);
@@ -450,8 +453,9 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	}
 	if (FireAction)
 	{
-		// Triggered (not Started) so a Hold/Pulse trigger on the action gives automatic fire.
-		EnhancedInput->BindAction(FireAction, ETriggerEvent::Triggered, this, &ACastleCharacter::Input_Fire);
+		// Hold to draw, let go to loose.
+		EnhancedInput->BindAction(FireAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_FirePressed);
+		EnhancedInput->BindAction(FireAction, ETriggerEvent::Completed, this, &ACastleCharacter::Input_FireReleased);
 	}
 	if (AimAction)
 	{
@@ -482,6 +486,18 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	{
 		EnhancedInput->BindAction(Slot3Action, ETriggerEvent::Started, this, &ACastleCharacter::Input_Slot3);
 	}
+	if (Slot4Action)
+	{
+		EnhancedInput->BindAction(Slot4Action, ETriggerEvent::Started, this, &ACastleCharacter::Input_Slot4);
+	}
+	if (Slot5Action)
+	{
+		EnhancedInput->BindAction(Slot5Action, ETriggerEvent::Started, this, &ACastleCharacter::Input_Slot5);
+	}
+	if (Slot6Action)
+	{
+		EnhancedInput->BindAction(Slot6Action, ETriggerEvent::Started, this, &ACastleCharacter::Input_Slot6);
+	}
 	if (SlotScrollAction)
 	{
 		// Triggered, not Started: the wheel is an axis and every notch is its own value.
@@ -504,7 +520,7 @@ void ACastleCharacter::Input_Slot1(const FInputActionValue& /*Value*/)
 {
 	if (InventoryComponent)
 	{
-		InventoryComponent->SelectSlot(EHotbarSlot::Hands);
+		InventoryComponent->SelectArrowSlot(1);
 	}
 }
 
@@ -512,7 +528,7 @@ void ACastleCharacter::Input_Slot2(const FInputActionValue& /*Value*/)
 {
 	if (InventoryComponent)
 	{
-		InventoryComponent->SelectSlot(EHotbarSlot::Bow);
+		InventoryComponent->SelectArrowSlot(2);
 	}
 }
 
@@ -520,7 +536,31 @@ void ACastleCharacter::Input_Slot3(const FInputActionValue& /*Value*/)
 {
 	if (InventoryComponent)
 	{
-		InventoryComponent->SelectSlot(EHotbarSlot::Reserved);
+		InventoryComponent->SelectArrowSlot(3);
+	}
+}
+
+void ACastleCharacter::Input_Slot4(const FInputActionValue& /*Value*/)
+{
+	if (InventoryComponent)
+	{
+		InventoryComponent->SelectArrowSlot(4);
+	}
+}
+
+void ACastleCharacter::Input_Slot5(const FInputActionValue& /*Value*/)
+{
+	if (InventoryComponent)
+	{
+		InventoryComponent->SelectArrowSlot(5);
+	}
+}
+
+void ACastleCharacter::Input_Slot6(const FInputActionValue& /*Value*/)
+{
+	if (InventoryComponent)
+	{
+		InventoryComponent->SelectArrowSlot(6);
 	}
 }
 
@@ -534,11 +574,11 @@ void ACastleCharacter::Input_SlotScroll(const FInputActionValue& Value)
 
 	if (Axis > 0.f)
 	{
-		InventoryComponent->SelectNextSlot();
+		InventoryComponent->SelectNextArrowSlot();
 	}
 	else
 	{
-		InventoryComponent->SelectPreviousSlot();
+		InventoryComponent->SelectPreviousArrowSlot();
 	}
 }
 
@@ -660,7 +700,7 @@ void ACastleCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 	UE_LOG(LogCastle, Verbose, TEXT("%s: sprint start at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
 	bIsSprinting = true;
 
-	// You cannot sprint down the sights; the aim drops before the speed goes up.
+	// You cannot sprint down the sights; the aim (and any draw) drops before the speed goes up.
 	StopAim();
 	UpdateMaxWalkSpeed();
 
@@ -680,12 +720,42 @@ void ACastleCharacter::Input_SprintCompleted(const FInputActionValue& /*Value*/)
 
 void ACastleCharacter::Input_AimStarted(const FInputActionValue& /*Value*/)
 {
+	bAimInputHeld = true;
 	StartAim();
 }
 
 void ACastleCharacter::Input_AimCompleted(const FInputActionValue& /*Value*/)
 {
-	StopAim();
+	bAimInputHeld = false;
+	// A bow still drawn keeps the aim until it is released.
+	if (!IsDrawingBow())
+	{
+		StopAim();
+	}
+}
+
+bool ACastleCharacter::IsDrawingBow() const
+{
+	return BowComponent && BowComponent->IsDrawing();
+}
+
+void ACastleCharacter::NotifyBowDrawStarted()
+{
+	if (bIsSprinting)
+	{
+		bIsSprinting = false;
+	}
+	StartAim();
+	UpdateMaxWalkSpeed();
+}
+
+void ACastleCharacter::NotifyBowDrawEnded()
+{
+	if (!bAimInputHeld && !bStoppingAim)
+	{
+		StopAim();
+	}
+	UpdateMaxWalkSpeed();
 }
 
 void ACastleCharacter::StartAim()
@@ -707,6 +777,13 @@ void ACastleCharacter::StartAim()
 
 void ACastleCharacter::StopAim()
 {
+	// Losing the aim (a sprint, a zip) lets the string down; nothing is fired.
+	if (IsDrawingBow())
+	{
+		TGuardValue<bool> Guard(bStoppingAim, true);
+		BowComponent->CancelDraw();
+	}
+
 	if (!bIsAiming)
 	{
 		// Still clear the weapon: a pickup mid-aim could otherwise leave the flags disagreeing.
@@ -831,6 +908,10 @@ void ACastleCharacter::UpdateMaxWalkSpeed()
 	if (LandingRecoverRemaining > 0.f)
 	{
 		Speed *= LandingSpeedMultiplier;
+	}
+	if (IsDrawingBow())
+	{
+		Speed *= DrawWalkSpeedMultiplier;
 	}
 
 	SyncGaspInputState();
@@ -1229,29 +1310,37 @@ bool ACastleCharacter::IsLockedOutByTakedown() const
 	return TakedownComponent && TakedownComponent->IsPerformingTakedown();
 }
 
-void ACastleCharacter::Input_Fire(const FInputActionValue& /*Value*/)
+void ACastleCharacter::Input_FirePressed(const FInputActionValue& /*Value*/)
 {
 	if (IsLockedOutByTakedown())
 	{
 		return;
 	}
 
-	UWeaponComponent* Weapon = GetWeaponComponent();
-	if (!Weapon || !Weapon->Fire())
+	// With a bow, left click draws. Without one it is Hands: a punch, which is quiet, the stealth
+	// option that does not bring the block down on you.
+	const bool bHasBow = InventoryComponent && InventoryComponent->HasBow();
+	if (bHasBow && BowComponent)
 	{
+		if (!IsZipping() && !IsTraversing())
+		{
+			BowComponent->StartDraw();
+		}
 		return;
 	}
 
-	if (Weapon->IsMelee())
+	if (UWeaponComponent* Weapon = GetWeaponComponent())
 	{
-		// A punch is quiet: it is the stealth option that does not bring the block down on you.
-		return;
+		Weapon->Fire();
 	}
+}
 
-	// TODO(stage2): replaced by bow. The hitscan is only kept because thugs still shoot; the
-	// player has no ranged definition to fire it with any more.
-	// A gunshot is the loudest thing in the level; every thug in range goes Alerted.
-	MakeNoise(GunshotNoiseLoudness, this, GetActorLocation());
+void ACastleCharacter::Input_FireReleased(const FInputActionValue& /*Value*/)
+{
+	if (BowComponent && BowComponent->IsDrawing())
+	{
+		BowComponent->ReleaseDraw();
+	}
 }
 
 void ACastleCharacter::Input_Reload(const FInputActionValue& /*Value*/)

@@ -9,6 +9,7 @@
 #include "CastleCharacter.generated.h"
 
 class UAnimSequence;
+class UBowComponent;
 class UCameraComponent;
 class UInputAction;
 class USpringArmComponent;
@@ -63,14 +64,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UTakedownComponent* GetTakedownComponent() const { return TakedownComponent; }
 
-	/** Always present; bHasWeapon is false while Hands are the active slot. */
+	/** Hands, the melee fallback while no bow is owned. bHasWeapon is always false on the player. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UWeaponComponent* GetWeaponComponent() const;
+
+	/** The bow: draw, release, arrows and the bow's look. Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Character")
+	UBowComponent* GetBowComponent() const { return BowComponent; }
 
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UInteractionComponent* GetInteractionComponent() const { return InteractionComponent; }
 
-	/** The hotbar and keycard ring. Always present on the player. */
+	/** The bow, the quiver and the keycard ring. Always present on the player. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 
@@ -136,6 +141,16 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Castle|Aim")
 	bool IsAiming() const { return bIsAiming; }
+
+	/** The bow started drawing: drop the sprint and aim (camera in, strafe, slower walk) while it is held. */
+	void NotifyBowDrawStarted();
+
+	/** The draw ended (released or let down): the aim goes too, unless the aim button is held. */
+	void NotifyBowDrawEnded();
+
+	/** True while the bow is being drawn. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Aim")
+	bool IsDrawingBow() const;
 
 	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
 	bool IsSprinting() const { return bIsSprinting; }
@@ -297,7 +312,8 @@ protected:
 	void Input_SprintStarted(const FInputActionValue& Value);
 	void Input_SprintCompleted(const FInputActionValue& Value);
 	void Input_CrouchToggle(const FInputActionValue& Value);
-	void Input_Fire(const FInputActionValue& Value);
+	void Input_FirePressed(const FInputActionValue& Value);
+	void Input_FireReleased(const FInputActionValue& Value);
 	void Input_Reload(const FInputActionValue& Value);
 	void Input_Takedown(const FInputActionValue& Value);
 	void Input_Interact(const FInputActionValue& Value);
@@ -306,6 +322,9 @@ protected:
 	void Input_Slot1(const FInputActionValue& Value);
 	void Input_Slot2(const FInputActionValue& Value);
 	void Input_Slot3(const FInputActionValue& Value);
+	void Input_Slot4(const FInputActionValue& Value);
+	void Input_Slot5(const FInputActionValue& Value);
+	void Input_Slot6(const FInputActionValue& Value);
 	void Input_SlotScroll(const FInputActionValue& Value);
 	void Input_Inventory(const FInputActionValue& Value);
 	void Input_Grapple(const FInputActionValue& Value);
@@ -380,14 +399,18 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UTakedownComponent> TakedownComponent;
 
-	/** Starts on Hands (bHasWeapon false). The inventory hands it whatever slot is active. */
+	/** Hands only: the punch while no bow is owned (bHasWeapon false). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UWeaponComponent> WeaponComponent;
+
+	/** Draw, release, arrows; the bow on her back and in her hand. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
+	TObjectPtr<UBowComponent> BowComponent;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UInteractionComponent> InteractionComponent;
 
-	/** Three hotbar slots and the keycard ring. Hands are always in slot 0. */
+	/** The bow, a six-slot quiver (standard arrows always in slot 1) and the keycard ring. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UInventoryComponent> InventoryComponent;
 
@@ -441,19 +464,27 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> InteractAction;
 
-	/** Number key 1: Hands. */
+	/** Number key 1: standard arrows. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> Slot1Action;
 
-	/** Number key 2: the second hotbar slot. */
+	/** Number keys 2..6: the other quiver slots. An empty slot's key does nothing. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> Slot2Action;
 
-	/** Number key 3: the third hotbar slot. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> Slot3Action;
 
-	/** Mouse wheel. Positive is the next slot, negative the previous; empty slots are skipped. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot4Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot5Action;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> Slot6Action;
+
+	/** Mouse wheel. Positive is the next quiver slot, negative the previous; empty slots are skipped. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> SlotScrollAction;
 
@@ -461,7 +492,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> InventoryAction;
 
-	/** Q: fire the grapple arrow at the marked anchor (or chain, late in a zip). */
+	/** Q: fire a grapple arrow at the marked anchor (or chain, late in a zip), whatever slot is nocked. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> GrappleAction;
 
@@ -666,6 +697,14 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Castle|Aim")
 	bool bIsAiming = false;
 
+	/** The aim button is held (not just the bow forcing the aim). */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Castle|Aim")
+	bool bAimInputHeld = false;
+
+	/** Walk speed multiplier while the bow is drawn, on top of the aimed walk. Non-sample characters only. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Aim", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DrawWalkSpeedMultiplier = 0.6f;
+
 	// --- Animation ------------------------------------------------------------------------------
 
 	/** Body animation while standing still. The same sequence the thugs use. */
@@ -770,6 +809,9 @@ private:
 
 	/** Logged once per actor, the first time a foreign camera had to be switched off. */
 	bool bLoggedForeignCamera = false;
+
+	/** Set while StopAim is letting the bow down, so the draw's own end does not re-enter it. */
+	bool bStoppingAim = false;
 
 	/** Whichever of IdleAnim / WalkAnim the body is playing, so Tick only re-plays on a change. */
 	UPROPERTY(Transient)

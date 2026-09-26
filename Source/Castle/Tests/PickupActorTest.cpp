@@ -1,7 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "Combat/WeaponComponent.h"
-#include "Combat/WeaponDefinition.h"
+#include "Combat/ArrowDefinition.h"
+#include "Combat/BowDefinition.h"
 #include "Misc/AutomationTest.h"
 #include "Player/CastleCharacter.h"
 #include "Player/InventoryComponent.h"
@@ -29,60 +29,31 @@ namespace CastlePickupTest
 		return Cast<ACastleCharacter>(
 			TestWorld.SpawnActor(ACastleCharacter::StaticClass(), FVector(500.f, 0.f, 0.f), FRotator::ZeroRotator));
 	}
-
-	/** The pistol definition BP_Pickup_Pistol carries, built in code so no content is loaded. */
-	static UWeaponDefinition* MakePistol(UObject* Outer)
-	{
-		UWeaponDefinition* Definition = NewObject<UWeaponDefinition>(Outer);
-		Definition->Slot = EHotbarSlot::Bow;
-		Definition->Damage = 34.f;
-		Definition->MagazineSize = 12;
-		Definition->DefaultReserve = 24;
-		return Definition;
-	}
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastlePickupWeaponArmsThePlayer, "Castle.Pickup.WeaponArmsThePlayer",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastlePickupBowGivesTheBow, "Castle.Pickup.BowGivesTheBow",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastlePickupWeaponArmsThePlayer::RunTest(const FString& Parameters)
+bool FCastlePickupBowGivesTheBow::RunTest(const FString& Parameters)
 {
 	FCastleTestWorld TestWorld;
 	ACastleCharacter* Player = CastlePickupTest::SpawnPlayer(TestWorld);
-	APickupActor* Pickup = CastlePickupTest::SpawnPickup(TestWorld, EPickupType::Weapon);
-	if (!Player || !Pickup)
+	APickupActor* Pickup = CastlePickupTest::SpawnPickup(TestWorld, EPickupType::Bow);
+	UInventoryComponent* Inventory = Player ? Player->GetInventoryComponent() : nullptr;
+	if (!Inventory || !Pickup)
 	{
 		AddError(TEXT("Failed to spawn the player or the pickup."));
 		return false;
 	}
 
-	UWeaponComponent* Weapon = Player->GetWeaponComponent();
-	UInventoryComponent* Inventory = Player->GetInventoryComponent();
-	if (!Weapon || !Inventory)
-	{
-		AddError(TEXT("ACastleCharacter has no UWeaponComponent or UInventoryComponent."));
-		return false;
-	}
+	TestFalse(TEXT("Kate starts without a bow"), Inventory->HasBow());
+	TestFalse(TEXT("A bow pickup with no bow set applies nothing"), Pickup->ApplyTo(Player));
 
-	TestFalse(TEXT("Frank starts with his fists, not a gun"), Weapon->HasWeapon());
-	TestTrue(TEXT("Which is what the hotbar says too"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
-	TestFalse(TEXT("Reloading a fist is a no-op"), Weapon->Reload());
-
-	Pickup->Weapon = CastlePickupTest::MakePistol(Pickup);
-	Pickup->MagazineAmount = 12;
-	Pickup->AmmoAmount = 24;
+	UBowDefinition* Bow = NewObject<UBowDefinition>(Pickup);
+	Pickup->Bow = Bow;
 	TestTrue(TEXT("The pickup applies"), Pickup->ApplyTo(Player));
-
-	TestFalse(TEXT("The pistol landed in slot 2"), Inventory->IsSlotEmpty(EHotbarSlot::Bow));
-	TestEqual(TEXT("And was drawn, because Hands were active"),
-		Inventory->GetActiveSlot(), EHotbarSlot::Bow);
-	TestTrue(TEXT("Frank is armed"), Weapon->HasWeapon());
-	TestEqual(TEXT("Magazine loaded"), Weapon->CurrentAmmo, 12);
-	TestEqual(TEXT("Reserve loaded"), Weapon->ReserveAmmo, 24);
-	TestEqual(TEXT("The slot carries the same rounds"),
-		Inventory->GetSlot(EHotbarSlot::Bow).Magazine, 12);
+	TestTrue(TEXT("She carries that bow"), Inventory->GetBow() == Bow);
 	TestTrue(TEXT("The pickup destroys itself"), Pickup->IsActorBeingDestroyed() || !IsValid(Pickup));
-
 	return true;
 }
 
@@ -112,40 +83,31 @@ bool FCastlePickupKeycardJoinsTheRing::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastlePickupAmmoAddsToReserve, "Castle.Pickup.AmmoAddsToReserve",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastlePickupArrowsFillTheQuiver, "Castle.Pickup.ArrowsFillTheQuiver",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastlePickupAmmoAddsToReserve::RunTest(const FString& Parameters)
+bool FCastlePickupArrowsFillTheQuiver::RunTest(const FString& Parameters)
 {
 	FCastleTestWorld TestWorld;
 	ACastleCharacter* Player = CastlePickupTest::SpawnPlayer(TestWorld);
-	APickupActor* Pickup = CastlePickupTest::SpawnPickup(TestWorld, EPickupType::Ammo);
-	if (!Player || !Pickup)
+	APickupActor* Pickup = CastlePickupTest::SpawnPickup(TestWorld, EPickupType::Arrows);
+	UInventoryComponent* Inventory = Player ? Player->GetInventoryComponent() : nullptr;
+	if (!Inventory || !Pickup)
 	{
 		AddError(TEXT("Failed to spawn the player or the pickup."));
 		return false;
 	}
 
-	UWeaponComponent* Weapon = Player->GetWeaponComponent();
-	UInventoryComponent* Inventory = Player->GetInventoryComponent();
-	if (!Weapon || !Inventory)
-	{
-		AddError(TEXT("ACastleCharacter has no UWeaponComponent or UInventoryComponent."));
-		return false;
-	}
+	UArrowDefinition* Grapple = NewObject<UArrowDefinition>(Pickup);
+	Grapple->Slot = 2;
+	Grapple->Cap = 6;
+	Grapple->OnHitEffect = EArrowHitEffect::Grapple;
+	Inventory->AddArrows(Grapple, 4);
 
-	// Ammo goes into a weapon's slot, so there has to be a weapon to put it in.
-	UWeaponDefinition* Pistol = CastlePickupTest::MakePistol(Inventory);
-	Inventory->AddWeapon(Pistol);
-	const int32 Before = Inventory->GetSlot(EHotbarSlot::Bow).Reserve;
-
-	Pickup->Weapon = Pistol;
-	Pickup->AmmoAmount = 12;
+	Pickup->Arrow = Grapple;
+	Pickup->ArrowCount = 6;
 	TestTrue(TEXT("The pickup applies"), Pickup->ApplyTo(Player));
-	TestEqual(TEXT("The pistol's reserve grew by the pickup amount"),
-		Inventory->GetSlot(EHotbarSlot::Bow).Reserve, Before + 12);
-	TestEqual(TEXT("And the held weapon sees it"), Weapon->ReserveAmmo, Before + 12);
-
+	TestEqual(TEXT("Topped up to the cap, not past it"), Inventory->GetArrowCount(2), 6);
 	return true;
 }
 
@@ -155,7 +117,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastlePickupIgnoresNonPlayers, "Castle.Pickup.
 bool FCastlePickupIgnoresNonPlayers::RunTest(const FString& Parameters)
 {
 	FCastleTestWorld TestWorld;
-	APickupActor* Pickup = CastlePickupTest::SpawnPickup(TestWorld, EPickupType::Weapon);
+	APickupActor* Pickup = CastlePickupTest::SpawnPickup(TestWorld, EPickupType::Keycard);
 	AActor* Bystander = TestWorld.SpawnActor(AActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator);
 	if (!Pickup || !Bystander)
 	{

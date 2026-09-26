@@ -1,7 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "CastlePlayerController.h"
-#include "Combat/WeaponDefinition.h"
+#include "Combat/ArrowDefinition.h"
+#include "Combat/BowDefinition.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -21,7 +22,7 @@
  * Reference shots of the hotbar and the inventory screen, written to Saved/Screenshots/UI/.
  * Look-at-them tools, not assertions, like the room shots in ScreenshotTest.cpp:
  *
- *   Castle.Screenshot.Hotbar    hotbar.png    the HUD with Fists in slot 1 and a bow drawn in slot 2
+ *   Castle.Screenshot.Hotbar    hotbar.png    the HUD quiver: standard arrows (30) and grapple (6/6)
  *   Castle.Screenshot.Inventory inventory.png the Tab screen over a paused game
  *
  * Both are taken on L_District_EastVillage, where Kate spawns at the PlayerStart. The bow is a
@@ -42,8 +43,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleScreenshotInventory, "Castle.Screenshot.
 
 namespace CastleUiShot
 {
-	/** Fists, slot 1. Loaded, because this shot is about content. */
-	static const TCHAR* HandsPath = TEXT("/Game/Blueprints/Weapons/DA_Weapon_Hands.DA_Weapon_Hands");
+	/** DA_Bow_Kate and the arrows. Loaded, because this shot is about content. */
+	static const TCHAR* BowPath = TEXT("/Game/Blueprints/Weapons/DA_Bow_Kate.DA_Bow_Kate");
+	static const TCHAR* StandardPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Standard.DA_Arrow_Standard");
+	static const TCHAR* GrapplePath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Grapple.DA_Arrow_Grapple");
 
 	/** The district the shots are taken on; the pawn spawns at its PlayerStart. */
 	static const TCHAR* MapPath = TEXT("/Game/Maps/L_District_EastVillage");
@@ -92,8 +95,7 @@ namespace CastleUiShot
 }
 
 /**
- * Fists in slot 1 and a stand-in bow in slot 2, drawn, so the hotbar shows two filled slots.
- * The bow lives in the transient package; the inventory slot holds the only reference.
+ * DA_Bow_Kate with 30 standard and 6 grapple arrows, so the hotbar shows two filled slots.
  */
 DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FCastleDrawBow, FAutomationTestBase*, Test);
 
@@ -122,29 +124,25 @@ bool FCastleDrawBow::Update()
 		PC->SetViewTarget(Pawn);
 	}
 
-	UWeaponDefinition* Hands = LoadObject<UWeaponDefinition>(nullptr, CastleUiShot::HandsPath);
-	if (!Hands)
+	UBowDefinition* Bow = LoadObject<UBowDefinition>(nullptr, CastleUiShot::BowPath);
+	UArrowDefinition* Standard = LoadObject<UArrowDefinition>(nullptr, CastleUiShot::StandardPath);
+	UArrowDefinition* Grapple = LoadObject<UArrowDefinition>(nullptr, CastleUiShot::GrapplePath);
+	if (!Bow || !Standard || !Grapple)
 	{
-		Test->AddError(TEXT("DA_Weapon_Hands did not load; run Tools\\create-content.ps1."));
+		Test->AddError(TEXT("DA_Bow_Kate or the DA_Arrow_* assets did not load; run Tools\\create-content.ps1."));
 		return true;
 	}
-	Inventory->AddWeapon(Hands);
+	FCastleQuiverSlot StandardSlot;
+	StandardSlot.Arrow = Standard;
+	StandardSlot.Count = 30;
+	FCastleQuiverSlot GrappleSlot;
+	GrappleSlot.Arrow = Grapple;
+	GrappleSlot.Count = 6;
+	Inventory->ApplyStartingQuiver(Bow, { StandardSlot, GrappleSlot });
 
-	UWeaponDefinition* Bow = NewObject<UWeaponDefinition>(GetTransientPackage(), TEXT("ScreenshotBow"));
-	Bow->Slot = EHotbarSlot::Bow;
-	Bow->DisplayName = FText::FromString(TEXT("Bow"));
-	Bow->ShortName = FText::FromString(TEXT("Bow"));
-	Bow->bIsMelee = false;
-	Bow->MagazineSize = 1;
-	Bow->DefaultReserve = 20;
-	Inventory->AddWeapon(Bow);
-	Inventory->SelectSlot(EHotbarSlot::Bow, /*bImmediate=*/true);
-	// The swap lockout would otherwise still be running when the shot is taken.
-	Inventory->FinishSwapNow();
-
-	if (Inventory->IsSlotEmpty(EHotbarSlot::Hands) || Inventory->IsSlotEmpty(EHotbarSlot::Bow))
+	if (!Inventory->HasBow() || Inventory->IsArrowSlotEmpty(2))
 	{
-		Test->AddError(TEXT("The hotbar should hold Fists and the bow."));
+		Test->AddError(TEXT("The quiver should hold the bow, standard and grapple arrows."));
 	}
 	return true;
 }
@@ -212,7 +210,7 @@ bool FCastleScreenshotInventory::RunTest(const FString& Parameters)
 	AutomationOpenMap(CastleUiShot::MapPath);
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(5.f));
 
-	// Something to list: Fists and the stand-in bow.
+	// Something to list: the bow and two arrow types.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleDrawBow(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleOpenInventoryScreen(this));

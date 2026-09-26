@@ -200,7 +200,8 @@ void AThugAIController::TickThink()
 void AThugAIController::Think(float DeltaSeconds)
 {
 	AThugCharacter* Thug = GetThug();
-	if (!Thug)
+	// A hit reaction owns him for its length: no moving, no shooting.
+	if (!Thug || Thug->IsStaggered())
 	{
 		return;
 	}

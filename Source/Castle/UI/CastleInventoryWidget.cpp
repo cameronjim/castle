@@ -4,7 +4,8 @@
 
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateColorBrush.h"
-#include "Combat/WeaponDefinition.h"
+#include "Combat/ArrowDefinition.h"
+#include "Combat/BowDefinition.h"
 #include "Components/Border.h"
 #include "Components/Overlay.h"
 #include "Components/OverlaySlot.h"
@@ -152,22 +153,24 @@ TArray<FCastleInventoryRow> UCastleInventoryWidget::BuildInventoryRows() const
 		Lines.Add(Row);
 	};
 
-	AddRow(NSLOCTEXT("Castle", "InventoryWeapons", "Weapons"), true);
+	AddRow(NSLOCTEXT("Castle", "InventoryBow", "Bow"), true);
 
-	for (int32 Index = 0; Index < CastleHotbarSlotCount; ++Index)
+	const UBowDefinition* Bow = BoundInventory->GetBow();
+	AddRow(Bow
+		? (Bow->DisplayName.IsEmpty() ? FText::FromName(Bow->GetFName()) : Bow->DisplayName)
+		: NSLOCTEXT("Castle", "InventoryNoBow", "none (fists)"), false);
+
+	AddRow(NSLOCTEXT("Castle", "InventoryQuiver", "Quiver"), true);
+
+	for (int32 QuiverSlot = 1; QuiverSlot <= CastleQuiverSlotCount; ++QuiverSlot)
 	{
-		const EHotbarSlot HotbarSlot = static_cast<EHotbarSlot>(Index);
-		const FCastleInventorySlot Entry = BoundInventory->GetSlot(HotbarSlot);
+		const FCastleQuiverSlot Entry = BoundInventory->GetArrowSlot(QuiverSlot);
 		if (Entry.IsEmpty())
 		{
 			continue;
 		}
-
-		const FString Name = Entry.Weapon->GetDisplayNameOrAssetName().ToString();
-		const FString Ammo = Entry.IsRanged()
-			? FString::Printf(TEXT("  %d / %d"), Entry.Magazine, Entry.Reserve)
-			: FString();
-		AddRow(FText::FromString(FString::Printf(TEXT("%d. %s%s"), Index + 1, *Name, *Ammo)), false);
+		AddRow(FText::FromString(FString::Printf(TEXT("%d. %s  %d / %d"), QuiverSlot,
+			*Entry.Arrow->GetDisplayNameOrAssetName().ToString(), Entry.Count, Entry.Arrow->Cap)), false);
 	}
 
 	AddRow(NSLOCTEXT("Castle", "InventoryKeycards", "Keycards"), true);
@@ -181,25 +184,6 @@ TArray<FCastleInventoryRow> UCastleInventoryWidget::BuildInventoryRows() const
 	for (const FName& Keycard : Keycards)
 	{
 		AddRow(FText::FromName(Keycard), false);
-	}
-
-	AddRow(NSLOCTEXT("Castle", "InventorySpareAmmo", "Spare ammo"), true);
-
-	bool bAnySpare = false;
-	for (int32 Index = 0; Index < CastleHotbarSlotCount; ++Index)
-	{
-		const FCastleInventorySlot Entry = BoundInventory->GetSlot(static_cast<EHotbarSlot>(Index));
-		if (!Entry.IsRanged())
-		{
-			continue;
-		}
-		bAnySpare = true;
-		AddRow(FText::FromString(FString::Printf(TEXT("%s  %d"),
-			*Entry.Weapon->GetDisplayNameOrAssetName().ToString(), Entry.Reserve)), false);
-	}
-	if (!bAnySpare)
-	{
-		AddRow(NSLOCTEXT("Castle", "InventoryNoSpareAmmo", "none"), false);
 	}
 
 	return Lines;

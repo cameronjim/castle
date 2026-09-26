@@ -3,7 +3,9 @@
 #include "UI/CastleHudWidget.h"
 
 #include "Blueprint/WidgetTree.h"
+#include "Brushes/SlateColorBrush.h"
 #include "Castle.h"
+#include "Combat/BowComponent.h"
 #include "Combat/TakedownComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
@@ -106,7 +108,133 @@ void UCastleHudWidget::BuildReticle(UOverlay* Root)
 		DotSlot->SetPosition(FVector2D::ZeroVector);
 	}
 
+	// The spread ring: a transparent box with a round outline, sized every frame to the cone.
+	FSlateBrush RingBrush;
+	RingBrush.DrawAs = ESlateBrushDrawType::RoundedBox;
+	RingBrush.TintColor = FSlateColor(FLinearColor::Transparent);
+	RingBrush.OutlineSettings = FSlateBrushOutlineSettings(0.f, FSlateColor(ReticleColor), RingLineWidth);
+	RingBrush.OutlineSettings.RoundingType = ESlateBrushRoundingType::HalfHeightRadius;
+	ReticleRing = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("ReticleRing"));
+	ReticleRing->SetBrush(RingBrush);
+	if (UCanvasPanelSlot* RingSlot = Cast<UCanvasPanelSlot>(Reticle->AddChild(ReticleRing)))
+	{
+		RingSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+		RingSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		RingSlot->SetAutoSize(false);
+		RingSlot->SetPosition(FVector2D::ZeroVector);
+	}
+
+	// The draw bar: a dim track and a fill anchored to its left end.
+	auto AddBar = [this](const TCHAR* Name, const FLinearColor& Color)
+	{
+		UBorder* Bar = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), Name);
+		Bar->SetBrush(FSlateColorBrush(FLinearColor::White));
+		Bar->SetBrushColor(Color);
+		Bar->SetPadding(FMargin(0.f));
+		if (UCanvasPanelSlot* BarSlot = Cast<UCanvasPanelSlot>(Reticle->AddChild(Bar)))
+		{
+			BarSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+			BarSlot->SetAlignment(FVector2D(0.f, 0.5f));
+			BarSlot->SetAutoSize(false);
+			BarSlot->SetPosition(FVector2D(-DrawBarWidth * 0.5f, DrawBarOffset));
+			BarSlot->SetSize(FVector2D(DrawBarWidth, DrawBarHeight));
+		}
+		return Bar;
+	};
+	DrawBarBack = AddBar(TEXT("DrawBarBack"), FLinearColor(0.f, 0.f, 0.f, 0.45f));
+	DrawBarFill = AddBar(TEXT("DrawBarFill"), ReticleColor);
+
 	RefreshReticle();
+	RefreshDrawIndicator();
+}
+
+float UCastleHudWidget::ComputeSpreadRingRadius(float SpreadDegrees, float FovDegrees, float ViewportWidth, float Distance)
+{
+	const float HalfFov = FMath::DegreesToRadians(FMath::Clamp(FovDegrees, 1.f, 170.f) * 0.5f);
+	const float WorldRadius = Distance * FMath::Tan(FMath::DegreesToRadians(FMath::Max(SpreadDegrees, 0.f)));
+	const float HalfWidthAtDistance = Distance * FMath::Tan(HalfFov);
+	return HalfWidthAtDistance > 0.f ? WorldRadius / HalfWidthAtDistance * ViewportWidth * 0.5f : 0.f;
+}
+
+void UCastleHudWidget::SetDrawState(bool bInDrawing, float InFraction, float InRingRadius, bool bInPerfect)
+{
+	bDrawing = bInDrawing;
+	DrawFraction = bInDrawing ? FMath::Clamp(InFraction, 0.f, 1.f) : 0.f;
+	bPerfectWindow = bInDrawing && bInPerfect;
+	RingRadius = bInDrawing ? FMath::Max(InRingRadius, MinRingRadius) : 0.f;
+	RefreshDrawIndicator();
+}
+
+void UCastleHudWidget::RefreshDrawIndicator()
+{
+	const ESlateVisibility Shown = bDrawing ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed;
+	const FLinearColor Colour = HitFlashRemaining > 0.f ? HitMarkerColor : ReticleColor;
+	if (ReticleRing)
+	{
+		ReticleRing->SetVisibility(Shown);
+		FSlateBrush Brush = ReticleRing->GetBrush();
+		Brush.OutlineSettings.Color = FSlateColor(Colour);
+		ReticleRing->SetBrush(Brush);
+		if (UCanvasPanelSlot* RingSlot = Cast<UCanvasPanelSlot>(ReticleRing->Slot))
+		{
+			RingSlot->SetSize(FVector2D(RingRadius * 2.f, RingRadius * 2.f));
+		}
+	}
+	if (DrawBarBack)
+	{
+		DrawBarBack->SetVisibility(Shown);
+	}
+	if (DrawBarFill)
+	{
+		DrawBarFill->SetVisibility(bDrawing && DrawFraction > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		// Full and flashing in the perfect window: release now.
+		const bool bFlashOn = bPerfectWindow && FMath::Fmod(FPlatformTime::Seconds() * 20.0, 2.0) < 1.0;
+		DrawBarFill->SetBrushColor(bPerfectWindow ? (bFlashOn ? FLinearColor::White : PerfectColor) : Colour);
+		if (UCanvasPanelSlot* FillSlot = Cast<UCanvasPanelSlot>(DrawBarFill->Slot))
+		{
+			FillSlot->SetSize(FVector2D(DrawBarWidth * DrawFraction, DrawBarHeight));
+		}
+	}
+}
+
+UBowComponent* UCastleHudWidget::FindPawnBow() const
+{
+	const APlayerController* PC = GetOwningPlayer();
+	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	return Pawn ? Pawn->FindComponentByClass<UBowComponent>() : nullptr;
+}
+
+void UCastleHudWidget::PollPawnDrawState(const FGeometry& MyGeometry)
+{
+	UBowComponent* Bow = FindPawnBow();
+	if (Bow != BoundBow)
+	{
+		if (BoundBow)
+		{
+			BoundBow->OnHit.RemoveDynamic(this, &UCastleHudWidget::HandleBowHit);
+		}
+		BoundBow = Bow;
+		if (BoundBow)
+		{
+			BoundBow->OnHit.AddDynamic(this, &UCastleHudWidget::HandleBowHit);
+		}
+	}
+
+	const APlayerController* PC = GetOwningPlayer();
+	const ACastleCharacter* Character = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
+	if (!Bow || !Bow->IsDrawing() || !Character)
+	{
+		SetDrawState(false, 0.f, 0.f, false);
+		return;
+	}
+	const float Radius = ComputeSpreadRingRadius(Bow->GetCurrentSpreadDegrees(), Character->GetCurrentFOV(),
+		MyGeometry.GetLocalSize().X, ReticleSpreadDistance);
+	SetDrawState(true, Bow->GetDrawFraction(), Radius, Bow->IsInPerfectWindow());
+}
+
+void UCastleHudWidget::HandleBowHit(AActor* /*HitActor*/, float /*Damage*/, bool /*bHeadshot*/)
+{
+	FlashHitMarker();
 }
 
 void UCastleHudWidget::RefreshReticle()
@@ -246,6 +374,7 @@ void UCastleHudWidget::FlashHitMarker()
 {
 	HitFlashRemaining = HitFlashSeconds;
 	RefreshReticle();
+	RefreshDrawIndicator();
 }
 
 void UCastleHudWidget::PollPawnReticleState()
@@ -284,6 +413,7 @@ void UCastleHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSecond
 	Super::NativeTick(MyGeometry, DeltaSeconds);
 
 	PollPawnReticleState();
+	PollPawnDrawState(MyGeometry);
 	UpdateGrappleMarker();
 	RefreshMovementDebug();
 
@@ -294,6 +424,7 @@ void UCastleHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSecond
 		{
 			HitFlashRemaining = 0.f;
 			RefreshReticle();
+			RefreshDrawIndicator();
 		}
 	}
 }
@@ -379,6 +510,11 @@ void UCastleHudWidget::UnbindFromGame()
 		BoundWeapon->OnAmmoChanged.RemoveDynamic(this, &UCastleHudWidget::HandleAmmoChanged);
 		BoundWeapon->OnHit.RemoveDynamic(this, &UCastleHudWidget::HandleWeaponHit);
 		BoundWeapon = nullptr;
+	}
+	if (BoundBow)
+	{
+		BoundBow->OnHit.RemoveDynamic(this, &UCastleHudWidget::HandleBowHit);
+		BoundBow = nullptr;
 	}
 
 	const APlayerController* PC = GetOwningPlayer();

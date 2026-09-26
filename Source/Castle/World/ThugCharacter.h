@@ -58,6 +58,26 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	bool IsAlerted() const { return AlertState == EThugAlertState::Alerted; }
 
+	/**
+	 * A hit he survives (an arrow, a punch): a brief stagger. He stops, is shoved HitShoveSpeed
+	 * away from HitBy, his AI holds off for StaggerSeconds, and he is Alerted if he was not.
+	 * Bound to the health component's OnStaggered, so every staggering hit arrives here.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void HitReaction(AActor* HitBy);
+
+	/** True for StaggerSeconds after a HitReaction. The AI does nothing while it is. */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	bool IsStaggered() const { return StaggerRemaining > 0.f; }
+
+	/** How long a hit reaction holds him, seconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
+	float StaggerSeconds = 0.5f;
+
+	/** Speed of the shove away from whoever hit him, cm/s. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
+	float HitShoveSpeed = 250.f;
+
 	/** Points this thug walks between while Calm. Place ATargetPoints and fill this in. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Patrol")
 	TArray<TObjectPtr<AActor>> PatrolPoints;
@@ -157,6 +177,9 @@ protected:
 	UFUNCTION()
 	void HandleDeath(UHealthComponent* Health, AActor* Killer);
 
+	UFUNCTION()
+	void HandleStaggered(UHealthComponent* Health, AActor* DamageInstigator);
+
 	/** Snaps the flashlight to the head socket when the mesh has one. Runs once at BeginPlay. */
 	void AttachFlashlight();
 
@@ -207,6 +230,9 @@ protected:
 	float DropSpacing = 40.f;
 
 private:
+	/** Seconds of stagger left. */
+	float StaggerRemaining = 0.f;
+
 	bool bLootDropped = false;
 	bool bLimp = false;
 

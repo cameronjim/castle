@@ -3,8 +3,8 @@
 #include "World/PickupActor.h"
 
 #include "Castle.h"
-#include "Combat/WeaponComponent.h"
-#include "Combat/WeaponDefinition.h"
+#include "Combat/ArrowDefinition.h"
+#include "Combat/BowDefinition.h"
 #include "Components/StaticMeshComponent.h"
 #include "Mission/MissionSubsystem.h"
 #include "Player/CastleCharacter.h"
@@ -80,13 +80,13 @@ FText APickupActor::GetInteractPrompt_Implementation() const
 
 	switch (PickupType)
 	{
-	case EPickupType::Weapon:
-		return NSLOCTEXT("Castle", "PickupWeapon", "[E] Take the pistol");
+	case EPickupType::Bow:
+		return NSLOCTEXT("Castle", "PickupBow", "[E] Take the bow");
 	case EPickupType::Keycard:
 		return NSLOCTEXT("Castle", "PickupKeycard", "[E] Take the keycard");
-	case EPickupType::Ammo:
+	case EPickupType::Arrows:
 	default:
-		return NSLOCTEXT("Castle", "PickupAmmo", "[E] Take the ammo");
+		return NSLOCTEXT("Castle", "PickupArrows", "[E] Take the arrows");
 	}
 }
 
@@ -104,49 +104,35 @@ bool APickupActor::ApplyTo(AActor* Interactor)
 	}
 
 	UInventoryComponent* Inventory = Character->GetInventoryComponent();
-	UWeaponDefinition* Definition = Weapon.IsNull() ? nullptr : Weapon.LoadSynchronous();
 
 	switch (PickupType)
 	{
-	case EPickupType::Weapon:
+	case EPickupType::Bow:
 	{
-		if (Inventory && Definition)
+		UBowDefinition* Definition = Bow.IsNull() ? nullptr : Bow.LoadSynchronous();
+		if (!Inventory || !Definition)
 		{
-			// One call: the inventory owns slotting, ammo and handing the gun to the weapon
-			// component, so a pickup cannot arm the player halfway.
-			Inventory->AddWeaponWithAmmo(Definition, MagazineAmount, AmmoAmount);
-			break;
-		}
-
-		// No definition set on the pickup (or a pawn with no inventory): fall back to arming
-		// the weapon component directly, which is what this did before the hotbar existed.
-		UWeaponComponent* Held = Character->GetWeaponComponent();
-		if (!Held)
-		{
-			UE_LOG(LogCastle, Warning, TEXT("%s: %s has no UWeaponComponent to arm."),
-				*GetName(), *Character->GetName());
+			UE_LOG(LogCastle, Warning, TEXT("%s: a bow pickup with no bow set, or a pawn with no inventory."), *GetName());
 			return false;
 		}
-		Held->GiveWeapon(MagazineAmount, AmmoAmount);
+		Inventory->GiveBow(Definition);
 		break;
 	}
 	case EPickupType::Keycard:
 		Character->GiveKeycard(KeycardId);
 		break;
-	case EPickupType::Ammo:
+	case EPickupType::Arrows:
 	{
-		if (Inventory)
+		UArrowDefinition* Definition = Arrow.IsNull() ? nullptr : Arrow.LoadSynchronous();
+		if (!Definition && Inventory)
 		{
-			Inventory->AddAmmo(Definition, AmmoAmount);
-			break;
+			Definition = Inventory->GetActiveArrow();
 		}
-
-		UWeaponComponent* Held = Character->GetWeaponComponent();
-		if (!Held)
+		if (!Inventory || !Definition)
 		{
 			return false;
 		}
-		Held->AddAmmo(AmmoAmount);
+		Inventory->AddArrows(Definition, ArrowCount);
 		break;
 	}
 	}

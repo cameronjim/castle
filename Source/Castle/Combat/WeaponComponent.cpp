@@ -7,7 +7,6 @@
 #include "Combat/HealthComponent.h"
 #include "Combat/WeaponDefinition.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "Player/InventoryComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
@@ -107,18 +106,7 @@ void UWeaponComponent::GiveWeapon(int32 Magazine, int32 Reserve)
 	bHasWeapon = true;
 	CurrentAmmo = FMath::Clamp(Magazine, 0, MagazineSize);
 	ReserveAmmo = FMath::Max(Reserve, 0);
-	PushAmmoToInventory();
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
-}
-
-void UWeaponComponent::SetInventory(UInventoryComponent* InInventory)
-{
-	Inventory = InInventory;
-}
-
-UInventoryComponent* UWeaponComponent::GetInventory() const
-{
-	return Inventory.Get();
 }
 
 bool UWeaponComponent::IsMelee() const
@@ -179,14 +167,6 @@ void UWeaponComponent::SetActiveWeapon(UWeaponDefinition* Definition, int32 Maga
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 }
 
-void UWeaponComponent::PushAmmoToInventory()
-{
-	if (UInventoryComponent* Owner = Inventory.Get())
-	{
-		Owner->SetSlotAmmo(Owner->GetActiveSlot(), CurrentAmmo, ReserveAmmo);
-	}
-}
-
 void UWeaponComponent::RemoveWeapon()
 {
 	CancelReload();
@@ -197,15 +177,6 @@ void UWeaponComponent::RemoveWeapon()
 
 bool UWeaponComponent::CanFire() const
 {
-	// A swap owns the hands for SwapSeconds; nothing fires during it, fists included.
-	if (const UInventoryComponent* Owner = Inventory.Get())
-	{
-		if (Owner->IsSwapping())
-		{
-			return false;
-		}
-	}
-
 	if (IsMelee())
 	{
 		return GetNowSeconds() - LastFireTimeSeconds >= static_cast<double>(MeleeCooldown);
@@ -252,8 +223,8 @@ void UWeaponComponent::GetFireViewPoint(FVector& OutLocation, FRotator& OutRotat
 	{
 		if (AController* OwnerController = Pawn->GetController())
 		{
-			// The player camera for player-controlled pawns. TODO(stage2): replaced by bow - the
-			// player-facing hitscan goes when arrows are projectiles; thugs still trace from here.
+			// A controller's view point: a thug's eyes through its AI controller. The player never
+			// fires this hitscan any more; the bow shoots projectiles.
 			OwnerController->GetPlayerViewPoint(OutLocation, OutRotation);
 			return;
 		}
@@ -264,15 +235,6 @@ void UWeaponComponent::GetFireViewPoint(FVector& OutLocation, FRotator& OutRotat
 
 bool UWeaponComponent::Fire()
 {
-	// Switching weapons takes SwapSeconds and the trigger does nothing for the whole of it.
-	if (const UInventoryComponent* Owner = Inventory.Get())
-	{
-		if (Owner->IsSwapping())
-		{
-			return false;
-		}
-	}
-
 	if (IsMelee())
 	{
 		return FireMelee();
@@ -302,7 +264,6 @@ bool UWeaponComponent::Fire()
 
 	LastFireTimeSeconds = GetNowSeconds();
 	--CurrentAmmo;
-	PushAmmoToInventory();
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 
 	TraceAndApplyDamage();
@@ -505,7 +466,6 @@ void UWeaponComponent::CompleteReloadNow()
 	CurrentAmmo += Loaded;
 	ReserveAmmo -= Loaded;
 
-	PushAmmoToInventory();
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 	OnReloadFinished();
 }
@@ -534,6 +494,5 @@ void UWeaponComponent::AddAmmo(int32 Rounds)
 	}
 
 	ReserveAmmo += Rounds;
-	PushAmmoToInventory();
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
 }

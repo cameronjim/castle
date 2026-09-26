@@ -7,24 +7,25 @@
 #include "World/Interactable.h"
 #include "PickupActor.generated.h"
 
+class UArrowDefinition;
+class UBowDefinition;
 class UStaticMeshComponent;
-class UWeaponDefinition;
 
 /** What picking this up actually does. */
 UENUM(BlueprintType)
 enum class EPickupType : uint8
 {
-	/** Arms the player's UWeaponComponent with MagazineAmount / AmmoAmount rounds. */
-	Weapon,
+	/** Gives the player Bow. */
+	Bow,
 	/** Adds KeycardId to the player's keycard ring. */
 	Keycard,
-	/** Adds AmmoAmount rounds to the player's reserve. */
-	Ammo
+	/** Adds ArrowCount of Arrow to the quiver, up to its cap. */
+	Arrows
 };
 
 /**
- * A thing on the floor the player walks up to and presses Interact on. One class covers the
- * pistol, the keycard and spare ammo; which one it is, is data.
+ * A thing on the floor the player walks up to and presses Interact on. One class covers a bow,
+ * a keycard and a bundle of arrows; which one it is, is data.
  *
  * Thugs spawn these from AThugCharacter::DropOnDeath.
  */
@@ -37,27 +38,23 @@ public:
 	APickupActor();
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
-	EPickupType PickupType = EPickupType::Weapon;
+	EPickupType PickupType = EPickupType::Keycard;
 
-	/**
-	 * Weapon a Weapon pickup puts in the player's hotbar, and the slot an Ammo pickup tops up.
-	 * Soft so a level full of pickups does not pull every weapon definition into memory.
-	 * An Ammo pickup with none set refills whatever is in the player's hands.
-	 */
+	/** The bow a Bow pickup gives. Soft so a level of pickups does not load every definition. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
-	TSoftObjectPtr<UWeaponDefinition> Weapon;
+	TSoftObjectPtr<UBowDefinition> Bow;
+
+	/** The arrow type an Arrows pickup adds. None set means the arrow nocked in the active slot. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
+	TSoftObjectPtr<UArrowDefinition> Arrow;
 
 	/** Keycard id granted by a Keycard pickup. Doors match on this. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
 	FName KeycardId = FName(TEXT("cellblock"));
 
-	/** Reserve rounds for an Ammo pickup; spare rounds for a Weapon pickup. */
+	/** Arrows an Arrows pickup adds. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup", meta = (ClampMin = "0"))
-	int32 AmmoAmount = 24;
-
-	/** Rounds already in the magazine when a Weapon pickup is taken. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup", meta = (ClampMin = "0"))
-	int32 MagazineAmount = 12;
+	int32 ArrowCount = 6;
 
 	/** Optional mission objective completed the moment this is picked up. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
@@ -72,8 +69,7 @@ public:
 	TObjectPtr<UStaticMeshComponent> Mesh;
 
 	/**
-	 * Four boxes the pickup's shape is assembled from: slide, frame, grip and trigger thug for
-	 * the pistol, body and stripe for the keycard. Fixed components rather than script-created
+	 * Four boxes the pickup's shape is assembled from: body and stripe for the keycard. Fixed components rather than script-created
 	 * subobjects because a Blueprint CDO's component templates have to exist in C++ for the
 	 * content script to be able to write to them reliably.
 	 *

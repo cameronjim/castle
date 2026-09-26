@@ -42,6 +42,14 @@ float UHealthComponent::ApplyMeleeDamage(float DamageAmount, AActor* DamageInsti
 	return Taken;
 }
 
+void UHealthComponent::Stagger(AActor* DamageInstigator)
+{
+	if (!bIsDead)
+	{
+		OnStaggered.Broadcast(this, DamageInstigator);
+	}
+}
+
 float UHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator)
 {
 	if (DamageAmount <= 0.f || bInvulnerable || bIsDead)

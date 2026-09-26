@@ -16,6 +16,7 @@
 #include "CastleTestUtils.generated.h"
 
 class AGrappleAnchor;
+class UArrowDefinition;
 class UBoxComponent;
 class UFlashbackDefinition;
 class UHealthComponent;
@@ -117,14 +118,31 @@ public:
 	// --- Inventory ------------------------------------------------------------------------------
 	UPROPERTY() int32 InventoryChangedCount = 0;
 	UPROPERTY() int32 ActiveSlotChangedCount = 0;
-	UPROPERTY() EHotbarSlot LastOldHotbarSlot = EHotbarSlot::Hands;
-	UPROPERTY() EHotbarSlot LastNewHotbarSlot = EHotbarSlot::Hands;
+	UPROPERTY() int32 LastOldArrowSlot = 0;
+	UPROPERTY() int32 LastNewArrowSlot = 0;
 
 	UFUNCTION()
 	void HandleInventoryChanged();
 
 	UFUNCTION()
-	void HandleActiveSlotChanged(EHotbarSlot OldSlot, EHotbarSlot NewSlot);
+	void HandleActiveSlotChanged(int32 OldSlot, int32 NewSlot);
+
+	// --- Bow ------------------------------------------------------------------------------------
+	UPROPERTY() int32 DrawChangedCount = 0;
+	UPROPERTY() float LastDrawFraction = -1.f;
+	UPROPERTY() int32 ArrowFiredCount = 0;
+	UPROPERTY() int32 ArrowHitCount = 0;
+	UPROPERTY() float LastArrowHitDamage = 0.f;
+	UPROPERTY() bool bLastArrowHitHeadshot = false;
+
+	UFUNCTION()
+	void HandleDrawChanged(float Fraction);
+
+	UFUNCTION()
+	void HandleArrowFired(UArrowDefinition* Arrow);
+
+	UFUNCTION()
+	void HandleArrowHit(AActor* HitActor, float Damage, bool bHeadshot);
 
 	// --- Stagger --------------------------------------------------------------------------------
 	UPROPERTY() int32 StaggeredCount = 0;

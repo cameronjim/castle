@@ -3,38 +3,35 @@
 #include "Player/InventoryComponent.h"
 
 #include "Castle.h"
+#include "Combat/ArrowProjectile.h"
+#include "Combat/BowDefinition.h"
 #include "Combat/WeaponComponent.h"
-#include "Engine/World.h"
+#include "Combat/WeaponDefinition.h"
 #include "GameFramework/Actor.h"
-#include "TimerManager.h"
+#include "Mission/MissionDefinition.h"
 
 UInventoryComponent::UInventoryComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 
-	Slots.SetNum(CastleHotbarSlotCount);
+	Arrows.SetNum(CastleQuiverSlotCount);
 }
 
 void UInventoryComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	EnsureHands();
+	EnsureStandardSlot();
 
-	// Whatever the mission granted is already in the slots by now; this only makes sure the
-	// weapon component is pointed at the active one and nothing is stuck mid-swap.
-	ApplyActiveSlotToWeapon();
+	// Whatever the mission granted is already in by now; this makes sure the melee fallback is
+	// pointed at Hands and the HUD paints the quiver once.
+	ApplyHandsToWeapon();
 	OnInventoryChanged.Broadcast();
 }
 
-void UInventoryComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+int32 UInventoryComponent::SlotToIndex(int32 Slot)
 {
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(SwapTimerHandle);
-	}
-
-	Super::EndPlay(EndPlayReason);
+	return (Slot >= 1 && Slot <= CastleQuiverSlotCount) ? Slot - 1 : INDEX_NONE;
 }
 
 UWeaponDefinition* UInventoryComponent::GetHandsDefinition()
@@ -54,342 +51,290 @@ UWeaponDefinition* UInventoryComponent::GetHandsDefinition()
 
 	if (!FallbackHands)
 	{
-		// Automation worlds have no content; Hands still have to exist, because every rule in
-		// the semantics doc assumes slot 0 is occupied.
+		// Automation worlds have no content; the melee fallback still has to exist.
 		FallbackHands = NewObject<UWeaponDefinition>(this, TEXT("FallbackHands"));
 		FallbackHands->DisplayName = NSLOCTEXT("Castle", "WeaponHands", "Fists");
 		FallbackHands->ShortName = NSLOCTEXT("Castle", "WeaponHandsShort", "Fists");
-		FallbackHands->Slot = EHotbarSlot::Hands;
 		FallbackHands->bIsMelee = true;
 		FallbackHands->Damage = 15.f;
 		FallbackHands->MagazineSize = 0;
 		FallbackHands->DefaultReserve = 0;
 	}
-
 	return FallbackHands;
 }
 
-void UInventoryComponent::EnsureHands()
+UArrowDefinition* UInventoryComponent::GetStandardArrowDefinition()
 {
-	if (Slots.Num() != CastleHotbarSlotCount)
+	if (HasAnyFlags(RF_ClassDefaultObject))
 	{
-		Slots.SetNum(CastleHotbarSlotCount);
+		return nullptr;
 	}
 
-	FCastleInventorySlot& Hands = Slots[static_cast<int32>(EHotbarSlot::Hands)];
-	if (Hands.Weapon)
+	if (!StandardArrowDefinition.IsNull())
+	{
+		if (UArrowDefinition* Loaded = StandardArrowDefinition.LoadSynchronous())
+		{
+			return Loaded;
+		}
+	}
+
+	if (!FallbackStandardArrow)
+	{
+		// Same reason as FallbackHands: slot 1 is never empty, content or not.
+		FallbackStandardArrow = NewObject<UArrowDefinition>(this, TEXT("FallbackStandardArrow"));
+		FallbackStandardArrow->DisplayName = NSLOCTEXT("Castle", "ArrowStandard", "Standard arrow");
+		FallbackStandardArrow->ShortName = NSLOCTEXT("Castle", "ArrowStandardShort", "Arrow");
+		FallbackStandardArrow->Slot = 1;
+		FallbackStandardArrow->Damage = 40.f;
+		FallbackStandardArrow->Cap = 30;
+		FallbackStandardArrow->bRecoverable = true;
+		FallbackStandardArrow->ProjectileClass = AArrowProjectile::StaticClass();
+	}
+	return FallbackStandardArrow;
+}
+
+void UInventoryComponent::EnsureStandardSlot()
+{
+	if (Arrows.Num() != CastleQuiverSlotCount)
+	{
+		Arrows.SetNum(CastleQuiverSlotCount);
+	}
+	if (Arrows[0].Arrow)
 	{
 		return;
 	}
-
-	Hands.Weapon = GetHandsDefinition();
-	Hands.Magazine = 0;
-	Hands.Reserve = 0;
+	Arrows[0].Arrow = GetStandardArrowDefinition();
+	Arrows[0].Count = 0;
 }
 
-UWeaponComponent* UInventoryComponent::FindWeaponComponent() const
+void UInventoryComponent::ApplyHandsToWeapon()
 {
 	const AActor* Owner = GetOwner();
-	return Owner ? Owner->FindComponentByClass<UWeaponComponent>() : nullptr;
-}
-
-FCastleInventorySlot UInventoryComponent::GetSlot(EHotbarSlot Slot) const
-{
-	const int32 Index = static_cast<int32>(Slot);
-	return Slots.IsValidIndex(Index) ? Slots[Index] : FCastleInventorySlot();
-}
-
-bool UInventoryComponent::IsSlotEmpty(EHotbarSlot Slot) const
-{
-	return GetSlot(Slot).IsEmpty();
-}
-
-UWeaponDefinition* UInventoryComponent::GetActiveWeapon() const
-{
-	return GetSlot(ActiveSlot).Weapon;
-}
-
-void UInventoryComponent::ApplyActiveSlotToWeapon()
-{
-	UWeaponComponent* Weapon = FindWeaponComponent();
-	if (!Weapon)
+	UWeaponComponent* Weapon = Owner ? Owner->FindComponentByClass<UWeaponComponent>() : nullptr;
+	if (Weapon && Weapon->GetActiveDefinition() == nullptr)
 	{
-		return;
+		Weapon->SetActiveWeapon(GetHandsDefinition(), 0, 0);
 	}
-
-	const FCastleInventorySlot Slot = GetSlot(ActiveSlot);
-	Weapon->SetInventory(this);
-	Weapon->SetActiveWeapon(Slot.Weapon, Slot.Magazine, Slot.Reserve);
 }
 
-bool UInventoryComponent::SelectSlot(EHotbarSlot Slot, bool bImmediate)
-{
-	EnsureHands();
+// --- Bow --------------------------------------------------------------------------------------------
 
-	const int32 Index = static_cast<int32>(Slot);
-	if (!Slots.IsValidIndex(Index))
+bool UInventoryComponent::GiveBow(UBowDefinition* Definition)
+{
+	if (Bow == Definition)
 	{
 		return false;
 	}
-
-	if (Slots[Index].IsEmpty())
-	{
-		// An empty slot is not a weapon you can hold; pressing its key does nothing at all.
-		UE_LOG(LogCastle, Verbose, TEXT("%s: hotbar slot %d is empty."), *GetNameSafe(GetOwner()), Index);
-		return false;
-	}
-
-	if (Slot == ActiveSlot)
-	{
-		return false;
-	}
-
-	const EHotbarSlot OldSlot = ActiveSlot;
-	ActiveSlot = Slot;
-
-	ApplyActiveSlotToWeapon();
-	StartSwap(bImmediate);
-
-	OnActiveSlotChanged.Broadcast(OldSlot, ActiveSlot);
+	Bow = Definition;
+	UE_LOG(LogCastle, Log, TEXT("%s now carries bow %s."), *GetNameSafe(GetOwner()), *GetNameSafe(Definition));
 	OnInventoryChanged.Broadcast();
 	return true;
 }
 
-int32 UInventoryComponent::FindAdjacentSlot(int32 Step) const
+// --- Quiver -----------------------------------------------------------------------------------------
+
+int32 UInventoryComponent::AddArrows(UArrowDefinition* Definition, int32 Count)
 {
-	const int32 Count = Slots.Num();
-	if (Count <= 0)
-	{
-		return INDEX_NONE;
-	}
-
-	int32 Index = static_cast<int32>(ActiveSlot);
-	for (int32 Tried = 0; Tried < Count - 1; ++Tried)
-	{
-		Index = (Index + Step + Count) % Count;
-		if (!Slots[Index].IsEmpty())
-		{
-			return Index;
-		}
-	}
-
-	return INDEX_NONE;
-}
-
-bool UInventoryComponent::SelectNextSlot()
-{
-	const int32 Index = FindAdjacentSlot(1);
-	return Index != INDEX_NONE && SelectSlot(static_cast<EHotbarSlot>(Index));
-}
-
-bool UInventoryComponent::SelectPreviousSlot()
-{
-	const int32 Index = FindAdjacentSlot(-1);
-	return Index != INDEX_NONE && SelectSlot(static_cast<EHotbarSlot>(Index));
-}
-
-void UInventoryComponent::StartSwap(bool bImmediate)
-{
-	UWorld* World = GetWorld();
-	if (World)
-	{
-		World->GetTimerManager().ClearTimer(SwapTimerHandle);
-	}
-
-	if (bImmediate || SwapSeconds <= 0.f)
-	{
-		bSwapping = false;
-		return;
-	}
-
-	bSwapping = true;
-
-	// With no world (an automation test) the lockout stays up until FinishSwapNow is called,
-	// which is exactly what the swap-lockout test wants to drive by hand.
-	if (World)
-	{
-		World->GetTimerManager().SetTimer(
-			SwapTimerHandle, this, &UInventoryComponent::FinishSwapNow, SwapSeconds, false);
-	}
-}
-
-void UInventoryComponent::FinishSwapNow()
-{
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(SwapTimerHandle);
-	}
-
-	if (!bSwapping)
-	{
-		return;
-	}
-
-	bSwapping = false;
-	OnInventoryChanged.Broadcast();
-}
-
-bool UInventoryComponent::AddWeapon(UWeaponDefinition* Definition)
-{
-	if (!Definition)
-	{
-		return false;
-	}
-
-	EnsureHands();
-
-	const int32 Index = static_cast<int32>(Definition->Slot);
-	if (!Slots.IsValidIndex(Index))
-	{
-		UE_LOG(LogCastle, Warning, TEXT("%s: %s wants hotbar slot %d, which does not exist."),
-			*GetNameSafe(GetOwner()), *Definition->GetName(), Index);
-		return false;
-	}
-
-	FCastleInventorySlot& Slot = Slots[Index];
-	Slot.Weapon = Definition;
-	Slot.Magazine = Definition->bIsMelee ? 0 : Definition->MagazineSize;
-	Slot.Reserve = Definition->bIsMelee ? 0 : Definition->DefaultReserve;
-
-	UE_LOG(LogCastle, Log, TEXT("%s picked up %s into slot %d."),
-		*GetNameSafe(GetOwner()), *Definition->GetName(), Index);
-
-	// Picking a gun up while already holding one must not yank it out of your hands mid-fight.
-	const bool bAutoSelect = ActiveSlot == EHotbarSlot::Hands && Definition->Slot != EHotbarSlot::Hands;
-	if (bAutoSelect)
-	{
-		SelectSlot(Definition->Slot);
-	}
-	else if (Definition->Slot == ActiveSlot)
-	{
-		ApplyActiveSlotToWeapon();
-	}
-
-	OnInventoryChanged.Broadcast();
-	return true;
-}
-
-bool UInventoryComponent::AddWeaponWithAmmo(UWeaponDefinition* Definition, int32 Magazine, int32 Reserve)
-{
-	if (!AddWeapon(Definition))
-	{
-		return false;
-	}
-
-	// What this particular pickup carries, which can differ from the definition's defaults - a
-	// half-empty gun off a dead guard.
-	SetSlotAmmo(Definition->Slot,
-		FMath::Clamp(Magazine, 0, FMath::Max(Definition->MagazineSize, 0)), FMath::Max(Reserve, 0));
-
-	if (Definition->Slot == ActiveSlot)
-	{
-		ApplyActiveSlotToWeapon();
-	}
-	return true;
-}
-
-bool UInventoryComponent::AddAmmoToSlot(EHotbarSlot Slot, int32 Rounds)
-{
-	const int32 Index = static_cast<int32>(Slot);
-	if (Rounds <= 0 || !Slots.IsValidIndex(Index) || !Slots[Index].IsRanged())
-	{
-		return false;
-	}
-
-	Slots[Index].Reserve += Rounds;
-
-	if (Slot == ActiveSlot)
-	{
-		ApplyActiveSlotToWeapon();
-	}
-
-	OnInventoryChanged.Broadcast();
-	return true;
-}
-
-bool UInventoryComponent::AddAmmo(UWeaponDefinition* Definition, int32 Rounds)
-{
-	// No definition on an ammo pickup means "whatever is in my hands", which is what a guard's
-	// dropped magazine should do.
-	const EHotbarSlot Slot = Definition ? Definition->Slot : ActiveSlot;
-	return AddAmmoToSlot(Slot, Rounds);
-}
-
-void UInventoryComponent::SetSlotAmmo(EHotbarSlot Slot, int32 Magazine, int32 Reserve)
-{
-	const int32 Index = static_cast<int32>(Slot);
-	if (!Slots.IsValidIndex(Index))
-	{
-		return;
-	}
-
-	FCastleInventorySlot& Entry = Slots[Index];
-	if (Entry.Magazine == Magazine && Entry.Reserve == Reserve)
-	{
-		return;
-	}
-
-	Entry.Magazine = Magazine;
-	Entry.Reserve = Reserve;
-	OnInventoryChanged.Broadcast();
-}
-
-void UInventoryComponent::Clear()
-{
-	const EHotbarSlot OldSlot = ActiveSlot;
-
-	Slots.Reset();
-	Slots.SetNum(CastleHotbarSlotCount);
-	Keycards.Reset();
-	ActiveSlot = EHotbarSlot::Hands;
-
-	EnsureHands();
-
-	for (UWeaponDefinition* Definition : StartingSlots)
-	{
-		if (!Definition || Definition->Slot == EHotbarSlot::Hands)
-		{
-			continue;
-		}
-		const int32 Index = static_cast<int32>(Definition->Slot);
-		if (!Slots.IsValidIndex(Index))
-		{
-			continue;
-		}
-		Slots[Index].Weapon = Definition;
-		Slots[Index].Magazine = Definition->bIsMelee ? 0 : Definition->MagazineSize;
-		Slots[Index].Reserve = Definition->bIsMelee ? 0 : Definition->DefaultReserve;
-	}
-
-	// A clear is not a weapon switch: nothing should be locked out afterwards.
-	bSwapping = false;
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(SwapTimerHandle);
-	}
-
-	ApplyActiveSlotToWeapon();
-
-	if (OldSlot != ActiveSlot)
-	{
-		OnActiveSlotChanged.Broadcast(OldSlot, ActiveSlot);
-	}
-	OnInventoryChanged.Broadcast();
-}
-
-void UInventoryComponent::ApplyStartingWeapons(const TArray<UWeaponDefinition*>& Weapons)
-{
-	StartingSlots.Reset();
-	for (UWeaponDefinition* Definition : Weapons)
+	const int32 Index = Definition ? SlotToIndex(Definition->Slot) : INDEX_NONE;
+	if (Index == INDEX_NONE || Count < 0)
 	{
 		if (Definition)
 		{
-			StartingSlots.Add(Definition);
+			UE_LOG(LogCastle, Warning, TEXT("%s: %s wants quiver slot %d, which does not exist."),
+				*GetNameSafe(GetOwner()), *Definition->GetName(), Definition->Slot);
 		}
+		return 0;
 	}
 
+	EnsureStandardSlot();
+	FCastleQuiverSlot& Entry = Arrows[Index];
+	if (Entry.Arrow != Definition)
+	{
+		if (Entry.Arrow && Entry.Arrow->Slot == Definition->Slot && Index != 0)
+		{
+			UE_LOG(LogCastle, Warning, TEXT("%s: %s replaces %s in quiver slot %d."), *GetNameSafe(GetOwner()),
+				*Definition->GetName(), *Entry.Arrow->GetName(), Definition->Slot);
+		}
+		Entry.Arrow = Definition;
+		Entry.Count = 0;
+	}
+
+	const int32 Before = Entry.Count;
+	Entry.Count = FMath::Clamp(Entry.Count + Count, 0, FMath::Max(Definition->Cap, 0));
+	OnInventoryChanged.Broadcast();
+	return Entry.Count - Before;
+}
+
+bool UInventoryComponent::ConsumeArrow(int32 Slot)
+{
+	const int32 Index = SlotToIndex(Slot);
+	if (Index == INDEX_NONE || !Arrows.IsValidIndex(Index) || Arrows[Index].IsEmpty() || Arrows[Index].Count <= 0)
+	{
+		return false;
+	}
+	--Arrows[Index].Count;
+	OnInventoryChanged.Broadcast();
+	return true;
+}
+
+void UInventoryComponent::SetArrowCount(int32 Slot, int32 Count)
+{
+	const int32 Index = SlotToIndex(Slot);
+	if (Index == INDEX_NONE || !Arrows.IsValidIndex(Index) || Arrows[Index].IsEmpty())
+	{
+		return;
+	}
+	Arrows[Index].Count = FMath::Clamp(Count, 0, FMath::Max(Arrows[Index].Arrow->Cap, 0));
+	OnInventoryChanged.Broadcast();
+}
+
+FCastleQuiverSlot UInventoryComponent::GetArrowSlot(int32 Slot) const
+{
+	const int32 Index = SlotToIndex(Slot);
+	return Arrows.IsValidIndex(Index) ? Arrows[Index] : FCastleQuiverSlot();
+}
+
+UArrowDefinition* UInventoryComponent::GetActiveArrow() const
+{
+	return GetArrowSlot(ActiveArrowSlot).Arrow;
+}
+
+int32 UInventoryComponent::FindArrowSlotByEffect(EArrowHitEffect Effect) const
+{
+	for (int32 Index = 0; Index < Arrows.Num(); ++Index)
+	{
+		if (Arrows[Index].Arrow && Arrows[Index].Arrow->OnHitEffect == Effect)
+		{
+			return Index + 1;
+		}
+	}
+	return INDEX_NONE;
+}
+
+bool UInventoryComponent::SelectArrowSlot(int32 Slot)
+{
+	EnsureStandardSlot();
+	if (SlotToIndex(Slot) == INDEX_NONE || IsArrowSlotEmpty(Slot))
+	{
+		// An empty slot holds nothing to nock; its key does nothing at all.
+		UE_LOG(LogCastle, Verbose, TEXT("%s: quiver slot %d is empty."), *GetNameSafe(GetOwner()), Slot);
+		return false;
+	}
+	if (Slot == ActiveArrowSlot)
+	{
+		return false;
+	}
+
+	const int32 OldSlot = ActiveArrowSlot;
+	ActiveArrowSlot = Slot;
+	OnActiveArrowSlotChanged.Broadcast(OldSlot, ActiveArrowSlot);
+	OnInventoryChanged.Broadcast();
+	return true;
+}
+
+int32 UInventoryComponent::FindAdjacentArrowSlot(int32 Step) const
+{
+	const int32 Count = Arrows.Num();
+	int32 Index = SlotToIndex(ActiveArrowSlot);
+	if (Count <= 0 || Index == INDEX_NONE)
+	{
+		return INDEX_NONE;
+	}
+	for (int32 Tried = 0; Tried < Count - 1; ++Tried)
+	{
+		Index = (Index + Step + Count) % Count;
+		if (!Arrows[Index].IsEmpty())
+		{
+			return Index + 1;
+		}
+	}
+	return INDEX_NONE;
+}
+
+bool UInventoryComponent::SelectNextArrowSlot()
+{
+	const int32 Slot = FindAdjacentArrowSlot(1);
+	return Slot != INDEX_NONE && SelectArrowSlot(Slot);
+}
+
+bool UInventoryComponent::SelectPreviousArrowSlot()
+{
+	const int32 Slot = FindAdjacentArrowSlot(-1);
+	return Slot != INDEX_NONE && SelectArrowSlot(Slot);
+}
+
+// --- Mission ----------------------------------------------------------------------------------------
+
+void UInventoryComponent::Clear()
+{
+	const int32 OldSlot = ActiveArrowSlot;
+
+	Arrows.Reset();
+	Arrows.SetNum(CastleQuiverSlotCount);
+	Keycards.Reset();
+	Bow = StartingBow;
+	ActiveArrowSlot = 1;
+
+	for (const FCastleQuiverSlot& Grant : StartingArrows)
+	{
+		const int32 Index = Grant.Arrow ? SlotToIndex(Grant.Arrow->Slot) : INDEX_NONE;
+		if (Index == INDEX_NONE)
+		{
+			continue;
+		}
+		Arrows[Index].Arrow = Grant.Arrow;
+		Arrows[Index].Count = FMath::Clamp(Grant.Count, 0, FMath::Max(Grant.Arrow->Cap, 0));
+	}
+	EnsureStandardSlot();
+	ApplyHandsToWeapon();
+
+	if (OldSlot != ActiveArrowSlot)
+	{
+		OnActiveArrowSlotChanged.Broadcast(OldSlot, ActiveArrowSlot);
+	}
+	OnInventoryChanged.Broadcast();
+}
+
+void UInventoryComponent::ApplyStartingQuiver(UBowDefinition* InBow, const TArray<FCastleQuiverSlot>& InArrows)
+{
+	StartingBow = InBow;
+	StartingArrows.Reset();
+	for (const FCastleQuiverSlot& Grant : InArrows)
+	{
+		if (Grant.Arrow)
+		{
+			StartingArrows.Add(Grant);
+		}
+	}
 	Clear();
 }
+
+void UInventoryComponent::ApplyMissionStart(const UMissionDefinition* Mission)
+{
+	if (!Mission)
+	{
+		return;
+	}
+
+	// Soft references so a mission asset does not drag every arrow into memory until it starts.
+	UBowDefinition* StartBow = Mission->StartingBow.IsNull() ? nullptr : Mission->StartingBow.LoadSynchronous();
+	TArray<FCastleQuiverSlot> Grants;
+	for (const FCastleArrowGrant& Grant : Mission->StartingArrows)
+	{
+		if (UArrowDefinition* Arrow = Grant.Arrow.IsNull() ? nullptr : Grant.Arrow.LoadSynchronous())
+		{
+			FCastleQuiverSlot& Slot = Grants.AddDefaulted_GetRef();
+			Slot.Arrow = Arrow;
+			Slot.Count = Grant.Count;
+		}
+	}
+	ApplyStartingQuiver(StartBow, Grants);
+
+	UE_LOG(LogCastle, Log, TEXT("%s: mission %s grants bow %s and %d arrow type(s)."), *GetNameSafe(GetOwner()),
+		*GetNameSafe(Mission), *GetNameSafe(StartBow), Grants.Num());
+}
+
+// --- Keycards ---------------------------------------------------------------------------------------
 
 bool UInventoryComponent::HasKeycard(FName KeycardId) const
 {
@@ -404,8 +349,7 @@ bool UInventoryComponent::GiveKeycard(FName KeycardId)
 	}
 
 	Keycards.Add(KeycardId);
-	UE_LOG(LogCastle, Log, TEXT("%s picked up keycard '%s'."),
-		*GetNameSafe(GetOwner()), *KeycardId.ToString());
+	UE_LOG(LogCastle, Log, TEXT("%s picked up keycard '%s'."), *GetNameSafe(GetOwner()), *KeycardId.ToString());
 
 	OnInventoryChanged.Broadcast();
 	return true;

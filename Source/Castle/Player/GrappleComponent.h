@@ -9,6 +9,8 @@
 class ACharacter;
 class AGrappleAnchor;
 class AGrappleArrowProjectile;
+class UArrowDefinition;
+class UInventoryComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleLandedSignature, AGrappleAnchor*, Anchor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrappleAnchor*, Anchor);
@@ -18,13 +20,15 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrapp
  *
  * Every RefreshSeconds it picks the best anchor: enabled, between MinRange and Range of the character, within
  * ConeDegrees of the camera forward, in line of sight of the camera; the smallest angle wins.
- * TryFire spends a grapple arrow and shoots it at that anchor; when it arrives the character
+ * TryFire spends a grapple arrow from the quiver (the slot whose arrow has OnHitEffect Grapple)
+ * and shoots it through the bow at that anchor, whatever quiver slot is active (Q, or a release
+ * with the grapple slot nocked); when it arrives the character
  * zips along a straight line to the anchor's landing point at ZipSpeed, in Flying mode with
  * gravity and movement input off (the camera still turns). Firing again mid-zip is allowed once
  * ZipProgress reaches ChainMinProgress and redirects the zip to the new anchor. A zip blocked by
  * anything but the anchor's own building (the one under its landing point, and any neighbour
  * sharing its corner) stops and drops the character. Arrows stay in the
- * anchor and come back when the character is within RecoverRadius of it.
+ * anchor and go back in the quiver when the character is within RecoverRadius of it.
  *
  * Anchors are bucketed into a GridCellSize grid the first time they are needed, so the query
  * only looks at the cells around the character however many anchors the district has.
@@ -42,8 +46,9 @@ public:
 	AGrappleAnchor* GetTargetAnchor() const { return TargetAnchor.Get(); }
 
 	/**
-	 * Fires a grapple arrow at the target anchor. Refused (false) with no target, no arrows, an
-	 * arrow already in flight, or mid-zip before ChainMinProgress.
+	 * Fires a grapple arrow at the target anchor, from the quiver's grapple slot, out of the bow hand.
+	 * Refused (false, nothing spent) with no target, no grapple arrows, an arrow already in flight,
+	 * or mid-zip before ChainMinProgress.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Grapple")
 	bool TryFire();
@@ -97,11 +102,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Grapple")
 	bool IsArrowInFlight() const { return InFlightArrow.IsValid(); }
 
+	/** Grapple arrows in the owner's quiver; 0 when it carries no grapple slot. */
 	UFUNCTION(BlueprintPure, Category = "Grapple")
-	int32 GetGrappleArrows() const { return GrappleArrows; }
+	int32 GetGrappleArrows() const;
 
+	/** Sets the quiver's grapple count (clamped to its Cap). Does nothing without a grapple slot. */
 	UFUNCTION(BlueprintCallable, Category = "Grapple")
-	void SetGrappleArrows(int32 Count) { GrappleArrows = FMath::Max(0, Count); }
+	void SetGrappleArrows(int32 Count);
 
 	/** Arrows fired this session. The HUD shows the key hint for the first few. */
 	UFUNCTION(BlueprintPure, Category = "Grapple")
@@ -167,20 +174,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "100.0"))
 	float GridCellSize = 2500.f;
 
-	/** Where on the character the arrow leaves from, relative to the actor origin. */
+	/** Where the arrow leaves from when the owner has no bow component, relative to the actor origin. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple")
 	FVector ArrowLaunchOffset = FVector(40.f, 0.f, 50.f);
 
-	/** What TryFire spawns. */
+	/** What TryFire spawns when the grapple arrow definition names no grapple projectile class. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple")
 	TSubclassOf<AGrappleArrowProjectile> ArrowClass;
-
-	/**
-	 * Grapple arrows carried. TODO(stage3): read from the quiver once arrows are
-	 * UArrowDefinitions in the inventory; until then a large stand-in count.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0"))
-	int32 GrappleArrows = 99;
 
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
@@ -217,6 +217,14 @@ protected:
 	void SetSupportsIgnored(bool bIgnore);
 
 	ACharacter* GetCharacter() const;
+
+	UInventoryComponent* GetInventory() const;
+
+	/** The quiver slot holding grapple arrows, or INDEX_NONE. */
+	int32 FindGrappleSlot() const;
+
+	/** Spawns the grapple arrow at the bow hand (or ArrowLaunchOffset) aimed at Anchor. */
+	AGrappleArrowProjectile* SpawnGrappleArrow(UArrowDefinition* Definition, const AGrappleAnchor* Anchor) const;
 
 	TWeakObjectPtr<AGrappleAnchor> TargetAnchor;
 	TWeakObjectPtr<AGrappleAnchor> ZipAnchor;

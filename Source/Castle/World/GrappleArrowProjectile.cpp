@@ -2,27 +2,28 @@
 
 #include "World/GrappleArrowProjectile.h"
 
-#include "Components/StaticMeshComponent.h"
-#include "Engine/StaticMesh.h"
+#include "Components/SphereComponent.h"
+#include "GameFramework/ProjectileMovementComponent.h"
 #include "Player/GrappleComponent.h"
-#include "UObject/ConstructorHelpers.h"
 #include "World/GrappleAnchor.h"
 
 AGrappleArrowProjectile::AGrappleArrowProjectile()
 {
-	PrimaryActorTick.bCanEverTick = true;
-
-	// A 70 cm shaft 2 cm thick along +X: the engine cylinder stands along Z, so it is pitched over.
-	Shaft = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Shaft"));
-	RootComponent = Shaft;
-	Shaft->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Shaft->SetCastShadow(false);
-	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cylinder(TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
-	if (Cylinder.Succeeded())
+	// It flies its own straight line; the projectile movement and the tip's collision stay off.
+	if (Collision)
 	{
-		Shaft->SetStaticMesh(Cylinder.Object);
+		Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
-	Shaft->SetWorldScale3D(FVector(0.02f, 0.02f, 0.7f));
+	if (Movement)
+	{
+		Movement->bAutoActivate = false;
+		Movement->ProjectileGravityScale = 0.f;
+	}
+	FletchingColor = FLinearColor(0.1f, 0.8f, 0.2f);
+}
+
+void AGrappleArrowProjectile::LaunchWithVelocity(const FVector& /*Velocity*/)
+{
 }
 
 void AGrappleArrowProjectile::Launch(AGrappleAnchor* Anchor, UGrappleComponent* InGrapple)
@@ -30,16 +31,17 @@ void AGrappleArrowProjectile::Launch(AGrappleAnchor* Anchor, UGrappleComponent* 
 	TargetAnchor = Anchor;
 	Grapple = InGrapple;
 	bArrived = false;
+	bInFlight = true;
 	if (Anchor)
 	{
-		const FVector Direction = (Anchor->GetMarkerLocation() - GetActorLocation()).GetSafeNormal();
-		SetActorRotation(FRotationMatrix::MakeFromZ(Direction).Rotator());
+		SetActorRotation((Anchor->GetMarkerLocation() - GetActorLocation()).Rotation());
 	}
 }
 
 void AGrappleArrowProjectile::Tick(float DeltaSeconds)
 {
-	Super::Tick(DeltaSeconds);
+	// Not Super: the anchor, not a walk-over, takes this arrow back.
+	AActor::Tick(DeltaSeconds);
 	Advance(DeltaSeconds);
 }
 
@@ -67,12 +69,14 @@ void AGrappleArrowProjectile::Advance(float DeltaSeconds)
 		Arrive();
 		return;
 	}
-	SetActorLocation(GetActorLocation() + ToTarget.GetSafeNormal() * Step);
+	SetActorLocationAndRotation(GetActorLocation() + ToTarget.GetSafeNormal() * Step, ToTarget.Rotation());
 }
 
 void AGrappleArrowProjectile::Arrive()
 {
 	bArrived = true;
+	bInFlight = false;
+	bStuck = true;
 	SetActorTickEnabled(false);
 
 	AGrappleAnchor* Anchor = TargetAnchor.Get();
