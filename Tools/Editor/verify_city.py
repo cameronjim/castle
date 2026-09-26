@@ -9,6 +9,9 @@ Prints one line per check and a final ``[Castle] verify_city PASS`` or ``FAIL``:
   Static mobility
 * handedness: the streets come out in the real order (1st Ave west of Ave A west of Ave B
   west of Ave C, East 6th south of East 11th), i.e. the map is not mirrored
+* the BP_GameMode_EastVillage override starting DA_CH01_Rooftops, one City_Obj_* volume per
+  chapter-1 objective sitting above its roof, the street lamps (light, pole, head) matching the
+  generator, and no prison-build actors (thugs, keycards, doors, pickups)
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
     UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
@@ -149,8 +152,62 @@ def run():
 
     ws = c.world_settings()
     gm = ws.get_editor_property("default_game_mode") if ws else None
-    check(gm is not None and "BP_CastleGameMode" in c.class_name(gm), "GameMode override is BP_CastleGameMode",
-          c.class_name(gm))
+    check(gm is not None and gen.DISTRICT_GAME_MODE in c.class_name(gm),
+          "GameMode override is " + gen.DISTRICT_GAME_MODE, c.class_name(gm))
+    mission = c.load_or_none(gen.MISSION_ASSET)
+    starting = None
+    if gm is not None:
+        try:
+            starting = unreal.get_default_object(gm).get_editor_property("starting_mission")
+        except Exception:  # noqa: BLE001
+            starting = None
+    check(mission is not None and starting == mission, "its StartingMission is DA_CH01_Rooftops",
+          c.safe_name(starting) if starting is not None else "None")
+
+    # Chapter 1 objective volumes: one per objective id, each above a roof.
+    volume_class = c.find_class("ObjectiveTriggerVolume", "/Script/Castle.ObjectiveTriggerVolume")
+    volumes = [a for a in all_actors if volume_class is not None and isinstance(a, volume_class)]
+    by_id = {}
+    for v in volumes:
+        by_id.setdefault(str(v.get_editor_property("objective_id")), []).append(v)
+    mission_ids = []
+    if mission is not None:
+        for obj in mission.get_editor_property("objectives") or []:
+            mission_ids.append(str(obj.get_editor_property("objective_id")))
+    check(sorted(mission_ids) == sorted(gen.OBJECTIVE_IDS), "DA_CH01_Rooftops objectives are "
+          + ", ".join(gen.OBJECTIVE_IDS), ", ".join(mission_ids))
+    detail = []
+    ok = len(volumes) == len(gen.OBJECTIVE_IDS)
+    for oid in gen.OBJECTIVE_IDS:
+        found = by_id.get(oid, [])
+        if len(found) != 1:
+            ok = False
+            detail.append("{0} x{1}".format(oid, len(found)))
+            continue
+        v = found[0]
+        osm = tag_value(v, "osm:")
+        rec = records.get(osm)
+        z = v.get_actor_location().z
+        above = rec is not None and abs(z - (rec["height_m"] * 100.0 + gen.OBJECTIVE_ABOVE_ROOF
+                                             + gen.OBJECTIVE_HALF_HEIGHT)) <= 1.0
+        ok = ok and above and v.get_actor_label() == gen.OBJECTIVE_PREFIX + oid
+        detail.append("{0} on {1}{2}".format(oid, osm, "" if above else " NOT above its roof"))
+    check(ok, "three objective volumes with the chapter-1 ObjectiveIds", "; ".join(detail))
+
+    # Street lamps: each light has its pole and head; shadows only near the park.
+    lights = {l[len(gen.LAMP_PREFIX):] for l in actors if l.startswith(gen.LAMP_PREFIX)}
+    poles = {l[len(gen.LAMP_POLE_PREFIX):] for l in actors if l.startswith(gen.LAMP_POLE_PREFIX)}
+    heads = {l[len(gen.LAMP_HEAD_PREFIX):] for l in actors if l.startswith(gen.LAMP_HEAD_PREFIX)}
+    shadowed = sum(1 for l, a in actors.items() if l.startswith(gen.LAMP_PREFIX)
+                   and a.get_editor_property("spot_light_component").get_editor_property("cast_shadows"))
+    expected = len(gen.lamp_spots(district))
+    check(len(lights) == expected and lights == poles == heads, "street lamps match the generator",
+          "{0} lights, {1} poles, {2} heads, {3} expected, {4} casting shadows".format(
+              len(lights), len(poles), len(heads), expected, shadowed))
+
+    prison = [a.get_actor_label() for a in all_actors
+              if any(w in gen.actor_class_name(a) for w in gen.PRISON_CLASS_WORDS)]
+    check(not prison, "no thug, keycard, door or pickup actors", ", ".join(prison[:5]))
     try:
         wp = ws.get_world_partition() if ws and hasattr(ws, "get_world_partition") else None
     except Exception:  # noqa: BLE001

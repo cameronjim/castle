@@ -18,7 +18,12 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   the road's buffer minus every carriageway, so they stop at the kerb of each crossing street.
 * the park at z = +5 cm (``City_Park_<id>``, M_Grass), minus the carriageways.
 * lighting (winter evening), a PlayerStart on East 7th Street facing the tenement row across
-  from Tompkins Square Park, a NavMeshBoundsVolume, and the BP_CastleGameMode override.
+  from Tompkins Square Park, a NavMeshBoundsVolume.
+* street lamps every 30 m on both sidewalks of every road (``City_Lamp_<n>`` spot light plus
+  ``City_LampPole_<n>`` and ``City_LampHead_<n>``); only the ones around the park cast shadows.
+  Lit windows are not built yet.
+* chapter 1: the BP_GameMode_EastVillage override (starts DA_CH01_Rooftops) and three
+  ``City_Obj_<objective>`` trigger volumes on roofs picked from the records.
 
 Idempotent: each mesh carries a ``CityHash`` metadata tag (hash of its source record and the
 generator version); a mesh is rebuilt only when that hash changes. Actors are found by label
@@ -606,7 +611,7 @@ FOG_DENSITY = 0.008
 # Auto exposure is off project-wide (Config/DefaultEngine.ini), so exposure is fixed: the
 # min/max brightness pair pins it the way L_Sandbox does, and the bias is the knob.
 EXPOSURE_BRIGHTNESS = 1.0
-EXPOSURE_BIAS = 1.0
+EXPOSURE_BIAS = 1.5
 
 
 def set_if_different(obj, prop, value, context, tol=1e-3):
@@ -786,10 +791,71 @@ def ensure_nav_volume(district, existing):
     return changes
 
 
+# --------------------------------------------------------------------------------------
+# chapter 1: the district's own game mode, and the objective volumes on three roofs
+# --------------------------------------------------------------------------------------
+
+DISTRICT_GAME_MODE = "BP_GameMode_EastVillage"
+MISSION_ASSET = "/Game/Missions/DA_CH01_Rooftops"
+OBJECTIVE_PREFIX = "City_Obj_"
+OBJECTIVE_IDS = ("reach_roof", "cross_block", "find_arrow")
+OBJECTIVE_START_RADIUS = 6000.0   # cm: reach_roof is the tallest building this close to the start
+OBJECTIVE_MIN_HEIGHT_M = 8.0      # cross_block and find_arrow skip sheds and garages
+OBJECTIVE_ABOVE_ROOF = 50.0       # cm between the roof and the bottom of the volume
+OBJECTIVE_HALF_HEIGHT = 150.0     # cm; tall enough to hold Kate's whole capsule
+
+# Actors the prison build put in its maps. None belong in the district.
+PRISON_CLASS_WORDS = ("Thug", "Guard", "Keycard", "Pickup", "Door")
+
+
+def ensure_district_game_mode():
+    """BP_GameMode_EastVillage (child of BP_CastleGameMode) starting DA_CH01_Rooftops.
+
+    Returns (generated class or None, number of changes)."""
+    parent = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
+    if parent is None:
+        c.log("skipped", DISTRICT_GAME_MODE, "BP_CastleGameMode_C not found; run create_blueprints.py")
+        return None, 0
+    full = c.asset_path(PLAYER_PATH, DISTRICT_GAME_MODE)
+    changes = 0
+    bp = c.load_or_none(full)
+    if bp is None:
+        factory = c.new_factory("BlueprintFactory")
+        if factory is None:
+            c.log("FAILED", full, "BlueprintFactory unavailable")
+            return None, 0
+        c.set_props(factory, [("parent_class", parent)], DISTRICT_GAME_MODE + " factory")
+        bp, _created = c.create_asset(DISTRICT_GAME_MODE, PLAYER_PATH, unreal.Blueprint, factory, quiet=True)
+        if bp is None:
+            return None, 0
+        c.log("created", full, "parent BP_CastleGameMode_C")
+        changes += 1
+
+    mission = c.load_or_none(MISSION_ASSET)
+    cdo = c.blueprint_cdo(bp)
+    if mission is None:
+        c.log("skipped", full, "DA_CH01_Rooftops missing; run create_mission_data.py")
+    elif cdo is not None and cdo.get_editor_property("starting_mission") != mission:
+        if c.set_props(cdo, [("starting_mission", mission)], DISTRICT_GAME_MODE):
+            changes += 1
+            c.log("updated", full, "starting_mission = DA_CH01_Rooftops")
+    if changes:
+        c.compile_blueprint(bp)
+        c.save(bp)
+    else:
+        c.log("exists", full)
+    return c.load_generated_class(PLAYER_PATH, DISTRICT_GAME_MODE), changes
+
+
 def ensure_game_mode():
-    game_mode = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
+    """The map's GameMode override: BP_GameMode_EastVillage, or BP_CastleGameMode as a fallback."""
+    game_mode, _changes = ensure_district_game_mode()
+    name = DISTRICT_GAME_MODE + "_C"
     if game_mode is None:
-        c.log("skipped", MAP_PATH, "BP_CastleGameMode_C not found; GameMode override unset")
+        game_mode = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
+        name = "BP_CastleGameMode_C"
+    if game_mode is None:
+        c.log("skipped", MAP_PATH, "no game mode class found; GameMode override unset")
         return 0
     ws = c.world_settings()
     if ws is None:
@@ -797,8 +863,408 @@ def ensure_game_mode():
     if ws.get_editor_property("default_game_mode") == game_mode:
         return 0
     ws.set_editor_property("default_game_mode", game_mode)
-    c.log("updated", MAP_PATH, "GameMode override = BP_CastleGameMode_C")
+    c.log("updated", MAP_PATH, "GameMode override = " + name)
     return 1
+
+
+def actor_class_name(actor):
+    try:
+        return actor.get_class().get_name()
+    except Exception:  # noqa: BLE001
+        return c.class_name(type(actor))
+
+
+def remove_prison_actors(existing):
+    """Delete anything the prison build would have placed (thugs, keycards, doors, pickups)."""
+    removed = 0
+    for label, actor in list(existing.items()):
+        cls = actor_class_name(actor)
+        if any(word in cls for word in PRISON_CLASS_WORDS):
+            actor.destroy_actor()
+            existing.pop(label, None)
+            removed += 1
+            c.log("updated", label, "removed prison-build actor ({0})".format(cls))
+    if not removed:
+        c.log("exists", MAP_PATH, "no thug, keycard, door or pickup actors")
+    return removed
+
+
+def _segments_cross(a, b, p, q):
+    def orient(o, s, t):
+        return (s[0] - o[0]) * (t[1] - o[1]) - (s[1] - o[1]) * (t[0] - o[0])
+    d1, d2 = orient(p, q, a), orient(p, q, b)
+    d3, d4 = orient(a, b, p), orient(a, b, q)
+    return (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0)
+
+
+def streets_crossed(district, a, b):
+    """Names of the road centre lines the segment a-b crosses."""
+    names = set()
+    for rec in district.roads:
+        for piece in rec["pieces"]:
+            path = district.ring_cm(piece)
+            if any(_segments_cross(a, b, p, q) for p, q in zip(path, path[1:])):
+                names.add(rec.get("name") or rec["id"])
+    return names
+
+
+def ring_distance(pt, ring):
+    """0 inside the ring, else the distance to its nearest edge."""
+    if geo.point_in_polygon(pt, ring):
+        return 0.0
+    return closest_point_on_polyline(pt, list(ring) + [ring[0]])[0]
+
+
+def oriented_rect(ring):
+    """Smallest rectangle around the ring with a side along one of its edges:
+    (centre x, centre y, half length, half width, yaw degrees)."""
+    best = None
+    n = len(ring)
+    for i in range(n):
+        ax, ay = ring[i]
+        bx, by = ring[(i + 1) % n]
+        L = math.hypot(bx - ax, by - ay)
+        if L < 1.0:
+            continue
+        ux, uy = (bx - ax) / L, (by - ay) / L
+        us = [x * ux + y * uy for x, y in ring]
+        vs = [-x * uy + y * ux for x, y in ring]
+        area = (max(us) - min(us)) * (max(vs) - min(vs))
+        if best is None or area < best[0]:
+            cu, cv = (max(us) + min(us)) * 0.5, (max(vs) + min(vs)) * 0.5
+            best = (area, cu * ux - cv * uy, cu * uy + cv * ux,
+                    (max(us) - min(us)) * 0.5, (max(vs) - min(vs)) * 0.5, math.degrees(math.atan2(uy, ux)))
+    return best[1:] if best else None
+
+
+def objective_roofs(district):
+    """{objective id: building record plus 'ring' and 'centre'} for the three chapter-1 roofs.
+
+    reach_roof: the tallest building within OBJECTIVE_START_RADIUS of the PlayerStart.
+    cross_block: the building on the same block (no street centre line between the two
+    centroids) farthest from it. find_arrow: the building nearest cross_block that is exactly
+    one street away from it and off the first block.
+    """
+    start, _rot = player_start_transform(district)
+    start = (start.x, start.y)
+    buildings = []
+    for rec in district.buildings:
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) >= 3:
+            buildings.append(dict(rec, ring=ring, centre=geo.centroid(ring)))
+
+    near = [b for b in buildings if ring_distance(start, b["ring"]) <= OBJECTIVE_START_RADIUS]
+    if not near:
+        return {}
+    first = max(near, key=lambda b: (b["height_m"], b["id"]))
+
+    def dist(a, b):
+        return math.hypot(a["centre"][0] - b["centre"][0], a["centre"][1] - b["centre"][1])
+
+    tall = [b for b in buildings if b["height_m"] >= OBJECTIVE_MIN_HEIGHT_M and b is not first]
+    same_block = [b for b in tall if not streets_crossed(district, first["centre"], b["centre"])]
+    if not same_block:
+        return {"reach_roof": first}
+    second = max(same_block, key=lambda b: (dist(first, b), b["id"]))
+
+    out = {"reach_roof": first, "cross_block": second}
+    candidates = sorted((b for b in tall if b is not second), key=lambda b: (dist(second, b), b["id"]))
+    for b in candidates:
+        if streets_crossed(district, first["centre"], b["centre"]) and \
+                len(streets_crossed(district, second["centre"], b["centre"])) == 1:
+            out["find_arrow"] = b
+            break
+    return out
+
+
+def ensure_objective_volumes(district, existing):
+    volume_class = c.find_class("ObjectiveTriggerVolume", "/Script/Castle.ObjectiveTriggerVolume")
+    if volume_class is None:
+        c.log("skipped", OBJECTIVE_PREFIX + "*", "AObjectiveTriggerVolume not exposed; build the module")
+        return 0
+    roofs = objective_roofs(district)
+    changes = 0
+    wanted = set()
+    for oid in OBJECTIVE_IDS:
+        rec = roofs.get(oid)
+        label = OBJECTIVE_PREFIX + oid
+        if rec is None:
+            c.log("FAILED", label, "no suitable roof found")
+            continue
+        wanted.add(label)
+        cx, cy, half_l, half_w, yaw = oriented_rect(rec["ring"])
+        roof_z = rec["height_m"] * 100.0
+        loc = unreal.Vector(cx, cy, roof_z + OBJECTIVE_ABOVE_ROOF + OBJECTIVE_HALF_HEIGHT)
+        rot = unreal.Rotator(0.0, 0.0, yaw)
+        extent = unreal.Vector(half_l, half_w, OBJECTIVE_HALF_HEIGHT)
+        tags = ["City", "CityObjective", "osm:" + rec["id"], "objective:" + oid]
+
+        actor = existing.get(label)
+        n = 0
+        if actor is not None and not isinstance(actor, volume_class):
+            actor.destroy_actor()
+            actor = None
+            n += 1
+        if actor is None:
+            actor = c.spawn_actor(volume_class, loc, rot, label=label)
+            if actor is None:
+                c.log("FAILED", label, "spawn_actor returned None")
+                continue
+            existing[label] = actor
+            n += 1
+        if not same_vector(actor.get_actor_location(), loc, 1.0):
+            actor.set_actor_location(loc, False, True)
+            n += 1
+        if abs(((actor.get_actor_rotation().yaw - yaw) + 180.0) % 360.0 - 180.0) > 0.1:
+            actor.set_actor_rotation(rot, False)
+            n += 1
+        if not same_vector(actor.get_actor_scale3d(), unreal.Vector(1.0, 1.0, 1.0), 1e-4):
+            actor.set_actor_scale3d(unreal.Vector(1.0, 1.0, 1.0))
+            n += 1
+        box = actor.get_editor_property("collision_component")
+        if box is not None and not same_vector(box.get_editor_property("box_extent"), extent, 1.0):
+            box.set_editor_property("box_extent", extent)
+            n += 1
+        if str(actor.get_editor_property("objective_id")) != oid:
+            actor.set_editor_property("objective_id", unreal.Name(oid))
+            n += 1
+        if [str(t) for t in actor.get_editor_property("tags")] != tags:
+            actor.set_editor_property("tags", [unreal.Name(t) for t in tags])
+            n += 1
+        changes += n
+        tags_rec = rec.get("tags", {})
+        address = "{0} {1}".format(tags_rec.get("addr:housenumber") or "", tags_rec.get("addr:street") or "").strip()
+        c.log("updated" if n else "exists", label, "osm {0}, {1:.1f} m, {2}, roof box {3:.0f} x {4:.0f} m".format(
+            rec["id"], rec["height_m"], address or "no address", half_l / 50.0, half_w / 50.0))
+
+    for label, actor in list(existing.items()):
+        if isinstance(actor, volume_class) and label not in wanted:
+            actor.destroy_actor()
+            existing.pop(label, None)
+            changes += 1
+            c.log("updated", label, "removed stray objective volume")
+    return changes
+
+
+# --------------------------------------------------------------------------------------
+# street lamps
+# --------------------------------------------------------------------------------------
+
+LAMP_PREFIX = "City_Lamp_"          # the light; what verify counts
+LAMP_POLE_PREFIX = "City_LampPole_"
+LAMP_HEAD_PREFIX = "City_LampHead_"
+LAMP_SPACING = 3000.0               # cm along each road, both sidewalks
+LAMP_MIN_GAP = 800.0                # no two lamps closer than this (corners where roads meet)
+LAMP_KERB_INSET = 60.0              # cm from the kerb into the sidewalk
+LAMP_POLE_HEIGHT = 700.0
+LAMP_POLE_DIAMETER = 14.0
+LAMP_ARM = 90.0                     # cm the head reaches out over the road
+LAMP_LUMENS = 2500.0
+LAMP_RADIUS = 1800.0
+LAMP_OUTER_CONE = 70.0              # degrees from straight down; the pool edge
+LAMP_INNER_CONE = 35.0
+LAMP_COLOR = (1.0, 0.75, 0.45)      # warm sodium
+LAMP_EMISSIVE = 2.0                 # before m.EMISSIVE_INTENSITY_FACTOR; higher clips the head to white
+LAMP_SHADOW_DISTANCE = 3500.0       # lamps this close to the park cast shadows; the rest don't
+MI_STREET_LAMP = m.MATERIALS_PATH + "/MI_StreetLamp"
+CYLINDER = "/Engine/BasicShapes/Cylinder"
+CUBE = "/Engine/BasicShapes/Cube"
+
+
+def lamp_spots(district):
+    """[(x, y, yaw toward the road, casts shadows)] in a stable order."""
+    roads = sorted(road_paths(district), key=lambda rp: rp[0]["id"])
+    carriageway = [(p, q, rec["width_m"] * 50.0) for rec, paths in roads
+                   for path in paths for p, q in zip(path, path[1:])]
+    rings = []
+    for rec in district.buildings:
+        ring = district.ring_cm(rec["outer"])
+        if len(ring) >= 3:
+            rings.append((geo.bounds(ring), ring))
+    ground = ground_ring_cm(district)
+    parks = [district.ring_cm(p["outer"]) for p in district.parks]
+
+    def in_carriageway(pt):
+        return any(closest_point_on_polyline(pt, [p, q])[0] < half + 30.0 for p, q, half in carriageway)
+
+    def in_building(pt):
+        for (x0, y0, x1, y1), ring in rings:
+            if x0 - 50 <= pt[0] <= x1 + 50 and y0 - 50 <= pt[1] <= y1 + 50 and ring_distance(pt, ring) < 50.0:
+                return True
+        return False
+
+    spots = []
+    for rec, paths in roads:
+        offset = rec["width_m"] * 50.0 + LAMP_KERB_INSET
+        for path in paths:
+            s_next = LAMP_SPACING * 0.5
+            walked = 0.0
+            for (ax, ay), (bx, by) in zip(path, path[1:]):
+                L = math.hypot(bx - ax, by - ay)
+                if L < 1.0:
+                    continue
+                ux, uy = (bx - ax) / L, (by - ay) / L
+                nx, ny = -uy, ux
+                while s_next <= walked + L:
+                    t = s_next - walked
+                    px, py = ax + ux * t, ay + uy * t
+                    for side in (1.0, -1.0):
+                        pt = (px + nx * offset * side, py + ny * offset * side)
+                        if not geo.point_in_polygon(pt, ground) or in_carriageway(pt) or in_building(pt):
+                            continue
+                        if any(math.hypot(pt[0] - s[0], pt[1] - s[1]) < LAMP_MIN_GAP for s in spots):
+                            continue
+                        yaw = math.degrees(math.atan2(-ny * side, -nx * side))
+                        shadows = any(ring_distance(pt, park) <= LAMP_SHADOW_DISTANCE for park in parks)
+                        spots.append((pt[0], pt[1], yaw, shadows))
+                    s_next += LAMP_SPACING
+                walked += L
+    return spots
+
+
+def ensure_lamp_materials():
+    emissive = m.ensure_material(m.M_EMISSIVE, m._build_emissive)
+    head = m.ensure_material_instance(
+        MI_STREET_LAMP, emissive,
+        vectors=[(m.EMISSIVE_COLOR_PARAM, LAMP_COLOR)],
+        scalars=[(m.EMISSIVE_INTENSITY_PARAM, LAMP_EMISSIVE * m.EMISSIVE_INTENSITY_FACTOR)])
+    pole = m.ensure_material(m.M_STEEL_PAINTED, m._build_steel_painted)
+    return pole, head
+
+
+def _ensure_tags(actor, tags):
+    if [str(t) for t in actor.get_editor_property("tags")] != tags:
+        actor.set_editor_property("tags", [unreal.Name(t) for t in tags])
+        return 1
+    return 0
+
+
+def _ensure_mesh_actor(existing, label, mesh, material, loc, rot, scale, tags):
+    changes = 0
+    actor = existing.get(label)
+    if actor is not None and not isinstance(actor, unreal.StaticMeshActor):
+        actor.destroy_actor()
+        actor = None
+    if actor is None:
+        actor = c.spawn_actor(unreal.StaticMeshActor, loc, rot, label=label)
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return 0
+        existing[label] = actor
+        changes += 1
+    comp = actor.get_editor_property("static_mesh_component")
+    if comp.get_editor_property("mobility") != unreal.ComponentMobility.STATIC:
+        comp.set_editor_property("mobility", unreal.ComponentMobility.STATIC)
+        changes += 1
+    if comp.get_editor_property("static_mesh") != mesh:
+        comp.set_static_mesh(mesh)
+        changes += 1
+    overrides = comp.get_editor_property("override_materials")
+    if material is not None and (len(overrides) < 1 or overrides[0] != material):
+        comp.set_material(0, material)
+        changes += 1
+    if not same_vector(actor.get_actor_location(), loc, 0.5):
+        actor.set_actor_location(loc, False, True)
+        changes += 1
+    if abs(((actor.get_actor_rotation().yaw - rot.yaw) + 180.0) % 360.0 - 180.0) > 0.05:
+        actor.set_actor_rotation(rot, False)
+        changes += 1
+    if not same_vector(actor.get_actor_scale3d(), scale, 1e-4):
+        actor.set_actor_scale3d(scale)
+        changes += 1
+    return changes + _ensure_tags(actor, tags)
+
+
+LAMP_DOWN = unreal.Rotator(0.0, -90.0, 0.0)   # roll, pitch, yaw: the spot points at the pavement
+
+
+def _ensure_lamp_light(existing, label, loc, shadows):
+    """A downward spot, not a point light: a point light under the head lights the wall above it
+    and the head throws a hard dark wedge up the facade. UE rates spot lumens as if the light
+    were a point light, so the pool is as bright as the 2500 lm point light it replaced."""
+    changes = 0
+    actor = existing.get(label)
+    if actor is not None and not isinstance(actor, unreal.SpotLight):
+        actor.destroy_actor()
+        actor = None
+    if actor is None:
+        actor = c.spawn_actor(unreal.SpotLight, loc, LAMP_DOWN, label=label)
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return 0
+        existing[label] = actor
+        changes += 1
+    if not same_vector(actor.get_actor_location(), loc, 0.5):
+        actor.set_actor_location(loc, False, True)
+        changes += 1
+    if abs(actor.get_actor_rotation().pitch - LAMP_DOWN.pitch) > 0.05:
+        actor.set_actor_rotation(LAMP_DOWN, False)
+        changes += 1
+    comp = actor.get_editor_property("spot_light_component")
+    changes += set_if_different(comp, "mobility", unreal.ComponentMobility.MOVABLE, label)
+    changes += set_if_different(comp, "intensity_units", unreal.LightUnits.LUMENS, label)
+    changes += set_if_different(comp, "intensity", LAMP_LUMENS, label, 0.5)
+    changes += set_if_different(comp, "attenuation_radius", LAMP_RADIUS, label, 0.5)
+    changes += set_if_different(comp, "outer_cone_angle", LAMP_OUTER_CONE, label, 0.01)
+    changes += set_if_different(comp, "inner_cone_angle", LAMP_INNER_CONE, label, 0.01)
+    changes += set_if_different(comp, "cast_shadows", bool(shadows), label)
+    changes += set_if_different(comp, "use_temperature", False, label)
+    want = unreal.Color(r=int(LAMP_COLOR[0] * 255), g=int(LAMP_COLOR[1] * 255), b=int(LAMP_COLOR[2] * 255), a=255)
+    have = comp.get_editor_property("light_color")
+    if (have.r, have.g, have.b) != (want.r, want.g, want.b):
+        comp.set_editor_property("light_color", want)
+        changes += 1
+    return changes + _ensure_tags(actor, ["City", "CityLamp", "shadows:{0}".format(int(bool(shadows)))])
+
+
+def ensure_street_lamps(district, existing):
+    """A lamp every LAMP_SPACING along both sidewalks of every road: pole, emissive head, and a
+    movable warm spot light pointing down. Only the lamps around the park cast shadows."""
+    cylinder = c.load_or_none(CYLINDER)
+    cube = c.load_or_none(CUBE)
+    if cylinder is None or cube is None:
+        c.log("FAILED", "street lamps", "engine basic shapes not found")
+        return 0
+    pole_mat, head_mat = ensure_lamp_materials()
+    spots = lamp_spots(district)
+    changes = 0
+    changed_lamps = 0
+    tags = ["City", "CityLamp"]
+    for i, (x, y, yaw, shadows) in enumerate(spots):
+        rad = math.radians(yaw)
+        ux, uy = math.cos(rad), math.sin(rad)
+        rot = unreal.Rotator(0.0, 0.0, yaw)
+        n = _ensure_mesh_actor(
+            existing, LAMP_POLE_PREFIX + str(i), cylinder, pole_mat,
+            unreal.Vector(x, y, SIDEWALK_TOP + LAMP_POLE_HEIGHT * 0.5), rot,
+            unreal.Vector(LAMP_POLE_DIAMETER / 100.0, LAMP_POLE_DIAMETER / 100.0, LAMP_POLE_HEIGHT / 100.0), tags)
+        n += _ensure_mesh_actor(
+            existing, LAMP_HEAD_PREFIX + str(i), cube, head_mat,
+            unreal.Vector(x + ux * LAMP_ARM * 0.5, y + uy * LAMP_ARM * 0.5, SIDEWALK_TOP + LAMP_POLE_HEIGHT - 7.5),
+            rot, unreal.Vector((LAMP_ARM + LAMP_POLE_DIAMETER) / 100.0, 0.35, 0.15), tags)
+        n += _ensure_lamp_light(
+            existing, LAMP_PREFIX + str(i),
+            unreal.Vector(x + ux * LAMP_ARM * 0.75, y + uy * LAMP_ARM * 0.75, SIDEWALK_TOP + LAMP_POLE_HEIGHT - 30.0),
+            shadows)
+        if n:
+            changed_lamps += 1
+        changes += n
+
+    # Lamps past the end of the list (the roads changed) go.
+    removed = 0
+    for label, actor in list(existing.items()):
+        for prefix in (LAMP_PREFIX, LAMP_POLE_PREFIX, LAMP_HEAD_PREFIX):
+            rest = label[len(prefix):] if label.startswith(prefix) else ""
+            if rest.isdigit() and int(rest) >= len(spots):
+                actor.destroy_actor()
+                existing.pop(label, None)
+                removed += 1
+                break
+    changes += removed
+    c.log("updated" if (changed_lamps or removed) else "exists", "street lamps",
+          "{0} lamps, {1} casting shadows near the park, {2} changed, {3} actor(s) removed".format(
+              len(spots), sum(1 for s in spots if s[3]), changed_lamps, removed))
+    return changes
 
 
 # --------------------------------------------------------------------------------------
@@ -854,6 +1320,9 @@ def run():
     changes += ensure_player_start(district, existing)
     changes += ensure_nav_volume(district, existing)
     changes += ensure_game_mode()
+    changes += remove_prison_actors(existing)
+    changes += ensure_objective_volumes(district, existing)
+    changes += ensure_street_lamps(district, existing)
 
     if created or changes:
         c.level_editor_subsystem().save_current_level()
