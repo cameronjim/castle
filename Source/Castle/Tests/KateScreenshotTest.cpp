@@ -77,8 +77,13 @@
  *   quiver_hud.png     the same frame for the hotbar: standard arrows "30", grapple "6/6"
  *   bow_draw.png       half drawn: bow in the left hand, the spread ring and the draw bar
  *   bow_hit.png        a full draw loosed at a thug 15 m down the street, stuck in him, reticle flashing
+ *   arrow_stuck.png    that arrow from just behind and beside it, aimed in: shaft, three vanes, purple nock
+ *
+ *   roll_mid.png       0.12 s into the landing roll after a 6 m drop with the stick held, side on:
+ *                      tipping head first into the tumble
  *
  *   street_patrol.png  across Avenue A from the StreetPair, patrolling the park-side sidewalk
+ *   thug_walk_bat.png  4 m to the side of the StreetPair's bat thug as he walks: the bat hangs by his leg
  *   fight_roof.png     on the cross_block roof, the RoofPair alerted and rushing her
  *   fight_hit.png      her heavy landed: a thug knocked down (ragdoll)
  *   fight_dodge.png    mid-dodge, sideways from the thug still standing
@@ -1217,6 +1222,7 @@ namespace CastleKateShots
 		HitAim,
 		HitDraw,
 		HitRelease,
+		StuckView,
 		Cleanup,
 	};
 
@@ -1385,6 +1391,42 @@ bool FCastleKateBowShot::Update()
 		Kate->StartAim();
 		break;
 
+	case EBowShot::StuckView:
+	{
+		// From behind the arrow, the way the player sees one she has just put in something.
+		Kate->StopAim();
+		const AArrowProjectile* Stuck = nullptr;
+		for (TActorIterator<AArrowProjectile> It(World); It; ++It)
+		{
+			if (It->IsStuck())
+			{
+				Stuck = *It;
+				break;
+			}
+		}
+		FVector Ground;
+		if (!Stuck)
+		{
+			Test->AddWarning(TEXT("arrow_stuck.png: no stuck arrow to look at."));
+			break;
+		}
+		const FVector Back = -Stuck->GetActorForwardVector().GetSafeNormal2D();
+		if (!FindGround(World, Stuck->GetActorLocation() + Back * 250.f + FVector(0.f, 0.f, 200.f), Stuck->GetActorLocation().Z + 200.f, Kate, Ground))
+		{
+			Test->AddWarning(TEXT("arrow_stuck.png: no ground behind the arrow."));
+			break;
+		}
+		PlaceKate(Kate, PC, Ground, (-Back).Rotation().Yaw, HipPitch);
+		// Kate to one side and the camera in over her shoulder, so she is not between the lens and
+		// the arrow and it is close enough to read.
+		Kate->SetActorLocation(Kate->GetActorLocation() + Back * -130.f + FVector::CrossProduct(FVector::UpVector, Back) * 110.f);
+		Kate->StartAim();
+		AimCameraAt(PC, Kate, Stuck->GetActorLocation());
+		Test->AddInfo(FString::Printf(TEXT("arrow_stuck: arrow in %s at %s, Kate at %s"), *GetNameSafe(Stuck->GetStuckInActor()),
+			*Stuck->GetActorLocation().ToCompactString(), *Kate->GetActorLocation().ToCompactString()));
+		break;
+	}
+
 	case EBowShot::Cleanup:
 		Kate->StopAim();
 		for (TActorIterator<AArrowProjectile> It(World); It; ++It)
@@ -1481,6 +1523,8 @@ namespace CastleKateFight
 		FreezeAll,
 		/** Kate across Avenue A from the street pair, who patrol. */
 		StreetSetup,
+		/** Kate beside the street pair's bat thug as he walks, the camera on him. */
+		BatCloseup,
 		/** Kate on the cross_block roof, the roof pair still frozen, so the camera can settle. */
 		RoofSetup,
 		/** The roof pair alerted: they rush her. */
@@ -1627,6 +1671,38 @@ bool FCastleKateFightShot::Update()
 		// Between where they start and where they will be at the shot.
 		AimCameraAt(PC, Kate, Midpoint(Pair) + Along * (StreetAhead * 0.5f) + FVector(0.f, 0.f, 20.f));
 		Report(Test, World, Kate, TEXT("street_patrol (setup)"));
+		break;
+	}
+
+	case EFightShot::BatCloseup:
+	{
+		AThugCharacter* Batter = nullptr;
+		for (AThugCharacter* Thug : Tagged(World, StreetPairTag))
+		{
+			if (Thug->Weapon == EThugWeapon::Bat)
+			{
+				Batter = Thug;
+			}
+		}
+		if (!Batter)
+		{
+			Test->AddWarning(TEXT("thug_walk_bat.png: no bat thug in the street pair."));
+			break;
+		}
+		// Square to his path, outside his sight cone, so he keeps walking.
+		const FVector Side = FVector::CrossProduct(FVector::UpVector, Batter->GetActorForwardVector().GetSafeNormal2D());
+		FVector Ground;
+		for (const float Sign : { 1.f, -1.f })
+		{
+			if (FindGround(World, Batter->GetActorLocation() + Side * Sign * 400.f, Batter->GetActorLocation().Z + 300.f, Kate, Ground)
+				&& FMath::Abs(Ground.Z - (Batter->GetActorLocation().Z - 96.f)) < 60.f)
+			{
+				PlaceKate(Kate, PC, Ground, (-Side * Sign).Rotation().Yaw, HipPitch);
+				AimCameraAt(PC, Kate, Batter->GetActorLocation() + Batter->GetActorForwardVector() * 80.f);
+				break;
+			}
+		}
+		Report(Test, World, Kate, TEXT("thug_walk_bat (setup)"));
 		break;
 	}
 
@@ -2115,6 +2191,112 @@ private:
 	double StartTime = -1.0;
 };
 
+// --- The landing roll -----------------------------------------------------------------------------
+
+namespace CastleKateShots
+{
+	/** Where the roll started, for the distance it covered. */
+	static FVector RollStart = FVector::ZeroVector;
+}
+
+/**
+ * Lifts Kate 6 m above the street (camera on the park, so holding right runs her along the street
+ * side on) and holds the stick right. Then waits for the roll and returns once it is MidSeconds in.
+ */
+class FCastleKateWaitRoll : public IAutomationLatentCommand
+{
+public:
+	FCastleKateWaitRoll(FAutomationTestBase* InTest, float InMidSeconds, float InTimeoutSeconds)
+		: Test(InTest), MidSeconds(InMidSeconds), TimeoutSeconds(InTimeoutSeconds)
+	{
+	}
+
+	virtual bool Update() override
+	{
+		using namespace CastleKateShots;
+		UWorld* World = FindWorld();
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		ACastleCharacter* Kate = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
+		if (!Kate)
+		{
+			return true;
+		}
+		if (StartTime < 0.0)
+		{
+			FVector Spot, Away, Ground;
+			if (!FindStreetSpot(World, Spot, Away) || !FindGround(World, Spot, 3000.f, Kate, Ground))
+			{
+				Test->AddWarning(TEXT("roll_mid.png: no street spot."));
+				return true;
+			}
+			StartTime = World->GetTimeSeconds();
+			PlaceKate(Kate, PC, Ground + FVector(0.f, 0.f, 600.f), (-Away).Rotation().Yaw, HipPitch);
+			HoldMove(PC, FVector2D(1.f, 0.f), true);
+			return false;
+		}
+		if (Kate->IsRolling())
+		{
+			if (!bRolling)
+			{
+				bRolling = true;
+				RollStart = Kate->GetActorLocation();
+				Test->AddInfo(FString::Printf(TEXT("roll_mid: rolling after a %.0f cm landing toward %s, capsule half-height %.0f"),
+					Kate->GetLastFallHeight(), *Kate->GetRollDirection().ToCompactString(),
+					Kate->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight()));
+			}
+			if (Kate->GetLandingElapsed() >= MidSeconds)
+			{
+				Test->AddInfo(FString::Printf(TEXT("roll_mid: %.2f s in, camera pitch %.1f, input locked %d, %.0f cm travelled, body at %s rot %s scale %s"),
+					Kate->GetLandingElapsed(), Kate->GetLandingCameraPitch(), Kate->IsLandingInputLocked() ? 1 : 0,
+					FVector::Dist2D(RollStart, Kate->GetActorLocation()), *Kate->GetMesh()->GetRelativeLocation().ToCompactString(),
+					*Kate->GetMesh()->GetRelativeRotation().ToCompactString(), *Kate->GetMesh()->GetRelativeScale3D().ToCompactString()));
+				TArray<USkeletalMeshComponent*> Meshes;
+				Kate->GetComponents(Meshes);
+				for (const USkeletalMeshComponent* Mesh : Meshes)
+				{
+					Test->AddInfo(FString::Printf(TEXT("roll_mid: skeletal mesh %s (%s) on %s, visible %d, world rot %s"), *Mesh->GetName(),
+						*GetNameSafe(Mesh->GetSkeletalMeshAsset()), *GetNameSafe(Mesh->GetAttachParent()), Mesh->IsVisible() ? 1 : 0,
+						*Mesh->GetComponentRotation().ToCompactString()));
+				}
+				return true;
+			}
+		}
+		if (World->GetTimeSeconds() - StartTime > TimeoutSeconds)
+		{
+			Test->AddWarning(FString::Printf(TEXT("roll_mid.png: no roll (landing %.0f cm, state %d)."), Kate->GetLastFallHeight(),
+				static_cast<int32>(Kate->GetLandingState())));
+			return true;
+		}
+		return false;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float MidSeconds;
+	float TimeoutSeconds;
+	double StartTime = -1.0;
+	bool bRolling = false;
+};
+
+/** After the roll: lets go of the stick and reports how far it carried her. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FCastleKateEndRoll, FAutomationTestBase*, Test);
+
+bool FCastleKateEndRoll::Update()
+{
+	using namespace CastleKateShots;
+	APlayerController* PC = nullptr;
+	ACastleCharacter* Kate = FindKate(PC);
+	if (!Kate)
+	{
+		return true;
+	}
+	HoldMove(PC, FVector2D::ZeroVector, false);
+	Test->AddInfo(FString::Printf(TEXT("roll: over, %.0f cm from where it started (includes the run after it), capsule half-height %.0f, rolling %d"),
+		FVector::Dist2D(RollStart, Kate->GetActorLocation()), Kate->GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight(),
+		Kate->IsRolling() ? 1 : 0));
+	return true;
+}
+
 bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 {
 	using namespace CastleKateShots;
@@ -2175,6 +2357,10 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitArrowHit(this, 2.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("bow_hit.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::StuckView)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("arrow_stuck.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::Cleanup)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
@@ -2201,6 +2387,14 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateDrop(this, 1200.f, false));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(3.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateDrop(this, 1200.f, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
+	// A 6 m drop with the stick held: the landing roll, side on.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitRoll(this, 0.12f, 4.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("roll_mid.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.4f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateEndRoll(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
 	// Frame time at the street start, before anything moves.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameShot(this, static_cast<uint8>(EShot::Street)));
@@ -2293,6 +2487,11 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportFight(this, TEXT("street_patrol.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("street_patrol.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::BatCloseup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.6f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportFight(this, TEXT("thug_walk_bat.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("thug_walk_bat.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::RoofSetup)));
