@@ -23,6 +23,7 @@ AI_PATH = "/Game/Blueprints/AI"
 IMAGE_PATH = "/Game/Flashbacks/Images"
 THUG_MATERIAL_PATH = "/Game/Characters/Thug"
 WEAPON_PATH = "/Game/Blueprints/Weapons"
+KATE_MATERIAL_PATH = "/Game/Characters/Kate"
 
 IA_NAMES = [
     "IA_Move", "IA_Look", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
@@ -49,6 +50,9 @@ EXPECTED = (
     + [
         c.asset_path(INPUT_PATH, "IMC_Default"),
         c.asset_path(PLAYER_PATH, "BP_CastleCharacter"),
+        c.asset_path(PLAYER_PATH, "BP_Kate"),
+        KATE_MATERIAL_PATH + "/M_KateSuit",
+        KATE_MATERIAL_PATH + "/M_KateSuitDark",
         c.asset_path(PLAYER_PATH, "BP_CastlePlayerController"),
         c.asset_path(PLAYER_PATH, "BP_CastleGameMode"),
         c.asset_path(UI_PATH, "WBP_Flashback"),
@@ -87,6 +91,11 @@ RETIRED = [
     WEAPON_PATH + "/DA_Weapon_Rifle",
     "/Game/Materials/M_FrankArms",
     "/Game/Materials/M_FrankGloves",
+    "/Game/Materials/M_Pistol",
+    "/Game/Weapons/Pistol/Meshes/SM_Pistol",
+    "/Game/Weapons/Pistol/Materials/MI_Weapon_Pistol",
+    "/Game/Weapons/Rifle/Materials/M_Weapon",
+    "/Game/Weapons/Pistol/Textures/T_Pistol_D",
 ]
 
 PROBLEMS = []
@@ -190,6 +199,8 @@ def check_blueprints():
         cdo = unreal.get_default_object(gm_class)
         for name in ("default_pawn_class", "player_controller_class", "starting_mission"):
             say("  BP_CastleGameMode.{0:<24} = {1}".format(name, name_of(prop(cdo, name))))
+        if "BP_Kate" not in name_of(prop(cdo, "default_pawn_class")):
+            fail("BP_CastleGameMode.default_pawn_class is not BP_Kate; you would play the base Blueprint")
 
     pc_class = c.load_generated_class(PLAYER_PATH, "BP_CastlePlayerController")
     if pc_class is None:
@@ -371,7 +382,7 @@ def check_third_person():
     if body is not None and prop(body, "owner_no_see"):
         fail("BP_CastleCharacter.Mesh is hidden from its owner; the player would be invisible")
 
-    for field in ("idle_anim", "walk_anim"):
+    for field in ("idle_anim", "walk_anim", "run_anim", "fall_anim"):
         value = prop(cdo, field)
         say("  BP_CastleCharacter.{0:<9} = {1}".format(field, name_of(value)))
         if value is None:
@@ -397,6 +408,68 @@ def check_third_person():
     say("  orient_rotation_to_movement  = {0}".format(prop(movement, "orient_rotation_to_movement")))
     if movement is not None and not prop(movement, "orient_rotation_to_movement"):
         fail("BP_CastleCharacter does not turn to face where it moves")
+
+
+def check_kate():
+    """BP_Kate: a BP_CastleCharacter child, 170 cm capsule, mannequin in the purple suit."""
+    say("---- BP_Kate ----")
+
+    bp = c.load_or_none(c.asset_path(PLAYER_PATH, "BP_Kate"))
+    cls = c.load_generated_class(PLAYER_PATH, "BP_Kate")
+    if bp is None or cls is None:
+        fail("BP_Kate_C")
+        return
+
+    # ParentClass is not exposed to Python as a property; the asset registry tag carries it.
+    parent = None
+    try:
+        data = unreal.EditorAssetLibrary.find_asset_data(c.asset_path(PLAYER_PATH, "BP_Kate"))
+        parent = str(data.get_tag_value("ParentClass") or "")
+    except Exception:  # noqa: BLE001
+        parent = None
+    say("  parent_class                 = {0}".format(parent))
+    if "BP_CastleCharacter" not in str(parent or ""):
+        fail("BP_Kate's parent is {0}, expected BP_CastleCharacter".format(parent))
+
+    cdo = unreal.get_default_object(cls)
+    capsule = prop(cdo, "capsule_component")
+    half_height = prop(capsule, "capsule_half_height") if capsule is not None else None
+    radius = prop(capsule, "capsule_radius") if capsule is not None else None
+    say("  capsule half-height / radius = {0} / {1}".format(half_height, radius))
+    if half_height is None or abs(float(half_height) - 85.0) > 0.5:
+        fail("BP_Kate capsule half-height is {0}, expected 85 (170 cm tall)".format(half_height))
+
+    body = prop(cdo, "mesh")
+    body_asset = prop(body, "skeletal_mesh_asset") if body is not None else None
+    say("  Mesh.skeletal_mesh_asset     = {0}".format(name_of(body_asset)))
+    if body_asset is None:
+        fail("BP_Kate has no body mesh")
+    location = prop(body, "relative_location") if body is not None else None
+    say("  Mesh.relative_location       = {0}".format(location))
+    if location is not None and abs(location.z + 85.0) > 0.5:
+        fail("BP_Kate's feet are not on the capsule bottom (mesh z {0}, expected -85)".format(location.z))
+
+    for slot, wanted in ((0, "M_KateSuit"), (1, "M_KateSuitDark")):
+        material = None
+        try:
+            material = body.get_material(slot) if body is not None else None
+        except Exception:  # noqa: BLE001
+            material = None
+        say("  Mesh slot {0}                  = {1}".format(slot, name_of(material)))
+        if name_of(material) != wanted:
+            fail("BP_Kate.Mesh slot {0} is {1}, expected {2}".format(slot, name_of(material), wanted))
+
+    for field in ("idle_anim", "walk_anim", "run_anim", "default_mapping_context", "move_action"):
+        value = prop(cdo, field)
+        say("  BP_Kate.{0:<24} = {1}".format(field, name_of(value)))
+        if value is None:
+            fail("BP_Kate." + field + " is unset; it should inherit from BP_CastleCharacter")
+
+    inventory = prop(cdo, "inventory_component")
+    hands = prop(inventory, "hands_definition") if inventory is not None else None
+    say("  BP_Kate.Inventory.hands_definition = {0}".format(hands))
+    if "DA_Weapon_Hands" not in str(hands or ""):
+        fail("BP_Kate.InventoryComponent.hands_definition is not DA_Weapon_Hands")
 
 
 def check_weapon_data():
@@ -625,6 +698,7 @@ def check_m01_gameplay(actors):
 SKELETAL_MESH_COMPONENTS = (
     (AI_PATH, "BP_Thug", ("mesh",)),
     (PLAYER_PATH, "BP_CastleCharacter", ("mesh",)),
+    (PLAYER_PATH, "BP_Kate", ("mesh",)),
 )
 
 
@@ -688,6 +762,7 @@ def main():
     check_pickup_parts()
     check_thug_presentation()
     check_third_person()
+    check_kate()
     check_skeletal_material_usage()
     check_weapon_data()
     check_data_assets()
