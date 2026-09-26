@@ -23,6 +23,8 @@
 #include "Player/GrappleComponent.h"
 #include "Player/InventoryComponent.h"
 #include "Player/LocomotionAnim.h"
+#include "Player/ParkourComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Settings/CastleSettingsSubsystem.h"
 #include "Components/PawnNoiseEmitterComponent.h"
 #include "HAL/IConsoleManager.h"
@@ -114,6 +116,7 @@ ACastleCharacter::ACastleCharacter()
 
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 	GrappleComponent = CreateDefaultSubobject<UGrappleComponent>(TEXT("GrappleComponent"));
+	ParkourComponent = CreateDefaultSubobject<UParkourComponent>(TEXT("ParkourComponent"));
 
 	// The whole body is visible, to the owner as well: in third person it is what the player
 	// looks at. Feet on the bottom of the capsule, facing +X.
@@ -189,6 +192,18 @@ void ACastleCharacter::PossessedBy(AController* NewController)
 
 	// The sample's graph may switch its own camera rig on as it is possessed.
 	SilenceForeignCameras();
+	ApplyCameraPitchLimits();
+}
+
+void ACastleCharacter::ApplyCameraPitchLimits()
+{
+	const APlayerController* PC = Cast<APlayerController>(GetController());
+	APlayerCameraManager* CameraManager = PC ? PC->PlayerCameraManager.Get() : nullptr;
+	if (CameraManager && (CameraManager->ViewPitchMin != CameraPitchMin || CameraManager->ViewPitchMax != CameraPitchMax))
+	{
+		CameraManager->ViewPitchMin = CameraPitchMin;
+		CameraManager->ViewPitchMax = CameraPitchMax;
+	}
 }
 
 void ACastleCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -270,6 +285,7 @@ void ACastleCharacter::PawnClientRestart()
 	DropBlueprintInputBindings();
 	AddDefaultMappingContext();
 	SilenceForeignCameras();
+	ApplyCameraPitchLimits();
 }
 
 void ACastleCharacter::DropBlueprintInputBindings()
@@ -536,7 +552,7 @@ void ACastleCharacter::Input_Inventory(const FInputActionValue& /*Value*/)
 
 void ACastleCharacter::Input_Grapple(const FInputActionValue& /*Value*/)
 {
-	if (GrappleComponent && !IsLockedOutByTakedown())
+	if (GrappleComponent && !IsLockedOutByTakedown() && !IsTraversing())
 	{
 		GrappleComponent->TryFire();
 	}
@@ -547,19 +563,25 @@ bool ACastleCharacter::IsZipping() const
 	return GrappleComponent && GrappleComponent->IsZipping();
 }
 
+bool ACastleCharacter::IsTraversing() const
+{
+	return ParkourComponent && ParkourComponent->IsBusy();
+}
+
 void ACastleCharacter::NotifyGrappleLanded()
 {
-	// A zip ends on its landing point: no fall, so no damage, but the dip sells the arrival.
+	// A zip ends on its landing point: no fall, so no damage and no roll. The roll placeholder
+	// halved the speed on arrival, which made chaining off a landing feel like wading.
 	FallApexZ = GetActorLocation().Z;
 	ApplyLanding(0.f);
-	LandingRecoverRemaining = LandingRecoverSeconds;
 	UpdateMaxWalkSpeed();
 }
 
 void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 {
 	const FVector2D MoveInput = Value.Get<FVector2D>();
-	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping())
+	const bool bParkourLock = ParkourComponent && ParkourComponent->IsLockingInput();
+	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping() || bParkourLock)
 	{
 		return;
 	}
@@ -832,9 +854,20 @@ void ACastleCharacter::UpdateMaxWalkSpeed()
 	Movement->MaxWalkSpeedCrouched = bLow ? Speed : CrouchSpeed;
 }
 
-FCastleCameraTargets ACastleCharacter::ComputeCameraTargets(bool bAiming) const
+FCastleCameraTargets ACastleCharacter::ComputeCameraTargets(bool bAiming, float Pitch) const
 {
-	return bAiming ? AimCamera : HipCamera;
+	if (bAiming)
+	{
+		return AimCamera;
+	}
+	FCastleCameraTargets Targets = HipCamera;
+	const float Span = LookUpPitchFull - LookUpPitchStart;
+	const float Alpha = Span > 0.f
+		? FMath::Clamp((Pitch - LookUpPitchStart) / Span, 0.f, 1.f)
+		: (Pitch >= LookUpPitchFull ? 1.f : 0.f);
+	Targets.ArmLength = FMath::Lerp(HipCamera.ArmLength, LookUpArmLength, Alpha);
+	Targets.SocketOffset.Z = FMath::Lerp(HipCamera.SocketOffset.Z, LookUpSocketZ, Alpha);
+	return Targets;
 }
 
 float ACastleCharacter::GetCurrentFOV() const
@@ -850,8 +883,9 @@ void ACastleCharacter::UpdateCamera(float DeltaSeconds)
 		? FMath::FInterpConstantTo(AimAlpha, Target, DeltaSeconds, 1.f / AimBlendSeconds)
 		: Target;
 
+	const float Pitch = Controller ? FRotator::NormalizeAxis(Controller->GetControlRotation().Pitch) : 0.f;
 	FCastleCameraTargets Blend = FCastleCameraTargets::Lerp(
-		ComputeCameraTargets(false), ComputeCameraTargets(true), FMath::SmoothStep(0.f, 1.f, AimAlpha));
+		ComputeCameraTargets(false, Pitch), ComputeCameraTargets(true, Pitch), FMath::SmoothStep(0.f, 1.f, AimAlpha));
 
 	// The roll placeholder: the camera sinks and comes back up over the recovery.
 	if (LandingRecoverRemaining > 0.f && LandingRecoverSeconds > 0.f)
@@ -897,6 +931,7 @@ void ACastleCharacter::Tick(float DeltaSeconds)
 	UpdateBodyVisibilityForCamera();
 	UpdateBodyLocomotion();
 	SilenceForeignCameras();
+	ApplyCameraPitchLimits();
 }
 
 void ACastleCharacter::UpdateBodyVisibilityForCamera()
@@ -945,8 +980,14 @@ void ACastleCharacter::UpdateBodyLocomotion()
 
 void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 {
+	// Crouch lets go of a ledge.
+	if (ParkourComponent && ParkourComponent->IsHanging())
+	{
+		ParkourComponent->DropFromHang();
+		return;
+	}
 	// The slide stands itself up; a second press mid-slide is not a crouch. Nor is one mid-zip.
-	if (bIsSliding || IsZipping())
+	if (bIsSliding || IsZipping() || IsTraversing())
 	{
 		return;
 	}
@@ -1034,6 +1075,25 @@ void ACastleCharacter::Jump()
 	if (IsZipping())
 	{
 		return;
+	}
+	if (ParkourComponent)
+	{
+		// Hanging, jump climbs. Mid-move it does nothing. Otherwise an obstacle ahead turns it
+		// into a vault, mantle or ledge grab, and only open ground gets a plain jump.
+		if (ParkourComponent->IsHanging())
+		{
+			ParkourComponent->ClimbFromHang();
+			return;
+		}
+		if (ParkourComponent->IsBusy())
+		{
+			return;
+		}
+		EndSlide();
+		if (ParkourComponent->TryParkour(false))
+		{
+			return;
+		}
 	}
 	EndSlide();
 	Super::Jump();

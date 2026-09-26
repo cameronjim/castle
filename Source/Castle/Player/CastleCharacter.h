@@ -17,6 +17,7 @@ class UHealthComponent;
 class UInteractionComponent;
 class UGrappleComponent;
 class UInventoryComponent;
+class UParkourComponent;
 class UPawnNoiseEmitterComponent;
 class UTakedownComponent;
 class UWeaponComponent;
@@ -77,13 +78,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UGrappleComponent* GetGrappleComponent() const { return GrappleComponent; }
 
+	/** Vault, mantle and ledge grab. Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Character")
+	UParkourComponent* GetParkourComponent() const { return ParkourComponent; }
+
+	/**
+	 * True during any traversal move: one of ours, a hang, or the Game Animation Sample's
+	 * traversal montage. Jumping, crouching and the grapple wait for it to end.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
+	bool IsTraversing() const;
+
 	/** True while a grapple zip carries the character; movement input and jumping are ignored. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
 	bool IsZipping() const;
 
 	/**
-	 * The end of a grapple zip, through the ordinary landing path as a 0 cm landing (no damage),
-	 * plus the roll placeholder's short camera dip so the arrival reads.
+	 * The end of a grapple zip, through the ordinary landing path as a 0 cm landing: no damage,
+	 * and no roll (the camera dip and speed cut are for falls above RollHeight only).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Castle|Falling")
 	void NotifyGrappleLanded();
@@ -145,9 +157,19 @@ public:
 
 	// --- Camera ---------------------------------------------------------------------------------
 
-	/** Arm length, shoulder offset and FOV the camera settles at for this aim state. No blending. */
+	/**
+	 * Arm length, shoulder offset and FOV the camera settles at for this aim state and camera
+	 * pitch (degrees, up positive). No blending over time. At the hip, looking up past
+	 * LookUpPitchStart shortens the arm towards LookUpArmLength and lifts the socket towards
+	 * LookUpSocketZ, both reached at LookUpPitchFull, so a steep look up from the street does not
+	 * drive the lens into the pavement.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Castle|Camera")
-	FCastleCameraTargets ComputeCameraTargets(bool bAiming) const;
+	FCastleCameraTargets ComputeCameraTargets(bool bAiming, float Pitch = 0.f) const;
+
+	/** Pitch clamped to [CameraPitchMin, CameraPitchMax]. The player camera manager uses the same limits. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Camera")
+	float ClampCameraPitch(float Pitch) const { return FMath::Clamp(Pitch, CameraPitchMin, CameraPitchMax); }
 
 	/** 0 at the hip, 1 fully aimed; moves over AimBlendSeconds. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Camera")
@@ -373,6 +395,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UGrappleComponent> GrappleComponent;
 
+	/** Vault, mantle, ledge grab; auto while sprinting, on the jump key at any speed. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
+	TObjectPtr<UParkourComponent> ParkourComponent;
+
 	/** What AISense_Hearing listens to. MakeNoise routes through this. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UPawnNoiseEmitterComponent> NoiseEmitter;
@@ -555,6 +581,33 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
 	float CameraRotationLagSpeed = 12.f;
+
+	/** Camera pitch (up positive) above which the hip arm starts to shorten and lift, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "0.0", ClampMax = "89.0"))
+	float LookUpPitchStart = 20.f;
+
+	/** Camera pitch at which the hip arm is fully LookUpArmLength and LookUpSocketZ, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "0.0", ClampMax = "89.0"))
+	float LookUpPitchFull = 60.f;
+
+	/** Hip arm length when looking steeply up, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
+	float LookUpArmLength = 220.f;
+
+	/** Hip socket height when looking steeply up, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera")
+	float LookUpSocketZ = 110.f;
+
+	/** Lowest the camera can look, degrees (down is negative). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "-89.0", ClampMax = "0.0"))
+	float CameraPitchMin = -70.f;
+
+	/** Highest the camera can look, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "0.0", ClampMax = "89.0"))
+	float CameraPitchMax = 75.f;
+
+	/** Hands CameraPitchMin/Max to the player camera manager, which clamps the look input with them. */
+	void ApplyCameraPitchLimits();
 
 	/** Radius of the sphere the arm sweeps to find walls. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
