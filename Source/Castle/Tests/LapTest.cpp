@@ -1536,7 +1536,7 @@ bool FCastleLapRunner::Update()
 					const AActor* Across = BuildingUnder(World, End, Kate);
 					// Where she will be when the chain is pressed: a few frames on, just past the window.
 					const float Progress = Grapple->GetZipProgress();
-					const float PressProgress = FMath::Max(Progress, Grapple->ChainMinProgress) + 0.05f;
+					const float PressProgress = Progress >= Grapple->ChainMinProgress ? Progress : Grapple->ChainMinProgress + 0.05f;
 					const FVector ZipEndCentre = Grapple->ComputeZipEnd(Current);
 					const FVector PressAt = Kate->GetActorLocation()
 						+ (ZipEndCentre - Kate->GetActorLocation()) * FMath::Clamp((PressProgress - Progress) / FMath::Max(1.f - Progress, 0.01f), 0.f, 1.f);
@@ -1588,7 +1588,17 @@ bool FCastleLapRunner::Update()
 				{
 					AimAt(PC, Kate, Next->GetMarkerLocation());
 					Grapple->RefreshTarget();
+					// A player looks again before letting go: the line from here, not from where the
+					// search guessed she would be, has to be clear.
 					if (Grapple->CanChain() && Grapple->GetTargetAnchor() == Next && !Grapple->IsArrowInFlight()
+						&& ChainPressesThisZip < 3 && !ZipClear(World, Kate, Kate->GetActorLocation(), Next, /*bFromGround=*/false))
+					{
+						ChainMove.Note = FString::Printf(TEXT("%s not clear from %.0f%% along; searching again"), *GetNameSafe(Next),
+							Grapple->GetZipProgress() * 100.f);
+						ChainTarget.Reset();
+						bChainSearched = false;
+					}
+					else if (Grapple->CanChain() && Grapple->GetTargetAnchor() == Next && !Grapple->IsArrowInFlight()
 						&& ChainPressesThisZip < 3)
 					{
 						++ChainPressesThisZip;
