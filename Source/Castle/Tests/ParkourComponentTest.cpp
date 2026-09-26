@@ -269,8 +269,8 @@ bool FCastleParkourLedge::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("Hanging after the 0.35 s jump"), Parkour->IsHanging());
 	TestTrue(TEXT("Input locked while hanging"), Parkour->IsLockingInput());
-	TestEqual(TEXT("Feet 152 cm below the ledge"), Feet(Kate), 230.f - 152.f, 1.f);
-	TestEqual(TEXT("Capsule 40 cm out from the wall"), static_cast<float>(Kate->GetActorLocation().X), 60.f, 1.f);
+	TestEqual(TEXT("Feet HangBelowLedge (145 cm) below the ledge"), Feet(Kate), 230.f - 145.f, 1.f);
+	TestEqual(TEXT("Capsule HangBackFromEdge (36 cm) out from the wall"), static_cast<float>(Kate->GetActorLocation().X), 64.f, 1.f);
 
 	Kate->Jump();
 	TestEqual(TEXT("Jump climbs"), Parkour->GetActiveMove(), ECastleParkourMove::Climb);
@@ -326,7 +326,7 @@ bool FCastleParkourCatch::RunTest(const FString& Parameters)
 		Parkour->AdvanceMove(0.05f);
 	}
 	TestTrue(TEXT("Hanging after the 0.15 s catch"), Parkour->IsHanging());
-	TestEqual(TEXT("Feet 152 cm below the top"), Feet(Kate), 800.f - 152.f, 1.f);
+	TestEqual(TEXT("Feet 145 cm below the top"), Feet(Kate), 800.f - 145.f, 1.f);
 	return true;
 }
 

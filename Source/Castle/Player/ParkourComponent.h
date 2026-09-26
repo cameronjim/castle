@@ -227,13 +227,16 @@ public:
 
 	// --- Hang -----------------------------------------------------------------------------------
 
-	/** Feet below the ledge top while hanging: where the 2.5 m climb clip has them when the hands reach the edge, cm. */
+	/**
+	 * Feet below the ledge top while hanging, cm. The 2.5 m climb clip has them 151 cm down when the
+	 * wrists reach the edge; 145 puts the hands over the top in the -game renders.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang")
-	float HangBelowLedge = 152.f;
+	float HangBelowLedge = 145.f;
 
 	/** Capsule centre out from the ledge edge while hanging, cm. More than the capsule radius. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang")
-	float HangBackFromEdge = 40.f;
+	float HangBackFromEdge = 36.f;
 
 	// --- Clips ----------------------------------------------------------------------------------
 
