@@ -130,6 +130,25 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Bow")
 	FOnArrowHitSignature OnHit;
 
+	/**
+	 * The bow of an owner with no quiver (an AI archer, BP_Archer): used when the owner has no
+	 * UInventoryComponent. Arrows come from OwnArrow and are never spent.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|AI")
+	TObjectPtr<UBowDefinition> OwnBow;
+
+	/** What an owner with no quiver shoots (DA_Arrow_Trickshot on BP_Archer). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|AI")
+	TObjectPtr<UArrowDefinition> OwnArrow;
+
+	/** Arrows loosed by this bow since play began. */
+	UFUNCTION(BlueprintPure, Category = "Bow")
+	int32 GetArrowsLoosed() const { return ArrowsLoosed; }
+
+	/** World position of the tip of the arrow on the string, valid while drawing. */
+	UFUNCTION(BlueprintPure, Category = "Bow|Visual")
+	FVector GetNockedArrowTip() const { return NockedArrowTip; }
+
 	/** Used when the arrow definition names no projectile class. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow")
 	TSubclassOf<AArrowProjectile> DefaultProjectileClass;
@@ -273,4 +292,7 @@ protected:
 
 	bool bUseTestTime = false;
 	double TestTimeOverride = 0.0;
+
+	int32 ArrowsLoosed = 0;
+	FVector NockedArrowTip = FVector::ZeroVector;
 };

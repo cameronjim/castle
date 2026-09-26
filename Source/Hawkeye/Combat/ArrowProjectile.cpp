@@ -22,6 +22,9 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Player/InventoryComponent.h"
+#include "HawkeyePlayerController.h"
+#include "UI/HawkeyeHudWidget.h"
+#include "UI/HawkeyeObjectiveWidget.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace HawkeyeArrow
@@ -161,12 +164,17 @@ void AArrowProjectile::InitArrow(UArrowDefinition* InArrow, UBowDefinition* InBo
 			Nock->SetMaterial(0, Glow);
 		}
 	}
+	// An arrow type can carry its own colours: Trickshot's are black with purple vanes.
+	const bool bOwnColors = InArrow && InArrow->bOverrideColors;
+	const FLinearColor Shafts = bOwnColors ? InArrow->ShaftColor : ShaftColor;
+	const FLinearColor Vanes = bOwnColors ? InArrow->FletchingColor : FletchingColor;
+	const FLinearColor Nocks = bOwnColors ? InArrow->NockColor : NockColor;
 	const TPair<UStaticMeshComponent*, FLinearColor> Tints[] = {
-		{ Shaft.Get(), ShaftColor },
-		{ Fletching.Get(), FletchingColor },
-		{ Fletching2.Get(), FletchingColor },
-		{ Fletching3.Get(), FletchingColor },
-		{ Nock.Get(), NockColor },
+		{ Shaft.Get(), Shafts },
+		{ Fletching.Get(), Vanes },
+		{ Fletching2.Get(), Vanes },
+		{ Fletching3.Get(), Vanes },
+		{ Nock.Get(), Nocks },
 	};
 	for (const TPair<UStaticMeshComponent*, FLinearColor>& Tint : Tints)
 	{
@@ -370,19 +378,37 @@ bool AArrowProjectile::TryRecoverBy(AActor* Collector)
 	{
 		return false;
 	}
-	if (FVector::Dist(Collector->GetActorLocation(), GetActorLocation()) > RecoverRadius)
+	// One stuck in her own body is not something she pulls out on the move.
+	if (StuckIn.Get() == Collector || FVector::Dist(Collector->GetActorLocation(), GetActorLocation()) > RecoverRadius)
 	{
 		return false;
 	}
 	UInventoryComponent* Inventory = Collector->FindComponentByClass<UInventoryComponent>();
-	if (!Inventory || Inventory->AddArrows(Arrow, 1) <= 0)
+	UArrowDefinition* Into = Arrow->GetRecoveredType();
+	if (!Inventory || Inventory->AddArrows(Into, 1) <= 0)
 	{
 		// A full quiver leaves the arrow where it is.
 		return false;
 	}
 
-	UE_LOG(LogHawkeye, Log, TEXT("%s recovered %s; %d in slot %d."), *GetNameSafe(Collector), *GetNameSafe(Arrow),
-		Inventory->GetArrowCount(Arrow->Slot), Arrow->Slot);
+	UE_LOG(LogHawkeye, Log, TEXT("%s recovered %s as %s; %d in slot %d."), *GetNameSafe(Collector), *GetNameSafe(Arrow),
+		*GetNameSafe(Into), Inventory->GetArrowCount(Into->Slot), Into->Slot);
+	if (!Arrow->PickupToast.IsEmpty() && Inventory->NoteFirstPickup(Arrow))
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: first pickup of %s, toast \"%s\"."), *GetNameSafe(Collector), *GetNameSafe(Arrow),
+			*Arrow->PickupToast.ToString());
+		const APawn* Pawn = Cast<APawn>(Collector);
+		if (Pawn && Pawn->IsPlayerControlled())
+		{
+			if (UHawkeyeHudWidget* Hud = AHawkeyePlayerController::GetHawkeyeHudFor(Collector))
+			{
+				if (UHawkeyeObjectiveWidget* Toasts = Hud->GetObjectiveMarker())
+				{
+					Toasts->PushToast(NSLOCTEXT("Hawkeye", "ArrowPickedUp", "Picked up"), Arrow->PickupToast);
+				}
+			}
+		}
+	}
 	bStuck = false;
 	Destroy();
 	return true;

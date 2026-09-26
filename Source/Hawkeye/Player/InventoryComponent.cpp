@@ -419,3 +419,13 @@ bool UInventoryComponent::GiveKeycard(FName KeycardId)
 	OnInventoryChanged.Broadcast();
 	return true;
 }
+
+bool UInventoryComponent::NoteFirstPickup(const UArrowDefinition* Arrow)
+{
+	if (!Arrow || PickedUpTypes.Contains(Arrow->GetFName()))
+	{
+		return false;
+	}
+	PickedUpTypes.Add(Arrow->GetFName());
+	return true;
+}

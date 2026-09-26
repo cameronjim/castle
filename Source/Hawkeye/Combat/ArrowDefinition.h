@@ -91,6 +91,34 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")
 	TSoftObjectPtr<UTexture2D> Icon;
 
+	/**
+	 * What a stuck arrow of this type goes back into the quiver as. Empty: this type. Trickshot's
+	 * archers shoot DA_Arrow_Trickshot, which Kate picks up as DA_Arrow_Standard.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Recovery")
+	TObjectPtr<UArrowDefinition> RecoverAs;
+
+	/** HUD toast the first time the player picks one up ("Trickshot's arrow"). Empty: none. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Recovery")
+	FText PickupToast;
+
+	/** Paints the projectile in the colours below instead of the projectile class's own. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Look")
+	bool bOverrideColors = false;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Look", meta = (EditCondition = "bOverrideColors"))
+	FLinearColor ShaftColor = FLinearColor(0.6f, 0.55f, 0.45f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Look", meta = (EditCondition = "bOverrideColors"))
+	FLinearColor FletchingColor = FLinearColor(0.45f, 0.1f, 0.75f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Look", meta = (EditCondition = "bOverrideColors"))
+	FLinearColor NockColor = FLinearColor(0.45f, 0.1f, 0.75f);
+
+	/** RecoverAs, or this type when it is empty. */
+	UFUNCTION(BlueprintPure, Category = "Arrow|Recovery")
+	UArrowDefinition* GetRecoveredType() { return RecoverAs ? RecoverAs.Get() : this; }
+
 	/** DisplayName, falling back to the asset name. */
 	UFUNCTION(BlueprintPure, Category = "Arrow")
 	FText GetDisplayNameOrAssetName() const;

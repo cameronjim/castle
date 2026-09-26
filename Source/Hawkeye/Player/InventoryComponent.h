@@ -192,6 +192,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ApplyOwnStartingQuiver();
 
+	/**
+	 * True the first time Arrow is picked up this session, false after: the "Trickshot's arrow" toast
+	 * shows once.
+	 */
+	bool NoteFirstPickup(const UArrowDefinition* Arrow);
+
+	/** Whether Arrow has been picked up this session. */
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	bool HasPickedUp(const UArrowDefinition* Arrow) const { return Arrow && PickedUpTypes.Contains(Arrow->GetFName()); }
+
 	// --- Keycards ---------------------------------------------------------------------------------
 
 	UFUNCTION(BlueprintPure, Category = "Inventory|Keycards")
@@ -244,6 +254,10 @@ protected:
 	/** Keycard ids collected so far. Doors check this by id. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory|Keycards")
 	TSet<FName> Keycards;
+
+	/** Arrow types picked up from the world this session, by asset name. */
+	UPROPERTY(Transient)
+	TSet<FName> PickedUpTypes;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UWeaponDefinition> FallbackHands = nullptr;

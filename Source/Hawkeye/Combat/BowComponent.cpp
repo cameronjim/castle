@@ -95,7 +95,7 @@ UInventoryComponent* UBowComponent::FindInventory() const
 UBowDefinition* UBowComponent::GetBow() const
 {
 	const UInventoryComponent* Inventory = FindInventory();
-	return Inventory ? Inventory->GetBow() : nullptr;
+	return Inventory ? Inventory->GetBow() : OwnBow.Get();
 }
 
 float UBowComponent::GetDrawElapsed() const
@@ -220,7 +220,8 @@ bool UBowComponent::FireArrow(float Elapsed)
 {
 	UInventoryComponent* Inventory = FindInventory();
 	UBowDefinition* Bow = GetBow();
-	UArrowDefinition* Arrow = Inventory ? Inventory->GetActiveArrow() : nullptr;
+	// No quiver (an AI archer): his own arrow type, never spent.
+	UArrowDefinition* Arrow = Inventory ? Inventory->GetActiveArrow() : OwnArrow.Get();
 	AActor* Owner = GetOwner();
 	if (!Arrow || !Bow || !Owner)
 	{
@@ -231,8 +232,8 @@ bool UBowComponent::FireArrow(float Elapsed)
 		return FireGrapple(Arrow);
 	}
 
-	const int32 Slot = Inventory->GetActiveArrowSlot();
-	if (!Inventory->ConsumeArrow(Slot))
+	const int32 Slot = Inventory ? Inventory->GetActiveArrowSlot() : Arrow->Slot;
+	if (Inventory && !Inventory->ConsumeArrow(Slot))
 	{
 		// TODO(stage3): the empty-quiver click sound.
 		UE_LOG(LogHawkeye, Log, TEXT("%s: no %s left in slot %d."), *GetNameSafe(Owner), *GetNameSafe(Arrow), Slot);
@@ -266,7 +267,9 @@ bool UBowComponent::FireArrow(float Elapsed)
 			Bow->PerfectBonus * 100.f);
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: loosed %s at %.0f%% draw: %.0f cm/s, spread %.2f deg, damage %.1f; %d left."),
-		*GetNameSafe(Owner), *GetNameSafe(Arrow), Fraction * 100.f, Speed, Spread, Damage, Inventory->GetArrowCount(Slot));
+		*GetNameSafe(Owner), *GetNameSafe(Arrow), Fraction * 100.f, Speed, Spread, Damage,
+		Inventory ? Inventory->GetArrowCount(Slot) : -1);
+	++ArrowsLoosed;
 
 	FollowThroughUntilSeconds = GetNowSeconds() + FollowThroughSeconds;
 	OnArrowFired.Broadcast(Arrow);
@@ -438,9 +441,11 @@ void UBowComponent::RefreshBowVisual()
 	// The arrow on the string: the same pale shaft and purple nock as a loosed one.
 	NockedShaft = MakePart(BowMesh, NAME_None, Cylinder);
 	NockedNock = MakePart(BowMesh, NAME_None, Cylinder);
+	// An archer's own arrow type may carry its own colours (Trickshot's black shafts).
+	const bool bOwnColors = !FindInventory() && OwnArrow && OwnArrow->bOverrideColors;
 	const TPair<UStaticMeshComponent*, FLinearColor> ArrowParts[] = {
-		{ NockedShaft.Get(), FLinearColor(0.6f, 0.55f, 0.45f) },
-		{ NockedNock.Get(), FLinearColor(0.45f, 0.1f, 0.75f) },
+		{ NockedShaft.Get(), bOwnColors ? OwnArrow->ShaftColor : FLinearColor(0.6f, 0.55f, 0.45f) },
+		{ NockedNock.Get(), bOwnColors ? OwnArrow->NockColor : FLinearColor(0.45f, 0.1f, 0.75f) },
 	};
 	for (const TPair<UStaticMeshComponent*, FLinearColor>& Part : ArrowParts)
 	{
@@ -541,6 +546,7 @@ void UBowComponent::UpdateBowVisual()
 	if (bShowArrow)
 	{
 		const FVector Along = BowTransform.GetUnitAxis(EAxis::X);
+		NockedArrowTip = Nock + Along * NockedArrowLength;
 		PlaceString(NockedShaft, Nock, Nock + Along * NockedArrowLength);
 		NockedShaft->SetWorldScale3D(FVector(0.015f, 0.015f, NockedArrowLength / 100.f));
 		PlaceString(NockedNock, Nock - Along * 1.f, Nock + Along * 4.f);
