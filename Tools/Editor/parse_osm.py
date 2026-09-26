@@ -17,7 +17,6 @@ the district is the rectangle between four named street centre lines (DISTRICTS 
 building belongs to it when its footprint centroid is inside, so every block is whole.
 """
 
-import datetime
 import io
 import json
 import math
@@ -279,7 +278,6 @@ def main(raw_path):
         "fetched_utc": fetch_meta.get("fetched_utc"),
         "download_bbox": fetch_meta.get("bbox"),
         "licence": "ODbL 1.0, (c) OpenStreetMap contributors",
-        "parsed_utc": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "origin": {"lat": round(lat0, 8), "lon": round(lon0, 8)},
         "bounds_streets": {k: cfg[k] for k in ("west", "east", "south", "north")},
         "district_corners_latlon": box_corners_latlon(box),
