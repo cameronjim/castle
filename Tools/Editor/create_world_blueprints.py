@@ -3,7 +3,9 @@
     /Game/Blueprints/UI/WBP_Hud                parent UCastleHudWidget, HotbarWidgetClass
     /Game/Blueprints/World/BP_Pickup_Keycard   parent APickupActor, Keycard "cellblock"
     /Game/Blueprints/World/BP_Door_Keycard     parent ADoorActor, locked on "cellblock"
-    /Game/Blueprints/AI/BP_Thug                parent AThugCharacter, mannequin mesh
+    /Game/Blueprints/AI/BP_Thug                parent AThugCharacter, mannequin mesh in a red
+                                               tracksuit (M_ThugTracksuit, M_ThugTrim), idle,
+                                               walk and run clips, a bat for Bat thugs
     /Game/Blueprints/World/BP_GrappleAnchor    parent AGrappleAnchor, 40 cm dark steel cube
     /Game/Blueprints/World/BP_TraversableBlock parent the Game Animation Sample's
                                                LevelBlock_Traversable, level-style lookup off
@@ -41,10 +43,35 @@ MANNEQUIN_MESH_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
 MANNEQUIN_PHYSICS_ASSET_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin_PhysicsAsset"
 MANNEQUIN_IDLE_PATH = "/Game/Mannequin/Animations/ThirdPersonIdle"
 MANNEQUIN_WALK_PATH = "/Game/Mannequin/Animations/ThirdPersonWalk"
+MANNEQUIN_RUN_PATH = "/Game/Mannequin/Animations/ThirdPersonRun"
 
 THUG_MATERIAL_PATH = "/Game/Characters/Thug"
 M_THUG_BODY = THUG_MATERIAL_PATH + "/M_ThugBody"
 M_THUG_VISOR = THUG_MATERIAL_PATH + "/M_ThugVisor"
+
+# The Tracksuit Mafia look (docs/DESIGN.md, Cast). SK_Mannequin has two material slots: the body
+# (head included) and the chest logo patch. So the ski mask and the side stripes are drawn by the
+# body material from the mesh's own bind-pose (pre-skinned) position and normal, and the second
+# slot is the light trim. Both carry the HitFlash and Telegraph parameters AThugCharacter pulses.
+M_THUG_TRACKSUIT = THUG_MATERIAL_PATH + "/M_ThugTracksuit"
+M_THUG_TRIM = THUG_MATERIAL_PATH + "/M_ThugTrim"
+THUG_MATERIAL_VERSION = "tracksuit-1"     # bump to rebuild both graphs on the next run
+THUG_VERSION_TAG = "CastleVersion"
+TRACKSUIT_RED = (0.6, 0.05, 0.05)
+TRACKSUIT_STRIPE = (0.85, 0.85, 0.85)
+SKI_MASK = (0.012, 0.012, 0.012)
+MASK_BOTTOM_CM = 152.0      # bind-pose height above the feet where the black ski mask starts
+STRIPE_EDGE = 9.0           # outward normal x times lateral position, cm; above it is stripe
+HIT_FLASH_COLOR = (1.0, 0.85, 0.7)
+HIT_FLASH_INTENSITY = 6.0
+TELEGRAPH_COLOR = (1.0, 0.04, 0.01)
+TELEGRAPH_INTENSITY = 60.0
+
+# The bat: the engine cylinder (100 cm tall, 100 across) scaled to 85 x 6 cm, in the right hand.
+CYLINDER_PATH = "/Engine/BasicShapes/Cylinder"
+BAT_SCALE = unreal.Vector(0.06, 0.06, 0.85)
+BAT_LOCATION = unreal.Vector(0.0, 0.0, 0.0)
+BAT_ROTATION = unreal.Rotator(0.0, 0.0, 0.0)
 
 # The template's own offsets: the mesh hangs from the capsule centre and faces +X.
 THUG_MESH_LOCATION = unreal.Vector(0.0, 0.0, -96.0)
@@ -123,16 +150,81 @@ def _build_thug_visor(material):
     m.connect_property(bright, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
 
 
+def _scalar_param(material, name, x, y):
+    return m.expr(material, "MaterialExpressionScalarParameter", x, y,
+                  [("parameter_name", name), ("default_value", 0.0)], name)
+
+
+def _pulse_emissive(material, head_mask, x=-700, y=500):
+    """HitFlash (a warm white over everything) plus Telegraph (red, only where head_mask is 1)."""
+    flash = _scalar_param(material, "HitFlash", x, y)
+    flash_color = m.constant3(material, HIT_FLASH_COLOR, x, y + 150)
+    flash_rgb = m.multiply(material, flash_color, flash, x + 250, y)
+    flash_rgb = m.multiply(material, flash_rgb, None, x + 450, y, const_b=HIT_FLASH_INTENSITY)
+    if head_mask is None:
+        return flash_rgb
+    tele = _scalar_param(material, "Telegraph", x, y + 300)
+    tele_color = m.constant3(material, TELEGRAPH_COLOR, x, y + 450)
+    tele_on = m.multiply(material, tele, head_mask, x + 250, y + 300)
+    tele_rgb = m.multiply(material, tele_color, tele_on, x + 450, y + 300)
+    tele_rgb = m.multiply(material, tele_rgb, None, x + 650, y + 300, const_b=TELEGRAPH_INTENSITY)
+    return m.add(material, flash_rgb, tele_rgb, x + 850, y + 150)
+
+
+def _build_thug_tracksuit(material):
+    """Red tracksuit, light stripes down the outside of the legs and body, a black ski mask."""
+    pos = m.expr(material, "MaterialExpressionPreSkinnedPosition", -1600, -300, None, "PreSkinnedPosition")
+    nrm = m.expr(material, "MaterialExpressionPreSkinnedNormal", -1600, 0, None, "PreSkinnedNormal")
+    z = m.component_mask(material, pos, b=True, x=-1400, y=-400)
+    head = m.step(material, z, MASK_BOTTOM_CM, -1200, -400, sharpness=0.5)
+    px = m.component_mask(material, pos, r=True, x=-1400, y=-200)
+    nx = m.component_mask(material, nrm, r=True, x=-1400, y=0)
+    outward = m.multiply(material, nx, px, -1200, -100)
+    stripe = m.step(material, outward, STRIPE_EDGE, -1000, -100, sharpness=0.5)
+
+    red = m.constant3(material, TRACKSUIT_RED, -700, -500)
+    white = m.constant3(material, TRACKSUIT_STRIPE, -700, -350)
+    mask = m.constant3(material, SKI_MASK, -700, -200)
+    suit = m.lerp(material, red, white, stripe, -500, -400)
+    base = m.lerp(material, suit, mask, head, -300, -300)
+    m.connect_property(base, unreal.MaterialProperty.MP_BASE_COLOR)
+    m.set_scalar_property(material, 0.45, unreal.MaterialProperty.MP_ROUGHNESS, -300, 0)
+    m.connect_property(_pulse_emissive(material, head), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+
+def _build_thug_trim(material):
+    """The chest patch: the same light grey as the stripes, flashing with the body."""
+    m.connect_property(m.constant3(material, TRACKSUIT_STRIPE, -700, -200),
+                       unreal.MaterialProperty.MP_BASE_COLOR)
+    m.set_scalar_property(material, 0.45, unreal.MaterialProperty.MP_ROUGHNESS, -700, 0)
+    m.connect_property(_pulse_emissive(material, None), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+
+
+def _ensure_versioned_material(full_path, build_fn):
+    """ensure_material, rebuilt when its CastleVersion metadata is not THUG_MATERIAL_VERSION."""
+    existing = c.load_or_none(full_path)
+    current = None
+    if existing is not None:
+        current = unreal.EditorAssetLibrary.get_metadata_tag(existing, THUG_VERSION_TAG)
+    rebuild = existing is not None and current != THUG_MATERIAL_VERSION
+    material = m.ensure_material(full_path, build_fn, rebuild=rebuild, skeletal=True)
+    if material is not None and current != THUG_MATERIAL_VERSION:
+        unreal.EditorAssetLibrary.set_metadata_tag(material, THUG_VERSION_TAG, THUG_MATERIAL_VERSION)
+        c.save(material)
+    return material
+
+
 def ensure_thug_materials():
-    """M_ThugBody and M_ThugVisor at /Game/Characters/Thug. Idempotent.
+    """M_ThugTracksuit and M_ThugTrim at /Game/Characters/Thug. Idempotent.
 
     Both go on SK_Mannequin, so both need bUsedWithSkeletalMesh; without it the thugs wore the
-    grey engine default and the log filled with "missing usage flag SkeletalMesh!".
+    grey engine default and the log filled with "missing usage flag SkeletalMesh!". The prison
+    build's M_ThugBody and M_ThugVisor are left on disk, unused.
     """
     c.ensure_directory(THUG_MATERIAL_PATH)
     return {
-        "body": m.ensure_material(M_THUG_BODY, _build_thug_body, skeletal=True),
-        "visor": m.ensure_material(M_THUG_VISOR, _build_thug_visor, skeletal=True),
+        "body": _ensure_versioned_material(M_THUG_TRACKSUIT, _build_thug_tracksuit),
+        "visor": _ensure_versioned_material(M_THUG_TRIM, _build_thug_trim),
     }
 
 
@@ -155,11 +247,7 @@ def set_component_material(component, slot, material, context):
 
 
 def set_thug_materials(bp, materials):
-    """Body on slot 0, visor on slot 1.
-
-    The UE4 mannequin has two slots and the head shares the body slot, so the emissive goes on
-    slot 1 (the chest logo patch) rather than on a face that does not exist as its own slot.
-    """
+    """Tracksuit on slot 0 (body and head), trim on slot 1 (the chest logo patch)."""
     cdo = c.blueprint_cdo(bp)
     component = None
     if cdo is not None:
@@ -452,14 +540,18 @@ def make_thug():
         except Exception as exc:  # noqa: BLE001
             unreal.log_warning("[Castle] skipped   BP_Thug walk speed ({0})".format(exc))
 
-    # Idle and walk as plain sequences: AThugCharacter swaps between them in Tick, because
-    # the pack's AnimBP does not compile headless and left every thug in a T-pose.
+    # Idle, walk and run as plain sequences: AThugCharacter swaps between them in Tick, because
+    # the pack's AnimBP does not compile headless and left every thug in a T-pose. Run is the
+    # melee rush.
     changed = bool(cb.apply_defaults(
         bp, "BP_Thug", AI_PATH,
         [
             ("idle_anim", c.load_or_none(MANNEQUIN_IDLE_PATH)),
             ("walk_anim", c.load_or_none(MANNEQUIN_WALK_PATH)),
+            ("run_anim", c.load_or_none(MANNEQUIN_RUN_PATH)),
+            ("bat_mesh", c.load_or_none(CYLINDER_PATH)),
         ])) or changed
+    changed = set_thug_bat(bp) or changed
 
     changed = set_thug_mesh(bp) or changed
     changed = set_thug_materials(bp, ensure_thug_materials()) or changed
@@ -468,6 +560,33 @@ def make_thug():
         c.compile_blueprint(bp)
         c.save(bp)
     return bp
+
+
+def set_thug_bat(bp):
+    """Shape the HeldWeapon component into a bat: scale and grip offset on the CDO template."""
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property("held_weapon_component")
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        c.log("skipped", "BP_Thug.HeldWeapon", "no held weapon component; build the module")
+        return False
+    changed = []
+    for prop, value in (("relative_scale3d", BAT_SCALE), ("relative_location", BAT_LOCATION),
+                        ("relative_rotation", BAT_ROTATION)):
+        try:
+            if component.get_editor_property(prop) == value:
+                continue
+        except Exception:  # noqa: BLE001
+            pass
+        if c.set_props(component, [(prop, value)], "BP_Thug.HeldWeapon"):
+            changed.append(prop)
+    if changed:
+        c.log("updated", "BP_Thug.HeldWeapon", ", ".join(changed))
+    return bool(changed)
 
 
 def subobject_object(sds, handle, bp):

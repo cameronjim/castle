@@ -157,10 +157,11 @@ def check_thug_look():
         if value is None:
             fail("BP_Thug." + field + " is unset; the thug stands in a T-pose")
 
-    if prop(cdo, "flashlight") is None:
-        fail("BP_Thug has no flashlight component")
+    # Street thugs carry no torch; the Tracksuit look replaced the guard's head lamp.
+    if prop(cdo, "flashlight") is not None:
+        fail("BP_Thug still has a flashlight component")
     else:
-        say("  BP_Thug.flashlight  = present")
+        say("  BP_Thug.flashlight  = none (street thug)")
 
     component = prop(cdo, "mesh")
     for slot in (0, 1):

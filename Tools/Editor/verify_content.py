@@ -29,7 +29,7 @@ IA_NAMES = [
     "IA_Move", "IA_Look", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
     "IA_Aim", "IA_Reload", "IA_Takedown", "IA_Interact", "IA_Pause", "IA_Skip",
     "IA_Slot1", "IA_Slot2", "IA_Slot3", "IA_Slot4", "IA_Slot5", "IA_Slot6", "IA_SlotScroll",
-    "IA_Inventory", "IA_Grapple",
+    "IA_Inventory", "IA_Grapple", "IA_Melee",
 ]
 
 CHARACTER_INPUT_PROPS = [
@@ -37,6 +37,7 @@ CHARACTER_INPUT_PROPS = [
     "crouch_action", "fire_action", "aim_action", "reload_action", "takedown_action",
     "interact_action", "slot1_action", "slot2_action", "slot3_action", "slot4_action",
     "slot5_action", "slot6_action", "slot_scroll_action", "inventory_action", "grapple_action",
+    "melee_action",
 ]
 
 # Pause is bound on the controller so it survives the pawn being locked out or dead.
@@ -335,7 +336,7 @@ def check_pickup_parts():
 
 
 def check_thug_presentation():
-    """The thug look (kept from the guards for now), a flashlight and the locomotion sequences."""
+    """The Tracksuit look, no flashlight, the locomotion sequences and the bat."""
     say("---- thug look ----")
 
     cls = c.load_generated_class(AI_PATH, "BP_Thug")
@@ -345,16 +346,22 @@ def check_thug_presentation():
 
     cdo = unreal.get_default_object(cls)
 
-    for field in ("idle_anim", "walk_anim"):
+    for field in ("idle_anim", "walk_anim", "run_anim"):
         value = prop(cdo, field)
         say("  BP_Thug.{0:<10} = {1}".format(field, name_of(value)))
         if value is None:
-            fail("BP_Thug." + field + " is unset; the thug would T-pose")
+            fail("BP_Thug." + field + " is unset; the thug would T-pose (or skate through the rush)")
 
     flashlight = prop(cdo, "flashlight")
     say("  BP_Thug.flashlight  = {0}".format(name_of(flashlight)))
-    if flashlight is None:
-        fail("BP_Thug has no flashlight component")
+    if flashlight is not None:
+        fail("BP_Thug still carries a flashlight; street thugs have none")
+
+    bat = prop(cdo, "bat_mesh")
+    held = prop(cdo, "held_weapon_component")
+    say("  BP_Thug.bat_mesh    = {0}, held_weapon_component = {1}".format(name_of(bat), name_of(held)))
+    if bat is None or held is None:
+        fail("BP_Thug has no bat (bat_mesh or held_weapon_component missing)")
 
     component = prop(cdo, "mesh")
     if component is None:
@@ -362,7 +369,7 @@ def check_thug_presentation():
         return
 
     say("  BP_Thug.Mesh.animation_mode = {0}".format(prop(component, "animation_mode")))
-    for slot, wanted in ((0, "M_ThugBody"), (1, "M_ThugVisor")):
+    for slot, wanted in ((0, "M_ThugTracksuit"), (1, "M_ThugTrim")):
         material = None
         try:
             material = component.get_material(slot)
@@ -582,6 +589,11 @@ def check_data_assets():
         say("  DA_CH01_Rooftops: starting_bow={0} starting_arrows={1}".format(bow, grants))
         if "DA_Bow_Kate" not in str(bow or ""):
             fail("DA_CH01_Rooftops.starting_bow is not DA_Bow_Kate")
+        ids = [str(prop(obj, "objective_id")) for obj in list(prop(chapter, "objectives") or [])]
+        say("  DA_CH01_Rooftops: objectives={0}".format(ids))
+        wanted_ids = ["reach_roof", "cross_block", "clear_roof", "find_arrow"]
+        if ids != wanted_ids:
+            fail("DA_CH01_Rooftops objectives are {0}, expected {1}".format(ids, wanted_ids))
         wanted = [("DA_Arrow_Standard", 30), ("DA_Arrow_Grapple", 6)]
         if len(grants) != len(wanted) or any(
                 name not in arrow or count != want for (arrow, count), (name, want) in zip(grants, wanted)):
