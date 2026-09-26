@@ -8,6 +8,7 @@
 
 class UInventoryComponent;
 class UMissionDefinition;
+class UMissionObjective;
 
 /**
  * Default game mode. Create a Blueprint child per level, set StartingMission, and pick the
@@ -44,6 +45,33 @@ public:
 	bool IsRestartPending() const { return bRestartPending; }
 
 	/**
+	 * Death and the pause menu's restart: fades to black over FadeSeconds (negative uses
+	 * DeathFadeSeconds), then loads the last autosave through UHawkeyeSaveSubsystem. With no save
+	 * to load it falls back to RestartMission's level reload. Repeat calls are ignored.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Mission")
+	void ReloadLastCheckpoint(float FadeSeconds = -1.f);
+
+	/** Seconds of fade to black between dying and the checkpoint loading. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.0"))
+	float DeathFadeSeconds = 1.5f;
+
+	/** How often the roaming autosave clock is advanced, seconds of unpaused play. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Save", meta = (ClampMin = "0.1"))
+	float AutosaveTickSeconds = 1.f;
+
+	/**
+	 * True while any living thug is alerted or the partner's fight clock is running. The roaming
+	 * autosave waits for this to clear.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Save")
+	bool IsInCombat() const;
+
+	/** The roaming autosave's gate: a living, standing player on the ground, and no fight on. */
+	UFUNCTION(BlueprintPure, Category = "Save")
+	bool CanAutosaveNow() const;
+
+	/**
 	 * Builds the navmesh once at BeginPlay.
 	 *
 	 * The maps are generated headlessly and nobody ever pressed Build Paths, so the navmesh
@@ -73,6 +101,18 @@ protected:
 	/** The local player's inventory, or null before a pawn exists. */
 	UInventoryComponent* FindPlayerInventory() const;
 
+	UFUNCTION()
+	void HandleObjectiveUpdated(UMissionObjective* Objective, int32 ObjectiveIndex);
+
+	/** Timer body: one step of the roaming autosave clock. */
+	void TickAutosave();
+
+	/** Timer body: the fade is black; load the checkpoint. */
+	void LoadCheckpointNow();
+
+	/** Timer body: the first save of a new game, once the world has settled. */
+	void SaveNewGame();
+
 	/** Blueprint hook for end-of-mission scoring, stats screens, achievements. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Mission")
 	void OnMissionCompleted(UMissionDefinition* Mission);
@@ -84,4 +124,6 @@ protected:
 private:
 	bool bRestartPending = false;
 	FTimerHandle RestartTimerHandle;
+	FTimerHandle AutosaveTimerHandle;
+	FTimerHandle NewGameSaveTimerHandle;
 };
