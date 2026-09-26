@@ -29,6 +29,9 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
 * chapter 1's fight: four City_Thug_ (one gunner, two bats, one fists), the RoofPair on the
   cross_block roof, two City_Patrol_ points 40 m apart, City_ThugGroup_clear_roof, and every
   thug's feet on the navmesh (the navmesh is built in the editor world first, not saved)
+* Barney's archers: two City_Archer_ (BP_Archer, Bow, tagged ArcherPair) where the generator puts
+  them, 15 to 25 m from the find_arrow beacon, feet on the navmesh, and a clear line from each one's
+  eyes to Kate's chest at the beacon by a real trace against the level's collision
 * the clutter in the props asset matches the generator kind by kind, SpawnAll draws every instance,
   and none stands within reach of the thug patrol (its points, the line between them, the thugs),
   on or against a fire-escape landing at the landing's height, within 3 m of an objective beacon,
@@ -616,6 +619,57 @@ def check_thugs(district, actors, records):
     check(not off, "every thug starts on the navmesh", ", ".join(off))
 
 
+def check_archers(district, actors):
+    """Two City_Archer_<n> (BP_Archer) where the generator puts them, on the navmesh, with a traced
+    line to the find_arrow roof."""
+    archers = {l: a for l, a in actors.items() if l.startswith(gen.ARCHER_PREFIX)}
+    wanted = gen.archer_placements(district)
+    check(sorted(archers) == sorted(w[0] for w in wanted) and len(wanted) == 2, "two archers placed",
+          ", ".join(sorted(archers)))
+    target = gen.archer_target(district)
+    world = c.editor_world()
+    detail = []
+    bad = []
+    for label, x, y, z, _yaw, osm, distance in wanted:
+        actor = archers.get(label)
+        if actor is None:
+            bad.append(label + " missing")
+            continue
+        loc = actor.get_actor_location()
+        tags = [str(t) for t in actor.get_editor_property("tags")]
+        ok = (gen.ARCHER_BP_NAME in c.class_name(actor.get_class()) and weapon_name(actor.get_editor_property("weapon")) == "BOW"
+              and gen.ARCHER_PAIR_TAG in tags and "Thug" in tags and abs(loc.x - x) <= 1.0 and abs(loc.y - y) <= 1.0
+              and abs(loc.z - z) <= 1.0 and gen.ARCHER_MIN_DISTANCE <= distance <= gen.ARCHER_MAX_DISTANCE)
+        # The generator's line is from footprints; this one is the level's own collision.
+        eye = unreal.Vector(loc.x, loc.y, loc.z - gen.THUG_HALF_HEIGHT + gen.ARCHER_EYE)
+        chest = unreal.Vector(target[0], target[1], target[2])
+        visibility = getattr(unreal.TraceTypeQuery, "ECC_VISIBILITY", None) or unreal.TraceTypeQuery.TRACE_TYPE_QUERY1
+        hit = unreal.SystemLibrary.line_trace_single(world, eye, chest, visibility, False,
+                                                     [actor], unreal.DrawDebugTrace.NONE, True)
+        blocked = hit is not None and bool(hit.to_tuple()[0]) if hasattr(hit, "to_tuple") else bool(hit)
+        blocker = ""
+        if blocked and hasattr(hit, "to_tuple"):
+            parts = hit.to_tuple()
+            blocker = next((p.get_actor_label() for p in parts if isinstance(p, unreal.Actor)), "?")
+        if not ok or blocked:
+            bad.append("{0}{1}".format(label, " line blocked by " + blocker if blocked else " misplaced"))
+        detail.append("{0} osm {1} at ({2:.0f}, {3:.0f}, {4:.0f}) {5:.0f} cm{6}".format(
+            label, osm, loc.x, loc.y, loc.z, distance, " BLOCKED" if blocked else ""))
+    unreal.log("[Hawkeye] info  archers: " + "; ".join(detail))
+    check(not bad, "archers are BP_Archer with a bow, 15 to 25 m from find_arrow, with a clear traced line", ", ".join(bad))
+    world, built = build_navigation()
+    if not built:
+        return
+    off = []
+    for label, actor in sorted(archers.items()):
+        feet = actor.get_actor_location() - unreal.Vector(0.0, 0.0, gen.THUG_HALF_HEIGHT)
+        result = unreal.HawkeyeNavigationLibrary.project_to_navigation(world, feet, NAV_QUERY_EXTENT)
+        ok = bool(result[0]) if isinstance(result, tuple) else result is not None
+        if not ok:
+            off.append(label)
+    check(not off, "every archer starts on the navmesh", ", ".join(off))
+
+
 def check_clint(district, actors):
     """City_ClintStart and City_Clint (BP_Clint) 5 m behind the PlayerStart, his feet on the navmesh."""
     marker = actors.get(gen.CLINT_START_LABEL)
@@ -823,6 +877,7 @@ def run():
           gen.STARS_LABEL + " present in M_NightStars with no collision",
           str(sky_comp.get_collision_profile_name()) if sky_comp is not None else "missing")
     check_thugs(district, actors, records)
+    check_archers(district, actors)
     check_clint(district, actors)
     check_safehouse(district, actors)
 

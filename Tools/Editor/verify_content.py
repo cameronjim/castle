@@ -117,6 +117,13 @@ EXPECTED = (
         c.asset_path(AI_PATH, "BP_PartnerController"),
         AI_PATH + "/Partner/ST_Partner",
         "/Game/Data/DT_Dialogue",
+        WEAPON_PATH + "/DA_Bow_Archer",
+        WEAPON_PATH + "/DA_Arrow_Trickshot",
+        AI_PATH + "/Thug/ST_Thug",
+        AI_PATH + "/EQS_CoverPoints",
+        "/Game/Blueprints/Bosses/BP_Archer",
+        "/Game/Characters/Archer/M_ArcherSuit",
+        "/Game/Characters/Archer/M_ArcherTrim",
     ]
 )
 
@@ -558,6 +565,51 @@ def check_partner():
         fail("DA_CH01_Rooftops does not allow switching")
 
 
+def check_enemies():
+    """ST_Thug and EQS_CoverPoints on BP_Thug, and BP_Archer's bow, arrows and suit."""
+    say("---- enemies ----")
+    builder = getattr(unreal, "HawkeyeThugTreeBuilder", None)
+    tree = c.load_or_none(AI_PATH + "/Thug/ST_Thug")
+    query = c.load_or_none(AI_PATH + "/EQS_CoverPoints")
+    states = builder.count_thug_states(tree) if builder and tree is not None else -1
+    shape = builder.describe_cover_query(query) if builder and query is not None else "missing"
+    say("  ST_Thug: {0} states; EQS_CoverPoints: {1}".format(states, shape))
+    if states != 6:
+        fail("ST_Thug has {0} states under its root, expected 6".format(states))
+    if shape != "generator Donut (outer 800 cm), tests Trace+Distance":
+        fail("EQS_CoverPoints is '{0}'".format(shape))
+    thug = _default_object(AI_PATH, "BP_Thug")
+    say("  BP_Thug: thug_state_tree={0} cover_query={1}".format(
+        name_of(prop(thug, "thug_state_tree")), name_of(prop(thug, "cover_query"))))
+    if name_of(prop(thug, "thug_state_tree")) != "ST_Thug" or name_of(prop(thug, "cover_query")) != "EQS_CoverPoints":
+        fail("BP_Thug does not run ST_Thug with EQS_CoverPoints")
+
+    parent = _parent_tag("/Game/Blueprints/Bosses", "BP_Archer")
+    archer = _default_object("/Game/Blueprints/Bosses", "BP_Archer")
+    say("  BP_Archer parent = {0}".format(parent))
+    if "BP_Thug" not in parent or archer is None:
+        fail("BP_Archer is not a child of BP_Thug")
+        return
+    bow = prop(archer, "bow_component")
+    weapon = str(prop(archer, "weapon"))
+    body = prop(archer, "mesh")
+    slot0 = body.get_material(0) if body is not None else None
+    say("  BP_Archer: weapon={0} own_bow={1} own_arrow={2} suit={3} tree={4}".format(
+        weapon, name_of(prop(bow, "own_bow")), name_of(prop(bow, "own_arrow")), name_of(slot0),
+        name_of(prop(archer, "thug_state_tree"))))
+    if "BOW" not in weapon.upper():
+        fail("BP_Archer's weapon is {0}, expected Bow".format(weapon))
+    if name_of(prop(bow, "own_bow")) != "DA_Bow_Archer" or name_of(prop(bow, "own_arrow")) != "DA_Arrow_Trickshot":
+        fail("BP_Archer's BowComponent does not carry DA_Bow_Archer and DA_Arrow_Trickshot")
+    if name_of(slot0) != "M_ArcherSuit":
+        fail("BP_Archer wears {0}, expected M_ArcherSuit".format(name_of(slot0)))
+    arrow = c.load_or_none(WEAPON_PATH + "/DA_Arrow_Trickshot")
+    say("  DA_Arrow_Trickshot: recover_as={0} toast='{1}' colours={2}".format(
+        name_of(prop(arrow, "recover_as")), prop(arrow, "pickup_toast"), prop(arrow, "override_colors")))
+    if name_of(prop(arrow, "recover_as")) != "DA_Arrow_Standard" or str(prop(arrow, "pickup_toast")) != "Trickshot's arrow":
+        fail("DA_Arrow_Trickshot is not picked up as DA_Arrow_Standard with the Trickshot's arrow toast")
+
+
 def check_weapon_data():
     """DA_Weapon_Hands, the bows and arrows, and the places they have to be wired into."""
     say("---- weapon data ----")
@@ -568,6 +620,9 @@ def check_weapon_data():
                         ("min_speed_fraction", 0.4), ("min_spread", 0.5), ("max_spread", 4.0),
                         ("perfect_window_seconds", 0.1), ("perfect_bonus", 0.25), ("hand_socket", "palm_l_Socket")],
         "DA_Bow_Clint": [("full_draw_seconds", 1.0)],
+        "DA_Bow_Archer": [("full_draw_seconds", 1.2), ("max_speed", 5000.0), ("perfect_bonus", 0.0),
+                          ("headshot_multiplier", 1.0), ("hand_socket", "hand_l")],
+        "DA_Arrow_Trickshot": [("slot", 1), ("damage", 30.0), ("recoverable", True), ("on_hit_effect", "NONE")],
         "DA_Arrow_Standard": [("slot", 1), ("damage", 40.0), ("cap", 30), ("recoverable", True),
                               ("on_hit_effect", "NONE")],
         "DA_Arrow_Grapple": [("slot", 2), ("cap", 6), ("recoverable", True), ("on_hit_effect", "GRAPPLE")],
@@ -650,6 +705,7 @@ def check_data_assets():
 
 SKELETAL_MESH_COMPONENTS = (
     (AI_PATH, "BP_Thug", ("mesh",)),
+    ("/Game/Blueprints/Bosses", "BP_Archer", ("mesh",)),
     (PLAYER_PATH, "BP_HawkeyeCharacter", ("mesh",)),
     (PLAYER_PATH, "BP_Kate", ("mesh",)),
     (PLAYER_PATH, "BP_Clint", ("mesh",)),
@@ -717,6 +773,7 @@ def main():
     check_third_person()
     check_kate()
     check_partner()
+    check_enemies()
     check_skeletal_material_usage()
     check_weapon_data()
     check_data_assets()
