@@ -32,7 +32,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrapp
  * onto the new line over RedirectBlendSeconds rather than snapping. A zip blocked by
  * anything but the anchor's own building (the one under its landing point, and any static actor
  * within SupportRadius of the anchor) or, until she is ZipStartIgnoreRadius clear of the start,
- * the geometry round where she stood (her own roof and parapet), stops and drops the character.
+ * the geometry round where she stood (her own roof and parapet; after a mid-air chain, also the
+ * building the old line was landing on), stops and drops the character.
  * Jump or crouch mid-zip lets go (CancelZip). Arrows stay in the
  * anchor and go back in the quiver when the character is within RecoverRadius of it.
  *

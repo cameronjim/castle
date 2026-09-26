@@ -604,6 +604,13 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 	// From the ground there is a hop to the launch point; a chain or a mid-air zip goes straight.
 	const bool bFromGround = !bZipping && Movement->IsMovingOnGround();
 	const bool bRedirect = bZipping && !bHopping;
+	// A chain in the air is often right at the old anchor's parapet: that building counts as
+	// where she starts from, ignored until she is clear of it like her own roof on a fresh zip.
+	TArray<TWeakObjectPtr<AActor>> OldAnchorSupports;
+	if (bRedirect)
+	{
+		OldAnchorSupports = ZipIgnoredSupports;
+	}
 	if (bZipping)
 	{
 		// A chain: the old building stops being ignored, the new one starts.
@@ -661,6 +668,13 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 	for (AActor* Support : StartSupports)
 	{
 		ZipStartSupports.Add(Support);
+	}
+	for (const TWeakObjectPtr<AActor>& Support : OldAnchorSupports)
+	{
+		if (Support.IsValid())
+		{
+			ZipStartSupports.AddUnique(Support);
+		}
 	}
 	bStartSupportsIgnored = true;
 	SetSupportsIgnored(true);
