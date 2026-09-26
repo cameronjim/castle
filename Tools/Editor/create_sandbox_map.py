@@ -663,7 +663,22 @@ def add_thugs():
             if point is not None:
                 points.append(point)
 
-        thug, was_created = ensure_actor(thug_class, label, unreal.Vector(tx, ty, 100.0))
+        location = unreal.Vector(tx, ty, 100.0)
+        rotation = None
+        stale = find_actor_by_label(label)
+        if stale is not None and "Guard" in stale.get_name():
+            # Relabelling does not rename the object, so a pre-pivot thug still logs itself as
+            # BP_Guard_C_0. Respawn it where it stood; patrol points and loot are re-applied below.
+            location, rotation = stale.get_actor_location(), stale.get_actor_rotation()
+            old_name = stale.get_name()
+            try:
+                stale.destroy_actor()
+                changed += 1
+                c.log("updated", label, "respawned from {0} as a BP_Thug".format(old_name))
+            except Exception as exc:  # noqa: BLE001
+                c.log_error("respawn " + label, exc)
+
+        thug, was_created = ensure_actor(thug_class, label, location, rotation)
         if thug is None:
             continue
 

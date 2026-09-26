@@ -577,7 +577,8 @@ def label_of(actor):
 def check_m01_gameplay(actors):
     """The test map needs thugs with patrol points, a door, the keycard and a nav volume."""
     thugs = [a for a in actors if "BP_Thug" in c.class_name(type(a)) or "ThugCharacter" in c.class_name(type(a))]
-    guards = [a for a in actors if "Guard" in c.class_name(type(a)) or label_of(a).startswith("Guard_")]
+    guards = [a for a in actors if "Guard" in c.class_name(type(a)) or "Guard" in a.get_name()
+              or label_of(a).startswith("Guard_")]
     doors = [a for a in actors if "Door" in c.class_name(type(a)) and "Frame" not in c.class_name(type(a))]
     pickups = [a for a in actors if "Pickup" in c.class_name(type(a))]
     pistols = [a for a in pickups if "Pistol" in c.class_name(type(a)) or "Pistol" in label_of(a)]
