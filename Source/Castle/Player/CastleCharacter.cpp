@@ -475,6 +475,10 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	{
 		EnhancedInput->BindAction(LookAction, ETriggerEvent::Triggered, this, &ACastleCharacter::Input_Look);
 	}
+	if (LookStickAction)
+	{
+		EnhancedInput->BindAction(LookStickAction, ETriggerEvent::Triggered, this, &ACastleCharacter::Input_LookStick);
+	}
 	if (JumpAction)
 	{
 		EnhancedInput->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
@@ -714,6 +718,9 @@ void ACastleCharacter::BindToSettingsSubsystem()
 	SettingsLookSensitivity = SettingsSubsystem->GetLookSensitivity();
 	bHasSettingsLookSensitivity = true;
 
+	SettingsStickSensitivity = SettingsSubsystem->GetStickSensitivity();
+	bHasSettingsStickSensitivity = true;
+
 	if (!SettingsSubsystem->OnSettingsChanged.IsAlreadyBound(this, &ACastleCharacter::HandleSettingsChanged))
 	{
 		SettingsSubsystem->OnSettingsChanged.AddDynamic(this, &ACastleCharacter::HandleSettingsChanged);
@@ -733,6 +740,9 @@ void ACastleCharacter::HandleSettingsChanged(FCastleSettings NewSettings)
 	// Live, so the slider can be felt while the pause menu is still open.
 	SettingsLookSensitivity = NewSettings.LookSensitivity;
 	bHasSettingsLookSensitivity = true;
+
+	SettingsStickSensitivity = NewSettings.StickSensitivity;
+	bHasSettingsStickSensitivity = true;
 }
 
 float ACastleCharacter::GetEffectiveLookSensitivity() const
@@ -753,6 +763,43 @@ void ACastleCharacter::Input_Look(const FInputActionValue& Value)
 
 	AddControllerYawInput(LookInput.X);
 	AddControllerPitchInput(LookInput.Y);
+}
+
+FVector2D ACastleCharacter::ComputeStickLookDelta(FVector2D RawInput, float DeltaSeconds, bool bAiming) const
+{
+	if (DeltaSeconds <= 0.f)
+	{
+		return FVector2D::ZeroVector;
+	}
+
+	const float Sensitivity = bHasSettingsStickSensitivity ? SettingsStickSensitivity : StickSensitivity;
+	const float RateMultiplier = (bAiming ? AimStickRateMultiplier : 1.f) * Sensitivity * DeltaSeconds;
+
+	// value^1.5 (sign preserved): a light nudge stays fine for small aim corrections while the
+	// stick still reaches full rate at the edge, unlike a straight linear response.
+	auto Ease = [](float Axis)
+	{
+		return FMath::Sign(Axis) * FMath::Pow(FMath::Abs(Axis), 1.5f);
+	};
+
+	return FVector2D(
+		Ease(RawInput.X) * StickYawDegreesPerSecond * RateMultiplier,
+		Ease(RawInput.Y) * StickPitchDegreesPerSecond * RateMultiplier);
+}
+
+void ACastleCharacter::Input_LookStick(const FInputActionValue& Value)
+{
+	const FVector2D RawInput = Value.Get<FVector2D>();
+	if (RawInput.IsNearlyZero())
+	{
+		return;
+	}
+
+	const float DeltaSeconds = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
+	const FVector2D LookDelta = ComputeStickLookDelta(RawInput, DeltaSeconds, bIsAiming);
+
+	AddControllerYawInput(LookDelta.X);
+	AddControllerPitchInput(LookDelta.Y);
 }
 
 void ACastleCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
@@ -1983,14 +2030,19 @@ void ACastleCharacter::Input_Reload(const FInputActionValue& /*Value*/)
 
 void ACastleCharacter::Input_Takedown(const FInputActionValue& /*Value*/)
 {
-	if (TakedownComponent)
-	{
-		TakedownComponent->TryTakedown();
-	}
+	// Bound before Input_Interact (see SetupPlayerInputComponent), so on the gamepad's shared Y
+	// button this runs first and, if it lands, tells Input_Interact to skip this press.
+	bTookDownThisPress = TakedownComponent && TakedownComponent->TryTakedown();
 }
 
 void ACastleCharacter::Input_Interact(const FInputActionValue& /*Value*/)
 {
+	if (bTookDownThisPress)
+	{
+		bTookDownThisPress = false;
+		return;
+	}
+
 	if (InteractionComponent)
 	{
 		InteractionComponent->TryInteract();

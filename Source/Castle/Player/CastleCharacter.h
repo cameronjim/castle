@@ -175,6 +175,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Input")
 	FVector2D ComputeLookDelta(FVector2D RawInput, bool bAiming) const;
 
+	/**
+	 * Yaw/pitch degrees to apply this frame for a held gamepad stick position, given
+	 * DeltaSeconds and whether the aim is held. Eased with value^1.5 so a light nudge is fine
+	 * for small aim corrections while the stick still reaches full rate at the edge. Pure and
+	 * tested so the scaling can be checked without a controller.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Input")
+	FVector2D ComputeStickLookDelta(FVector2D RawInput, float DeltaSeconds, bool bAiming) const;
+
 	// --- Camera ---------------------------------------------------------------------------------
 
 	/**
@@ -546,6 +555,14 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UTakedownComponent> TakedownComponent;
 
+	/**
+	 * Set by Input_Takedown when it executes one, consumed by Input_Interact on the very same
+	 * key press. Takedown and Interact are bound to separate keyboard keys (F, E) but share the
+	 * gamepad Y face button; Takedown is bound first, so this is how it wins that press instead
+	 * of both firing.
+	 */
+	bool bTookDownThisPress = false;
+
 	/** Hands only: the punch while no bow is owned (bHasWeapon false). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UWeaponComponent> WeaponComponent;
@@ -590,6 +607,14 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> LookAction;
+
+	/**
+	 * The gamepad right stick. Kept separate from LookAction (mouse) so the handler can scale by
+	 * delta time and StickSensitivity: a mouse delta is already a per-frame pixel count, but a
+	 * stick reports a held position and needs an explicit rate.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> LookStickAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> JumpAction;
@@ -958,6 +983,32 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.05", ClampMax = "1.0"))
 	float AimLookMultiplier = 0.7f;
 
+	/** Gamepad stick full-deflection yaw rate, before StickSensitivity and the aim halving. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "1.0"))
+	float StickYawDegreesPerSecond = 180.f;
+
+	/** Gamepad stick full-deflection pitch rate, before StickSensitivity and the aim halving. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "1.0"))
+	float StickPitchDegreesPerSecond = 120.f;
+
+	/** Aiming halves the stick look rate, the same as it slows the mouse via AimLookMultiplier. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float AimStickRateMultiplier = 0.5f;
+
+	/**
+	 * The multiplier UCastleSettingsSubsystem last handed us for StickSensitivity. Only the
+	 * fallback for a world without a game instance, same as SettingsLookSensitivity above.
+	 */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	float SettingsStickSensitivity = 1.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
+	bool bHasSettingsStickSensitivity = false;
+
+	/** Fallback StickSensitivity for a world with no settings subsystem (every automation test). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.2", ClampMax = "3.0"))
+	float StickSensitivity = 1.f;
+
 	/** Reads the current sensitivity out of the settings subsystem and subscribes to changes. */
 	void BindToSettingsSubsystem();
 
@@ -965,6 +1016,9 @@ protected:
 
 	UFUNCTION()
 	void HandleSettingsChanged(FCastleSettings Settings);
+
+	/** Gamepad right stick: Value is a held -1..1 position, not a per-frame delta like the mouse. */
+	void Input_LookStick(const FInputActionValue& Value);
 
 	// --- Aim ------------------------------------------------------------------------------------
 
