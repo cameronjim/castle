@@ -560,8 +560,8 @@ def _build_steel_painted(material):
 
 
 def ensure_steel_painted():
-    """M_SteelPainted as black iron. An older build (the green-grey paint) is rebuilt once, and
-    tagged so the next run leaves it alone."""
+    """M_SteelPainted as black iron, usable on instanced meshes. An older build (the green-grey
+    paint) is rebuilt once, and tagged so the next run leaves it alone."""
     material = ensure_material(M_STEEL_PAINTED, _build_steel_painted)
     if material is None:
         return None
@@ -573,6 +573,8 @@ def ensure_steel_painted():
         material = ensure_material(M_STEEL_PAINTED, _build_steel_painted, rebuild=True)
         unreal.EditorAssetLibrary.set_metadata_tag(material, "CastleBuild", STEEL_PAINTED_BUILD)
         c.save(material)
+    # The fire escapes draw it on instanced meshes; without the flag the game swaps in the default.
+    ensure_usage(material, ["used_with_instanced_static_meshes"], M_STEEL_PAINTED)
     return material
 
 
