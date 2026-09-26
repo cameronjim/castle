@@ -55,34 +55,32 @@ AArrowProjectile::AArrowProjectile()
 	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ShapeMaterial(
 		TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
 
-	// The engine cylinder is 100 cm along Z about its centre; pitched 90 it lies along X.
-	Shaft = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Shaft"));
-	Shaft->SetupAttachment(Collision);
-	Shaft->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Shaft->SetCastShadow(false);
-	Shaft->SetRelativeLocationAndRotation(FVector(-ShaftLength * 0.5f, 0.f, 0.f), FRotator(90.f, 0.f, 0.f));
-	Shaft->SetRelativeScale3D(FVector(0.016f, 0.016f, ShaftLength / 100.f));
-
-	Fletching = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Fletching"));
-	Fletching->SetupAttachment(Collision);
-	Fletching->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Fletching->SetCastShadow(false);
-	Fletching->SetRelativeLocation(FVector(-ShaftLength + 8.f, 0.f, 0.f));
-	Fletching->SetRelativeScale3D(FVector(0.12f, 0.07f, 0.07f));
-
-	if (Cylinder.Succeeded())
+	UMaterialInterface* ShapeMaterialObject = ShapeMaterial.Succeeded() ? ShapeMaterial.Object : nullptr;
+	auto MakePart = [this, ShapeMaterialObject](const TCHAR* Name, UStaticMesh* Mesh)
 	{
-		Shaft->SetStaticMesh(Cylinder.Object);
-	}
-	if (Cube.Succeeded())
-	{
-		Fletching->SetStaticMesh(Cube.Object);
-	}
-	if (ShapeMaterial.Succeeded())
-	{
-		Shaft->SetMaterial(0, ShapeMaterial.Object);
-		Fletching->SetMaterial(0, ShapeMaterial.Object);
-	}
+		UStaticMeshComponent* Part = CreateDefaultSubobject<UStaticMeshComponent>(Name);
+		Part->SetupAttachment(Collision);
+		Part->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Part->SetCanEverAffectNavigation(false);
+		Part->SetCastShadow(false);
+		if (Mesh)
+		{
+			Part->SetStaticMesh(Mesh);
+		}
+		if (ShapeMaterialObject)
+		{
+			Part->SetMaterial(0, ShapeMaterialObject);
+		}
+		return Part;
+	};
+	UStaticMesh* CylinderMesh = Cylinder.Succeeded() ? Cylinder.Object : nullptr;
+	UStaticMesh* CubeMesh = Cube.Succeeded() ? Cube.Object : nullptr;
+	Shaft = MakePart(TEXT("Shaft"), CylinderMesh);
+	Fletching = MakePart(TEXT("Fletching"), CubeMesh);
+	Fletching2 = MakePart(TEXT("Fletching2"), CubeMesh);
+	Fletching3 = MakePart(TEXT("Fletching3"), CubeMesh);
+	Nock = MakePart(TEXT("Nock"), CylinderMesh);
+	LayoutParts();
 
 	Movement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("Movement"));
 	Movement->SetUpdatedComponent(Collision);
@@ -92,6 +90,45 @@ AArrowProjectile::AArrowProjectile()
 	Movement->bRotationFollowsVelocity = true;
 	Movement->bShouldBounce = false;
 	Movement->bAutoActivate = false;
+}
+
+void AArrowProjectile::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+	// Again here, so a Blueprint child's ShaftLength or thickness shapes its parts too.
+	LayoutParts();
+}
+
+void AArrowProjectile::LayoutParts()
+{
+	// The engine cylinder is 100 cm along Z about its centre; pitched 90 it lies along X, back from
+	// the tip at the root.
+	const float Radius = ShaftThickness * 0.5f;
+	if (Shaft)
+	{
+		Shaft->SetRelativeLocationAndRotation(FVector(-ShaftLength * 0.5f, 0.f, 0.f), FRotator(90.f, 0.f, 0.f));
+		Shaft->SetRelativeScale3D(FVector(ShaftThickness / 100.f, ShaftThickness / 100.f, ShaftLength / 100.f));
+	}
+	// Vanes 12 cm long and 4 cm tall, 3 mm thin, standing out from the shaft 120 degrees apart.
+	const float VaneHeight = 4.f;
+	const float VaneX = -ShaftLength + 9.f;
+	UStaticMeshComponent* const Vanes[] = { Fletching.Get(), Fletching2.Get(), Fletching3.Get() };
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		UStaticMeshComponent* Vane = Vanes[Index];
+		if (!Vane)
+		{
+			continue;
+		}
+		const FRotator Roll(0.f, 0.f, 120.f * Index);
+		Vane->SetRelativeLocationAndRotation(FVector(VaneX, 0.f, 0.f) + Roll.RotateVector(FVector(0.f, 0.f, Radius + VaneHeight * 0.5f)), Roll);
+		Vane->SetRelativeScale3D(FVector(0.12f, 0.003f, VaneHeight / 100.f));
+	}
+	if (Nock)
+	{
+		Nock->SetRelativeLocationAndRotation(FVector(-ShaftLength - 1.f, 0.f, 0.f), FRotator(90.f, 0.f, 0.f));
+		Nock->SetRelativeScale3D(FVector((ShaftThickness + 0.8f) / 100.f, (ShaftThickness + 0.8f) / 100.f, 0.03f));
+	}
 }
 
 void AArrowProjectile::InitArrow(UArrowDefinition* InArrow, UBowDefinition* InBow, float InDamage, AActor* InShooter,
@@ -111,15 +148,21 @@ void AArrowProjectile::InitArrow(UArrowDefinition* InArrow, UBowDefinition* InBo
 		Collision->IgnoreActorWhenMoving(InShooter, true);
 	}
 
-	// Pale shaft so it reads against a dark jacket, coloured fletching. BasicShapeMaterial takes a
-	// Color parameter.
-	if (UMaterialInstanceDynamic* ShaftMaterial = Shaft ? Shaft->CreateDynamicMaterialInstance(0) : nullptr)
+	// Pale shaft so it reads against a dark jacket, coloured fletching, Kate's purple nock.
+	// BasicShapeMaterial takes a Color parameter.
+	const TPair<UStaticMeshComponent*, FLinearColor> Tints[] = {
+		{ Shaft.Get(), ShaftColor },
+		{ Fletching.Get(), FletchingColor },
+		{ Fletching2.Get(), FletchingColor },
+		{ Fletching3.Get(), FletchingColor },
+		{ Nock.Get(), NockColor },
+	};
+	for (const TPair<UStaticMeshComponent*, FLinearColor>& Tint : Tints)
 	{
-		ShaftMaterial->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.6f, 0.58f, 0.52f));
-	}
-	if (UMaterialInstanceDynamic* FletchMaterial = Fletching ? Fletching->CreateDynamicMaterialInstance(0) : nullptr)
-	{
-		FletchMaterial->SetVectorParameterValue(TEXT("Color"), FletchingColor);
+		if (UMaterialInstanceDynamic* Material = Tint.Key ? Tint.Key->CreateDynamicMaterialInstance(0) : nullptr)
+		{
+			Material->SetVectorParameterValue(TEXT("Color"), Tint.Value);
+		}
 	}
 }
 

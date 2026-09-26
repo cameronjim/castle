@@ -49,7 +49,19 @@ public:
 
 	/** Length of the shaft behind the tip, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow", meta = (ClampMin = "1.0"))
-	float ShaftLength = 80.f;
+	float ShaftLength = 100.f;
+
+	/** Shaft thickness, cm. Thick enough that an arrow stuck in a wall reads from behind. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow", meta = (ClampMin = "0.1"))
+	float ShaftThickness = 2.5f;
+
+	/** Shaft colour: light wood, so it reads against dark walls and tracksuits. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")
+	FLinearColor ShaftColor = FLinearColor(0.6f, 0.55f, 0.45f);
+
+	/** Nock colour: Kate's purple on every arrow she shoots, whatever its fletching. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")
+	FLinearColor NockColor = FLinearColor(0.45f, 0.1f, 0.75f);
 
 	/**
 	 * Sets what this arrow is and who shot it. Damage is the release damage (draw and perfect bonus
@@ -118,9 +130,24 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arrow")
 	TObjectPtr<UStaticMeshComponent> Shaft;
 
-	/** Small flat cube at the tail. */
+	/** Three vanes at the tail, 120 degrees apart: flat cubes standing out from the shaft. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arrow")
 	TObjectPtr<UStaticMeshComponent> Fletching;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arrow")
+	TObjectPtr<UStaticMeshComponent> Fletching2;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arrow")
+	TObjectPtr<UStaticMeshComponent> Fletching3;
+
+	/** The purple nock on the very end. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arrow")
+	TObjectPtr<UStaticMeshComponent> Nock;
+
+	virtual void PostInitializeComponents() override;
+
+	/** Sizes and places the shaft, vanes and nock from ShaftLength and ShaftThickness. */
+	void LayoutParts();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Arrow")
 	TObjectPtr<UProjectileMovementComponent> Movement;
