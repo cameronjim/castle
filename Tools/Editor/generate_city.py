@@ -24,6 +24,10 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   Lit windows are not built yet.
 * chapter 1: the BP_GameMode_EastVillage override (starts DA_CH01_Rooftops) and three
   ``City_Obj_<objective>`` trigger volumes on roofs picked from the records.
+* chapter 1's first fight: four ``City_Thug_<n>`` (BP_Thug). A Fists and a Bat thug face each
+  other on the cross_block roof (tag RoofPair, counted by ``City_ThugGroup_clear_roof``, which
+  completes ``clear_roof``); a Bat thug and the gunner patrol the Avenue A sidewalk beside the
+  park between ``City_Patrol_0`` and ``City_Patrol_1`` (ATargetPoints 40 m apart, tag StreetPair).
 * grapple anchors (``City_Anchor_<n>``, BP_GrappleAnchor): on every building over 8 m, one on
   the parapet at each roof corner and one mid-edge on edges over 25 m, none within 4 m of
   another, each with its landing point on the roof clear of the parapet.
@@ -812,7 +816,11 @@ OBJECTIVE_MIN_HEIGHT_M = 8.0      # cross_block and find_arrow skip sheds and ga
 OBJECTIVE_ABOVE_ROOF = 50.0       # cm between the roof and the bottom of the volume
 OBJECTIVE_HALF_HEIGHT = 150.0     # cm; tall enough to hold Kate's whole capsule
 
-# Actors the prison build put in its maps. None belong in the district.
+# Every objective in DA_CH01_Rooftops, in order; clear_roof has no volume (a thug group completes it).
+MISSION_OBJECTIVE_IDS = ("reach_roof", "cross_block", "clear_roof", "find_arrow")
+
+# Actors the prison build put in its maps. None belong in the district, except the chapter's own
+# thugs, which carry THUG_PREFIX labels.
 PRISON_CLASS_WORDS = ("Thug", "Guard", "Keycard", "Pickup", "Door")
 
 
@@ -882,11 +890,18 @@ def actor_class_name(actor):
         return c.class_name(type(actor))
 
 
+def is_chapter_actor(label):
+    """True for the fight's own thugs and their group, which share class words with the prison's."""
+    return label.startswith(THUG_PREFIX) or label == THUG_GROUP_LABEL
+
+
 def remove_prison_actors(existing):
     """Delete anything the prison build would have placed (thugs, keycards, doors, pickups)."""
     removed = 0
     for label, actor in list(existing.items()):
         cls = actor_class_name(actor)
+        if is_chapter_actor(label):
+            continue
         if any(word in cls for word in PRISON_CLASS_WORDS):
             actor.destroy_actor()
             existing.pop(label, None)
@@ -1051,6 +1066,231 @@ def ensure_objective_volumes(district, existing):
             existing.pop(label, None)
             changes += 1
             c.log("updated", label, "removed stray objective volume")
+    return changes
+
+
+# --------------------------------------------------------------------------------------
+# chapter 1's first fight: four Tracksuit thugs
+# --------------------------------------------------------------------------------------
+
+THUG_PREFIX = "City_Thug_"
+PATROL_PREFIX = "City_Patrol_"
+THUG_GROUP_LABEL = "City_ThugGroup_clear_roof"
+THUG_BP_PATH = "/Game/Blueprints/AI"
+THUG_BP_NAME = "BP_Thug"
+THUG_HALF_HEIGHT = 96.0           # cm; BP_Thug's capsule
+ROOF_PAIR_TAG = "RoofPair"
+STREET_PAIR_TAG = "StreetPair"
+ROOF_PAIR_GAP = 300.0             # cm between the two arguing on the roof
+ROOF_EDGE_CLEARANCE = 200.0       # cm from any roof edge, so neither stands in the parapet
+PATROL_STREET = "Avenue A"
+PATROL_LENGTH = 4000.0            # cm between the two patrol points
+PATROL_POINT_HEIGHT = 100.0       # cm above the sidewalk
+STREET_PAIR_SPACING = 150.0       # cm; the second walks this far ahead of the first
+CROSSING_CLEARANCE = 300.0        # cm; a patrol point this far from any other road's carriageway
+
+# (weapon, group tag) per thug, in label order: the roof pair (one fists, one bat), then the
+# street pair (one bat, one gunner). One gunner in four.
+THUG_LOADOUT = (("FISTS", ROOF_PAIR_TAG), ("BAT", ROOF_PAIR_TAG),
+                ("BAT", STREET_PAIR_TAG), ("PISTOL", STREET_PAIR_TAG))
+
+
+def _edge_clearance(pt, ring):
+    """Distance inside the ring to its nearest edge; negative outside."""
+    d = closest_point_on_polyline(pt, list(ring) + [ring[0]])[0]
+    return d if geo.point_in_polygon(pt, ring) else -d
+
+
+def roof_pair_spots(district):
+    """((x, y, z, yaw), (x, y, z, yaw), building record) for the two on the cross_block roof.
+
+    They stand ROOF_PAIR_GAP apart along the roof's long axis through the centre of its oriented
+    rectangle, facing each other; the short axis and then a smaller gap are tried if the long
+    one puts either of them within ROOF_EDGE_CLEARANCE of an edge."""
+    rec = objective_roofs(district).get("cross_block")
+    if rec is None:
+        return None
+    cx, cy, _half_l, _half_w, yaw = oriented_rect(rec["ring"])
+    z = rec["height_m"] * 100.0 + THUG_HALF_HEIGHT + 2.0
+    for gap in (ROOF_PAIR_GAP, ROOF_PAIR_GAP * 0.6):
+        for axis_yaw in (yaw, yaw + 90.0):
+            ux, uy = math.cos(math.radians(axis_yaw)), math.sin(math.radians(axis_yaw))
+            a = (cx - ux * gap * 0.5, cy - uy * gap * 0.5)
+            b = (cx + ux * gap * 0.5, cy + uy * gap * 0.5)
+            if min(_edge_clearance(a, rec["ring"]), _edge_clearance(b, rec["ring"])) >= ROOF_EDGE_CLEARANCE:
+                return (a[0], a[1], z, axis_yaw), (b[0], b[1], z, axis_yaw + 180.0), rec
+    return None
+
+
+def _clear_of_crossings(pt, district, own):
+    for rec in district.roads:
+        if rec.get("name") == own:
+            continue
+        for piece in rec["pieces"]:
+            hit = closest_point_on_polyline(pt, district.ring_cm(piece))
+            if hit and hit[0] < rec["width_m"] * 50.0 + CROSSING_CLEARANCE:
+                return False
+    return True
+
+
+def street_patrol(district):
+    """(P0, P1, direction yaw) on the Avenue A sidewalk on the park side, PATROL_LENGTH apart.
+
+    Centred on the point of the Avenue A centre line nearest the park's centroid, moved along
+    the avenue until both points are clear of every crossing street."""
+    park = district.parks[0] if district.parks else None
+    if park is None:
+        return None
+    target = geo.centroid(district.ring_cm(park["outer"]))
+    best = None
+    for rec in district.roads:
+        if rec.get("name") != PATROL_STREET:
+            continue
+        path = district.ring_cm(rec["pieces"][0]) if rec["pieces"] else []
+        for i in range(len(path) - 1):
+            hit = closest_point_on_polyline(target, path[i:i + 2])
+            if hit and (best is None or hit[0] < best[0]):
+                best = (hit[0], hit[1], path[i], path[i + 1], rec["width_m"])
+    if best is None:
+        return None
+    _d, q, a, b, width_m = best
+    length = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
+    d = ((b[0] - a[0]) / length, (b[1] - a[1]) / length)
+    n = (-d[1], d[0])
+    if (target[0] - q[0]) * n[0] + (target[1] - q[1]) * n[1] < 0.0:
+        n = (-n[0], -n[1])
+    offset = width_m * 50.0 + SIDEWALK_WIDTH * 0.5
+    centre = (q[0] + n[0] * offset, q[1] + n[1] * offset)
+    half = PATROL_LENGTH * 0.5
+    for shift in (0.0, 500.0, -500.0, 1000.0, -1000.0, 1500.0, -1500.0, 2000.0, -2000.0):
+        c0 = (centre[0] + d[0] * shift, centre[1] + d[1] * shift)
+        p0 = (c0[0] - d[0] * half, c0[1] - d[1] * half)
+        p1 = (c0[0] + d[0] * half, c0[1] + d[1] * half)
+        if _clear_of_crossings(p0, district, PATROL_STREET) and _clear_of_crossings(p1, district, PATROL_STREET):
+            return p0, p1, math.degrees(math.atan2(d[1], d[0]))
+    return None
+
+
+def thug_placements(district):
+    """([(label, x, y, z, yaw, weapon, tags, [patrol labels])], [(label, x, y, z)], roof record)."""
+    roof = roof_pair_spots(district)
+    patrol = street_patrol(district)
+    thugs, points = [], []
+    roof_rec = None
+    if roof is not None:
+        a, b, roof_rec = roof
+        for i, spot in enumerate((a, b)):
+            weapon, tag = THUG_LOADOUT[i]
+            thugs.append((THUG_PREFIX + str(i), spot[0], spot[1], spot[2], spot[3], weapon,
+                          ["City", "CityThug", tag, "osm:" + roof_rec["id"]], []))
+    if patrol is not None:
+        p0, p1, yaw = patrol
+        z_walk = SIDEWALK_TOP
+        points = [(PATROL_PREFIX + "0", p0[0], p0[1], z_walk + PATROL_POINT_HEIGHT),
+                  (PATROL_PREFIX + "1", p1[0], p1[1], z_walk + PATROL_POINT_HEIGHT)]
+        ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+        for j in range(2):
+            weapon, tag = THUG_LOADOUT[2 + j]
+            along = STREET_PAIR_SPACING * j
+            thugs.append((THUG_PREFIX + str(2 + j), p0[0] + ux * along, p0[1] + uy * along,
+                          z_walk + THUG_HALF_HEIGHT + 2.0, yaw, weapon,
+                          ["City", "CityThug", tag, "street:" + PATROL_STREET],
+                          [PATROL_PREFIX + "1", PATROL_PREFIX + "0"]))
+    return thugs, points, roof_rec
+
+
+def _ensure_located(existing, label, cls, loc, yaw):
+    """(actor, changes): spawned if missing or of the wrong class, moved and turned if off."""
+    changes = 0
+    # A Python wrapper type (unreal.TargetPoint) never equals the UClass get_class() returns.
+    if isinstance(cls, type):
+        cls = cls.static_class()
+    actor = existing.get(label)
+    if actor is not None and actor.get_class() != cls:
+        actor.destroy_actor()
+        actor = None
+    if actor is None:
+        actor = c.spawn_actor(cls, loc, unreal.Rotator(0.0, 0.0, yaw), label=label)
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return None, 0
+        existing[label] = actor
+        changes += 1
+    if not same_vector(actor.get_actor_location(), loc, 0.5):
+        actor.set_actor_location(loc, False, True)
+        changes += 1
+    if abs(((actor.get_actor_rotation().yaw - yaw) + 180.0) % 360.0 - 180.0) > 0.05:
+        actor.set_actor_rotation(unreal.Rotator(0.0, 0.0, yaw), False)
+        changes += 1
+    return actor, changes
+
+
+def _ensure_thug_props(actor, weapon, patrol_actors):
+    changes = 0
+    wanted = getattr(unreal.ThugWeapon, weapon)
+    if actor.get_editor_property("weapon") != wanted:
+        actor.set_editor_property("weapon", wanted)
+        changes += 1
+    current = [a.get_actor_label() if a else "" for a in actor.get_editor_property("patrol_points")]
+    if current != [a.get_actor_label() for a in patrol_actors]:
+        actor.set_editor_property("patrol_points", patrol_actors)
+        changes += 1
+    return changes
+
+
+def ensure_thugs(district, existing):
+    """City_Thug_<n>, City_Patrol_<n> and City_ThugGroup_clear_roof. Idempotent by label."""
+    thug_cls = c.load_generated_class(THUG_BP_PATH, THUG_BP_NAME)
+    group_cls = c.find_class("ThugGroupObjective", "/Script/Castle.ThugGroupObjective")
+    if thug_cls is None or group_cls is None or not hasattr(unreal, "ThugWeapon"):
+        c.log("FAILED", THUG_PREFIX + "*", "BP_Thug or AThugGroupObjective missing; build and run create_world_blueprints.py")
+        return 0
+    thugs, points, roof_rec = thug_placements(district)
+    if len(thugs) != len(THUG_LOADOUT) or len(points) != 2:
+        c.log("FAILED", THUG_PREFIX + "*", "found {0} thug spots and {1} patrol points".format(len(thugs), len(points)))
+    changes = 0
+    wanted = set()
+    patrol_actors = {}
+    for label, x, y, z in points:
+        actor, n = _ensure_located(existing, label, unreal.TargetPoint, unreal.Vector(x, y, z), 0.0)
+        if actor is None:
+            continue
+        wanted.add(label)
+        patrol_actors[label] = actor
+        changes += n + _ensure_tags(actor, ["City", "CityPatrol", STREET_PAIR_TAG])
+    for label, x, y, z, yaw, weapon, tags, patrol in thugs:
+        actor, n = _ensure_located(existing, label, thug_cls, unreal.Vector(x, y, z), yaw)
+        if actor is None:
+            continue
+        wanted.add(label)
+        n += _ensure_thug_props(actor, weapon, [patrol_actors[p] for p in patrol if p in patrol_actors])
+        n += _ensure_tags(actor, tags)
+        changes += n
+        c.log("updated" if n else "exists", label, "{0} {1} at ({2:.0f}, {3:.0f}, {4:.0f}) yaw {5:.0f}".format(
+            weapon.lower(), tags[2], x, y, z, yaw))
+    if roof_rec is not None:
+        cx, cy = geo.centroid(roof_rec["ring"])
+        loc = unreal.Vector(cx, cy, roof_rec["height_m"] * 100.0 + 100.0)
+        actor, n = _ensure_located(existing, THUG_GROUP_LABEL, group_cls, loc, 0.0)
+        if actor is not None:
+            wanted.add(THUG_GROUP_LABEL)
+            if str(actor.get_editor_property("objective_id")) != "clear_roof":
+                actor.set_editor_property("objective_id", unreal.Name("clear_roof"))
+                n += 1
+            if str(actor.get_editor_property("group_tag")) != ROOF_PAIR_TAG:
+                actor.set_editor_property("group_tag", unreal.Name(ROOF_PAIR_TAG))
+                n += 1
+            n += _ensure_tags(actor, ["City", "CityObjective", "osm:" + roof_rec["id"], "objective:clear_roof"])
+            changes += n
+    for label, actor in list(existing.items()):
+        if (label.startswith(THUG_PREFIX) or label.startswith(PATROL_PREFIX)) and label not in wanted:
+            actor.destroy_actor()
+            existing.pop(label, None)
+            changes += 1
+            c.log("updated", label, "removed stray")
+    c.log("updated" if changes else "exists", "chapter 1 thugs",
+          "{0} thugs, {1} patrol points, roof osm {2}".format(
+              len(thugs), len(points), roof_rec["id"] if roof_rec else "none"))
     return changes
 
 
@@ -1834,6 +2074,7 @@ def run():
     changes += ensure_game_mode()
     changes += remove_prison_actors(existing)
     changes += ensure_objective_volumes(district, existing)
+    changes += ensure_thugs(district, existing)
     changes += ensure_street_lamps(district, existing)
     changes += ensure_grapple_anchors(district, existing)
     changes += ensure_ledges(district, existing)

@@ -17,12 +17,16 @@ Prints one line per check and a final ``[Castle] verify_city PASS`` or ``FAIL``:
 * one City_Ledge_ BP_TraversableBlock per roof edge the generator considers, hidden and
   blocking only the Traversable channel, its Ledge_1 spline ending on the parapet's outer
   corners within 5 cm; the parkour test blocks and park walls at their heights
+* chapter 1's fight: four City_Thug_ (one gunner, two bats, one fists), the RoofPair on the
+  cross_block roof, two City_Patrol_ points 40 m apart, City_ThugGroup_clear_roof, and every
+  thug's feet on the navmesh (the navmesh is built in the editor world first, not saved)
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
     UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
         -script="Tools\\Editor\\verify_city.py" -unattended -nullrhi -nosplash -nop4 -stdout
 """
 
+import math
 import os
 import sys
 
@@ -241,6 +245,90 @@ def check_ledges(district, actors):
           "; ".join(wrong_height))
 
 
+NAV_QUERY_EXTENT = unreal.Vector(50.0, 50.0, 150.0)   # cm; how far off a foot may be from the navmesh
+
+
+def build_navigation():
+    """Builds the district's navmesh in this editor world (blocking), as the game mode does at
+    BeginPlay, through UCastleNavigationLibrary (the editor's async-load lock would refuse a
+    plain RebuildNavigation here). Returns (world, built). Nothing is saved."""
+    world = c.editor_world()
+    lib = getattr(unreal, "CastleNavigationLibrary", None)
+    if world is None or lib is None:
+        return world, False
+    return world, bool(lib.build_navigation_now(world))
+
+
+def weapon_name(value):
+    """ThugWeapon.FISTS -> FISTS, whatever the enum's repr looks like."""
+    name = getattr(value, "name", None)
+    return str(name if name else value).split(".")[-1].split(":")[0].strip("<> ").upper()
+
+
+def check_thugs(district, actors, records):
+    """Four City_Thug_<n> with one gunner, two patrol points 40 m apart, the roof pair on the
+    cross_block roof, the clear_roof group, and every thug's feet on the navmesh."""
+    thugs = {l: a for l, a in actors.items() if l.startswith(gen.THUG_PREFIX)}
+    points = {l: a for l, a in actors.items() if l.startswith(gen.PATROL_PREFIX)}
+    wanted, wanted_points, roof_rec = gen.thug_placements(district)
+    check(sorted(thugs) == sorted(t[0] for t in wanted), "four chapter-1 thugs placed",
+          "{0} thugs: {1}".format(len(thugs), ", ".join(sorted(thugs))))
+    check(len(points) == 2 and all(isinstance(a, unreal.TargetPoint) for a in points.values()),
+          "two patrol points (ATargetPoint)", ", ".join(sorted(points)))
+    if len(points) == 2:
+        a, b = [points[l].get_actor_location() for l in sorted(points)]
+        gap = math.hypot(a.x - b.x, a.y - b.y)
+        check(abs(gap - gen.PATROL_LENGTH) <= 1.0, "patrol points 40 m apart", "{0:.1f} cm".format(gap))
+
+    weapons = {}
+    detail = []
+    for label, actor in sorted(thugs.items()):
+        weapon = weapon_name(actor.get_editor_property("weapon"))
+        weapons[weapon] = weapons.get(weapon, 0) + 1
+        tags = [str(t) for t in actor.get_editor_property("tags")]
+        patrol = [p.get_actor_label() for p in actor.get_editor_property("patrol_points") if p]
+        loc = actor.get_actor_location()
+        detail.append("{0} {1} {2} ({3:.0f}, {4:.0f}, {5:.0f}){6}".format(
+            label, weapon.lower(), "/".join(t for t in tags if t.endswith("Pair")), loc.x, loc.y, loc.z,
+            " patrol " + ">".join(patrol) if patrol else ""))
+    unreal.log("[Castle] info  thugs: " + "; ".join(detail))
+    check(weapons.get("PISTOL", 0) == 1 and weapons.get("BAT", 0) == 2 and weapons.get("FISTS", 0) == 1,
+          "one gunner, two bats, one fists", str(weapons))
+
+    roof_pair = [a for a in thugs.values() if "RoofPair" in [str(t) for t in a.get_editor_property("tags")]]
+    on_roof = roof_rec is not None and len(roof_pair) == 2 and all(
+        abs(a.get_actor_location().z - (roof_rec["height_m"] * 100.0 + gen.THUG_HALF_HEIGHT + 2.0)) <= 1.0
+        and geo.point_in_polygon((a.get_actor_location().x, a.get_actor_location().y), roof_rec["ring"])
+        for a in roof_pair)
+    check(on_roof, "the RoofPair stands on the cross_block roof",
+          "osm {0}".format(roof_rec["id"] if roof_rec else "none"))
+    group = actors.get(gen.THUG_GROUP_LABEL)
+    check(group is not None and str(group.get_editor_property("objective_id")) == "clear_roof"
+          and str(group.get_editor_property("group_tag")) == "RoofPair",
+          gen.THUG_GROUP_LABEL + " completes clear_roof for the RoofPair")
+
+    world, built = build_navigation()
+    check(built, "navmesh builds in the editor world (UCastleNavigationLibrary)")
+    if not built:
+        return
+    off = []
+    for label, actor in sorted(thugs.items()):
+        feet = actor.get_actor_location() - unreal.Vector(0.0, 0.0, gen.THUG_HALF_HEIGHT)
+        result = unreal.CastleNavigationLibrary.project_to_navigation(world, feet, NAV_QUERY_EXTENT)
+        # Python hands a bool-returning function with an out parameter back either as
+        # (ok, point) or as the point itself / None; take both.
+        if isinstance(result, tuple):
+            ok, point = bool(result[0]), result[1]
+        else:
+            ok, point = result is not None, result
+        if not ok:
+            off.append(label)
+        else:
+            unreal.log("[Castle] info  {0} feet {1:.0f} -> navmesh ({2:.0f}, {3:.0f}, {4:.0f})".format(
+                label, feet.z, point.x, point.y, point.z))
+    check(not off, "every thug starts on the navmesh", ", ".join(off))
+
+
 def run():
     if not gen.data_available():
         check(False, "OSM data present", "run Tools\\fetch-osm.ps1")
@@ -345,8 +433,8 @@ def run():
     if mission is not None:
         for obj in mission.get_editor_property("objectives") or []:
             mission_ids.append(str(obj.get_editor_property("objective_id")))
-    check(sorted(mission_ids) == sorted(gen.OBJECTIVE_IDS), "DA_CH01_Rooftops objectives are "
-          + ", ".join(gen.OBJECTIVE_IDS), ", ".join(mission_ids))
+    check(mission_ids == list(gen.MISSION_OBJECTIVE_IDS), "DA_CH01_Rooftops objectives are "
+          + ", ".join(gen.MISSION_OBJECTIVE_IDS), ", ".join(mission_ids))
     detail = []
     ok = len(volumes) == len(gen.OBJECTIVE_IDS)
     for oid in gen.OBJECTIVE_IDS:
@@ -378,9 +466,11 @@ def run():
 
     check_anchors(district, actors)
     check_ledges(district, actors)
+    check_thugs(district, actors, records)
 
     prison = [a.get_actor_label() for a in all_actors
-              if any(w in gen.actor_class_name(a) for w in gen.PRISON_CLASS_WORDS)]
+              if not gen.is_chapter_actor(a.get_actor_label())
+              and any(w in gen.actor_class_name(a) for w in gen.PRISON_CLASS_WORDS)]
     check(not prison, "no thug, keycard, door or pickup actors", ", ".join(prison[:5]))
     try:
         wp = ws.get_world_partition() if ws and hasattr(ws, "get_world_partition") else None
