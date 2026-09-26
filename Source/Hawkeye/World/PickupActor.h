@@ -50,7 +50,7 @@ public:
 
 	/** Keycard id granted by a Keycard pickup. Doors match on this. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup")
-	FName KeycardId = FName(TEXT("cellblock"));
+	FName KeycardId = FName(TEXT("red"));
 
 	/** Arrows an Arrows pickup adds. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Pickup", meta = (ClampMin = "0"))

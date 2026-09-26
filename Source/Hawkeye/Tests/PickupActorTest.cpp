@@ -71,14 +71,14 @@ bool FHawkeyePickupKeycardJoinsTheRing::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	const FName Cellblock(TEXT("cellblock"));
-	Pickup->KeycardId = Cellblock;
+	const FName RedCard(TEXT("red"));
+	Pickup->KeycardId = RedCard;
 
-	TestFalse(TEXT("No keycard to start with"), Player->HasKeycard(Cellblock));
+	TestFalse(TEXT("No keycard to start with"), Player->HasKeycard(RedCard));
 	TestTrue(TEXT("The pickup applies"), Pickup->ApplyTo(Player));
-	TestTrue(TEXT("The keycard is on the ring"), Player->HasKeycard(Cellblock));
+	TestTrue(TEXT("The keycard is on the ring"), Player->HasKeycard(RedCard));
 	TestFalse(TEXT("Other ids are unaffected"), Player->HasKeycard(FName(TEXT("infirmary"))));
-	TestFalse(TEXT("A second grant of the same id changes nothing"), Player->GiveKeycard(Cellblock));
+	TestFalse(TEXT("A second grant of the same id changes nothing"), Player->GiveKeycard(RedCard));
 
 	return true;
 }

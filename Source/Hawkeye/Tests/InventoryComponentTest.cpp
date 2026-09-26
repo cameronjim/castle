@@ -160,16 +160,16 @@ bool FHawkeyeInventoryKeycardsLiveHere::RunTest(const FString& Parameters)
 	}
 
 	UInventoryComponent* Inventory = Kate->GetInventoryComponent();
-	const FName Cellblock(TEXT("cellblock"));
+	const FName RedCard(TEXT("red"));
 
-	TestFalse(TEXT("No keycard to start with"), Kate->HasKeycard(Cellblock));
-	TestTrue(TEXT("The pawn's GiveKeycard forwards to the inventory"), Kate->GiveKeycard(Cellblock));
-	TestTrue(TEXT("The inventory holds it"), Inventory->HasKeycard(Cellblock));
-	TestFalse(TEXT("A second grant changes nothing"), Kate->GiveKeycard(Cellblock));
+	TestFalse(TEXT("No keycard to start with"), Kate->HasKeycard(RedCard));
+	TestTrue(TEXT("The pawn's GiveKeycard forwards to the inventory"), Kate->GiveKeycard(RedCard));
+	TestTrue(TEXT("The inventory holds it"), Inventory->HasKeycard(RedCard));
+	TestFalse(TEXT("A second grant changes nothing"), Kate->GiveKeycard(RedCard));
 	TestEqual(TEXT("One keycard on the ring"), Kate->GetKeycards().Num(), 1);
 
 	Inventory->Clear();
-	TestFalse(TEXT("Clearing the inventory takes the keycards with it"), Kate->HasKeycard(Cellblock));
+	TestFalse(TEXT("Clearing the inventory takes the keycards with it"), Kate->HasKeycard(RedCard));
 	return true;
 }
 
@@ -190,7 +190,7 @@ bool FHawkeyeInventoryClearResetsToStartingQuiver::RunTest(const FString& Parame
 	Inventory->ConsumeArrow(1);
 	Inventory->SelectArrowSlot(2);
 	Inventory->AddArrows(MakeArrow(Inventory, 3, 3, EArrowHitEffect::Smoke, TEXT("Smoke")), 2);
-	Inventory->GiveKeycard(FName(TEXT("cellblock")));
+	Inventory->GiveKeycard(FName(TEXT("red")));
 	Inventory->GiveBow(nullptr);
 
 	Inventory->Clear();
@@ -200,7 +200,7 @@ bool FHawkeyeInventoryClearResetsToStartingQuiver::RunTest(const FString& Parame
 	TestEqual(TEXT("Grapple back to the grant"), Inventory->GetArrowCount(2), 6);
 	TestTrue(TEXT("The smoke arrows found on the way are gone"), Inventory->IsArrowSlotEmpty(3));
 	TestEqual(TEXT("Slot 1 active again"), Inventory->GetActiveArrowSlot(), 1);
-	TestFalse(TEXT("And the keycards are gone"), Inventory->HasKeycard(FName(TEXT("cellblock"))));
+	TestFalse(TEXT("And the keycards are gone"), Inventory->HasKeycard(FName(TEXT("red"))));
 	return true;
 }
 

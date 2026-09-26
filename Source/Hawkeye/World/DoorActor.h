@@ -42,7 +42,7 @@ public:
 
 	/** Keycard id that unlocks this door. Ignored when bLocked is false. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door")
-	FName RequiredKeycardId = FName(TEXT("cellblock"));
+	FName RequiredKeycardId = FName(TEXT("red"));
 
 	/** Mission objective completed the first time this door opens. Optional. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Door")

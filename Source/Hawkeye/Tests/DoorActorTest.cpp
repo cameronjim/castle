@@ -24,7 +24,7 @@ namespace HawkeyeDoorTest
 		if (Door)
 		{
 			Door->bLocked = true;
-			Door->RequiredKeycardId = FName(TEXT("cellblock"));
+			Door->RequiredKeycardId = FName(TEXT("red"));
 		}
 		return Door;
 	}
@@ -90,7 +90,7 @@ bool FHawkeyeDoorOpensWithKeycard::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	Player->GiveKeycard(FName(TEXT("cellblock")));
+	Player->GiveKeycard(FName(TEXT("red")));
 
 	TestTrue(TEXT("The door is unlocked now"), Door->IsUnlockedFor(Player));
 	TestTrue(TEXT("TryOpen opens it"), Door->TryOpen(Player));
@@ -132,7 +132,7 @@ bool FHawkeyeDoorCompletesObjectiveOnce::RunTest(const FString& Parameters)
 	TestFalse(TEXT("A refused open completes nothing"), Door->TryOpen(Player));
 	TestEqual(TEXT("No objective update yet"), Listener->ObjectiveUpdatedCount, 0);
 
-	Player->GiveKeycard(FName(TEXT("cellblock")));
+	Player->GiveKeycard(FName(TEXT("red")));
 	TestTrue(TEXT("The door opens"), Door->TryOpen(Player));
 	TestEqual(TEXT("The objective completed once"), Listener->ObjectiveUpdatedCount, 1);
 

@@ -322,7 +322,7 @@ bool FHawkeyeMissionCompleteClearsTheInventory::RunTest(const FString& Parameter
 	Grapple->OnHitEffect = EArrowHitEffect::Grapple;
 	Inventory->GiveBow(NewObject<UBowDefinition>(Inventory));
 	Inventory->AddArrows(Grapple, 6);
-	Inventory->GiveKeycard(FName(TEXT("cellblock")));
+	Inventory->GiveKeycard(FName(TEXT("red")));
 
 	// AHawkeyeGameMode does exactly this on OnMissionComplete, before the end card is shown.
 	Listener->InventoryToClearOnMissionComplete = Inventory;
@@ -340,7 +340,7 @@ bool FHawkeyeMissionCompleteClearsTheInventory::RunTest(const FString& Parameter
 	TestEqual(TEXT("The mission completed once"), Listener->MissionCompleteCount, 1);
 	TestFalse(TEXT("And nothing carries out of it: no bow"), Inventory->HasBow());
 	TestTrue(TEXT("No grapple arrows"), Inventory->IsArrowSlotEmpty(2));
-	TestFalse(TEXT("Keycards included"), Inventory->HasKeycard(FName(TEXT("cellblock"))));
+	TestFalse(TEXT("Keycards included"), Inventory->HasKeycard(FName(TEXT("red"))));
 	TestEqual(TEXT("Standard arrows are nocked"), Inventory->GetActiveArrowSlot(), 1);
 	TestFalse(TEXT("And slot 1 is never empty"), Inventory->IsArrowSlotEmpty(1));
 

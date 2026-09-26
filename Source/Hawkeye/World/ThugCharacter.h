@@ -223,7 +223,7 @@ public:
 
 	/**
 	 * Pickups dropped when this thug goes down, by takedown or by bullet. Set per instance in
-	 * the level (the first thug carries the keycard), not on the class.
+	 * the level (a thug can carry a keycard), not on the class.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Loot")
 	TArray<TSubclassOf<APickupActor>> DropOnDeath;
