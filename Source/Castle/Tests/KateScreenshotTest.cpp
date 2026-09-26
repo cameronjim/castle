@@ -35,6 +35,7 @@
 #include "Tests/AutomationCommon.h"
 #include "UI/CastleHudWidget.h"
 #include "UnrealClient.h"
+#include "World/FireEscapeLanding.h"
 #include "World/GrappleAnchor.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
@@ -67,6 +68,10 @@
  *   mantle_mid.png   the jump key 36 cm from City_Test_Mantle (150 cm): hands on the top
  *   ledge_hang.png   dropped in against a tenement 230 cm under its parapet top: caught, hanging
  *   climb_top.png    the jump key from the hang: over the parapet onto the roof
+ *
+ *   fire_escape.png  from the street, a tenement facade with its zig-zag fire escape
+ *   hang_drop.png    standing on a second-floor landing, over the rail to the hang (drop to hang)
+ *   grapple_level.png  a level roof-to-roof zip across a street, part way along
  *
  *   bow_holstered.png  hip camera on the street: DA_Bow_Kate across Kate's back
  *   quiver_hud.png     the same frame for the hotbar: standard arrows "30", grapple "6/6"
@@ -1827,6 +1832,289 @@ bool FCastleKateReportFight::Update()
 	return true;
 }
 
+// --- The ways down: fire escape, hang from a landing, a level zip --------------------------------
+
+namespace CastleKateShots
+{
+	enum class EWaysDownShot : uint8
+	{
+		FireEscape,
+		LandingStand,
+		LandingDrop,
+		LevelZipSetup,
+		LevelZipGo,
+	};
+
+	/** The four-storey-or-taller fire escape nearest the street spot: its lowest landing. */
+	static AFireEscapeLanding* FindShowcaseEscape(UWorld* World)
+	{
+		FVector Spot, Away;
+		if (!FindStreetSpot(World, Spot, Away))
+		{
+			return nullptr;
+		}
+		TMap<FName, int32> Floors;
+		for (TActorIterator<AFireEscapeLanding> It(World); It; ++It)
+		{
+			for (const FName& Tag : It->Tags)
+			{
+				if (Tag.ToString().StartsWith(TEXT("osm:")))
+				{
+					Floors.FindOrAdd(Tag) = FMath::Max(Floors.FindRef(Tag), It->GetRecord().Floor);
+				}
+			}
+		}
+		AFireEscapeLanding* Best = nullptr;
+		float BestDistance = BIG_NUMBER;
+		for (TActorIterator<AFireEscapeLanding> It(World); It; ++It)
+		{
+			const FName* Osm = It->Tags.FindByPredicate([](const FName& Tag) { return Tag.ToString().StartsWith(TEXT("osm:")); });
+			if (It->GetRecord().Floor != 1 || !Osm || Floors.FindRef(*Osm) < 4)
+			{
+				continue;
+			}
+			const float Distance = FVector::Dist2D(It->GetActorLocation(), Spot);
+			if (Distance < BestDistance)
+			{
+				BestDistance = Distance;
+				Best = *It;
+			}
+		}
+		return Best;
+	}
+
+	static AFireEscapeLanding* FindLanding(UWorld* World, const AFireEscapeLanding* Lowest, int32 Floor)
+	{
+		if (!Lowest)
+		{
+			return nullptr;
+		}
+		for (TActorIterator<AFireEscapeLanding> It(World); It; ++It)
+		{
+			if (It->GetRecord().OsmId == Lowest->GetRecord().OsmId && It->GetRecord().Floor == Floor)
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+
+	/** A roof spot and an anchor on another roof within 60 cm of the same height, a clear level zip. */
+	static bool FindLevelZip(UWorld* World, const ACastleCharacter* Kate, FVector& OutStand, AGrappleAnchor*& OutAnchor)
+	{
+		FVector Spot, Away;
+		if (!FindStreetSpot(World, Spot, Away))
+		{
+			return false;
+		}
+		const UGrappleComponent* Grapple = Kate->GetGrappleComponent();
+		const float Half = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		TArray<AGrappleAnchor*> Anchors;
+		for (TActorIterator<AGrappleAnchor> It(World); It; ++It)
+		{
+			if (FVector::Dist2D(It->GetActorLocation(), Spot) < 9000.f)
+			{
+				Anchors.Add(*It);
+			}
+		}
+		Anchors.Sort([&Spot](const AGrappleAnchor& A, const AGrappleAnchor& B)
+		{
+			return FVector::Dist2D(A.GetActorLocation(), Spot) < FVector::Dist2D(B.GetActorLocation(), Spot);
+		});
+		for (AGrappleAnchor* From : Anchors)
+		{
+			const FVector Stand = From->GetLandingLocation();
+			for (AGrappleAnchor* To : Anchors)
+			{
+				const float Distance = FVector::Dist2D(Stand, To->GetLandingLocation());
+				if (To == From || Distance < 1200.f || Distance > 2000.f
+					|| FMath::Abs(To->GetLandingLocation().Z - Stand.Z) > 60.f)
+				{
+					continue;
+				}
+				// Across a gap: the middle of the line is over the street, not a roof.
+				FVector Mid;
+				if (FindGround(World, (Stand + To->GetLandingLocation()) * 0.5f, Stand.Z + 500.f, Kate, Mid) && Mid.Z > Stand.Z - 600.f)
+				{
+					continue;
+				}
+				if (Grapple->IsZipClear(Stand + FVector(0.f, 0.f, Half + 2.f), To, true))
+				{
+					OutStand = Stand;
+					OutAnchor = To;
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+}
+
+/** Sets up one of the ways-down shots. */
+class FCastleKateWaysDownShot : public IAutomationLatentCommand
+{
+public:
+	FCastleKateWaysDownShot(FAutomationTestBase* InTest, uint8 InShot) : Test(InTest), Shot(InShot) {}
+
+	virtual bool Update() override
+	{
+		using namespace CastleKateShots;
+		UWorld* World = FindWorld();
+		APlayerController* PC = nullptr;
+		ACastleCharacter* Kate = FindKate(PC);
+		if (!Kate || !World)
+		{
+			Test->AddError(TEXT("No Kate for the ways-down shots."));
+			return true;
+		}
+		AFireEscapeLanding* Lowest = FindShowcaseEscape(World);
+		switch (static_cast<EWaysDownShot>(Shot))
+		{
+		case EWaysDownShot::FireEscape:
+		{
+			if (!Lowest)
+			{
+				Test->AddWarning(TEXT("No fire escape of four landings near the street spot."));
+				break;
+			}
+			// On the street 9 m out and 3 m along, looking up at the escape's middle.
+			const FVector Out = Lowest->GetActorRightVector().GetSafeNormal2D();
+			const FVector Along = Lowest->GetActorForwardVector().GetSafeNormal2D();
+			FVector Ground;
+			if (!FindGround(World, Lowest->GetActorLocation() + Out * 900.f + Along * 300.f, Lowest->GetActorLocation().Z + 200.f, Kate, Ground))
+			{
+				break;
+			}
+			const FVector Middle = Lowest->GetActorLocation() + FVector(0.f, 0.f, 500.f);
+			const FRotator Look = (Middle - (Ground + FVector(0.f, 0.f, 170.f))).Rotation();
+			PlaceKate(Kate, PC, Ground, Look.Yaw, Kate->ClampCameraPitch(Look.Pitch));
+			Test->AddInfo(FString::Printf(TEXT("Fire escape: %s, lowest landing %.0f cm up at %s"), *Lowest->GetRecord().OsmId,
+				Lowest->GetActorLocation().Z - Ground.Z, *Lowest->GetActorLocation().ToCompactString()));
+			break;
+		}
+		case EWaysDownShot::LandingStand:
+		{
+			AFireEscapeLanding* Landing = FindLanding(World, Lowest, 2);
+			if (!Landing)
+			{
+				Test->AddWarning(TEXT("No second-floor landing for hang_drop.png."));
+				break;
+			}
+			const FVector Out = Landing->GetActorRightVector().GetSafeNormal2D();
+			PlaceKate(Kate, PC, Landing->GetActorLocation() + Out * 45.f, Out.Rotation().Yaw, -10.f);
+			break;
+		}
+		case EWaysDownShot::LandingDrop:
+		{
+			AFireEscapeLanding* Landing = FindLanding(World, Lowest, 2);
+			if (!Landing)
+			{
+				break;
+			}
+			const FVector Out = Landing->GetActorRightVector().GetSafeNormal2D();
+			const bool bStarted = Kate->GetParkourComponent()->TryDropToHang(Out, TEXT("screenshot"));
+			// Seen from out over the street, a little to one side and below.
+			PC->SetControlRotation(FRotator(8.f, (-Out).Rotation().Yaw + 30.f, 0.f));
+			Test->AddInfo(FString::Printf(TEXT("hang_drop: drop to hang from the %s landing %s"), *Landing->GetRecord().OsmId,
+				bStarted ? TEXT("started") : TEXT("REFUSED")));
+			if (!bStarted)
+			{
+				Test->AddWarning(TEXT("hang_drop.png: no drop to hang from the landing."));
+			}
+			break;
+		}
+		case EWaysDownShot::LevelZipSetup:
+		{
+			if (Kate->GetParkourComponent()->IsHanging())
+			{
+				Kate->GetParkourComponent()->DropFromHang();
+			}
+			FVector Stand;
+			AGrappleAnchor* Anchor = nullptr;
+			if (!FindLevelZip(World, Kate, Stand, Anchor))
+			{
+				Test->AddWarning(TEXT("No clear level roof-to-roof zip near the street spot for grapple_level.png."));
+				break;
+			}
+			const FRotator Look = (Anchor->GetMarkerLocation() - Stand).Rotation();
+			PlaceKate(Kate, PC, Stand, Look.Yaw, 0.f);
+			Kate->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+			LevelAnchor = Anchor;
+			Test->AddInfo(FString::Printf(TEXT("grapple_level: from %s to %s, %.0f cm, height difference %.0f cm"),
+				*Stand.ToCompactString(), *Anchor->GetName(), FVector::Dist(Stand, Anchor->GetLandingLocation()),
+				Anchor->GetLandingLocation().Z - Stand.Z));
+			break;
+		}
+		case EWaysDownShot::LevelZipGo:
+		{
+			AGrappleAnchor* Anchor = LevelAnchor.Get();
+			if (!Anchor)
+			{
+				break;
+			}
+			UGrappleComponent* Grapple = Kate->GetGrappleComponent();
+			Grapple->StartZip(Anchor);
+			// Side on, so the gap below shows.
+			const FVector Dir = (Anchor->GetLandingLocation() - Kate->GetActorLocation()).GetSafeNormal2D();
+			PC->SetControlRotation(FRotator(-8.f, Dir.Rotation().Yaw - 70.f, 0.f));
+			break;
+		}
+		}
+		return true;
+	}
+
+	static TWeakObjectPtr<AGrappleAnchor> LevelAnchor;
+
+private:
+	FAutomationTestBase* Test;
+	uint8 Shot;
+};
+
+TWeakObjectPtr<AGrappleAnchor> FCastleKateWaysDownShot::LevelAnchor;
+
+/** Waits until the zip is Fraction of the way along (or over), up to TimeoutSeconds; reports it. */
+class FCastleKateWaitZipFraction : public IAutomationLatentCommand
+{
+public:
+	FCastleKateWaitZipFraction(FAutomationTestBase* InTest, float InFraction, float InTimeoutSeconds)
+		: Test(InTest), Fraction(InFraction), TimeoutSeconds(InTimeoutSeconds) {}
+
+	virtual bool Update() override
+	{
+		APlayerController* PC = nullptr;
+		ACastleCharacter* Kate = CastleKateShots::FindKate(PC);
+		UWorld* World = CastleKateShots::FindWorld();
+		if (!Kate || !World)
+		{
+			return true;
+		}
+		if (StartTime < 0.0)
+		{
+			StartTime = World->GetTimeSeconds();
+		}
+		const UGrappleComponent* Grapple = Kate->GetGrappleComponent();
+		if (Grapple->IsZipping() && Grapple->GetZipProgress() >= Fraction)
+		{
+			Test->AddInfo(FString::Printf(TEXT("grapple_level: %.0f%% along, feet %.0f cm above the launch roof"),
+				Grapple->GetZipProgress() * 100.f, Kate->GetActorLocation().Z - Grapple->GetZipStart().Z));
+			return true;
+		}
+		if (World->GetTimeSeconds() - StartTime > TimeoutSeconds || (!Grapple->IsZipping() && World->GetTimeSeconds() - StartTime > 0.3))
+		{
+			Test->AddWarning(FString::Printf(TEXT("grapple_level: the zip ended or stalled before %.0f%% (Kate at %s)"), Fraction * 100.f,
+				*Kate->GetActorLocation().ToCompactString()));
+			return true;
+		}
+		return false;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float Fraction;
+	float TimeoutSeconds;
+	double StartTime = -1.0;
+};
+
 bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 {
 	using namespace CastleKateShots;
@@ -1977,6 +2265,27 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportCamera(this, TEXT("climb_top.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("climb_top.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
+	// The ways down: a fire escape from the street, hanging from one of its landings, a level zip.
+	using EWaysDown = CastleKateShots::EWaysDownShot;
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaysDownShot(this, static_cast<uint8>(EWaysDown::FireEscape)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("fire_escape.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaysDownShot(this, static_cast<uint8>(EWaysDown::LandingStand)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaysDownShot(this, static_cast<uint8>(EWaysDown::LandingDrop)));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitTraversal(this, 2.f, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.8f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportParkour(this, TEXT("hang_drop.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("hang_drop.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaysDownShot(this, static_cast<uint8>(EWaysDown::LevelZipSetup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaysDownShot(this, static_cast<uint8>(EWaysDown::LevelZipGo)));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitZipFraction(this, 0.45f, 3.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("grapple_level.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
 
 	// The first fight: the street pair on patrol, then the roof pair.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::StreetSetup)));
