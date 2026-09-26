@@ -24,6 +24,9 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   Lit windows are not built yet.
 * chapter 1: the BP_GameMode_EastVillage override (starts DA_CH01_Rooftops) and three
   ``City_Obj_<objective>`` trigger volumes on roofs picked from the records.
+* grapple anchors (``City_Anchor_<n>``, BP_GrappleAnchor): on every building over 8 m, one on
+  the parapet at each roof corner and one mid-edge on edges over 25 m, none within 4 m of
+  another, each with its landing point on the roof clear of the parapet.
 
 Idempotent: each mesh carries a ``CityHash`` metadata tag (hash of its source record and the
 generator version); a mesh is rebuilt only when that hash changes. Actors are found by label
@@ -1268,6 +1271,186 @@ def ensure_street_lamps(district, existing):
 
 
 # --------------------------------------------------------------------------------------
+# grapple anchors
+# --------------------------------------------------------------------------------------
+
+ANCHOR_PREFIX = "City_Anchor_"
+ANCHOR_BP_PATH = "/Game/Blueprints/World"
+ANCHOR_BP_NAME = "BP_GrappleAnchor"
+ANCHOR_MIN_HEIGHT_M = 8.0         # only buildings taller than this get anchors
+ANCHOR_MIN_GAP = 400.0            # cm; an anchor this close to one already placed is skipped
+ANCHOR_LONG_EDGE = 2500.0         # cm; edges longer than this also get one at the middle
+ANCHOR_CORNER_TURN = 30.0         # degrees the outline has to turn for a vertex to be a corner
+ANCHOR_MIN_INTERIOR = 45.0        # degrees; sharper corners put the landing too far in
+ANCHOR_LANDING_INBOARD = 60.0     # cm from the anchor to the landing point, square to each edge
+ANCHOR_LANDING_CLEARANCE = 70.0   # cm from any roof edge: the parapet (30) plus Kate's capsule (34)
+ANCHOR_BURIED_DISTANCE = 40.0     # cm; an anchor this close to a taller neighbour is in its wall
+
+
+def _edge_distance(pt, ring):
+    return closest_point_on_polyline(pt, list(ring) + [ring[0]])[0]
+
+
+def anchor_spots(district):
+    """[(x, y, z, yaw, landing_forward, landing_drop, osm id)] in a stable order.
+
+    One anchor per roof corner and one mid-edge on edges over ANCHOR_LONG_EDGE, for every
+    building over ANCHOR_MIN_HEIGHT_M. Each sits centred on the parapet (half its thickness in
+    from the edge) on the parapet top; +X points inboard along the corner bisector or the edge
+    normal. The landing point is ANCHOR_LANDING_INBOARD further in, square to the edges (so on
+    a corner it is 60 / sin(half the corner angle) along the bisector), down on the roof.
+    Anchors closer than ANCHOR_MIN_GAP to an earlier one, buried in a taller neighbour's wall,
+    or whose landing point is not clear of the roof edges, are skipped.
+    """
+    buildings = []
+    for rec in sorted(district.buildings, key=lambda r: r["id"]):
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) >= 3:
+            buildings.append((rec, ring, geo.bounds(ring)))
+
+    inset = PARAPET_THICK * 0.5
+    placed = []
+    grid = {}
+
+    def near_placed(x, y):
+        gx, gy = int(math.floor(x / ANCHOR_MIN_GAP)), int(math.floor(y / ANCHOR_MIN_GAP))
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for px, py in grid.get((gx + dx, gy + dy), ()):
+                    if math.hypot(px - x, py - y) < ANCHOR_MIN_GAP:
+                        return True
+        return False
+
+    def buried(x, y, roof_top, own_id):
+        for rec, ring, (x0, y0, x1, y1) in buildings:
+            if rec["id"] == own_id or rec["height_m"] * 100.0 <= roof_top:
+                continue
+            pad = ANCHOR_BURIED_DISTANCE
+            if x0 - pad <= x <= x1 + pad and y0 - pad <= y <= y1 + pad and ring_distance((x, y), ring) < pad:
+                return True
+        return False
+
+    for rec, ring, _box in buildings:
+        if rec["height_m"] <= ANCHOR_MIN_HEIGHT_M:
+            continue
+        height_cm = rec["height_m"] * 100.0
+        parapet = rec["height_m"] >= PARAPET_MIN_HEIGHT_M
+        drop = PARAPET_HEIGHT if parapet else 0.0
+        top = height_cm + drop
+        inward = 1.0 if geo.is_ccw(ring) else -1.0
+        n = len(ring)
+        candidates = []   # (anchor x, y, unit inboard x, y, distance anchor->landing)
+        for i in range(n):
+            px, py = ring[i - 1]
+            cx, cy = ring[i]
+            nx_, ny_ = ring[(i + 1) % n]
+            ax, ay = cx - px, cy - py
+            bx, by = nx_ - cx, ny_ - cy
+            la, lb = math.hypot(ax, ay), math.hypot(bx, by)
+            if la < 1.0 or lb < 1.0:
+                continue
+            ax, ay, bx, by = ax / la, ay / la, bx / lb, by / lb
+            turn = math.degrees(math.atan2(ax * by - ay * bx, ax * bx + ay * by)) * inward
+            interior = 180.0 - turn
+            if turn >= ANCHOR_CORNER_TURN and interior >= ANCHOR_MIN_INTERIOR:
+                # Inward normals of both edges; their sum is the bisector.
+                ux, uy = -ay * inward - by * inward, ax * inward + bx * inward
+                ul = math.hypot(ux, uy)
+                s = math.sin(math.radians(interior) * 0.5)
+                if ul > 1e-6 and s > 1e-3:
+                    ux, uy = ux / ul, uy / ul
+                    candidates.append((cx + ux * inset / s, cy + uy * inset / s, ux, uy,
+                                       ANCHOR_LANDING_INBOARD / s))
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            length = math.hypot(bx - ax, by - ay)
+            if length <= ANCHOR_LONG_EDGE:
+                continue
+            ux, uy = -(by - ay) / length * inward, (bx - ax) / length * inward
+            mx, my = (ax + bx) * 0.5, (ay + by) * 0.5
+            candidates.append((mx + ux * inset, my + uy * inset, ux, uy, ANCHOR_LANDING_INBOARD))
+
+        for x, y, ux, uy, forward in candidates:
+            lx, ly = x + ux * forward, y + uy * forward
+            if not geo.point_in_polygon((lx, ly), ring) or _edge_distance((lx, ly), ring) < ANCHOR_LANDING_CLEARANCE:
+                continue
+            if near_placed(x, y) or buried(x, y, top, rec["id"]):
+                continue
+            placed.append((x, y, top, math.degrees(math.atan2(uy, ux)), forward, drop, rec["id"]))
+            key = (int(math.floor(x / ANCHOR_MIN_GAP)), int(math.floor(y / ANCHOR_MIN_GAP)))
+            grid.setdefault(key, []).append((x, y))
+    return placed
+
+
+def anchor_class():
+    cls = c.load_generated_class(ANCHOR_BP_PATH, ANCHOR_BP_NAME)
+    if cls is None:
+        c.log("skipped", ANCHOR_BP_NAME, "not found; falling back to AGrappleAnchor (run create_world_blueprints.py)")
+        cls = c.find_class("GrappleAnchor", "/Script/Castle.GrappleAnchor")
+    return cls
+
+
+def _ensure_anchor(existing, label, cls, spot):
+    x, y, z, yaw, forward, drop, osm = spot
+    loc = unreal.Vector(x, y, z)
+    rot = unreal.Rotator(0.0, 0.0, yaw)
+    changes = 0
+    actor = existing.get(label)
+    if actor is not None and actor.get_class() != cls:
+        actor.destroy_actor()
+        actor = None
+    if actor is None:
+        actor = c.spawn_actor(cls, loc, rot, label=label)
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return 0
+        existing[label] = actor
+        changes += 1
+    if not same_vector(actor.get_actor_location(), loc, 0.5):
+        actor.set_actor_location(loc, False, True)
+        changes += 1
+    if abs(((actor.get_actor_rotation().yaw - yaw) + 180.0) % 360.0 - 180.0) > 0.05:
+        actor.set_actor_rotation(rot, False)
+        changes += 1
+    landing = actor.get_landing_point()
+    want = unreal.Vector(forward, 0.0, -drop)
+    if landing is not None and not same_vector(landing.get_editor_property("relative_location"), want, 0.5):
+        landing.set_editor_property("relative_location", want)
+        changes += 1
+    return changes + _ensure_tags(actor, ["City", "CityAnchor", "osm:" + osm])
+
+
+def ensure_grapple_anchors(district, existing):
+    """City_Anchor_<n>: BP_GrappleAnchor on every tall roof's corners and long edges."""
+    cls = anchor_class()
+    if cls is None:
+        c.log("FAILED", ANCHOR_PREFIX + "*", "no grapple anchor class; build the module")
+        return 0
+    spots = anchor_spots(district)
+    changes = 0
+    changed_anchors = 0
+    for i, spot in enumerate(spots):
+        n = _ensure_anchor(existing, ANCHOR_PREFIX + str(i), cls, spot)
+        if n:
+            changed_anchors += 1
+        changes += n
+
+    removed = 0
+    for label, actor in list(existing.items()):
+        rest = label[len(ANCHOR_PREFIX):] if label.startswith(ANCHOR_PREFIX) else ""
+        if rest.isdigit() and int(rest) >= len(spots):
+            actor.destroy_actor()
+            existing.pop(label, None)
+            removed += 1
+    changes += removed
+    c.log("updated" if (changed_anchors or removed) else "exists", "grapple anchors",
+          "{0} anchors on {1} roofs over {2:.0f} m, {3} changed, {4} removed".format(
+              len(spots), len({s[6] for s in spots}), ANCHOR_MIN_HEIGHT_M, changed_anchors, removed))
+    return changes
+
+
+# --------------------------------------------------------------------------------------
 # level
 # --------------------------------------------------------------------------------------
 
@@ -1323,6 +1506,7 @@ def run():
     changes += remove_prison_actors(existing)
     changes += ensure_objective_volumes(district, existing)
     changes += ensure_street_lamps(district, existing)
+    changes += ensure_grapple_anchors(district, existing)
 
     if created or changes:
         c.level_editor_subsystem().save_current_level()
