@@ -168,6 +168,10 @@ bool FHawkeyeThugWeaponPicksBehaviour::RunTest(const FString& Parameters)
 		Brain->ReportStimulus(EStimulusKind::Hearing, Kate->GetActorLocation(), true, Brain->GunshotLoudnessThreshold);
 		Brain->Think(1.f);
 	}
+	// The gunner telegraphs first (0.8 s, pistol raised), then his burst starts.
+	TestTrue(TEXT("The gunner telegraphs before he shoots"), GunnerBrain->IsTelegraphing());
+	TestEqual(TEXT("Nothing fired during the telegraph"), Gunner->GetWeaponComponent()->CurrentAmmo, 12);
+	GunnerBrain->Think(1.f);
 
 	TestEqual(TEXT("The gunner shot"), Gunner->GetWeaponComponent()->CurrentAmmo, 11);
 	TestFalse(TEXT("The gunner did not swing"), Gunner->GetMeleeComponent()->IsAttacking());

@@ -531,13 +531,17 @@ bool FHawkeyeTrickArrowEmpLightsAndJam::RunTest(const FString& Parameters)
 	GunnerBrain->SetTarget(Kate);
 	const int32 Ammo = Gunner->GetWeaponComponent()->CurrentAmmo;
 	GunnerBrain->Think(1.f);
+	GunnerBrain->Think(1.f);
 	TestEqual(TEXT("Jammed: no shot"), Gunner->GetWeaponComponent()->CurrentAmmo, Ammo);
-	GunnerBrain->Think(4.9f);
+	TestFalse(TEXT("Jammed: no telegraph either"), GunnerBrain->IsTelegraphing());
+	GunnerBrain->Think(3.9f);
 	TestTrue(TEXT("Still jammed at 5.9 s"), GunnerBrain->IsJammed());
 	GunnerBrain->Think(0.2f);
 	TestFalse(TEXT("Clear after 6 s"), GunnerBrain->IsJammed());
 	// Six seconds with nothing seen or heard lost him the target; one more shot from Kate brings him back.
 	GunnerBrain->ReportStimulus(EStimulusKind::Hearing, Kate->GetActorLocation(), true, 3.f);
+	GunnerBrain->Think(1.f);
+	TestTrue(TEXT("Unjammed, he telegraphs a burst"), GunnerBrain->IsTelegraphing());
 	GunnerBrain->Think(1.f);
 	TestEqual(TEXT("And he shoots again"), Gunner->GetWeaponComponent()->CurrentAmmo, Ammo - 1);
 
