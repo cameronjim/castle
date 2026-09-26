@@ -20,7 +20,6 @@ PLAYER_PATH = "/Game/Blueprints/Player"
 UI_PATH = "/Game/Blueprints/UI"
 WORLD_PATH = "/Game/Blueprints/World"
 AI_PATH = "/Game/Blueprints/AI"
-IMAGE_PATH = "/Game/Flashbacks/Images"
 THUG_MATERIAL_PATH = "/Game/Characters/Thug"
 WEAPON_PATH = "/Game/Blueprints/Weapons"
 KATE_MATERIAL_PATH = "/Game/Characters/Kate"
@@ -86,11 +85,8 @@ EXPECTED = (
         c.asset_path(UI_PATH, "WBP_EndCard"),
         c.asset_path(UI_PATH, "WBP_Hotbar"),
         c.asset_path(UI_PATH, "WBP_Inventory"),
-        c.asset_path(WORLD_PATH, "BP_Pickup_Keycard"),
-        c.asset_path(WORLD_PATH, "BP_Door_Keycard"),
         c.asset_path(AI_PATH, "BP_Thug"),
     ]
-    + [c.asset_path(IMAGE_PATH, "T_FB01_0{0}".format(i)) for i in range(1, 7)]
     + [
         c.asset_path(THUG_MATERIAL_PATH, "M_ThugBody"),
         c.asset_path(THUG_MATERIAL_PATH, "M_ThugVisor"),
@@ -106,15 +102,12 @@ EXPECTED = (
         WEAPON_PATH + "/SM_Bow_Placeholder",
         WEAPON_PATH + "/M_Bow",
         "/Game/Missions/DA_CH01_Rooftops",
-        "/Game/Missions/DA_M01_CellBlockD",
-        "/Game/Flashbacks/Definitions/DA_FB01_Sunday",
-        "/Game/Maps/L_Sandbox",
-        "/Game/Maps/L_M01_CellBlockD",
+        "/Game/Maps/L_District_EastVillage",
     ]
 )
 
-# Retired in the stage 2 pivot (Tools/Editor/pivot_cleanup.py). Any of these still on disk,
-# or any redirector left under /Game, means the cleanup did not finish.
+# Retired in the stage 2 pivot. Any of these back on disk, or any redirector left under /Game,
+# means something restored them or a fix-up did not finish.
 RETIRED = [
     "/Game/Blueprints/AI/BP_Guard",
     "/Game/Characters/Guard/M_GuardBody",
@@ -169,7 +162,7 @@ def check_existence():
     say("---- retired in the pivot ----")
     lingering = [p for p in RETIRED if c.exists(p)]
     for p in lingering:
-        fail(p + " still exists; run Tools/Editor/pivot_cleanup.py")
+        fail(p + " is back; it was retired in the stage 2 pivot")
     say("{0}/{1} retired assets gone".format(len(RETIRED) - len(lingering), len(RETIRED)))
 
     registry = unreal.AssetRegistryHelpers.get_asset_registry()
@@ -272,48 +265,6 @@ def value_text(value):
 def check_world_blueprints():
     say("---- world blueprints ----")
 
-    for name, expected in (
-        ("BP_Pickup_Keycard", [("pickup_type", "KEYCARD"), ("keycard_id", "cellblock")]),
-    ):
-        cls = c.load_generated_class(WORLD_PATH, name)
-        if cls is None:
-            fail(name + "_C")
-            continue
-        cdo = unreal.get_default_object(cls)
-        for field, want in expected:
-            got = prop(cdo, field)
-            say("  {0}.{1:<20} = {2}".format(name, field, got))
-            if value_text(got) != str(want):
-                fail("{0}.{1} is {2}, expected {3}".format(name, field, got, want))
-
-    door_class = c.load_generated_class(WORLD_PATH, "BP_Door_Keycard")
-    if door_class is None:
-        fail("BP_Door_Keycard_C")
-    else:
-        cdo = unreal.get_default_object(door_class)
-        for field, want in (
-            ("locked", True),
-            ("required_keycard_id", "cellblock"),
-            ("completes_objective_id", "security_door"),
-        ):
-            got = prop(cdo, field)
-            say("  BP_Door_Keycard.{0:<22} = {1}".format(field, got))
-            if value_text(got) != str(want):
-                fail("BP_Door_Keycard.{0} is {1}, expected {2}".format(field, got, want))
-
-    if door_class is not None:
-        cdo = unreal.get_default_object(door_class)
-        for component_name in ("frame_mesh", "door_mesh"):
-            component = prop(cdo, component_name)
-            material = None
-            try:
-                material = component.get_material(0) if component is not None else None
-            except Exception:  # noqa: BLE001
-                material = None
-            say("  BP_Door_Keycard.{0} material = {1}".format(component_name, name_of(material)))
-            if material is None or "M_SteelPainted" not in name_of(material):
-                fail("BP_Door_Keycard.{0} has no M_SteelPainted material".format(component_name))
-
     thug_class = c.load_generated_class(AI_PATH, "BP_Thug")
     if thug_class is None:
         fail("BP_Thug_C")
@@ -335,40 +286,6 @@ def check_world_blueprints():
             fail(name + "_C")
         else:
             say("  {0}_C loads".format(name))
-
-
-def check_pickup_parts():
-    """The keycard pickup is built from Part components with real materials, not one grey cube."""
-    say("---- pickup parts ----")
-
-    for name, minimum in (("BP_Pickup_Keycard", 2),):
-        cls = c.load_generated_class(WORLD_PATH, name)
-        if cls is None:
-            fail(name + "_C")
-            continue
-
-        cdo = unreal.get_default_object(cls)
-        shaped = 0
-        for index in range(1, 5):
-            part = prop(cdo, "part{0}".format(index))
-            if part is None:
-                continue
-            mesh_asset = prop(part, "static_mesh")
-            material = None
-            try:
-                material = part.get_material(0)
-            except Exception:  # noqa: BLE001 - an empty slot reads back as None
-                material = None
-            if mesh_asset is None:
-                continue
-            say("  {0}.Part{1} = {2} / {3}".format(
-                name, index, name_of(mesh_asset), name_of(material)))
-            if material is not None:
-                shaped += 1
-
-        if shaped < minimum:
-            fail("{0} has {1} shaped part(s) with a material, expected {2}".format(
-                name, shaped, minimum))
 
 
 def check_thug_presentation():
@@ -586,36 +503,6 @@ def check_weapon_data():
 
 def check_data_assets():
     say("---- data assets ----")
-    mission = c.load_or_none("/Game/Missions/DA_M01_CellBlockD")
-    if mission is None:
-        fail("DA_M01_CellBlockD")
-    else:
-        objectives = list(prop(mission, "objectives") or [])
-        say(
-            "  DA_M01_CellBlockD: name='{0}' number={1} objectives={2} enforce_order={3}".format(
-                prop(mission, "mission_name"),
-                prop(mission, "mission_number"),
-                len(objectives),
-                prop(mission, "enforce_order"),
-            )
-        )
-        for obj in objectives:
-            say(
-                "    id={0:<18} title='{1}'".format(
-                    str(prop(obj, "objective_id")), prop(obj, "title")
-                )
-            )
-        ids = [str(prop(obj, "objective_id")) for obj in objectives]
-        if len(objectives) != 3:
-            fail("DA_M01_CellBlockD has {0} objectives, expected 3".format(len(objectives)))
-        if "find_weapon" in ids:
-            fail("DA_M01_CellBlockD still has find_weapon; nothing can complete it after the pivot")
-        say("  DA_M01_CellBlockD.flashback_to_play = {0}".format(prop(mission, "flashback_to_play")))
-        end_card_line = prop(mission, "end_card_line")
-        say("  DA_M01_CellBlockD.end_card_line     = '{0}'".format(end_card_line))
-        if not str(end_card_line or ""):
-            fail("DA_M01_CellBlockD.end_card_line is empty")
-
     chapter = c.load_or_none("/Game/Missions/DA_CH01_Rooftops")
     if chapter is None:
         fail("DA_CH01_Rooftops")
@@ -634,165 +521,6 @@ def check_data_assets():
         if len(grants) != len(wanted) or any(
                 name not in arrow or count != want for (arrow, count), (name, want) in zip(grants, wanted)):
             fail("DA_CH01_Rooftops.starting_arrows is {0}, expected {1}".format(grants, wanted))
-
-    flashback = c.load_or_none("/Game/Flashbacks/Definitions/DA_FB01_Sunday")
-    if flashback is None:
-        fail("DA_FB01_Sunday")
-    else:
-        slides = list(prop(flashback, "slides") or [])
-        say(
-            "  DA_FB01_Sunday: title='{0}' slides={1} skippable={2}".format(
-                prop(flashback, "title"), len(slides), prop(flashback, "skippable")
-            )
-        )
-        for index, slide in enumerate(slides):
-            say(
-                "    slide {0}: image={1} hold={2} fade={3} caption='{4}'".format(
-                    index + 1,
-                    prop(slide, "image"),
-                    prop(slide, "hold_seconds"),
-                    prop(slide, "crossfade_seconds"),
-                    prop(slide, "caption"),
-                )
-            )
-        if len(slides) != 6:
-            fail("DA_FB01_Sunday has {0} slides, expected 6".format(len(slides)))
-
-
-LIGHT_ACTOR_CLASSES = (unreal.DirectionalLight, unreal.SkyLight, unreal.PointLight)
-
-
-def check_lighting_and_materials(map_path, actors):
-    """Every light must be Movable; every mesh actor must have a real material in slot 0."""
-    unbuilt_lights = []
-    for actor in actors:
-        if not isinstance(actor, LIGHT_ACTOR_CLASSES):
-            continue
-        mobility = c.actor_mobility(actor) if hasattr(c, "actor_mobility") else None
-        if mobility != unreal.ComponentMobility.MOVABLE:
-            unbuilt_lights.append(label_of(actor))
-    say("    lights not Movable: {0}".format(len(unbuilt_lights)))
-    if unbuilt_lights:
-        fail(
-            "{0}: {1} light(s) not Movable ({2})".format(
-                map_path, len(unbuilt_lights), ", ".join(unbuilt_lights)
-            )
-        )
-
-    unmaterialed_meshes = []
-    for actor in actors:
-        if not isinstance(actor, unreal.StaticMeshActor):
-            continue
-        try:
-            component = actor.get_editor_property("static_mesh_component")
-        except Exception:  # noqa: BLE001
-            continue
-        has_material = hasattr(c, "has_material_override") and c.has_material_override(component)
-        if not has_material:
-            unmaterialed_meshes.append(label_of(actor))
-    say("    mesh actors with no material: {0}".format(len(unmaterialed_meshes)))
-    if unmaterialed_meshes:
-        fail(
-            "{0}: {1} mesh actor(s) with no material ({2})".format(
-                map_path, len(unmaterialed_meshes), ", ".join(unmaterialed_meshes)
-            )
-        )
-
-
-def check_maps():
-    say("---- maps ----")
-    subsystem = c.level_editor_subsystem()
-    for map_path in ("/Game/Maps/L_Sandbox", "/Game/Maps/L_M01_CellBlockD"):
-        if not c.exists(map_path):
-            fail(map_path)
-            continue
-        if subsystem is not None and not subsystem.load_level(map_path):
-            fail(map_path + " would not open")
-            continue
-        actors = c.all_level_actors()
-        settings = c.world_settings()
-        game_mode = prop(settings, "default_game_mode") if settings else None
-        say(
-            "  {0}: {1} actors, GameMode override = {2}".format(
-                map_path, len(actors), c.class_name(game_mode)
-            )
-        )
-        if game_mode is None:
-            fail(map_path + " has no GameMode override")
-
-        check_lighting_and_materials(map_path, actors)
-
-        triggers = [
-            a
-            for a in actors
-            if isinstance(a, unreal.TriggerBox) or "ObjectiveTriggerVolume" in c.class_name(type(a))
-        ]
-        for trigger in triggers:
-            say(
-                "    {0:<22} objective_id={1}".format(
-                    trigger.get_actor_label(), prop(trigger, "objective_id")
-                )
-            )
-        starts = [a for a in actors if isinstance(a, unreal.PlayerStart)]
-        say("    PlayerStarts: {0}, trigger volumes: {1}".format(len(starts), len(triggers)))
-
-        if map_path.endswith("L_M01_CellBlockD"):
-            check_m01_gameplay(actors)
-
-
-def label_of(actor):
-    try:
-        return actor.get_actor_label()
-    except Exception:  # noqa: BLE001
-        return "<unlabelled>"
-
-
-def check_m01_gameplay(actors):
-    """The test map needs thugs with patrol points, a door, the keycard and a nav volume."""
-    thugs = [a for a in actors if "BP_Thug" in c.class_name(type(a)) or "ThugCharacter" in c.class_name(type(a))]
-    guards = [a for a in actors if "Guard" in c.class_name(type(a)) or "Guard" in a.get_name()
-              or label_of(a).startswith("Guard_")]
-    doors = [a for a in actors if "Door" in c.class_name(type(a)) and "Frame" not in c.class_name(type(a))]
-    pickups = [a for a in actors if "Pickup" in c.class_name(type(a))]
-    pistols = [a for a in pickups if "Pistol" in c.class_name(type(a)) or "Pistol" in label_of(a)]
-    points = [a for a in actors if isinstance(a, unreal.TargetPoint)]
-    nav = [a for a in actors if isinstance(a, unreal.NavMeshBoundsVolume)]
-
-    say("    thugs: {0}, patrol points: {1}, pickups: {2}, doors: {3}, nav volumes: {4}".format(
-        len(thugs), len(points), len(pickups), len(doors), len(nav)))
-
-    for thug in thugs:
-        assigned = list(prop(thug, "patrol_points") or [])
-        loot = list(prop(thug, "drop_on_death") or [])
-        say("      {0:<16} patrol={1} drops={2}".format(
-            label_of(thug), len(assigned), ", ".join(c.class_name(x) for x in loot) or "-"))
-        if len(assigned) < 2:
-            fail("{0} has {1} patrol point(s), expected 2".format(label_of(thug), len(assigned)))
-        if not label_of(thug).startswith("Thug_"):
-            fail("{0} is not labelled Thug_*".format(label_of(thug)))
-        for item in loot:
-            if item is None or "Keycard" not in c.class_name(item):
-                fail("{0} drops {1}; only the keycard is left after the pivot".format(
-                    label_of(thug), c.class_name(item)))
-
-    if len(thugs) != 5:
-        fail("L_M01_CellBlockD has {0} thugs, expected 5".format(len(thugs)))
-    if guards:
-        fail("L_M01_CellBlockD still has guards: " + ", ".join(label_of(g) for g in guards))
-    if len(points) < 10:
-        fail("L_M01_CellBlockD has {0} ATargetPoints, expected at least 10".format(len(points)))
-    if not doors:
-        fail("L_M01_CellBlockD has no BP_Door_Keycard")
-    if not pickups:
-        fail("L_M01_CellBlockD has no keycard pickup")
-    if pistols:
-        fail("L_M01_CellBlockD still has a pistol pickup: " + ", ".join(label_of(p) for p in pistols))
-    if not nav:
-        fail("L_M01_CellBlockD has no NavMeshBoundsVolume; thugs cannot move")
-
-    looters = [t for t in thugs if list(prop(t, "drop_on_death") or [])]
-    if len(looters) != 1:
-        fail("{0} thug(s) carry loot, expected exactly 1".format(len(looters)))
 
 
 SKELETAL_MESH_COMPONENTS = (
@@ -854,19 +582,17 @@ def check_skeletal_material_usage():
 
 
 def main():
-    say("==== verifying stage 1-2 starter content ====")
+    say("==== verifying starter content ====")
     check_existence()
     check_input()
     check_blueprints()
     check_world_blueprints()
-    check_pickup_parts()
     check_thug_presentation()
     check_third_person()
     check_kate()
     check_skeletal_material_usage()
     check_weapon_data()
     check_data_assets()
-    check_maps()
     if PROBLEMS:
         unreal.log_error("[Verify] FAIL: {0} problem(s)".format(len(PROBLEMS)))
         for problem in PROBLEMS:

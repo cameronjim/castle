@@ -631,7 +631,7 @@ SUN_TEMPERATURE = 4800.0
 SKY_INTENSITY = 2.5
 FOG_DENSITY = 0.008
 # Auto exposure is off project-wide (Config/DefaultEngine.ini), so exposure is fixed: the
-# min/max brightness pair pins it the way L_Sandbox does, and the bias is the knob.
+# min/max brightness pair pins it at 1.0, and the bias is the knob.
 EXPOSURE_BRIGHTNESS = 1.0
 EXPOSURE_BIAS = 1.5
 

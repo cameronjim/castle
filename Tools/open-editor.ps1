@@ -1,6 +1,6 @@
 # Opens the Hawkeye project in Unreal Editor 5.8 directly, bypassing the .uproject file
 # association (which needs UnrealVersionSelector and a verb, and breaks easily on Windows 11).
-# Usage: .\Tools\open-editor.ps1 [-Map /Game/Maps/L_M01_CellBlockD] [-Game]
+# Usage: .\Tools\open-editor.ps1 [-Map /Game/Maps/L_District_EastVillage] [-Game]
 #   -Map   open the editor on that map (or, with -Game, play it standalone)
 #   -Game  launch as a standalone game window instead of the editor
 param(

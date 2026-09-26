@@ -1,7 +1,8 @@
 """Procedural material helpers for the Hawkeye art passes.
 
 Everything here is built out of engine material expressions - no imported textures, no
-downloads. The room-art pass (``create_room_art.py``) is the only consumer so far.
+downloads. create_all.py runs this module as its own step (the interior surface and lamp
+materials), and generate_city.py and create_world_blueprints.py reuse its builders.
 
 Conventions are the same as ``_common.py``: check before creating, save only what
 changed, print one ``created`` / ``exists`` / ``updated`` / ``FAILED`` line per asset,
@@ -21,10 +22,9 @@ import _common as c  # noqa: E402
 MATERIALS_PATH = "/Game/Materials"
 
 # --- exposure preset -------------------------------------------------------------------
-# The emissive instances are tuned against the room's exposure, and two scripts ask for
-# them (create_world_blueprints for the keycard stripe, create_room_art for the lamps).
-# The factor lives here so both agree: when they disagreed, every run rewrote the four
-# MI_* assets to the other one's number and left them dirty in git forever.
+# The emissive instances are tuned against the interior exposure. The factor lives here so
+# every script that asks for them agrees: when two disagreed, every run rewrote the MI_*
+# assets to the other one's number and left them dirty in git forever.
 #
 #   default (HAWKEYE_BRIGHT unset or "0") -> ROOM_EXPOSURE_EV_NORMAL, the shipped look
 #   HAWKEYE_BRIGHT=1                      -> ROOM_EXPOSURE_EV_TESTING, for playtesting
@@ -47,11 +47,7 @@ M_EMISSIVE = MATERIALS_PATH + "/M_Emissive"
 M_FLUORESCENT_FLICKER = MATERIALS_PATH + "/M_FluorescentFlicker"
 MI_FLUORESCENT_TUBE = MATERIALS_PATH + "/MI_FluorescentTube"
 MI_RED_EMERGENCY = MATERIALS_PATH + "/MI_RedEmergency"
-MI_KEYCARD_STRIPE = MATERIALS_PATH + "/MI_KeycardStripe"
 MI_MONITOR = MATERIALS_PATH + "/MI_Monitor"
-
-# Props
-M_KEYCARD_BODY = MATERIALS_PATH + "/M_KeycardBody"
 
 EMISSIVE_COLOR_PARAM = "Color"
 EMISSIVE_INTENSITY_PARAM = "Intensity"
@@ -670,7 +666,7 @@ def ensure_surface_materials():
 
 
 def ensure_light_materials(intensity_factor=None):
-    """M_Emissive + M_FluorescentFlicker and the four lamp instances.
+    """M_Emissive + M_FluorescentFlicker and the three lamp instances.
 
     ``intensity_factor`` scales the tuned strengths below. Leave it out: the default is
     EMISSIVE_INTENSITY_FACTOR, which is the whole point of that constant living up there.
@@ -696,8 +692,7 @@ def ensure_light_materials(intensity_factor=None):
         # These are the -4.5 EV values; intensity_factor scales them for other presets.
         ("tube", MI_FLUORESCENT_TUBE, (0.85, 0.90, 1.00), 150.0),
         ("red", MI_RED_EMERGENCY, (1.00, 0.05, 0.02), 250.0),
-        ("stripe", MI_KEYCARD_STRIPE, (0.10, 0.90, 0.30), 60.0),
-        # A CRT left on in the guard station: bright enough to glow, too dim to light the room.
+        # A screen left on: bright enough to glow, too dim to light the room.
         ("monitor", MI_MONITOR, (0.20, 0.55, 1.00), 25.0),
     )
     for key, path, rgb, strength in instances:
@@ -714,30 +709,11 @@ def ensure_light_materials(intensity_factor=None):
     return out
 
 
-def ensure_prop_materials():
-    """Materials the pickup Blueprints want: white keycard plastic and its stripe.
-
-    Returned as a dict so create_world_blueprints.py can pick them up without importing
-    the room-art pass: {'keycard': M_KeycardBody, 'stripe': MI_KeycardStripe}. M_Pistol went
-    with the pistol; pivot_cleanup.py deletes it.
-    """
-    out = {}
-    try:
-        out["keycard"] = ensure_material(
-            M_KEYCARD_BODY, _build_flat((0.85, 0.85, 0.85), 0.4))
-    except Exception as exc:  # noqa: BLE001
-        c.log_error("ensure_prop_materials " + M_KEYCARD_BODY, exc)
-        out["keycard"] = None
-    out["stripe"] = c.load_or_none(MI_KEYCARD_STRIPE)
-    return out
-
-
 def ensure_all(intensity_factor=None):
-    """Every material the room-art pass needs, in one dict."""
+    """Every interior surface and lamp material, in one dict."""
     materials = {}
     materials.update(ensure_surface_materials())
     materials.update(ensure_light_materials(intensity_factor))
-    materials.update(ensure_prop_materials())
     return materials
 
 

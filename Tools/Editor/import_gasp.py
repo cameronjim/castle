@@ -210,7 +210,7 @@ def copy(result, destination):
     """Copies what is not there yet. Returns (copied, identical, kept_ours) package lists.
 
     The sample's redirectors are copied only alongside a package that may still point through
-    them. pivot_cleanup's Fix Up Redirectors resaves those referencers and deletes the
+    them. fixup_redirectors.py resaves those referencers and deletes the
     redirectors, so a later run that copies nothing else must not bring them back, or every
     create-content run would copy them and the next delete them again."""
     copied, identical, kept = [], [], []

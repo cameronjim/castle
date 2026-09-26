@@ -1,23 +1,20 @@
-"""Create every stage-1/stage-2 starter asset, in dependency order.
+"""Create every starter asset, in dependency order.
 
-    0. pivot_cleanup.run_renames   BP_Guard -> BP_Thug, M_Guard* -> M_Thug* (before anyone asks)
     1. create_input_assets        IA_* and IMC_Default
-    2. create_placeholder_textures T_FB01_01..06   (before the data assets that point at them)
-    2b. import_gasp                the Game Animation Sample's sandbox character, AnimBP and
-                                   UEFN mannequin, copied from the local GASP install (skipped
-                                   when the sample is not installed; before BP_Kate derives from it)
-    3. create_blueprints           BP_Hawkeye* and WBP_Flashback (before the maps that use them)
-    3b. create_world_blueprints    WBP_Hud, BP_Pickup_Keycard, BP_Door_Keycard, BP_Thug
-    3c. create_weapon_data         DA_Weapon_Hands
-    4. create_mission_data         DA_M01_CellBlockD, DA_FB01_Sunday
-    5. create_sandbox_map          L_Sandbox, L_M01_CellBlockD
-    6. create_room_art             procedural materials + the M01 cell/corridor art pass
-                                   (it dresses the map the previous step builds)
-    6b. pivot_cleanup.run_deletions retire the pistol, rifle and first-person assets, then fix
-                                   up redirectors (after the maps stop referencing them)
-    7. generate_city               L_District_EastVillage from OpenStreetMap, after everything
-                                   else and only when Tools/Data/osm/east_village.buildings.json
-                                   exists (Tools/fetch-osm.ps1 writes it)
+    2. import_gasp                the Game Animation Sample's sandbox character, AnimBP and
+                                  UEFN mannequin, copied from the local GASP install (skipped
+                                  when the sample is not installed; before BP_Kate derives from it)
+    3. create_blueprints          BP_Hawkeye*, BP_Kate and WBP_Flashback
+    3b. _materials                interior surface and lamp materials (M_Concrete, M_SteelPainted,
+                                  M_Emissive and its instances)
+    3c. create_world_blueprints   WBP_Hud, BP_Thug, BP_GrappleAnchor, BP_TraversableBlock
+    3d. create_weapon_data        DA_Weapon_Hands, the bows and arrows
+    4. create_mission_data        DA_CH01_Rooftops
+    5. fixup_redirectors          resave past any redirector the GASP copy brought in, then
+                                  delete it
+    6. generate_city              L_District_EastVillage from OpenStreetMap, after everything
+                                  else and only when Tools/Data/osm/east_village.buildings.json
+                                  exists (Tools/fetch-osm.ps1 writes it)
 
 Run headless:
 
@@ -38,17 +35,14 @@ import _common as c  # noqa: E402
 
 # (title, module, function). The function defaults to run().
 STEPS = [
-    ("pivot renames", "pivot_cleanup", "run_renames"),
     ("input assets", "create_input_assets"),
-    ("placeholder textures", "create_placeholder_textures"),
     ("gasp import", "import_gasp"),
     ("blueprints", "create_blueprints"),
+    ("materials", "_materials"),
     ("world blueprints", "create_world_blueprints"),
     ("weapon data", "create_weapon_data"),
     ("mission data", "create_mission_data"),
-    ("maps", "create_sandbox_map"),
-    ("room art", "create_room_art"),
-    ("pivot deletions", "pivot_cleanup", "run_deletions"),
+    ("fix up redirectors", "fixup_redirectors"),
     ("city", "generate_city"),
 ]
 
@@ -66,7 +60,7 @@ STEP_REQUIRES = {
 
 def main():
     c.reset_summary()
-    unreal.log("[Hawkeye] ==== creating stage 1-2 starter content ====")
+    unreal.log("[Hawkeye] ==== creating starter content ====")
 
     failures = []
     for step in STEPS:

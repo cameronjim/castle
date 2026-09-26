@@ -1,12 +1,12 @@
-# Creates the stage 1-2 starter content (input assets, blueprints, placeholder textures,
-# mission/flashback data assets, sandbox + Cell Block D maps) by running
-# Tools\Editor\create_all.py inside a headless editor.
+# Creates the starter content (input assets, the GASP import, blueprints, materials, weapon and
+# chapter data assets, and the East Village district) by running Tools\Editor\create_all.py
+# inside a headless editor.
 #
 # Idempotent: every script checks for the asset before creating it, so re-running is safe.
 # Do not run this while another editor instance is open - they collide on the module DLL.
 #
 #   .\Tools\create-content.ps1
-#   .\Tools\create-content.ps1 -Bright   # brighter room exposure, for playtesting layout and AI
+#   .\Tools\create-content.ps1 -Bright   # brighter interior exposure, for playtesting layout and AI
 
 [CmdletBinding()]
 param(

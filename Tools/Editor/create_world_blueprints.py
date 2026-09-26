@@ -1,8 +1,6 @@
 """Create the stage-2 world, AI and HUD Blueprints and wire their class defaults.
 
     /Game/Blueprints/UI/WBP_Hud                parent UHawkeyeHudWidget, HotbarWidgetClass
-    /Game/Blueprints/World/BP_Pickup_Keycard   parent APickupActor, Keycard "cellblock"
-    /Game/Blueprints/World/BP_Door_Keycard     parent ADoorActor, locked on "cellblock"
     /Game/Blueprints/AI/BP_Thug                parent AThugCharacter, mannequin mesh in a red
                                                tracksuit (M_ThugTracksuit, M_ThugTrim), idle,
                                                walk and run clips, a bat for Bat thugs
@@ -32,8 +30,6 @@ WORLD_PATH = "/Game/Blueprints/World"
 AI_PATH = "/Game/Blueprints/AI"
 UI_PATH = "/Game/Blueprints/UI"
 PLAYER_PATH = "/Game/Blueprints/Player"
-
-CUBE_PATH = "/Engine/BasicShapes/Cube.Cube"
 
 # The UE4 mannequin, copied out of the engine's Standard/Mannequin feature pack. Its assets
 # hard-reference /Game/Mannequin/..., so the folder keeps that name rather than moving under
@@ -79,59 +75,6 @@ BAT_ROTATION = unreal.Rotator(0.0, -90.0, 0.0)
 # The template's own offsets: the mesh hangs from the capsule centre and faces +X.
 THUG_MESH_LOCATION = unreal.Vector(0.0, 0.0, -96.0)
 THUG_MESH_ROTATION = unreal.Rotator(0.0, 0.0, -90.0)
-
-# Doors are 100 wide x 220 tall (claude-docs/asset-conventions.md); the cube is 100 cm. Only the
-# leaf has a mesh: the surround around this doorway is built by the room-art pass.
-DOOR_LEAF_SCALE = unreal.Vector(0.1, 1.0, 2.2)
-
-
-def mesh(path):
-    return c.load_or_none(path.split(".")[0])
-
-
-def set_component_mesh(bp, component_name, mesh_asset, scale, relative_location=None):
-    """Set StaticMesh + scale on an inherited component through the Blueprint CDO.
-
-    The CDO's component instances are the templates every spawned actor copies, so writing to
-    them here is what a designer would do in the Blueprint's Components panel.
-    """
-    cdo = c.blueprint_cdo(bp)
-    if cdo is None:
-        return False
-
-    component = None
-    try:
-        component = cdo.get_editor_property(component_name)
-    except Exception:  # noqa: BLE001
-        pass
-    if component is None:
-        unreal.log_warning(
-            "[Hawkeye] skipped   {0}.{1}: no such component".format(bp.get_name(), component_name)
-        )
-        return False
-
-    wanted = [("relative_scale3d", scale)]
-    if relative_location is not None:
-        wanted.append(("relative_location", relative_location))
-
-    # Only write what differs, so a re-run leaves the .uasset byte-identical.
-    changed = []
-    for prop, value in wanted:
-        try:
-            if component.get_editor_property(prop) == value:
-                continue
-        except Exception:  # noqa: BLE001 - set_props reports a missing property
-            pass
-        changed.append((prop, value))
-    c.set_props(component, changed, bp.get_name() + "." + component_name)
-
-    if mesh_asset is not None and component.get_editor_property("static_mesh") != mesh_asset:
-        try:
-            component.set_static_mesh(mesh_asset)
-            changed.append(("static_mesh", mesh_asset))
-        except Exception as exc:  # noqa: BLE001
-            c.log_error("set_static_mesh " + bp.get_name(), exc)
-    return bool(changed)
 
 
 def _build_thug_body(material):
@@ -374,150 +317,6 @@ def make_hud():
         # The hotbar lives inside the HUD's own overlay, so the HUD is what holds its class.
         cb.apply_defaults(bp, "WBP_Hud", UI_PATH,
                           [("hotbar_widget_class", c.load_generated_class(UI_PATH, "WBP_Hotbar"))])
-    return bp
-
-
-def clear_component_mesh(bp, component_name, context):
-    """Empty a component's static mesh. Used to retire the placeholder cube on the root."""
-    cdo = c.blueprint_cdo(bp)
-    component = None
-    if cdo is not None:
-        try:
-            component = cdo.get_editor_property(component_name)
-        except Exception:  # noqa: BLE001
-            component = None
-    if component is None:
-        return False
-
-    try:
-        if component.get_editor_property("static_mesh") is None:
-            return False
-        component.set_static_mesh(None)
-        c.log("updated", context, "placeholder cube removed")
-        return True
-    except Exception as exc:  # noqa: BLE001
-        c.log_error(context, exc)
-        return False
-
-
-def set_pickup_part(bp, part_name, cube, size_cm, location, material, rotation=None):
-    """Shape one Part component: the engine cube scaled to size_cm and moved into place.
-
-    The cube is 100 cm on a side, so a scale of size/100 gives centimetres directly.
-    """
-    cdo = c.blueprint_cdo(bp)
-    component = None
-    if cdo is not None:
-        try:
-            component = cdo.get_editor_property(part_name)
-        except Exception:  # noqa: BLE001
-            component = None
-    if component is None:
-        c.log("skipped", bp.get_name() + "." + part_name, "no such component")
-        return False
-
-    context = bp.get_name() + "." + part_name
-    scale = unreal.Vector(size_cm[0] / 100.0, size_cm[1] / 100.0, size_cm[2] / 100.0)
-
-    changed = []
-    wanted = [
-        ("relative_scale3d", scale),
-        ("relative_location", unreal.Vector(location[0], location[1], location[2])),
-    ]
-    if rotation is not None:
-        wanted.append(("relative_rotation", unreal.Rotator(rotation[0], rotation[1], rotation[2])))
-
-    for prop, value in wanted:
-        try:
-            if component.get_editor_property(prop) == value:
-                continue
-        except Exception:  # noqa: BLE001 - set_props reports a missing property
-            pass
-        if c.set_props(component, [(prop, value)], context):
-            changed.append(prop)
-
-    try:
-        if cube is not None and component.get_editor_property("static_mesh") != cube:
-            component.set_static_mesh(cube)
-            changed.append("static_mesh")
-    except Exception as exc:  # noqa: BLE001
-        c.log_error(context + " static_mesh", exc)
-
-    if set_component_material(component, 0, material, context):
-        changed.append("material")
-
-    return bool(changed)
-
-
-def shape_keycard(bp, cube, materials):
-    """A white card with a coloured stripe along one edge."""
-    changed = set_pickup_part(
-        bp, "part1", cube, (8.6, 5.4, 0.2), (0.0, 0.0, 0.0), materials.get("keycard"))
-    changed = set_pickup_part(
-        bp, "part2", cube, (8.6, 1.0, 0.05), (0.0, 1.8, 0.13), materials.get("stripe")) or changed
-    return changed
-
-
-def make_pickup(name, values, shape_fn):
-    parent = c.find_class("PickupActor", "/Script/Hawkeye.PickupActor")
-    bp, _ = cb.make_blueprint(name, WORLD_PATH, parent, ("BlueprintFactory",))
-    if bp is None:
-        return None
-
-    c.compile_blueprint(bp)
-    c.save(bp, only_if_dirty=True)
-
-    changed = bool(cb.apply_defaults(bp, name, WORLD_PATH, values))
-    # The silhouette now comes from the Part components, so the root cube goes.
-    changed = clear_component_mesh(bp, "mesh", name + ".Mesh") or changed
-    changed = shape_fn(bp) or changed
-    if changed:
-        c.compile_blueprint(bp)
-        c.save(bp)
-    return bp
-
-
-def make_door(door_material):
-    parent = c.find_class("DoorActor", "/Script/Hawkeye.DoorActor")
-    bp, _ = cb.make_blueprint("BP_Door_Keycard", WORLD_PATH, parent, ("BlueprintFactory",))
-    if bp is None:
-        return None
-
-    c.compile_blueprint(bp)
-    c.save(bp, only_if_dirty=True)
-
-    cb.apply_defaults(
-        bp,
-        "BP_Door_Keycard",
-        WORLD_PATH,
-        [
-            ("locked", True),
-            ("required_keycard_id", "cellblock"),
-            ("completes_objective_id", "security_door"),
-            ("slide_distance", 110.0),
-        ],
-    )
-
-    cube = mesh(CUBE_PATH)
-    # The leaf fills the 100x220 opening and slides sideways. The frame stays empty: a cube big
-    # enough to read as a surround is also a cube that plugs the doorway and hides the leaf
-    # behind it, and the room-art pass already builds a real steel frame out of jambs, a lintel
-    # and a header around this opening.
-    changed = clear_component_mesh(bp, "frame_mesh", "BP_Door_Keycard.FrameMesh")
-    changed = set_component_mesh(bp, "door_mesh", cube, DOOR_LEAF_SCALE, unreal.Vector(0.0, 0.0, 110.0)) or changed
-
-    cdo = c.blueprint_cdo(bp)
-    if cdo is not None and door_material is not None:
-        try:
-            component = cdo.get_editor_property("door_mesh")
-        except Exception:  # noqa: BLE001
-            component = None
-        changed = set_component_material(
-            component, 0, door_material, "BP_Door_Keycard.door_mesh") or changed
-
-    if changed:
-        c.compile_blueprint(bp)
-        c.save(bp)
     return bp
 
 
@@ -769,26 +568,7 @@ def run():
     for path in (WORLD_PATH, AI_PATH, UI_PATH):
         c.ensure_directory(path)
 
-    cube = mesh(CUBE_PATH)
-
     make_hud()
-
-    # The keycard's glowing stripe is an instance of the room-art pass's M_Emissive, and this
-    # script runs first, so make sure the lamp materials exist before asking for the props.
-    m.ensure_light_materials()
-    prop_materials = m.ensure_prop_materials()
-    surface_materials = m.ensure_surface_materials()
-
-    make_pickup(
-        "BP_Pickup_Keycard",
-        [
-            ("pickup_type", unreal.PickupType.KEYCARD),
-            ("keycard_id", "cellblock"),
-        ],
-        lambda bp: shape_keycard(bp, cube, prop_materials),
-    )
-
-    make_door(surface_materials.get("steel"))
     set_mannequin_physics_asset()
     make_thug()
     make_grapple_anchor()
