@@ -1,84 +1,60 @@
 # Stage 4: Content
 
-Goal: all eight missions, four bosses, and four flashbacks playable in grey boxes, start
-to finish, with real text and placeholder audio. The game exists after this stage. It's
-just ugly.
+Goal: six chapters, three bosses, the flashbacks, and one finished district, playable in
+greybox with real text and placeholder audio.
 
-## Mission build order
-Not 1 to 8. Build in this order so the hard problems surface early and the story can
-change while it's cheap to change:
+## Build order
+Not 1 to 6. Hard problems first, story last:
 
-1. **M7 The Warden** (duel boss, the ending, the choice). If the ending doesn't land,
-   everything before it needs rethinking. Find that out now.
-2. **M2 The Infirmary** (brawl boss). Proves the brawl framework on a real boss.
-3. **M5 Solitary** (duel boss in darkness, the Doctor). Proves lights-out gameplay and
-   the non-combat choice moment.
-4. **M3 Yard Riot** (arena, crowd). Probably the most expensive level for performance.
-   Test 30+ AI on this machine early.
-5. **M4 Records** (quiet, no boss). Cheap. A breather for you as much as the player.
-6. **M6 Armory** (power fantasy). Add the shotgun and rifle as weapon data.
-7. **M8 Exit** (escape sequence, skull). Short. Scripted.
-8. **M1 revision.** You'll have learned a lot. Rebuild the tutorial last so it teaches
-   the game you actually made.
+1. **Chapter 6, Trickshot.** The two-phase boss and the ending. If it doesn't land, the
+   whole arc needs rethinking. Also the most demanding traversal chase.
+2. **Chapter 4, The Auction House.** Interior stealth plus the first bow duel. Proves
+   interiors and archer enemies.
+3. **Chapter 1, Rooftops.** The tutorial, built third so it teaches what actually exists.
+4. **Chapter 3, Iowa to JFK.** Clint's chapter. Proves the second character on his own.
+5. **Chapter 2 and 5, the flashbacks.** Slideshows plus the carnival scene. Cheapest,
+   and the emotional core, so they get built when we know what the present needs them
+   to set up.
 
-## Per-mission checklist
-Each mission gets a one-page doc in `docs/missions/M0X.md` before you build it:
-- Beat list (what happens, in order, one line each)
-- Rooms and what's in each
-- Guard count and types per room
-- Objectives as they appear in `DA_M0X`
-- Frank's lines (aim for 3 to 6 per mission)
-- What the player learns or gets (new weapon, new fact, new mechanic)
-- Estimated play time
+## Per-chapter one-pager (`docs/chapters/CH0X.md`, before building)
+Beats, locations on the district map, enemy counts and types, objectives as they appear
+in the data asset, lines for Kate and Clint (aim for 15 to 30 per chapter, they talk),
+what the player unlocks, estimated time. Two to four weeks per chapter solo.
 
-Then build: block out, populate, script the beats, add objectives, play it to the end
-three times, commit. Two to three weeks per mission is realistic solo. Bosses add a week.
+## The district
+One district for Part 1, built to be finished: generated from real data, hero blocks
+dressed, side content placed. Which neighbourhood is settled with the research doc and
+you. Side content: six Tracksuit crimes (repeatable ambushes), three Lucky errands, three
+Grills favours, five rooftop archery challenges, a dozen collectibles tied to the show.
 
 ## Bosses
-Each boss is: a child of the test boss Blueprint, a behavior tree with one branch per
-phase, an arena controller, and a health bar. Design per boss is in DESIGN.md. Build order
-matches the mission order above: Warden, Orderly, Sniper, Deacon.
+- Tracksuit lieutenant: melee brawl, three phases, the room changes each phase.
+- Barney's archer: bow duel across a rooftop gap. Cover, relocation, timing.
+- Trickshot: phase one ranged across two rooftops with Barney using trick arrows against
+  Clint; phase two Kate freed, close range, both Hawkeyes. Ends in dialogue, not a kill.
 
-Rules that keep bosses fair:
-- Every attack has a tell at least 0.4 seconds before it lands.
-- Phase transitions are 2 seconds of invulnerability with an obvious visual.
-- Duel bosses never one-shot the player. Two hits to kill from full health, minimum.
-- The player can always see where the boss is or hear where he's going. In the Sniper
-  fight, the rifle's muzzle flash and the sound are that information.
+Same fairness rules as before: every attack has a tell, phase transitions are clear,
+no one-shots, the player can always see or hear where the boss is.
 
 ## Flashbacks
-Four data assets, 6 to 10 slides each. For now: stock photos, or generated stills, or
-your own photos, whatever gets the pacing testable. Real images come in stage 5.
-
-Write the captions first. All four flashbacks, every caption, in one sitting, in one
-document. Read them in order. The lie in 1 and 2 has to be convincing on its own and
-obvious in hindsight. Flashback 3's glitch slides need a clear before and after. Cut
-any caption that explains what the image already shows.
-
-Voice for Frank: record yourself as scratch audio. Bad temp audio beats no audio for
-pacing. Real voice, if any, is stage 5.
+Four slideshows plus one playable carnival scene. Write every caption in one sitting
+and read them in order. Clint's and Barney's versions of the same events should differ
+in details the player can catch.
 
 ## Dialogue
-One data table for the whole game. Books' vent lines, the Doctor's speech, the Warden's
-monologue during the duel. Write every line before recording scratch audio. Read the
-Warden's lines out loud while playing the fight. If you can't finish a line before the
-next attack, it's too long.
-
-## The choice moments
-Two: the Doctor (kill or spare) and the Warden (kill or spare). Both flags save. They
-change one thing each: the Doctor's fate is mentioned in a line during M8, and the
-Warden's changes the final image of the skull (painted in blood or in paint). Small,
-cheap, and it makes the choice feel seen. Don't build branching levels.
+One data table. Kate and Clint banter during traversal is the show's whole voice; write
+it in batches by situation (idle roam, after a fight, approaching an objective, low
+health) and let the system pick. Scratch audio recorded by you.
 
 ## Done when
-- [ ] New Game to credits with no console commands, about 2 hours
-- [ ] All 4 bosses beatable and all 4 lose-able (you can die to each)
-- [ ] All 4 flashbacks play at the right moment with real captions
-- [ ] Both choices save and show up later
-- [ ] Two people who aren't you have finished it and you watched both
-- [ ] A `docs/missions/` folder with 8 one-pagers matching what got built
+- [ ] New Game to the end of Chapter 6 with no console commands, about 4 hours
+- [ ] Both characters playable, switching works where allowed
+- [ ] All three bosses beatable and lose-able
+- [ ] Every side activity in the district completable
+- [ ] Two people who aren't you have finished it and you watched
+- [ ] Six one-pagers in `docs/chapters/` matching what got built
 
 ## When to cut
-If at the end of M5 (the third mission built) you're 2 months over the estimate, cut
-M4 and M6. The story survives without them: M3 leads into M5, M5 into M7. That's a
-5-mission game with 3 bosses, and it's still the whole arc.
+If Chapter 4 (the second built) is a month over, cut Chapter 3 to a cutscene and fold
+Chapter 5's present-day chase into Chapter 6. Four chapters and two bosses is still the
+arc.

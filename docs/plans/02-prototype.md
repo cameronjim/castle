@@ -1,73 +1,68 @@
-# Stage 2: Prototype Mission 1 in grey boxes
+# Stage 2: Traversal prototype on one real block
 
-Goal: Cell Block D is playable start to finish with zero art. Boxes for walls, capsules
-for guards, a cube for the pistol. This stage answers one question: is the loop fun?
+Goal: a third-person Kate running, climbing, and zipping across one greybox block of
+Manhattan built from real map data, with a bow and four thugs to fight. This answers the
+only question that matters: is moving through this city fun?
 
-## What "the loop" is
-Wake up unarmed. Sneak. Take down a guard from behind. Take his pistol and keycard. Get
-through a door. One firefight with three guards. Reach the exit. Flashback plays. Credits
-placeholder. Eight to twelve minutes.
+## Order of work
 
-## Steps, in this order
+1. **Pivot cleanup (2 days).** Remove the first-person arms and viewmodel code, the pistol
+   weapon definition and pickups, and the prison map's gameplay actors. Keep the systems.
+   Rename `AGuardCharacter` to `AThugCharacter` (or keep the class and rename the
+   Blueprint; cheaper). Tests updated, suite green, docs updated. Commit before anything new.
 
-1. **Player movement first, nothing else.** Make `BP_CastleCharacter` from
-   `ACastleCharacter`. Set up the Enhanced Input assets (IMC_Default, IA_Move, IA_Look,
-   IA_Jump, IA_Sprint, IA_Crouch, IA_Fire, IA_Reload, IA_Takedown, IA_Interact) and assign
-   them on the Blueprint. Walk around the sandbox. Tune walk speed, sprint speed, crouch
-   height, and mouse sensitivity until it feels heavy but responsive. Frank is a big man.
-   Spend a full session on this. It's the thing the player does 100% of the time.
+2. **Third-person camera (3 days).** Spring arm behind and above, over-the-shoulder offset
+   on aim, camera collision with walls, lag on movement. Tune on the sandbox. Sensitivity
+   from the settings subsystem as before.
 
-2. **Block out the level.** New map `Maps/L_M01_CellBlockD`. Use the Modeling Mode cube
-   tool. Rooms: your cell, a corridor with 2 guards, a guard station with the pistol and
-   keycard, a locked door, the infirmary hallway (3 guard fight), an exit stairwell. Keep
-   it small. Walk it as the player with no enemies and time it. Under 4 minutes of pure
-   walking, or the level is too big.
+3. **Locomotion (1-2 weeks).** Bring in Epic's free Game Animation Sample (motion-matched
+   locomotion for this mannequin skeleton, hundreds of clips). Walk, run, sprint, turn,
+   stop, crouch, slide. This replaces the animation-asset switching from the old build. The
+   sample is a full project; extract the animation database, the pose search schema, and
+   the character setup into ours by script where possible, by a one-time editor import
+   where not. If it can't be done headless, this is the one place a human editor session
+   is worth it.
 
-3. **Guard AI.** `BP_Guard` from Character with a `HealthComponent`, tag "Guard", and
-   the `Takedownable` interface. Behavior Tree with three states: Patrol (waypoints),
-   Investigate (heard a noise, walks to it, waits, returns), Attack (sees you, shoots,
-   strafes). AI Perception with sight and hearing. Sight cone narrow (about 70 degrees),
-   hearing radius generous. Sprinting makes noise, crouching doesn't. This is the whole
-   stealth system and it's enough.
+4. **The block (1 week).** `Tools/Editor/generate_city.py`: take a bounding box in
+   lat/lon, query OpenStreetMap Overpass for building footprints with height or level
+   tags, project to a local tangent plane in centimetres, extrude each footprint into a
+   static mesh (procedural mesh or Geometry Script), and place it. Sidewalks, kerbs, and
+   street surfaces from the road polygons. Details in `docs/research/nyc-hawkeye.md`. Pick
+   the block from the show's neighbourhood. Greybox only: grey buildings, dark streets.
+   Add snow later.
 
-4. **Takedown.** Bind IA_Takedown to `TakedownComponent.TryTakedown`. On the guard,
-   implement `OnTakedown` to ragdoll and drop a pickup. Add a prompt when a valid target
-   is in range so the player knows it's available. Test: can you sneak up on a patrolling
-   guard and drop him without the other one noticing? If no, tune hearing radius and
-   patrol paths until yes.
+5. **Parkour (2 weeks).** Vault (waist height), mantle (chest to head height), ledge grab
+   and climb (above head), ledge shimmy, drop-down, roll on landing. Detect with a few
+   capsule and line traces ahead of the character, choose the move, play the animation
+   with root motion or a procedural curve. Contextual: hold sprint and the character does
+   the right thing. Mixamo has vault, climb, and roll animations; retarget by script.
 
-5. **Pistol.** Enable `WeaponComponent` on pickup. Line trace, 12 round magazine, 24
-   reserve. Damage kills a guard in 3 body shots or 1 headshot. Add a crosshair and an
-   ammo counter to a bare HUD widget. Reload takes about 2 seconds. Recoil is a camera
-   kick, nothing fancy.
+6. **Grapple arrow (1 week).** Anchor actors on rooftops and walls. Aim within range,
+   marker shows, fire, arrow flies, zip along the line. Chain between anchors. This is the
+   long-range traversal verb. Place enough anchors on the block that rooftop-to-rooftop
+   runs flow.
 
-6. **Keycard and door.** `BP_Keycard` pickup sets a bool on the player. `BP_LockedDoor`
-   checks it on Interact. Wire the door opening to complete an objective on the
-   `MissionSubsystem`.
+7. **Bow and thugs (1 week).** Draw and release with a projectile arrow (arc, travel time),
+   over-the-shoulder aim, a hit reaction on thugs. Four thugs on the block with the
+   existing AI (sight, hearing, patrol, attack, now with melee rushes). Kate's melee: light
+   and heavy with the bow, a dodge. Enough to fight, not enough to be a combat system.
 
-7. **Mission data.** Make `DA_M01` from `MissionDefinition`. Objectives: "Get out of the
-   cell", "Find a weapon", "Get through the security door", "Reach the stairwell".
-   Drop `ObjectiveTriggerVolume`s where each completes. Show current objective text on
-   the HUD. Confirm the subsystem fires OnMissionComplete at the stairwell.
-
-8. **Flashback 1, placeholder.** `DA_FB01_Sunday` with 6 slides. Use any stock photos or
-   solid colours with captions. Confirm the widget plays, crossfades, skips, and returns
-   control. This is a smoke test of the pipeline, not the real flashback.
-
-9. **Play it twenty times.** Fix what annoys you. Have one other person play it while
-   you watch and say nothing. Write down every place they got stuck or bored.
+8. **Play it twenty times.** Run laps. Time a circuit. Note every snag on geometry, every
+   move that felt slow, every place you wanted to go and couldn't.
 
 ## Done when
-- [ ] Full run from cell to stairwell without cheats, 8-12 minutes
-- [ ] Stealth path works (0 shots fired) and loud path works (fight your way out)
-- [ ] At least one other person has finished it without you talking
-- [ ] You'd play it again right now for fun, not to test something
-- [ ] Nothing in the level is final art. If you caught yourself importing textures, stop.
+- [ ] A full lap of the block, street to rooftop and back, in under 90 seconds, without
+      touching a wall you didn't mean to
+- [ ] Grapple chains across at least three rooftops without stopping
+- [ ] Vault, mantle, ledge, and roll all trigger without thinking about them
+- [ ] A fight with four thugs is winnable with bow and melee and isn't annoying
+- [ ] One other person has run the block and said it felt good without prompting
+- [ ] Still greybox. No art. If there's a texture on a building, take it off.
 
 ## Cut list if it's dragging
-Drop in this order: crouch, investigate state, reserve ammo. The core is
-sneak, takedown, shoot, door. Everything else is seasoning.
+In this order: slide, ledge shimmy, chaining grapples, thug melee (leave them shooting).
+The core is run, vault, mantle, grapple, shoot.
 
 ## What you learn here decides stage 3
-Write half a page after playtesting: what felt good, what didn't, what surprised you.
-That note reshapes the systems plan before you build anything permanent.
+Half a page after playtesting. Traversal speed, camera distance, how much auto-parkour
+felt right versus took control away, whether the block size was fun or tedious.

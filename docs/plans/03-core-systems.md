@@ -1,79 +1,78 @@
 # Stage 3: Core systems
 
-Goal: every system that missions 2 through 8 share, built once, so that a mission is
-mostly data plus a level. After this stage, building a mission means placing actors and
-filling in data assets, not writing new logic.
+Goal: every system the six chapters share, built once, so a chapter is a district, a data
+asset, and scripted beats. After this stage, building a chapter is content, not code.
 
 ## Systems to build
 
-### Save and checkpoints
-- A `SaveGame` subclass storing: current mission, completed objectives, ammo, health,
-  which flashbacks have played, the Doctor and Warden choices.
-- Checkpoint actors in levels (invisible volume, saves on overlap). Reload from
-  checkpoint on death. Death without a checkpoint restarts the mission.
-- Main menu: Continue, New Game, Quit. Nothing else yet.
+### Quiver (the inventory, renamed)
+- `UWeaponDefinition` becomes `UArrowDefinition` plus one bow definition per character.
+  Arrow types are data: damage, projectile behaviour, effect on hit, count cap, icon.
+- Hotbar becomes the quiver wheel: hold a key to open a radial with the arrow types you
+  carry; standard arrows are always slot 1. Mouse wheel cycles.
+- Trick arrows for Part 1: grapple, putty, bola, smoke, EMP, explosive. Each is an actor
+  spawned on hit with a small behaviour: putty spawns a hold volume, bola trips, smoke
+  spawns a stealth cloud, EMP kills lights and cameras in a radius, explosive is damage.
+- Crafting is out of scope. Arrows refill at safehouses and from ammo pickups.
 
-### Combat, finished version
-- Weapon component gets: hip fire vs aim (right mouse tightens spread and zooms slightly),
-  spread that widens while moving, a damage falloff curve, hit markers, and a headshot
-  multiplier. Still one pistol. Missions 6 to 8 add a shotgun and a rifle by making new
-  data, not new code. So make weapon stats a data asset now.
-- Melee: a light punch (LMB with no weapon) and the takedown. Punches stagger guards.
-  Brawl bosses are built entirely on punch, dodge, block, and stagger, so get punch
-  feel right here. Hitstop of 2-3 frames, camera shake, a sound. Test on a guard.
-- Dodge: a short directional dash on Shift-tap while not sprinting. Needed for brawls.
-- Damage types: bullet, melee, explosion. Health component reacts per type (melee
-  staggers, bullets don't).
+### Combat, finished
+- Melee: light, heavy, combo chains of three, parry, dodge with i-frames, a finisher when
+  an enemy is staggered. Hit reactions on enemies by direction. Camera lock-on optional.
+- Bow: draw time affects damage and spread; headshots; perfect release window for a
+  bonus. Focus meter: slow motion while airborne, drains, refills on hits.
+- Damage types: arrow, melee, blunt, explosive. Health component per the existing rules.
+- Enemies: thug (melee rush, bat or fist), gunner (pistol, takes cover), archer (bow,
+  keeps range, relocates), heavy (blocks, needs a stagger). Squad awareness and alert
+  levels from the existing AI.
 
-### Boss framework
-- `BossPhaseComponent` is already scaffolded. Build one test boss in the sandbox using
-  it: a beefy guard with 3 phases who swaps behavior tree branches on phase change and is
-  invulnerable for 2 seconds during the swap. Boss health bar widget with segments per
-  phase. If this works for the test boss it works for all four.
-- Arena controller actor: listens to phase changes and does level things (kill lights,
-  open a spawner door, trigger a sound). Each boss in stage 4 gets one.
+### Partner and switching
+- `UPartnerComponent` on the AI-controlled Hawkeye: follow at distance, take cover, shoot
+  tagged enemies, go to a marker on command, revive the player once per fight. Never
+  blocks a doorway.
+- Switching: `ACastlePlayerController::SwitchCharacter()` possesses the other Hawkeye,
+  hands the old pawn to an AI controller running the partner logic, swaps the HUD. Camera
+  blends over 0.3 s. Chapters set whether switching is allowed.
+- Each character has their own bow stats, arrow caps, melee move set, and locomotion
+  tuning. Kate faster, Clint heavier.
 
-### Guard AI, finished version
-- Cover: EQS query for cover points, guards move between them under fire.
-- Squad awareness: one guard spotting you alerts the room after a 1.5 second delay
-  (gives the player a takedown window).
-- Alert levels: calm, suspicious, alerted, with a HUD indicator. Stealth is a game about
-  reading these states, so make them legible.
-- Guard variants as child Blueprints: baton (melee only, early game), pistol, rifle
-  (late game), and the doped "broken" inmate type for Mission 5 who charges unarmed.
+### Traversal, finished
+- Everything from stage 2 plus: fire-escape ladders, pipe climbs, wall runs (short),
+  rooftop edge vault, controlled falls. Grapple to moving anchors (later).
+- Traversal challenges: timed routes with checkpoints, used for side content.
 
-### Mission and narrative plumbing
-- Objective HUD that updates from the subsystem, with the "no HUD early game" rule from
-  the design doc: `MissionDefinition` gets a `bShowObjectiveText` flag. Missions 1-3 off,
-  4-8 on.
-- Mission end card widget: black screen, mission name, a line of Frank's, hold 4 seconds,
-  then flashback or next level.
-- Subtitle widget for Frank's lines and for Books through the vent. A `DialogueLine` data
-  table (speaker, text, audio, duration) and a Blueprint function to play one.
-- Flashback widget, finished: the corrupt-and-replace effect for Flashback 3. Two extra
-  fields on `FFlashbackSlide`: an optional `ReplacedByImage` and a `GlitchSeconds`. When
-  set, the slide shows, glitches (a material with noise and a scanline), then swaps.
+### City streaming and save
+- World Partition with a grid sized for the district; hero blocks in their own cells.
+  Streaming distances tuned for 16 GB. A district must load from nothing in under 15 s.
+- Safehouses: fast travel, arrow refill, chapter select, outfit later.
+- Save: current chapter, objectives, quiver contents, safehouses unlocked, side content
+  done, both characters' state. Autosave at chapter beats and safehouses. Same rules as
+  the old save contract, extended.
 
-### Level building kit
-- A set of grey-box modular pieces at fixed sizes: wall 400x400, door frame, corridor
-  segment, cell, stair, vent cover. Blueprints for door (locked, keycard, powered),
-  vent (crawl through), light (can be shot out), generator (kills lights in a zone),
-  switch. Every mission is assembled from these. Art replaces the meshes in stage 5
-  without touching the logic.
+### Narrative plumbing
+- Missions and objectives as before, plus objective markers in the world and a compass
+  or minimap strip. Dialogue lines from a data table with subtitles, now with a "walk
+  and talk" mode where the partner talks during traversal.
+- Flashbacks: slideshow as before, plus the ability to end in a playable scene (load a
+  small level, play a short mission, return).
+- Phone: Kate's texts as a UI panel for side content and character beats. Cheap, on-tone.
+
+### Level kit for the city
+- Building generator from OSM (stage 2) extended with: window grids, doors, fire escapes,
+  rooftop clutter (HVAC units, water towers, parapets), street furniture (lamps, hydrants,
+  bins, scaffolding), and snow decals. All script-placed. Hero interiors built with the
+  room-art approach from the Punisher build.
 
 ## Order to build in
-Save system first (you'll want it for testing everything else), then melee and dodge,
-then the test boss, then guard AI, then narrative plumbing, then the kit.
+Quiver and arrows first (they touch everything), then combat, then partner and switching,
+then streaming and save, then narrative plumbing, then the extended kit.
 
 ## Done when
-- [ ] Sandbox level has: a checkpoint, 4 guard types, a cover fight, a test boss with 3
-      phases, a door of each type, a generator that kills lights, a dialogue line that
-      plays with subtitles, and a flashback with the glitch effect
-- [ ] Die, reload at checkpoint, state is correct
-- [ ] Quit to menu, Continue, you're back where you left
-- [ ] Mission 1 from stage 2 still plays, now with the finished systems swapped in
-- [ ] You can build a new 5-room test level with 6 guards in under 2 hours using the kit
+- [ ] Sandbox district has: every arrow type working, four enemy types, a melee fight
+      that feels like Arkham-lite, Clint as partner doing useful things, a switch mid-fight
+      that doesn't break anything, a safehouse, a flashback that ends in a playable scene
+- [ ] Quit and Continue restores both characters and the quiver
+- [ ] District streams in and out with no hitches on this machine
+- [ ] A new chapter can be blocked out in a day from the kit and a data asset
 
 ## Don't do these yet
-Multiplayer anything. Inventory UI. Skill trees. Difficulty settings beyond one number
-for guard damage. Any of these triples the work for a game about one man and a pistol.
+Web-swinging equivalents (no). Outfits. Skill trees. Multiplayer. A second district.
