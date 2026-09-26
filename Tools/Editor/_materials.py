@@ -544,16 +544,36 @@ def _build_concrete_floor(material):
     set_scalar_property(material, 0.95, unreal.MaterialProperty.MP_ROUGHNESS, 100, 300)
 
 
+STEEL_PAINTED_BUILD = "black-iron-1"   # metadata tag CastleBuild; a different value rebuilds the graph
+
+
 def _build_steel_painted(material):
-    """Dark green-grey paint with noise scuffs showing brighter metal."""
+    """Black iron (base 0.02) with noise scuffs showing duller metal: fire escapes, lamp poles, doors."""
     scuff = noise(material, 0.6, -900, -400, levels=3)
-    paint = constant3(material, (0.05, 0.07, 0.06), -900, -200)
-    worn = constant3(material, (0.16, 0.18, 0.17), -900, -60)
+    paint = constant3(material, (0.02, 0.02, 0.02), -900, -200)
+    worn = constant3(material, (0.07, 0.07, 0.07), -900, -60)
     base = lerp(material, paint, worn, scuff, -600, -200)
     connect_property(base, unreal.MaterialProperty.MP_BASE_COLOR)
 
     set_scalar_property(material, 0.5, unreal.MaterialProperty.MP_ROUGHNESS, -600, 150)
     set_scalar_property(material, 0.6, unreal.MaterialProperty.MP_METALLIC, -600, 280)
+
+
+def ensure_steel_painted():
+    """M_SteelPainted as black iron. An older build (the green-grey paint) is rebuilt once, and
+    tagged so the next run leaves it alone."""
+    material = ensure_material(M_STEEL_PAINTED, _build_steel_painted)
+    if material is None:
+        return None
+    try:
+        tag = unreal.EditorAssetLibrary.get_metadata_tag(material, "CastleBuild")
+    except Exception:  # noqa: BLE001
+        tag = None
+    if tag != STEEL_PAINTED_BUILD:
+        material = ensure_material(M_STEEL_PAINTED, _build_steel_painted, rebuild=True)
+        unreal.EditorAssetLibrary.set_metadata_tag(material, "CastleBuild", STEEL_PAINTED_BUILD)
+        c.save(material)
+    return material
 
 
 def _build_flat(rgb, roughness, metallic=0.0):
