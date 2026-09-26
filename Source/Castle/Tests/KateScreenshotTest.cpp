@@ -1,5 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Animation/AnimInstance.h"
 #include "Animation/AnimSingleNodeInstance.h"
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Camera/CameraComponent.h"
@@ -10,8 +11,12 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Engine/Engine.h"
+#include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputAction.h"
+#include "InputActionValue.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -37,6 +42,11 @@
  *   kate_roof.png    on the tallest roof near the start, looking across to the park
  *   kate_wall.png    back against a tenement, looking out: the arm has to pull in rather than
  *                    put the lens inside the building, and the body hides once the lens is on it
+ *   kate_run.png     1.5 s into a run along the street, seen side on (IA_Move injected, so it goes
+ *                    through the real input path and gait selection): the motion-matched run
+ *                    pose, leaning, arms swinging
+ *   kate_stop.png    0.3 s after letting go: the stop, not a snap to idle
+ *   kate_aimstrafe.png aiming and strafing right, facing the camera's way
  *
  *   grapple_marker.png  back on the street, looking up at a tenement anchor with its marker showing
  *   grapple_mid.png     part way along the zip, the camera following
@@ -69,7 +79,38 @@ namespace CastleKateShots
 		Aim,
 		Roof,
 		Wall,
+		Run,
+		Stop,
+		AimStrafe,
+		EndMove,
 	};
+
+	static const TCHAR* MoveActionPath = TEXT("/Game/Input/IA_Move.IA_Move");
+
+	/**
+	 * Holds IA_Move at Value through Enhanced Input's continuous injection (every tick until
+	 * stopped), or stops it when bHold is false. Injection runs the same triggers and bindings a
+	 * key press would, so Input_Move picks the gait exactly as it does in play.
+	 */
+	static void HoldMove(APlayerController* PC, const FVector2D& Value, bool bHold)
+	{
+		const UInputAction* Move = LoadObject<UInputAction>(nullptr, MoveActionPath);
+		ULocalPlayer* Player = PC ? PC->GetLocalPlayer() : nullptr;
+		UEnhancedInputLocalPlayerSubsystem* Input = Player
+			? ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(Player) : nullptr;
+		if (!Move || !Input)
+		{
+			return;
+		}
+		if (bHold)
+		{
+			Input->StartContinuousInputInjectionForAction(Move, FInputActionValue(Value), {}, {});
+		}
+		else
+		{
+			Input->StopContinuousInputInjectionForAction(Move);
+		}
+	}
 
 	static FString ShotPath(const FString& FileName)
 	{
@@ -235,6 +276,29 @@ bool FCastleKateFrameShot::Update()
 		}
 		break;
 	}
+
+	case EShot::Run:
+		// Camera looking at the park, so "right" on the stick runs her along the street, side on.
+		if (FindGround(World, Spot, 3000.f, Kate, Ground))
+		{
+			PlaceKate(Kate, PC, Ground, (-Away).Rotation().Yaw, HipPitch);
+			HoldMove(PC, FVector2D(1.f, 0.f), true);
+		}
+		break;
+
+	case EShot::Stop:
+		HoldMove(PC, FVector2D::ZeroVector, false);
+		break;
+
+	case EShot::AimStrafe:
+		Kate->StartAim();
+		HoldMove(PC, FVector2D(1.f, 0.f), true);
+		break;
+
+	case EShot::EndMove:
+		HoldMove(PC, FVector2D::ZeroVector, false);
+		Kate->StopAim();
+		break;
 	}
 
 	Test->AddInfo(FString::Printf(TEXT("Kate at %s, control %s."),
@@ -264,9 +328,13 @@ bool FCastleKateReportCamera::Update()
 	Test->AddInfo(FString::Printf(TEXT("%s: arm %.0f, lens %.0f cm from pivot, FOV %.0f, in geometry=%d, body hidden=%d"),
 		*Label, Kate->GetCameraBoom()->TargetArmLength, Distance, Kate->GetCurrentFOV(), bInside ? 1 : 0,
 		Kate->GetMesh() && Kate->GetMesh()->bOwnerNoSee ? 1 : 0));
-	Test->AddInfo(FString::Printf(TEXT("%s: %s, mesh playing %s"), *Label, *Kate->GetMovementDebugText(),
+	Test->AddInfo(FString::Printf(TEXT("%s: %s, mesh playing %s, anim instance %s, max walk speed %.0f"),
+		*Label, *Kate->GetMovementDebugText(),
 		*GetNameSafe(Kate->GetMesh() && Kate->GetMesh()->GetSingleNodeInstance()
-			? Kate->GetMesh()->GetSingleNodeInstance()->GetAnimationAsset() : nullptr)));
+			? Kate->GetMesh()->GetSingleNodeInstance()->GetAnimationAsset() : nullptr),
+		*GetNameSafe(Kate->GetMesh() && Kate->GetMesh()->GetAnimInstance()
+			? Kate->GetMesh()->GetAnimInstance()->GetClass() : nullptr),
+		Kate->GetCharacterMovement() ? Kate->GetCharacterMovement()->MaxWalkSpeed : 0.f));
 	if (bInside)
 	{
 		Test->AddWarning(FString::Printf(TEXT("%s: the camera is inside geometry."), *Label));
@@ -741,6 +809,25 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 		ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, FString(ShotAndFile.Value)));
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	}
+	// Locomotion: a run, the stop after it, and an aimed strafe, captured mid-move.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameShot(this, static_cast<uint8>(EShot::Run)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportCamera(this, TEXT("kate_run.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("kate_run.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.1f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameShot(this, static_cast<uint8>(EShot::Stop)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportCamera(this, TEXT("kate_stop.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("kate_stop.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameShot(this, static_cast<uint8>(EShot::AimStrafe)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportCamera(this, TEXT("kate_aimstrafe.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("kate_aimstrafe.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.1f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameShot(this, static_cast<uint8>(EShot::EndMove)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
 	// A 12 m drop: past the roll height and the fall-damage threshold.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateDrop(this, 1200.f, false));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(3.f));
