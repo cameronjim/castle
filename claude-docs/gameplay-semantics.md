@@ -284,6 +284,27 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   The character's own `LookSensitivity` property is only the fallback when no game
   instance subsystem exists (tests). Changing the setting takes effect immediately.
 
+## Controller (Xbox layout; PlayStation pads map to the same keys)
+| Control | Action |
+|---|---|
+| Left stick | Move. Radial dead zone 0.2. Light deflection walks, full deflection runs |
+| Right stick | Look. Dead zone 0.25, eased (value^1.5) for fine aim, scaled by frame time at 180 deg/s yaw and 120 deg/s pitch times controller sensitivity; halved while aiming |
+| A | Jump, ledge climb |
+| B | Crouch hold, dodge tap, slide while sprinting, drop to hang at an edge |
+| X | Strike (tap light, hold heavy) |
+| Y | Takedown when a target is valid, otherwise interact |
+| L3 (press left stick) | Sprint hold |
+| Right trigger | Draw and release |
+| Left trigger | Aim |
+| RB | Grapple |
+| D-pad up / down | Standard arrows / grapple arrows; left / right cycle slots |
+| View | Quiver and inventory |
+| Menu | Pause |
+
+Mouse look uses `LookSensitivity`; stick look uses `StickSensitivity` (default 1.0, clamp
+0.2 to 3.0), both in the settings save. On-screen key hints switch to gamepad names when
+the last input came from a pad.
+
 ## Settings
 - `UCastleSettingsSubsystem` (game instance) owns `FCastleSettings` and persists it in the
   save slot `CastleSettings` on every change. Missing or version-mismatched data yields
