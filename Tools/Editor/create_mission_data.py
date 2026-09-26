@@ -1,7 +1,12 @@
-"""Create the mission-1 and flashback-1 data assets.
+"""Create the mission-1 and flashback-1 data assets, and chapter 1 of the Hawkeye build.
 
-    /Game/Missions/DA_M01_CellBlockD              UMissionDefinition
+    /Game/Missions/DA_M01_CellBlockD              UMissionDefinition (prison build, retiring)
     /Game/Flashbacks/Definitions/DA_FB01_Sunday   UFlashbackDefinition
+    /Game/Missions/DA_CH01_Rooftops               UMissionDefinition (docs/DESIGN.md, chapter 1)
+
+DA_CH01_Rooftops is started on L_District_EastVillage by BP_GameMode_EastVillage, which
+generate_city.py makes; its objectives are completed by the City_Obj_* trigger volumes that
+script places on three roofs.
 
 Property names come from Source/Castle/Mission/MissionDefinition.h,
 Source/Castle/Mission/MissionObjective.h and Source/Castle/Flashback/FlashbackDefinition.h.
@@ -257,12 +262,109 @@ def assign_to_game_mode(mission):
         c.log("skipped", full, "starting_mission not settable")
 
 
+# --------------------------------------------------------------------------------------
+# chapter 1: Rooftops
+# --------------------------------------------------------------------------------------
+
+CH01_NAME = "DA_CH01_Rooftops"
+
+# Scalar fields, checked on every run so an existing asset is corrected rather than skipped.
+CH01_FIELDS = [
+    ("mission_name", "Rooftops"),
+    ("mission_number", 1),
+    ("end_card_line", "Okay. That's not one of mine."),
+    ("show_objective_text", True),
+]
+
+# (ObjectiveId, Title, Description). find_arrow is the chapter's closing beat: an arrow that
+# isn't Kate's, fletched purple. A trigger volume completes it until the arrow prop exists.
+CH01_OBJECTIVES = [
+    ("reach_roof", "Get to a rooftop", "Up is where the patrol starts."),
+    ("cross_block", "Cross the block without touching the street",
+     "Roof to roof. The street is for people who aren't Hawkeye."),
+    ("find_arrow", "Find the arrow", "Someone else has been shooting up here."),
+]
+
+
+def _text_value(value):
+    return str(value) if value is not None else ""
+
+
+def _objectives_match(asset):
+    try:
+        current = list(asset.get_editor_property("objectives") or [])
+    except Exception:  # noqa: BLE001
+        return False
+    if len(current) != len(CH01_OBJECTIVES):
+        return False
+    for obj, (oid, title, description) in zip(current, CH01_OBJECTIVES):
+        if obj is None or objective_id(obj) != oid:
+            return False
+        if _text_value(obj.get_editor_property("title")) != title:
+            return False
+        if _text_value(obj.get_editor_property("description")) != description:
+            return False
+        if bool(obj.get_editor_property("optional")):
+            return False
+    return True
+
+
+def _build_objectives(asset, objective_cls):
+    objectives = []
+    for oid, title, description in CH01_OBJECTIVES:
+        objective = unreal.new_object(objective_cls, outer=asset)
+        c.set_first_prop(objective, OBJECTIVE_ID_PROPS, oid, "MissionObjective " + oid)
+        c.set_props(objective, [("title", title), ("description", description), ("optional", False)],
+                    "MissionObjective " + oid)
+        objectives.append(objective)
+    return objectives
+
+
+def create_chapter_one():
+    """DA_CH01_Rooftops. Creates it, or corrects whichever fields differ. No flashback yet."""
+    full = c.asset_path(MISSION_PATH, CH01_NAME)
+    cls = c.find_class("MissionDefinition", "/Script/Castle.MissionDefinition")
+    objective_cls = c.find_class("MissionObjective", "/Script/Castle.MissionObjective")
+    if cls is None or objective_cls is None:
+        c.log("FAILED", full, "UMissionDefinition / UMissionObjective not exposed to Python")
+        return None
+
+    asset, created = c.create_asset(CH01_NAME, MISSION_PATH, cls, data_asset_factory(cls), quiet=True)
+    if asset is None:
+        return None
+
+    changed = []
+    for prop, value in CH01_FIELDS:
+        try:
+            current = asset.get_editor_property(prop)
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("{0}.{1}".format(full, prop), exc)
+            continue
+        same = (bool(current) == value) if isinstance(value, bool) else (
+            current == value if isinstance(value, int) else _text_value(current) == value)
+        if not same and c.set_props(asset, [(prop, value)], CH01_NAME):
+            changed.append(prop)
+
+    if not _objectives_match(asset):
+        if c.set_props(asset, [("objectives", _build_objectives(asset, objective_cls))], CH01_NAME):
+            changed.append("objectives")
+
+    if created or changed:
+        c.save(asset)
+        c.log("created" if created else "updated", full,
+              "{0} objectives".format(len(CH01_OBJECTIVES)) if created else ", ".join(changed))
+    else:
+        c.log("exists", full)
+    return asset
+
+
 def run():
     c.ensure_directory(MISSION_PATH)
     c.ensure_directory(FLASHBACK_PATH)
     flashback = create_flashback()
     mission = create_mission(flashback)
     assign_to_game_mode(mission)
+    create_chapter_one()
     return mission, flashback
 
 
