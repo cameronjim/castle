@@ -15,6 +15,7 @@ class USpringArmComponent;
 class UInputMappingContext;
 class UHealthComponent;
 class UInteractionComponent;
+class UGrappleComponent;
 class UInventoryComponent;
 class UPawnNoiseEmitterComponent;
 class UTakedownComponent;
@@ -68,6 +69,21 @@ public:
 	/** The hotbar and keycard ring. Always present on the player. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
+
+	/** The grapple arrow: anchor targeting, firing and the zip. Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Character")
+	UGrappleComponent* GetGrappleComponent() const { return GrappleComponent; }
+
+	/** True while a grapple zip carries the character; movement input and jumping are ignored. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Movement")
+	bool IsZipping() const;
+
+	/**
+	 * The end of a grapple zip, through the ordinary landing path as a 0 cm landing (no damage),
+	 * plus the roll placeholder's short camera dip so the arrival reads.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Falling")
+	void NotifyGrappleLanded();
 
 	/** True once GiveKeycard(KeycardId) has been called for that id. Forwards to the inventory. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
@@ -236,6 +252,7 @@ protected:
 	void Input_Slot3(const FInputActionValue& Value);
 	void Input_SlotScroll(const FInputActionValue& Value);
 	void Input_Inventory(const FInputActionValue& Value);
+	void Input_Grapple(const FInputActionValue& Value);
 
 	/** Picks the gait and writes its speed to CharacterMovement (walking and crouched). */
 	void UpdateMaxWalkSpeed();
@@ -303,6 +320,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UInventoryComponent> InventoryComponent;
 
+	/** Picks the anchor under the camera, fires the grapple arrow and runs the zip. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
+	TObjectPtr<UGrappleComponent> GrappleComponent;
+
 	/** What AISense_Hearing listens to. MakeNoise routes through this. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UPawnNoiseEmitterComponent> NoiseEmitter;
@@ -364,6 +385,10 @@ protected:
 	/** Tab: opens the read-only inventory screen, which pauses like the pause menu does. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> InventoryAction;
+
+	/** Q: fire the grapple arrow at the marked anchor (or chain, late in a zip). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> GrappleAction;
 
 	// --- Movement tuning ------------------------------------------------------------------------
 

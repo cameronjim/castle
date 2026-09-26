@@ -19,6 +19,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
+#include "Player/GrappleComponent.h"
 #include "Player/InventoryComponent.h"
 #include "Player/LocomotionAnim.h"
 #include "Settings/CastleSettingsSubsystem.h"
@@ -74,6 +75,7 @@ ACastleCharacter::ACastleCharacter()
 	WeaponComponent->bHasWeapon = false;
 
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
+	GrappleComponent = CreateDefaultSubobject<UGrappleComponent>(TEXT("GrappleComponent"));
 
 	// The whole body is visible, to the owner as well: in third person it is what the player
 	// looks at. Feet on the bottom of the capsule, facing +X.
@@ -327,6 +329,10 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	{
 		EnhancedInput->BindAction(InventoryAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_Inventory);
 	}
+	if (GrappleAction)
+	{
+		EnhancedInput->BindAction(GrappleAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_Grapple);
+	}
 }
 
 void ACastleCharacter::Input_Slot1(const FInputActionValue& /*Value*/)
@@ -379,10 +385,32 @@ void ACastleCharacter::Input_Inventory(const FInputActionValue& /*Value*/)
 	}
 }
 
+void ACastleCharacter::Input_Grapple(const FInputActionValue& /*Value*/)
+{
+	if (GrappleComponent && !IsLockedOutByTakedown())
+	{
+		GrappleComponent->TryFire();
+	}
+}
+
+bool ACastleCharacter::IsZipping() const
+{
+	return GrappleComponent && GrappleComponent->IsZipping();
+}
+
+void ACastleCharacter::NotifyGrappleLanded()
+{
+	// A zip ends on its landing point: no fall, so no damage, but the dip sells the arrival.
+	FallApexZ = GetActorLocation().Z;
+	ApplyLanding(0.f);
+	LandingRecoverRemaining = LandingRecoverSeconds;
+	UpdateMaxWalkSpeed();
+}
+
 void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 {
 	const FVector2D MoveInput = Value.Get<FVector2D>();
-	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown())
+	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping())
 	{
 		return;
 	}
@@ -729,7 +757,7 @@ void ACastleCharacter::UpdateBodyLocomotion()
 	const float Speed = GetVelocity().Size2D();
 
 	UAnimSequence* Wanted = IdleAnim;
-	if (Movement && Movement->IsFalling() && FallAnim)
+	if (Movement && (Movement->IsFalling() || Movement->IsFlying()) && FallAnim)
 	{
 		Wanted = FallAnim;
 	}
@@ -746,8 +774,8 @@ void ACastleCharacter::UpdateBodyLocomotion()
 
 void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 {
-	// The slide stands itself up; a second press mid-slide is not a crouch.
-	if (bIsSliding)
+	// The slide stands itself up; a second press mid-slide is not a crouch. Nor is one mid-zip.
+	if (bIsSliding || IsZipping())
 	{
 		return;
 	}
@@ -832,6 +860,10 @@ void ACastleCharacter::EndSlide()
 
 void ACastleCharacter::Jump()
 {
+	if (IsZipping())
+	{
+		return;
+	}
 	EndSlide();
 	Super::Jump();
 }
