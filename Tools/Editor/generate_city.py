@@ -600,10 +600,13 @@ def remove_stale(pieces, existing):
 
 SUN_ROTATION = unreal.Rotator(0.0, -12.0, -30.0)   # roll, pitch, yaw: low WSW sun, light heading ENE
 SUN_LUX = 3.0
-SUN_TEMPERATURE = 3600.0
-SKY_INTENSITY = 1.0
+SUN_TEMPERATURE = 4800.0
+SKY_INTENSITY = 2.5
 FOG_DENSITY = 0.008
-EXPOSURE_EV = 0.0
+# Auto exposure is off project-wide (Config/DefaultEngine.ini), so exposure is fixed: the
+# min/max brightness pair pins it the way L_Sandbox does, and the bias is the knob.
+EXPOSURE_BRIGHTNESS = 1.0
+EXPOSURE_BIAS = 1.0
 
 
 def set_if_different(obj, prop, value, context, tol=1e-3):
@@ -669,8 +672,10 @@ def ensure_lighting(existing):
         dirty = False
         for prop, value in (("override_auto_exposure_min_brightness", True),
                             ("override_auto_exposure_max_brightness", True),
-                            ("auto_exposure_min_brightness", EXPOSURE_EV),
-                            ("auto_exposure_max_brightness", EXPOSURE_EV)):
+                            ("auto_exposure_min_brightness", EXPOSURE_BRIGHTNESS),
+                            ("auto_exposure_max_brightness", EXPOSURE_BRIGHTNESS),
+                            ("override_auto_exposure_bias", True),
+                            ("auto_exposure_bias", EXPOSURE_BIAS)):
             current = settings.get_editor_property(prop)
             if (isinstance(value, float) and abs(float(current) - value) > 1e-4) or (
                     not isinstance(value, float) and current != value):
