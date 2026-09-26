@@ -17,6 +17,7 @@ class UImage;
 class UInventoryComponent;
 class UOverlay;
 class UTextBlock;
+class UTakedownComponent;
 class UMissionDefinition;
 class UMissionObjective;
 class UWeaponComponent;
@@ -166,6 +167,56 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
 	bool IsGrappleHintVisible() const;
 
+	// --- Partner and switching --------------------------------------------------------------------
+
+	/** The playable character's name, bottom left ("Kate"). The pawn's name wins on the next tick. */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Partner")
+	void SetCharacterName(FText Name);
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
+	FText GetCharacterNameShown() const { return CharacterNameShown; }
+
+	/** The partner line under it ("Clint: following"); empty hides it. */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Partner")
+	void SetPartnerStatus(FText Status);
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
+	FText GetPartnerStatusShown() const { return PartnerStatusShown; }
+
+	/** "Clint: following". Pure so a test can read the format. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
+	static FText FormatPartnerStatus(FText PartnerName, FText Status);
+
+	/** A banter line, bottom centre, "Kate: ..." for Seconds. */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Partner")
+	void ShowSubtitle(FText Speaker, FText Line, float Seconds);
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
+	bool IsSubtitleVisible() const { return SubtitleRemaining > 0.f; }
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
+	FText GetSubtitleShown() const { return SubtitleShown; }
+
+	/** True while the partner's name tag is drawn over his head (beyond PartnerTagMinDistance, on screen). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
+	bool IsPartnerTagVisible() const { return bPartnerTagVisible; }
+
+	/** The partner is far enough away for his name tag. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
+	static bool ShouldShowPartnerTag(float Distance, float MinDistance) { return Distance > MinDistance; }
+
+	/** Rebinds the weapon, takedown and hotbar to the owning player's current pawn after a switch. */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Partner")
+	void RebindToPawn();
+
+	/** The name tag shows beyond this, cm: the near edge of the partner's follow band. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Partner", meta = (ClampMin = "0.0"))
+	float PartnerTagMinDistance = 400.f;
+
+	/** How far above the partner's capsule centre the tag floats, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Partner")
+	float PartnerTagHeight = 120.f;
+
 	// --- Movement debug -------------------------------------------------------------------------
 
 	/** The debug line's text, or empty while hawkeye.DebugMovement is 0 or there is no player. */
@@ -197,6 +248,12 @@ protected:
 
 	/** Shows or hides the debug line and repaints it. */
 	void RefreshMovementDebug();
+
+	/** Builds the name, partner line, subtitle and the name tag canvas. */
+	void BuildPartnerWidgets(UOverlay* Root);
+
+	/** Reads the pawn's name and the partner's status and position every frame. */
+	void UpdatePartnerWidgets(float DeltaSeconds);
 
 	UFUNCTION()
 	void HandleMissionStarted(UMissionDefinition* Mission);
@@ -385,6 +442,40 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Quiver Wheel")
 	TObjectPtr<UHawkeyeQuiverWheelWidget> QuiverWheel = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Partner")
+	TObjectPtr<UTextBlock> CharacterNameText = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Partner")
+	TObjectPtr<UTextBlock> PartnerStatusText = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Partner")
+	TObjectPtr<UTextBlock> SubtitleText = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Partner")
+	TObjectPtr<UCanvasPanel> PartnerTagCanvas = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Partner")
+	TObjectPtr<UTextBlock> PartnerTag = nullptr;
+
+	/** The takedown component OnTakedownPerformed is bound on, so a switch unbinds the right one. */
+	UPROPERTY(Transient)
+	TObjectPtr<UTakedownComponent> BoundTakedown = nullptr;
+
+	UPROPERTY(Transient)
+	FText CharacterNameShown;
+
+	UPROPERTY(Transient)
+	FText PartnerStatusShown;
+
+	UPROPERTY(Transient)
+	FText SubtitleShown;
+
+	UPROPERTY(Transient)
+	float SubtitleRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	bool bPartnerTagVisible = false;
 
 	bool bBound = false;
 };

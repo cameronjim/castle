@@ -28,6 +28,8 @@
 #include "UI/HawkeyeObjectiveWidget.h"
 #include "UI/HawkeyeQuiverWheelWidget.h"
 #include "World/GrappleAnchor.h"
+#include "EngineUtils.h"
+#include "Partner/HawkeyePartnerController.h"
 
 TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 {
@@ -61,6 +63,7 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 
 		BuildReticle(Root);
 		BuildGrappleMarker(Root);
+		BuildPartnerWidgets(Root);
 
 		ObjectiveMarker = WidgetTree->ConstructWidget<UHawkeyeObjectiveWidget>(
 			UHawkeyeObjectiveWidget::StaticClass(), TEXT("ObjectiveMarker"));
@@ -448,6 +451,7 @@ void UHawkeyeHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSecon
 	PollPawnDrawState(MyGeometry);
 	UpdateGrappleMarker();
 	RefreshMovementDebug();
+	UpdatePartnerWidgets(DeltaSeconds);
 
 	if (HitFlashRemaining > 0.f)
 	{
@@ -518,6 +522,7 @@ void UHawkeyeHudWidget::BindToGame()
 	if (UTakedownComponent* Takedown = Pawn ? Pawn->FindComponentByClass<UTakedownComponent>() : nullptr)
 	{
 		Takedown->OnTakedownPerformed.AddDynamic(this, &UHawkeyeHudWidget::HandleTakedownPerformed);
+		BoundTakedown = Takedown;
 	}
 
 	bBound = true;
@@ -549,11 +554,10 @@ void UHawkeyeHudWidget::UnbindFromGame()
 		BoundBow = nullptr;
 	}
 
-	const APlayerController* PC = GetOwningPlayer();
-	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
-	if (UTakedownComponent* Takedown = Pawn ? Pawn->FindComponentByClass<UTakedownComponent>() : nullptr)
+	if (BoundTakedown)
 	{
-		Takedown->OnTakedownPerformed.RemoveDynamic(this, &UHawkeyeHudWidget::HandleTakedownPerformed);
+		BoundTakedown->OnTakedownPerformed.RemoveDynamic(this, &UHawkeyeHudWidget::HandleTakedownPerformed);
+		BoundTakedown = nullptr;
 	}
 
 	bBound = false;
@@ -690,4 +694,174 @@ void UHawkeyeHudWidget::HandleTakedownPerformed(AActor* /*Target*/)
 {
 	// The guard is down; whatever prompt pointed at him is stale.
 	ClearPrompt();
+}
+
+// --- Partner and switching --------------------------------------------------------------------------
+
+void UHawkeyeHudWidget::BuildPartnerWidgets(UOverlay* Root)
+{
+	if (!WidgetTree || !Root)
+	{
+		return;
+	}
+	auto AddText = [this, Root](const TCHAR* Name, int32 Size, EHorizontalAlignment HAlign, const FMargin& TextPadding,
+		const FLinearColor& Colour)
+	{
+		UTextBlock* Text = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), Name);
+		FSlateFontInfo Font = Text->GetFont();
+		Font.Size = Size;
+		Text->SetFont(Font);
+		Text->SetColorAndOpacity(FSlateColor(Colour));
+		Text->SetShadowOffset(FVector2D(1.f, 1.f));
+		Text->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.8f));
+		Text->SetVisibility(ESlateVisibility::Collapsed);
+		if (UOverlaySlot* TextSlot = Cast<UOverlaySlot>(Root->AddChild(Text)))
+		{
+			TextSlot->SetHorizontalAlignment(HAlign);
+			TextSlot->SetVerticalAlignment(VAlign_Bottom);
+			TextSlot->SetPadding(TextPadding);
+		}
+		return Text;
+	};
+	// Bottom left: who you are, and what the other one is doing. Bottom centre, over the quiver: banter.
+	CharacterNameText = AddText(TEXT("CharacterName"), 22, HAlign_Left, FMargin(48.f, 0.f, 0.f, 76.f), FLinearColor::White);
+	PartnerStatusText = AddText(TEXT("PartnerStatus"), 15, HAlign_Left, FMargin(48.f, 0.f, 0.f, 50.f),
+		FLinearColor(0.85f, 0.8f, 0.95f, 1.f));
+	SubtitleText = AddText(TEXT("Subtitle"), 20, HAlign_Center, FMargin(0.f, 0.f, 0.f, 150.f),
+		FLinearColor(1.f, 0.97f, 0.88f, 1.f));
+
+	PartnerTagCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PartnerTagCanvas"));
+	if (UOverlaySlot* CanvasSlot = Cast<UOverlaySlot>(Root->AddChild(PartnerTagCanvas)))
+	{
+		CanvasSlot->SetHorizontalAlignment(HAlign_Fill);
+		CanvasSlot->SetVerticalAlignment(VAlign_Fill);
+	}
+	PartnerTag = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PartnerTag"));
+	FSlateFontInfo TagFont = PartnerTag->GetFont();
+	TagFont.Size = 13;
+	PartnerTag->SetFont(TagFont);
+	PartnerTag->SetColorAndOpacity(FSlateColor(ReticleColor));
+	PartnerTag->SetShadowOffset(FVector2D(1.f, 1.f));
+	PartnerTag->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.9f));
+	if (UCanvasPanelSlot* TagSlot = Cast<UCanvasPanelSlot>(PartnerTagCanvas->AddChild(PartnerTag)))
+	{
+		TagSlot->SetAnchors(FAnchors(0.f, 0.f));
+		TagSlot->SetAlignment(FVector2D(0.5f, 1.f));
+		TagSlot->SetAutoSize(true);
+	}
+	PartnerTagCanvas->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+void UHawkeyeHudWidget::SetCharacterName(FText Name)
+{
+	if (CharacterNameShown.EqualTo(Name))
+	{
+		return;
+	}
+	CharacterNameShown = Name;
+	if (CharacterNameText)
+	{
+		CharacterNameText->SetText(Name);
+		CharacterNameText->SetVisibility(Name.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	}
+}
+
+void UHawkeyeHudWidget::SetPartnerStatus(FText Status)
+{
+	if (PartnerStatusShown.EqualTo(Status))
+	{
+		return;
+	}
+	PartnerStatusShown = Status;
+	if (PartnerStatusText)
+	{
+		PartnerStatusText->SetText(Status);
+		PartnerStatusText->SetVisibility(Status.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
+	}
+}
+
+FText UHawkeyeHudWidget::FormatPartnerStatus(FText PartnerName, FText Status)
+{
+	return FText::Format(NSLOCTEXT("Hawkeye", "PartnerStatusFormat", "{0}: {1}"), PartnerName, Status);
+}
+
+void UHawkeyeHudWidget::ShowSubtitle(FText Speaker, FText Line, float Seconds)
+{
+	SubtitleShown = FText::Format(NSLOCTEXT("Hawkeye", "SubtitleFormat", "{0}: {1}"), Speaker, Line);
+	SubtitleRemaining = FMath::Max(Seconds, 0.f);
+	if (SubtitleText)
+	{
+		SubtitleText->SetText(SubtitleShown);
+		SubtitleText->SetVisibility(SubtitleRemaining > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+}
+
+void UHawkeyeHudWidget::RebindToPawn()
+{
+	UnbindFromGame();
+	BindToGame();
+	RefreshAmmo();
+	if (Hotbar)
+	{
+		Hotbar->BindToOwningPawn();
+	}
+	const APlayerController* PC = GetOwningPlayer();
+	if (const AHawkeyeCharacter* Character = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr)
+	{
+		SetCharacterName(Character->GetCharacterName());
+	}
+}
+
+void UHawkeyeHudWidget::UpdatePartnerWidgets(float DeltaSeconds)
+{
+	if (SubtitleRemaining > 0.f)
+	{
+		SubtitleRemaining -= DeltaSeconds;
+		if (SubtitleRemaining <= 0.f && SubtitleText)
+		{
+			SubtitleRemaining = 0.f;
+			SubtitleText->SetVisibility(ESlateVisibility::Collapsed);
+		}
+	}
+
+	APlayerController* PC = GetOwningPlayer();
+	const AHawkeyeCharacter* Lead = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	UWorld* World = GetWorld();
+	if (Lead)
+	{
+		SetCharacterName(Lead->GetCharacterName());
+	}
+
+	const AHawkeyePartnerController* PartnerBrain = nullptr;
+	if (World)
+	{
+		for (TActorIterator<AHawkeyePartnerController> It(World); It; ++It)
+		{
+			if (It->GetPawn() && (!PartnerBrain || It->GetLeader() == Lead))
+			{
+				PartnerBrain = *It;
+			}
+		}
+	}
+	const AHawkeyeCharacter* Partner = PartnerBrain ? PartnerBrain->GetPartner() : nullptr;
+	SetPartnerStatus(Partner ? FormatPartnerStatus(Partner->GetCharacterName(), PartnerBrain->GetStatusText()) : FText::GetEmpty());
+
+	FVector2D TagPosition = FVector2D::ZeroVector;
+	const float Distance = (Partner && Lead) ? FVector::Dist(Partner->GetActorLocation(), Lead->GetActorLocation()) : 0.f;
+	bPartnerTagVisible = Partner && Lead && ShouldShowPartnerTag(Distance, PartnerTagMinDistance)
+		&& UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(
+			PC, Partner->GetActorLocation() + FVector(0.f, 0.f, PartnerTagHeight), TagPosition, false);
+	if (!PartnerTagCanvas || !PartnerTag)
+	{
+		return;
+	}
+	PartnerTagCanvas->SetVisibility(bPartnerTagVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	if (bPartnerTagVisible)
+	{
+		PartnerTag->SetText(FText::FromString(Partner->GetCharacterName().ToString().ToUpper()));
+		if (UCanvasPanelSlot* TagSlot = Cast<UCanvasPanelSlot>(PartnerTag->Slot))
+		{
+			TagSlot->SetPosition(TagPosition);
+		}
+	}
 }
