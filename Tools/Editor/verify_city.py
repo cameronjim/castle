@@ -10,7 +10,8 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
 * handedness: the streets come out in the real order (1st Ave west of Ave A west of Ave B
   west of Ave C, East 6th south of East 11th), i.e. the map is not mirrored
 * the BP_GameMode_EastVillage override starting DA_CH01_Rooftops, one City_Obj_* volume per
-  chapter-1 objective sitting above its roof, the street lamps (light, pole, head) matching the
+  chapter-1 objective sitting above its roof, three City_Beacon_* (pole, emissive cap, movable
+  300 lm light) on those roofs, the street lamps (light, pole, head) matching the
   generator, and no prison-build actors (thugs, keycards, doors, pickups)
 * City_LedgeSpawner and its props asset (the ledges and anchors are data, spawned at load; this
   script calls SpawnAll() first, as BeginPlay does), and no ledge or anchor saved in the map
@@ -408,6 +409,41 @@ def check_fire_escapes(district, actors, spawner):
 NAV_QUERY_EXTENT = unreal.Vector(50.0, 50.0, 150.0)   # cm; how far off a foot may be from the navmesh
 
 
+def check_beacons(district, actors, records):
+    poles = sorted(l for l in actors if l.startswith(gen.BEACON_PREFIX))
+    tops = sorted(l for l in actors if l.startswith(gen.BEACON_TOP_PREFIX))
+    lights = sorted(l for l in actors if l.startswith(gen.BEACON_LIGHT_PREFIX))
+    want = [gen.BEACON_PREFIX + oid for oid in gen.OBJECTIVE_IDS]
+    check(sorted(want) == poles, "{0} objective beacons".format(len(want)),
+          "{0} found: {1}".format(len(poles), ", ".join(poles)))
+
+    spots = gen.beacon_spots(district)
+    cap = c.load_or_none(gen.MI_BEACON)
+    problems = []
+    for oid in gen.OBJECTIVE_IDS:
+        pole = actors.get(gen.BEACON_PREFIX + oid)
+        top = actors.get(gen.BEACON_TOP_PREFIX + oid)
+        light = actors.get(gen.BEACON_LIGHT_PREFIX + oid)
+        spot = spots.get(oid)
+        if pole is None or top is None or light is None or spot is None:
+            problems.append("{0} incomplete".format(oid))
+            continue
+        base = pole.get_actor_location().z - (gen.BEACON_HEIGHT - gen.BEACON_CAP) * 0.5
+        if abs(base - spot[2]) > 1.0 or abs(pole.get_actor_location().x - spot[0]) > 1.0                 or abs(pole.get_actor_location().y - spot[1]) > 1.0:
+            problems.append("{0} pole not on its roof spot".format(oid))
+        overrides = top.get_editor_property("static_mesh_component").get_editor_property("override_materials")
+        if cap is None or len(overrides) < 1 or overrides[0] != cap:
+            problems.append("{0} cap not MI_ObjectiveBeacon".format(oid))
+        comp = light.get_editor_property("point_light_component")
+        if comp.get_editor_property("mobility") != unreal.ComponentMobility.MOVABLE:
+            problems.append("{0} light not movable".format(oid))
+        if comp.get_editor_property("intensity_units") != unreal.LightUnits.LUMENS                 or abs(comp.get_editor_property("intensity") - gen.BEACON_LUMENS) > 0.5:
+            problems.append("{0} light not {1:.0f} lm".format(oid, gen.BEACON_LUMENS))
+    check(not problems and len(tops) == len(want) and len(lights) == len(want),
+          "each beacon has its emissive cap and a movable {0:.0f} lm light on its roof".format(gen.BEACON_LUMENS),
+          "; ".join(problems) or "{0} caps, {1} lights".format(len(tops), len(lights)))
+
+
 def build_navigation():
     """Builds the district's navmesh in this editor world (blocking), as the game mode does at
     BeginPlay, through UHawkeyeNavigationLibrary (the editor's async-load lock would refuse a
@@ -620,6 +656,9 @@ def run():
         ok = ok and above and v.get_actor_label() == gen.OBJECTIVE_PREFIX + oid
         detail.append("{0} on {1}{2}".format(oid, osm, "" if above else " NOT above its roof"))
     check(ok, "three objective volumes with the chapter-1 ObjectiveIds", "; ".join(detail))
+
+    # Objective beacons: a pole, an emissive cap and a movable 300 lm purple light per volume.
+    check_beacons(district, actors, records)
 
     # Street lamps: each light has its pole and head; shadows only near the park.
     lights = {l[len(gen.LAMP_PREFIX):] for l in actors if l.startswith(gen.LAMP_PREFIX)}
