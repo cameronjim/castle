@@ -115,6 +115,11 @@ float UBowComponent::GetCurrentSpreadDegrees() const
 	return Bow ? Bow->ComputeSpread(GetDrawFraction()) : 0.f;
 }
 
+bool UBowComponent::IsBowInHand() const
+{
+	return bDrawing || GetNowSeconds() < FollowThroughUntilSeconds;
+}
+
 bool UBowComponent::IsInPerfectWindow() const
 {
 	const UBowDefinition* Bow = GetBow();
@@ -263,6 +268,7 @@ bool UBowComponent::FireArrow(float Elapsed)
 	UE_LOG(LogCastle, Log, TEXT("%s: loosed %s at %.0f%% draw: %.0f cm/s, spread %.2f deg, damage %.1f; %d left."),
 		*GetNameSafe(Owner), *GetNameSafe(Arrow), Fraction * 100.f, Speed, Spread, Damage, Inventory->GetArrowCount(Slot));
 
+	FollowThroughUntilSeconds = GetNowSeconds() + FollowThroughSeconds;
 	OnArrowFired.Broadcast(Arrow);
 	return true;
 }
@@ -444,7 +450,8 @@ void UBowComponent::UpdateBowVisual()
 		return;
 	}
 
-	const FName Socket = bDrawing && Body->DoesSocketExist(Bow->HandSocket) ? Bow->HandSocket : HolsterBone;
+	const bool bInHand = IsBowInHand();
+	const FName Socket = bInHand && Body->DoesSocketExist(Bow->HandSocket) ? Bow->HandSocket : HolsterBone;
 	if (BowMesh->GetAttachSocketName() != Socket)
 	{
 		BowMesh->AttachToComponent(Body, FAttachmentTransformRules::KeepWorldTransform, Socket);
@@ -456,13 +463,18 @@ void UBowComponent::UpdateBowVisual()
 	FVector Location;
 	FQuat Rotation;
 	const float Draw = GetDrawFraction();
-	if (bDrawing)
+	if (bInHand)
 	{
+		// Up from the hand and round to the aim in the first part of the draw, then held there
+		// while the string comes back, and for the follow-through after the shot.
 		const FRotator Aim = Character->GetControlRotation();
+		const float Raise = bDrawing ? FMath::SmoothStep(0.f, 1.f, FMath::Min(1.f, Draw / RaiseByDrawFraction)) : 1.f;
 		const FQuat Lowered = FRotator(LoweredPitchDegrees, Aim.Yaw, 0.f).Quaternion();
 		const FQuat Raised = FRotator(Aim.Pitch, Aim.Yaw, DrawnCantDegrees).Quaternion();
-		Rotation = FQuat::Slerp(Lowered, Raised, FMath::SmoothStep(0.f, 1.f, FMath::Min(1.f, Draw * 1.5f)));
-		Location = Body->GetSocketLocation(Socket) + Rotation.RotateVector(HandGripOffset);
+		Rotation = FQuat::Slerp(Lowered, Raised, Raise);
+		const FVector Hand = Body->GetSocketLocation(Socket) + Rotation.RotateVector(HandGripOffset);
+		const FVector Held = Body->GetSocketLocation(DrawShoulderBone) + Raised.RotateVector(DrawnGripOffset);
+		Location = FMath::Lerp(Hand, Held, Raise);
 	}
 	else
 	{

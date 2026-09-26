@@ -28,9 +28,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnArrowHitSignature, AActor*, Hi
  * with PerfectBonus for a release inside the perfect window. The grapple arrow is not a projectile
  * here: releasing with it nocked hands over to UGrappleComponent::TryFire.
  *
- * Also owns the bow's look: the mesh on the back while holstered, in the left hand while drawing,
- * turned toward the aim as the draw builds and the string pulled back (a procedural stand-in
- * for a draw animation, which does not exist).
+ * Also owns the bow's look: the mesh on the back while holstered, attached to the left hand while
+ * drawing, turned toward the aim as the draw builds and the string pulled back. No draw animation
+ * exists and the arm cannot be posed without an AnimBP change, so the grip also blends from the
+ * hand up to a point held out in front of the left shoulder, where a drawn bow would be.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UBowComponent : public UActorComponent
@@ -99,9 +100,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Bow|Visual")
 	UStaticMeshComponent* GetBowMeshComponent() const { return BowMesh; }
 
-	/** True while the bow is in the hand (drawing), false on the back. */
+	/** True while the bow is in the hand (drawing, or just loosed), false on the back. */
 	UFUNCTION(BlueprintPure, Category = "Bow|Visual")
-	bool IsBowInHand() const { return bDrawing; }
+	bool IsBowInHand() const;
 
 	/** Every tick while drawing, and 0 on release or cancel. */
 	UPROPERTY(BlueprintAssignable, Category = "Bow")
@@ -149,7 +150,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
 	float LoweredPitchDegrees = -50.f;
 
-	/** Cant of the drawn bow, degrees of roll; archers tilt the top limb out a little. */
+	/** Cant of the drawn bow, degrees of roll; negative tips the top limb out to the left, clear of her head. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
 	float DrawnCantDegrees = -12.f;
 
@@ -157,9 +158,25 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
 	FVector HandGripOffset = FVector(0.f, 0.f, 0.f);
 
+	/** Bone the held-out grip is measured from while drawing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
+	FName DrawShoulderBone = FName(TEXT("upperarm_l"));
+
+	/** Where the grip is held at full draw, from DrawShoulderBone in the aim frame (X along the aim), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
+	FVector DrawnGripOffset = FVector(58.f, -10.f, -4.f);
+
+	/** Draw fraction by which the bow has come up from the hand to the held-out grip. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual", meta = (ClampMin = "0.01", ClampMax = "1.0"))
+	float RaiseByDrawFraction = 0.4f;
+
 	/** Limb tip position in the bow mesh's frame; the string runs between (X, 0, +Z) and (X, 0, -Z), cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
 	FVector StringTip = FVector(-12.f, 0.f, 60.f);
+
+	/** Seconds the bow stays up in the hand after an arrow is loosed, before going back on her back. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual", meta = (ClampMin = "0.0"))
+	float FollowThroughSeconds = 0.6f;
 
 	/** How far the string's nock point comes back at full draw, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual", meta = (ClampMin = "0.0"))
@@ -222,6 +239,9 @@ protected:
 
 	bool bDrawing = false;
 	double DrawStartSeconds = 0.0;
+
+	/** The bow stays in the hand until this time after a shot (the follow-through). */
+	double FollowThroughUntilSeconds = -1.0;
 
 	bool bUseTestTime = false;
 	double TestTimeOverride = 0.0;

@@ -168,16 +168,19 @@ void UCastleHudWidget::SetDrawState(bool bInDrawing, float InFraction, float InR
 void UCastleHudWidget::RefreshDrawIndicator()
 {
 	const ESlateVisibility Shown = bDrawing ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed;
-	const FLinearColor Colour = HitFlashRemaining > 0.f ? HitMarkerColor : ReticleColor;
+	const bool bFlashing = HitFlashRemaining > 0.f;
+	const FLinearColor Colour = bFlashing ? HitMarkerColor : ReticleColor;
 	if (ReticleRing)
 	{
-		ReticleRing->SetVisibility(Shown);
+		// The ring is the spread while drawing, and the hit marker (a small white ring) after.
+		const float Radius = bDrawing ? RingRadius : HitRingRadius;
+		ReticleRing->SetVisibility(bDrawing || bFlashing ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 		FSlateBrush Brush = ReticleRing->GetBrush();
 		Brush.OutlineSettings.Color = FSlateColor(Colour);
 		ReticleRing->SetBrush(Brush);
 		if (UCanvasPanelSlot* RingSlot = Cast<UCanvasPanelSlot>(ReticleRing->Slot))
 		{
-			RingSlot->SetSize(FVector2D(RingRadius * 2.f, RingRadius * 2.f));
+			RingSlot->SetSize(FVector2D(Radius * 2.f, Radius * 2.f));
 		}
 	}
 	if (DrawBarBack)

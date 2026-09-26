@@ -247,6 +247,10 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Reticle", meta = (ClampMin = "0.5"))
 	float RingLineWidth = 1.5f;
 
+	/** Radius of the white ring a hit flashes around the dot when the bow is not drawn, px. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Reticle", meta = (ClampMin = "1.0"))
+	float HitRingRadius = 9.f;
+
 	/** Smallest the ring is drawn, so it never collapses onto the dot, px. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Reticle", meta = (ClampMin = "0.0"))
 	float MinRingRadius = 6.f;

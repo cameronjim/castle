@@ -67,8 +67,8 @@ AArrowProjectile::AArrowProjectile()
 	Fletching->SetupAttachment(Collision);
 	Fletching->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	Fletching->SetCastShadow(false);
-	Fletching->SetRelativeLocation(FVector(-ShaftLength + 7.f, 0.f, 0.f));
-	Fletching->SetRelativeScale3D(FVector(0.1f, 0.035f, 0.035f));
+	Fletching->SetRelativeLocation(FVector(-ShaftLength + 8.f, 0.f, 0.f));
+	Fletching->SetRelativeScale3D(FVector(0.12f, 0.07f, 0.07f));
 
 	if (Cylinder.Succeeded())
 	{
@@ -111,10 +111,11 @@ void AArrowProjectile::InitArrow(UArrowDefinition* InArrow, UBowDefinition* InBo
 		Collision->IgnoreActorWhenMoving(InShooter, true);
 	}
 
-	// Black shaft, coloured fletching. BasicShapeMaterial takes a Color parameter.
+	// Pale shaft so it reads against a dark jacket, coloured fletching. BasicShapeMaterial takes a
+	// Color parameter.
 	if (UMaterialInstanceDynamic* ShaftMaterial = Shaft ? Shaft->CreateDynamicMaterialInstance(0) : nullptr)
 	{
-		ShaftMaterial->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.03f, 0.03f, 0.035f));
+		ShaftMaterial->SetVectorParameterValue(TEXT("Color"), FLinearColor(0.6f, 0.58f, 0.52f));
 	}
 	if (UMaterialInstanceDynamic* FletchMaterial = Fletching ? Fletching->CreateDynamicMaterialInstance(0) : nullptr)
 	{
