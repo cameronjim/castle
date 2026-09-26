@@ -41,14 +41,12 @@ the main menu once unlocked, because people will want to rewatch them after the 
 - Final build is a zip or an installer (Inno Setup is free). Around 5 to 15 GB.
 
 ## Legal, before anyone outside sees it
-This is Marvel's character. Sharing a free fan game with friends or on a portfolio page
-is low risk. Selling it, or putting it on Steam or itch.io for money, is off the table
-with the Punisher name and skull. Two paths:
-- Keep it a free portfolio piece and say so plainly wherever it's posted.
-- Rename before release. Frank Castle becomes an original name, the skull becomes a
-  different mark, nothing else changes. Do a find-and-replace in the dialogue table
-  and swap one decal.
-Decide this at the start of stage 6, not the night before posting.
+These are Marvel and Disney's characters, and the setting is their television series.
+Sharing a free fan game with friends or on a portfolio page is low risk. Selling it, or
+putting it on Steam or itch.io for money, is off the table. Real New York streets and
+buildings are fine to depict; trademarks on specific storefronts and signs are not, so
+generated signage stays generic. Keep it a free portfolio piece and say so plainly
+wherever it's posted. Decide this at the start of stage 6, not the night before posting.
 
 ## Release checklist
 - [ ] Two rounds of playtesting done, notes in `docs/playtests/`

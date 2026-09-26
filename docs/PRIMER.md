@@ -13,7 +13,7 @@ then draws it all from the camera's point of view. That loop (update, draw, upda
 is the whole thing. Everything else is detail.
 
 ### The world is made of actors
-Everything you see or interact with is an **actor**: a guard, a wall, a light, the door,
+Everything you see or interact with is an **actor**: a thug, a wall, a light, the door,
 the invisible box that completes an objective when you walk into it. An actor is a thing
 with a position in the world. It's built from **components**, which are the parts that do
 the work:
@@ -41,10 +41,10 @@ obstacle with a few invisible rays, picking the right move, and playing it. Ragd
 engine taking over a downed thug's skeleton and letting gravity and joints move it.
 
 ### AI is just rules that run each frame
-A guard has a **state**: Calm, Suspicious, or Alerted. Every quarter second the guard's
+A thug has a **state**: Calm, Suspicious, or Alerted. Every quarter second the thug's
 controller looks at what it can see and hear and decides whether to change state. Calm
-guards walk between patrol points. Suspicious guards walk to where they heard a noise.
-Alerted guards face you and shoot. Movement uses a **nav mesh**: an invisible walkable
+thugs walk between patrol points. Suspicious thugs walk to where they heard a noise.
+Alerted thugs come at you or shoot. Movement uses a **nav mesh**: an invisible walkable
 surface the engine generates over the floor so AI can plan paths around walls.
 
 ### Lighting sets the mood more than anything
@@ -190,7 +190,7 @@ so I'm not pasting links that might be dead.
 - **Game Maker's Toolkit** (Mark Brown). Start with "What Makes a Good Combat System?",
   "The Rise of the Systemic Game," and anything on stealth. Best channel on the topic.
 - **GDC talks** on YouTube: search "GDC level design" and "GDC stealth AI." The Splinter
-  Cell and Dishonored talks are directly relevant to our guards.
+  Cell and Dishonored talks are directly relevant to our thugs.
 - **Design Doc** channel: "Good Design, Bad Design" series. Short and concrete.
 
 ### How 3D rendering works (optional, for curiosity)
@@ -210,7 +210,7 @@ enforces. Neither requires knowing C++.
 |------|---------|
 | Actor | Any object in the world |
 | Component | A part of an actor that does one job (mesh, light, health) |
-| Mesh | A 3D shape. Static mesh = doesn't bend (walls). Skeletal mesh = has bones (guards) |
+| Mesh | A 3D shape. Static mesh = doesn't bend (walls). Skeletal mesh = has bones (thugs) |
 | Material | The surface recipe on a mesh |
 | Texture | An image a material uses |
 | Blueprint | A class defined in the editor; ours hold settings, not logic |
