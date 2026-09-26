@@ -284,6 +284,10 @@ CH01_OBJECTIVES = [
     ("reach_roof", "Get to a rooftop", "Up is where the patrol starts."),
     ("cross_block", "Cross the block without touching the street",
      "Roof to roof. The street is for people who aren't Hawkeye."),
+    # Beat 4: the Tracksuit pair on the cross_block roof. City_ThugGroup_clear_roof completes it
+    # when both thugs tagged RoofPair are down.
+    ("clear_roof", "Deal with the Tracksuits on the roof",
+     "Two of them, arguing. Fists, the bow, or a quiet one from behind."),
     ("find_arrow", "Find the arrow", "Someone else has been shooting up here."),
 ]
 
