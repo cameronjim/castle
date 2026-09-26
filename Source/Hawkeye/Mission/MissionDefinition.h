@@ -63,6 +63,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
 	TArray<FHawkeyeArrowGrant> StartingArrows;
 
+	/**
+	 * Whether the player may swap between Kate and Clint during this chapter
+	 * (AHawkeyePlayerController::SwitchCharacter). Off by default: most chapters fix who you play.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
+	bool bAllowSwitching = false;
+
 	/** Flashback slideshow played when this mission completes. Optional. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
 	TSoftObjectPtr<UFlashbackDefinition> FlashbackToPlay;

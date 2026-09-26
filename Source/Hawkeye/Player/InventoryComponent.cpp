@@ -22,6 +22,10 @@ void UInventoryComponent::BeginPlay()
 	Super::BeginPlay();
 
 	EnsureStandardSlot();
+	if (bUseOwnStartingQuiver)
+	{
+		ApplyOwnStartingQuiver();
+	}
 
 	// Whatever the mission granted is already in by now; this makes sure the melee fallback is
 	// pointed at Hands and the HUD paints the quiver once.
@@ -315,23 +319,40 @@ void UInventoryComponent::ApplyMissionStart(const UMissionDefinition* Mission)
 	{
 		return;
 	}
+	if (bUseOwnStartingQuiver)
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: keeps its own quiver; mission %s's grant is for the lead."), *GetNameSafe(GetOwner()),
+			*GetNameSafe(Mission));
+		return;
+	}
 
 	// Soft references so a mission asset does not drag every arrow into memory until it starts.
-	UBowDefinition* StartBow = Mission->StartingBow.IsNull() ? nullptr : Mission->StartingBow.LoadSynchronous();
-	TArray<FHawkeyeQuiverSlot> Grants;
-	for (const FHawkeyeArrowGrant& Grant : Mission->StartingArrows)
+	ApplyGrant(Mission->StartingBow, Mission->StartingArrows);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: mission %s grants bow %s and %d arrow type(s)."), *GetNameSafe(GetOwner()),
+		*GetNameSafe(Mission), *GetNameSafe(Bow), StartingArrows.Num());
+}
+
+void UInventoryComponent::ApplyOwnStartingQuiver()
+{
+	ApplyGrant(OwnStartingBow, OwnStartingArrows);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: own quiver, bow %s and %d arrow type(s)."), *GetNameSafe(GetOwner()),
+		*GetNameSafe(Bow), StartingArrows.Num());
+}
+
+void UInventoryComponent::ApplyGrant(const TSoftObjectPtr<UBowDefinition>& InBow, const TArray<FHawkeyeArrowGrant>& Grants)
+{
+	UBowDefinition* StartBow = InBow.IsNull() ? nullptr : InBow.LoadSynchronous();
+	TArray<FHawkeyeQuiverSlot> Slots;
+	for (const FHawkeyeArrowGrant& Grant : Grants)
 	{
 		if (UArrowDefinition* Arrow = Grant.Arrow.IsNull() ? nullptr : Grant.Arrow.LoadSynchronous())
 		{
-			FHawkeyeQuiverSlot& Slot = Grants.AddDefaulted_GetRef();
+			FHawkeyeQuiverSlot& Slot = Slots.AddDefaulted_GetRef();
 			Slot.Arrow = Arrow;
 			Slot.Count = Grant.Count;
 		}
 	}
-	ApplyStartingQuiver(StartBow, Grants);
-
-	UE_LOG(LogHawkeye, Log, TEXT("%s: mission %s grants bow %s and %d arrow type(s)."), *GetNameSafe(GetOwner()),
-		*GetNameSafe(Mission), *GetNameSafe(StartBow), Grants.Num());
+	ApplyStartingQuiver(StartBow, Slots);
 }
 
 // --- Keycards ---------------------------------------------------------------------------------------

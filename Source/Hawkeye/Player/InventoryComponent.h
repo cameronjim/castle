@@ -68,6 +68,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
 	TArray<FHawkeyeQuiverSlot> StartingArrows;
 
+	/**
+	 * A character with a quiver of their own (Clint): when set, BeginPlay grants OwnStartingBow and
+	 * OwnStartingArrows and the chapter's grant (which is Kate's) is ignored by ApplyMissionStart.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+	bool bUseOwnStartingQuiver = false;
+
+	/** The bow granted at BeginPlay when bUseOwnStartingQuiver is set (DA_Bow_Clint on BP_Clint). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+	TSoftObjectPtr<UBowDefinition> OwnStartingBow;
+
+	/** The arrows granted at BeginPlay when bUseOwnStartingQuiver is set, one entry per type. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Inventory")
+	TArray<FHawkeyeArrowGrant> OwnStartingArrows;
+
 	UPROPERTY(BlueprintAssignable, Category = "Inventory")
 	FOnInventoryChangedSignature OnInventoryChanged;
 
@@ -146,9 +161,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ApplyStartingQuiver(UBowDefinition* InBow, const TArray<FHawkeyeQuiverSlot>& Arrows);
 
-	/** Loads Mission's StartingBow and StartingArrows and applies them. AHawkeyeGameMode calls this on mission start. */
+	/**
+	 * Loads Mission's StartingBow and StartingArrows and applies them. AHawkeyeGameMode calls this on
+	 * mission start. Does nothing with bUseOwnStartingQuiver: that character keeps their own grant.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	void ApplyMissionStart(const UMissionDefinition* Mission);
+
+	/** Loads Bow and Grants (soft references) and applies them as the starting quiver. */
+	void ApplyGrant(const TSoftObjectPtr<UBowDefinition>& InBow, const TArray<FHawkeyeArrowGrant>& Grants);
+
+	/** Grants OwnStartingBow and OwnStartingArrows. BeginPlay calls it with bUseOwnStartingQuiver; public for tests. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory")
+	void ApplyOwnStartingQuiver();
 
 	// --- Keycards ---------------------------------------------------------------------------------
 
