@@ -12,6 +12,9 @@
                                    (it dresses the map the previous step builds)
     6b. pivot_cleanup.run_deletions retire the pistol, rifle and first-person assets, then fix
                                    up redirectors (after the maps stop referencing them)
+    7. generate_city               L_District_EastVillage from OpenStreetMap, after everything
+                                   else and only when Tools/Data/osm/east_village.buildings.json
+                                   exists (Tools/fetch-osm.ps1 writes it)
 
 Run headless:
 
@@ -42,11 +45,19 @@ STEPS = [
     ("maps", "create_sandbox_map"),
     ("room art", "create_room_art"),
     ("pivot deletions", "pivot_cleanup", "run_deletions"),
+    ("city", "generate_city"),
 ]
 
 # Module names to leave out of this run, comma separated, e.g. CASTLE_SKIP_STEPS=generate_city.
 SKIP_STEPS = set(
     name.strip() for name in os.environ.get("CASTLE_SKIP_STEPS", "").split(",") if name.strip())
+
+# Steps that need downloaded data: skipped (not failed) until the file exists.
+STEP_REQUIRES = {
+    "generate_city": os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "Data", "osm", "east_village.buildings.json"),
+}
 
 
 def main():
@@ -60,6 +71,10 @@ def main():
         unreal.log("[Castle] ---- {0} ----".format(title))
         if module_name in SKIP_STEPS:
             c.log("skipped", title, "CASTLE_SKIP_STEPS")
+            continue
+        required = STEP_REQUIRES.get(module_name)
+        if required and not os.path.exists(required):
+            c.log("skipped", title, "missing " + required)
             continue
         try:
             module = __import__(module_name)
