@@ -5,6 +5,7 @@
     IA_Takedown  IA_Interact  IA_Pause  IA_Skip   (Digital / bool)
     IA_Slot1 .. IA_Slot6  IA_Inventory             (Digital / bool, keys 1..6: quiver slots)
     IA_Grapple                      (Digital / bool, Q: the grapple arrow)
+    IA_Melee                        (Digital / bool, V: bow strike, tap light / hold heavy)
     IA_SlotScroll                   (Axis1D, the mouse wheel)
     IMC_Default                     with the UE first-person template's WASD + mouse setup
 
@@ -49,6 +50,7 @@ ACTIONS = [
     ("IA_SlotScroll", AXIS1D),
     ("IA_Inventory", BOOL),
     ("IA_Grapple", BOOL),
+    ("IA_Melee", BOOL),
 ]
 
 # (action name, FKey name, [modifier specs])
@@ -87,6 +89,8 @@ MAPPINGS = [
     ("IA_SlotScroll", "MouseWheelAxis", []),
     ("IA_Inventory", "Tab", []),
     ("IA_Grapple", "Q", []),
+    # V: a bow strike. Tap for the light, hold 0.4 s for the heavy (ACastleCharacter decides).
+    ("IA_Melee", "V", []),
 ]
 
 
