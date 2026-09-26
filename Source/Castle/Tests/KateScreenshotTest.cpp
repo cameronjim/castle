@@ -80,7 +80,7 @@
  *   arrow_stuck.png    that arrow from just behind and beside it, aimed in: shaft, three vanes, purple nock
  *
  *   roll_mid.png       0.2 s into the landing roll after a 6 m drop with the stick held, side on:
- *                      upside down in the tuck (at 0.12 s the lagging camera had not found her yet)
+ *                      upside down in the tuck, motion blur off so the tumble does not smear away
  *
  *   street_patrol.png  across Avenue A from the StreetPair, patrolling the park-side sidewalk
  *   thug_walk_bat.png  4 m to the side of the StreetPair's bat thug as he walks: the bat hangs by his leg
@@ -2389,10 +2389,13 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateDrop(this, 1200.f, true));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
-	// A 6 m drop with the stick held: the landing roll, side on.
+	// A 6 m drop with the stick held: the landing roll, side on. Motion blur off for this one: at
+	// the middle of the tumble the body turns over 1300 degrees a second and smears to nothing.
+	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("ShowFlag.MotionBlur 0")));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitRoll(this, 0.2f, 4.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("roll_mid.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.4f));
+	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("ShowFlag.MotionBlur 2")));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateEndRoll(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
