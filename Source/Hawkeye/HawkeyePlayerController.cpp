@@ -32,10 +32,17 @@
 #include "NavigationSystem.h"
 #include "Partner/HawkeyePartnerController.h"
 #include "Player/HawkeyeCharacter.h"
+#include "Player/InventoryComponent.h"
+#include "Save/HawkeyeSaveSubsystem.h"
+#include "UI/HawkeyeMainMenuWidget.h"
+#include "UI/HawkeyeSafehouseWidget.h"
+#include "World/Safehouse.h"
 
 AHawkeyePlayerController::AHawkeyePlayerController()
 {
 	Banter = CreateDefaultSubobject<UBanterComponent>(TEXT("Banter"));
+	MainMenuWidgetClass = UHawkeyeMainMenuWidget::StaticClass();
+	SafehouseWidgetClass = UHawkeyeSafehouseWidget::StaticClass();
 }
 
 void AHawkeyePlayerController::BeginPlay()
@@ -57,6 +64,13 @@ void AHawkeyePlayerController::BeginPlay()
 
 	AddPauseMappingContext();
 	CreateHud();
+
+	// First boot: the district is already loaded behind the menu, so there is no separate map.
+	if (UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this); Save && IsLocalController() && Save->ConsumeBootMenu())
+	{
+		ShowMainMenu();
+		bMainMenuOverFreshBoot = true;
+	}
 }
 
 void AHawkeyePlayerController::AddPauseMappingContext()
@@ -132,6 +146,18 @@ void AHawkeyePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
 		return;
 	}
 
+	if (bSafehouseMenuOpen)
+	{
+		CloseSafehouseMenu();
+		return;
+	}
+
+	// The main menu has no "back": the player picks one of its buttons.
+	if (bMainMenuOpen)
+	{
+		return;
+	}
+
 	TogglePause();
 }
 
@@ -147,8 +173,8 @@ void AHawkeyePlayerController::SetInventoryOpen(bool bOpen)
 		return;
 	}
 
-	// One thing owns the pause at a time; the slideshow and the pause menu both outrank Tab.
-	if (bOpen && (bPauseMenuOpen || bFlashbackActive))
+	// One thing owns the pause at a time; the slideshow and every menu outrank Tab.
+	if (bOpen && (bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen))
 	{
 		return;
 	}
@@ -193,7 +219,7 @@ bool AHawkeyePlayerController::CanTogglePause() const
 {
 	// The slideshow pauses the game itself and restores the previous state on finish; letting
 	// Escape unpause underneath it would leave the flashback running over live gameplay.
-	if (bFlashbackActive)
+	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen)
 	{
 		return false;
 	}
@@ -245,7 +271,7 @@ void AHawkeyePlayerController::SetPauseMenuOpen(bool bOpen)
 
 void AHawkeyePlayerController::OpenSettings()
 {
-	if (!bPauseMenuOpen || bSettingsOpen)
+	if ((!bPauseMenuOpen && !bMainMenuOpen) || bSettingsOpen)
 	{
 		return;
 	}
@@ -257,6 +283,10 @@ void AHawkeyePlayerController::OpenSettings()
 
 	// One menu at a time; the game stays paused underneath both.
 	HidePauseWidget();
+	if (MainMenuWidget)
+	{
+		MainMenuWidget->RemoveFromParent();
+	}
 	bSettingsOpen = true;
 	ApplyPauseInputMode(true);
 }
@@ -270,7 +300,14 @@ void AHawkeyePlayerController::CloseSettings()
 
 	bSettingsOpen = false;
 	HideSettingsWidget();
-	ShowPauseWidget();
+	if (bMainMenuOpen && MainMenuWidget)
+	{
+		MainMenuWidget->AddToViewport(20);
+	}
+	else
+	{
+		ShowPauseWidget();
+	}
 	ApplyPauseInputMode(true);
 }
 
@@ -296,6 +333,7 @@ UHawkeyePauseWidget* AHawkeyePlayerController::ShowPauseWidget()
 		PauseWidget->OnSettingsClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseSettingsClicked);
 		PauseWidget->OnRestartMissionClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseRestartClicked);
 		PauseWidget->OnQuitToDesktopClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitClicked);
+		PauseWidget->OnQuitToMenuClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitToMenuClicked);
 	}
 
 	if (!PauseWidget->IsInViewport())
@@ -363,6 +401,14 @@ TSharedPtr<SWidget> AHawkeyePlayerController::GetFocusedMenuWidget() const
 	{
 		return SettingsWidget->TakeWidget();
 	}
+	if (bSafehouseMenuOpen && SafehouseWidget)
+	{
+		return SafehouseWidget->TakeWidget();
+	}
+	if (bMainMenuOpen && MainMenuWidget)
+	{
+		return MainMenuWidget->TakeWidget();
+	}
 	if (PauseWidget)
 	{
 		return PauseWidget->TakeWidget();
@@ -425,13 +471,240 @@ void AHawkeyePlayerController::HandlePauseQuitClicked()
 
 void AHawkeyePlayerController::RestartMissionFromPause()
 {
-	// Unpause first: the level travel and anything it triggers should run on a live world.
+	// Unpause first: the fade and the load it ends in run on a live world.
 	SetPauseMenuOpen(false);
 
+	// Back to the last save, as dying does, with a shorter fade: the player chose this.
 	if (AHawkeyeGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AHawkeyeGameMode>() : nullptr)
 	{
-		GameMode->RestartMission(0.f);
+		GameMode->ReloadLastCheckpoint(0.5f);
 	}
+}
+
+void AHawkeyePlayerController::HandlePauseQuitToMenuClicked()
+{
+	QuitToMenu();
+}
+
+void AHawkeyePlayerController::QuitToMenu()
+{
+	SetPauseMenuOpen(false);
+	ShowMainMenu();
+	bMainMenuOverFreshBoot = false;
+}
+
+// --- Main menu ----------------------------------------------------------------------------------------
+
+UHawkeyeMainMenuWidget* AHawkeyePlayerController::EnsureMainMenuWidget()
+{
+	if (MainMenuWidget || !MainMenuWidgetClass || !IsLocalController())
+	{
+		return MainMenuWidget;
+	}
+	MainMenuWidget = CreateWidget<UHawkeyeMainMenuWidget>(this, MainMenuWidgetClass);
+	if (!MainMenuWidget)
+	{
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: could not create the main menu widget."), *GetName());
+		return nullptr;
+	}
+	MainMenuWidget->OnContinueClicked.AddDynamic(this, &AHawkeyePlayerController::MainMenuContinue);
+	MainMenuWidget->OnNewGameClicked.AddDynamic(this, &AHawkeyePlayerController::MainMenuNewGame);
+	MainMenuWidget->OnSettingsClicked.AddDynamic(this, &AHawkeyePlayerController::HandleMainMenuSettingsClicked);
+	MainMenuWidget->OnQuitClicked.AddDynamic(this, &AHawkeyePlayerController::HandleMainMenuQuitClicked);
+	return MainMenuWidget;
+}
+
+void AHawkeyePlayerController::ShowMainMenu()
+{
+	UHawkeyeMainMenuWidget* Menu = EnsureMainMenuWidget();
+	if (!Menu)
+	{
+		return;
+	}
+	SetInventoryOpen(false);
+	CloseSafehouseMenu();
+	Menu->RefreshFromSave(UHawkeyeSaveSubsystem::Get(this));
+	if (!Menu->IsInViewport())
+	{
+		Menu->AddToViewport(20);
+	}
+	bMainMenuOpen = true;
+	SetHudVisible(false);
+	SetPause(true);
+	ApplyPauseInputMode(true);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: main menu (continue %s)."), *GetName(),
+		Menu->IsContinueEnabled() ? TEXT("on") : TEXT("off"));
+}
+
+void AHawkeyePlayerController::HideMainMenu()
+{
+	if (!bMainMenuOpen)
+	{
+		return;
+	}
+	bSettingsOpen = false;
+	HideSettingsWidget();
+	if (MainMenuWidget)
+	{
+		MainMenuWidget->RemoveFromParent();
+	}
+	bMainMenuOpen = false;
+	bMainMenuOverFreshBoot = false;
+	SetHudVisible(true);
+	SetPause(false);
+	ApplyPauseInputMode(false);
+}
+
+void AHawkeyePlayerController::MainMenuContinue()
+{
+	UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+	if (!Save || !Save->HasSave())
+	{
+		return;
+	}
+	// The menu stays up over the paused world until the load swaps the world out.
+	Save->LoadCampaign();
+}
+
+void AHawkeyePlayerController::MainMenuNewGame()
+{
+	UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+	if (!bMainMenuOverFreshBoot && Save)
+	{
+		Save->StartNewGame();
+		return;
+	}
+	// Nothing has happened in this world yet: it is the new game.
+	HideMainMenu();
+	if (Save)
+	{
+		Save->SaveCampaign(TEXT("new game"));
+	}
+}
+
+void AHawkeyePlayerController::HandleMainMenuSettingsClicked()
+{
+	OpenSettings();
+}
+
+void AHawkeyePlayerController::HandleMainMenuQuitClicked()
+{
+	HideMainMenu();
+	UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, /*bIgnorePlatformRestrictions=*/false);
+}
+
+// --- Safehouse ----------------------------------------------------------------------------------------
+
+UHawkeyeSafehouseWidget* AHawkeyePlayerController::EnsureSafehouseWidget()
+{
+	if (SafehouseWidget || !SafehouseWidgetClass || !IsLocalController())
+	{
+		return SafehouseWidget;
+	}
+	SafehouseWidget = CreateWidget<UHawkeyeSafehouseWidget>(this, SafehouseWidgetClass);
+	if (!SafehouseWidget)
+	{
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: could not create the safehouse widget."), *GetName());
+		return nullptr;
+	}
+	SafehouseWidget->OnRefillClicked.AddDynamic(this, &AHawkeyePlayerController::SafehouseRefill);
+	SafehouseWidget->OnSaveClicked.AddDynamic(this, &AHawkeyePlayerController::SafehouseSave);
+	SafehouseWidget->OnFastTravelClicked.AddDynamic(this, &AHawkeyePlayerController::SafehouseFastTravel);
+	SafehouseWidget->OnChapterSelectClicked.AddDynamic(this, &AHawkeyePlayerController::SafehouseChapterSelect);
+	SafehouseWidget->OnLeaveClicked.AddDynamic(this, &AHawkeyePlayerController::CloseSafehouseMenu);
+	return SafehouseWidget;
+}
+
+void AHawkeyePlayerController::OpenSafehouseMenu(ASafehouse* Safehouse)
+{
+	if (bSafehouseMenuOpen || bMainMenuOpen || bPauseMenuOpen || bFlashbackActive || !Safehouse)
+	{
+		return;
+	}
+	UHawkeyeSafehouseWidget* Menu = EnsureSafehouseWidget();
+	if (!Menu)
+	{
+		return;
+	}
+	SetInventoryOpen(false);
+	ActiveSafehouse = Safehouse;
+	Menu->SetSafehouseName(Safehouse->GetDisplayName());
+	Menu->SetStatus(NSLOCTEXT("Hawkeye", "SafehouseWelcome", "Healed to full. Progress saved."));
+	if (!Menu->IsInViewport())
+	{
+		Menu->AddToViewport(10);
+	}
+	bSafehouseMenuOpen = true;
+	SetPause(true);
+	ApplyPauseInputMode(true);
+}
+
+void AHawkeyePlayerController::CloseSafehouseMenu()
+{
+	if (!bSafehouseMenuOpen)
+	{
+		return;
+	}
+	if (SafehouseWidget)
+	{
+		SafehouseWidget->RemoveFromParent();
+	}
+	bSafehouseMenuOpen = false;
+	ActiveSafehouse = nullptr;
+	SetPause(false);
+	ApplyPauseInputMode(false);
+}
+
+void AHawkeyePlayerController::SetSafehouseStatus(const FText& Status)
+{
+	if (SafehouseWidget)
+	{
+		SafehouseWidget->SetStatus(Status);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: safehouse: %s"), *GetName(), *Status.ToString());
+}
+
+void AHawkeyePlayerController::SafehouseRefill()
+{
+	const APawn* ControlledPawn = GetPawn();
+	UInventoryComponent* Inventory = ControlledPawn ? ControlledPawn->FindComponentByClass<UInventoryComponent>() : nullptr;
+	const int32 Added = ASafehouse::RefillArrows(Inventory);
+	SetSafehouseStatus(Added > 0
+		? FText::Format(NSLOCTEXT("Hawkeye", "SafehouseRefilled", "Arrows refilled (+{0})."), Added)
+		: NSLOCTEXT("Hawkeye", "SafehouseQuiverFull", "The quiver is already full."));
+}
+
+void AHawkeyePlayerController::SafehouseSave()
+{
+	UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+	const bool bSaved = Save && Save->SaveCampaign(TEXT("safehouse"));
+	SetSafehouseStatus(bSaved ? NSLOCTEXT("Hawkeye", "SafehouseSaved", "Saved.")
+		: NSLOCTEXT("Hawkeye", "SafehouseSaveFailed", "Could not save right now."));
+}
+
+void AHawkeyePlayerController::SafehouseFastTravel()
+{
+	const UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+	TArray<FString> Others;
+	for (const FName Id : Save ? Save->GetDiscoveredSafehouses() : TArray<FName>())
+	{
+		if (!ActiveSafehouse || Id != ActiveSafehouse->SafehouseId)
+		{
+			Others.Add(Id.ToString());
+		}
+	}
+	// TODO(stage4): travel once a second safehouse exists; for now the list is all there is.
+	SetSafehouseStatus(Others.Num() == 0
+		? NSLOCTEXT("Hawkeye", "SafehouseNoOther", "No other safehouse yet.")
+		: FText::Format(NSLOCTEXT("Hawkeye", "SafehouseOthers", "Discovered: {0}. Fast travel is not built yet."),
+			FText::FromString(FString::Join(Others, TEXT(", ")))));
+}
+
+void AHawkeyePlayerController::SafehouseChapterSelect()
+{
+	// TODO(stage4): list the chapters once there is more than one.
+	SetSafehouseStatus(NSLOCTEXT("Hawkeye", "SafehouseChapters",
+		"Chapter select: CH01 East Village is the only chapter so far."));
 }
 
 void AHawkeyePlayerController::QuitToDesktop()
@@ -508,8 +781,32 @@ void AHawkeyePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	bInventoryOpen = false;
 
+	if (MainMenuWidget)
+	{
+		MainMenuWidget->OnContinueClicked.RemoveDynamic(this, &AHawkeyePlayerController::MainMenuContinue);
+		MainMenuWidget->OnNewGameClicked.RemoveDynamic(this, &AHawkeyePlayerController::MainMenuNewGame);
+		MainMenuWidget->OnSettingsClicked.RemoveDynamic(this, &AHawkeyePlayerController::HandleMainMenuSettingsClicked);
+		MainMenuWidget->OnQuitClicked.RemoveDynamic(this, &AHawkeyePlayerController::HandleMainMenuQuitClicked);
+		MainMenuWidget->RemoveFromParent();
+		MainMenuWidget = nullptr;
+	}
+	bMainMenuOpen = false;
+
+	if (SafehouseWidget)
+	{
+		SafehouseWidget->OnRefillClicked.RemoveDynamic(this, &AHawkeyePlayerController::SafehouseRefill);
+		SafehouseWidget->OnSaveClicked.RemoveDynamic(this, &AHawkeyePlayerController::SafehouseSave);
+		SafehouseWidget->OnFastTravelClicked.RemoveDynamic(this, &AHawkeyePlayerController::SafehouseFastTravel);
+		SafehouseWidget->OnChapterSelectClicked.RemoveDynamic(this, &AHawkeyePlayerController::SafehouseChapterSelect);
+		SafehouseWidget->OnLeaveClicked.RemoveDynamic(this, &AHawkeyePlayerController::CloseSafehouseMenu);
+		SafehouseWidget->RemoveFromParent();
+		SafehouseWidget = nullptr;
+	}
+	bSafehouseMenuOpen = false;
+
 	if (PauseWidget)
 	{
+		PauseWidget->OnQuitToMenuClicked.RemoveDynamic(this, &AHawkeyePlayerController::HandlePauseQuitToMenuClicked);
 		PauseWidget->OnResumeClicked.RemoveDynamic(this, &AHawkeyePlayerController::HandlePauseResumeClicked);
 		PauseWidget->OnSettingsClicked.RemoveDynamic(this, &AHawkeyePlayerController::HandlePauseSettingsClicked);
 		PauseWidget->OnRestartMissionClicked.RemoveDynamic(this, &AHawkeyePlayerController::HandlePauseRestartClicked);

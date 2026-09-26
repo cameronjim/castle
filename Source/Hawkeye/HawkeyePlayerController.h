@@ -9,9 +9,12 @@
 class SWidget;
 class AHawkeyeCharacter;
 class AHawkeyePartnerController;
+class ASafehouse;
 class UBanterComponent;
 class UHawkeyeHudWidget;
 class UHawkeyeInventoryWidget;
+class UHawkeyeMainMenuWidget;
+class UHawkeyeSafehouseWidget;
 class UHawkeyePauseWidget;
 class UHawkeyeSettingsWidget;
 class UFlashbackDefinition;
@@ -178,6 +181,76 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Pause")
 	void QuitToDesktop();
 
+	/** Pause menu "Quit to menu": the main menu over the paused game, as on first boot. */
+	UFUNCTION(BlueprintCallable, Category = "Pause")
+	void QuitToMenu();
+
+	// --- Main menu ------------------------------------------------------------------------------
+
+	/** Drawn over the paused district on first boot and after Quit to menu. UHawkeyeMainMenuWidget by default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Main menu")
+	TSubclassOf<UHawkeyeMainMenuWidget> MainMenuWidgetClass;
+
+	/** Pauses the game under the main menu, Continue enabled when a save exists. */
+	UFUNCTION(BlueprintCallable, Category = "Main menu")
+	void ShowMainMenu();
+
+	/** Takes the main menu down and resumes play. */
+	UFUNCTION(BlueprintCallable, Category = "Main menu")
+	void HideMainMenu();
+
+	UFUNCTION(BlueprintPure, Category = "Main menu")
+	bool IsMainMenuOpen() const { return bMainMenuOpen; }
+
+	UFUNCTION(BlueprintPure, Category = "Main menu")
+	UHawkeyeMainMenuWidget* GetMainMenuWidget() const { return MainMenuWidget; }
+
+	/** Continue: loads the campaign save (or, if it cannot be used, starts a new game). */
+	UFUNCTION(BlueprintCallable, Category = "Main menu")
+	void MainMenuContinue();
+
+	/**
+	 * New Game: over the freshly booted district this just starts playing (and writes the first
+	 * save); anywhere else the district is reopened clean.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Main menu")
+	void MainMenuNewGame();
+
+	// --- Safehouse ------------------------------------------------------------------------------
+
+	/** The safehouse menu. UHawkeyeSafehouseWidget by default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Safehouse")
+	TSubclassOf<UHawkeyeSafehouseWidget> SafehouseWidgetClass;
+
+	/** ASafehouse calls this after healing and saving: pauses under the safehouse menu. */
+	UFUNCTION(BlueprintCallable, Category = "Safehouse")
+	void OpenSafehouseMenu(ASafehouse* Safehouse);
+
+	UFUNCTION(BlueprintCallable, Category = "Safehouse")
+	void CloseSafehouseMenu();
+
+	UFUNCTION(BlueprintPure, Category = "Safehouse")
+	bool IsSafehouseMenuOpen() const { return bSafehouseMenuOpen; }
+
+	UFUNCTION(BlueprintPure, Category = "Safehouse")
+	UHawkeyeSafehouseWidget* GetSafehouseWidget() const { return SafehouseWidget; }
+
+	/** Refill arrows: every filled quiver slot of the pawn being played to its cap. */
+	UFUNCTION(BlueprintCallable, Category = "Safehouse")
+	void SafehouseRefill();
+
+	/** Save: writes the campaign now. */
+	UFUNCTION(BlueprintCallable, Category = "Safehouse")
+	void SafehouseSave();
+
+	/** Fast travel: lists the other discovered safehouses. A stub until there is a second one. */
+	UFUNCTION(BlueprintCallable, Category = "Safehouse")
+	void SafehouseFastTravel();
+
+	/** Chapter select: a stub while CH01 is the only chapter. */
+	UFUNCTION(BlueprintCallable, Category = "Safehouse")
+	void SafehouseChapterSelect();
+
 	// --- Input device -----------------------------------------------------------------------
 
 	/**
@@ -283,6 +356,23 @@ protected:
 	UFUNCTION()
 	void HandlePauseQuitClicked();
 
+	UFUNCTION()
+	void HandlePauseQuitToMenuClicked();
+
+	UFUNCTION()
+	void HandleMainMenuSettingsClicked();
+
+	UFUNCTION()
+	void HandleMainMenuQuitClicked();
+
+	/** Creates the main menu widget and binds it, once. */
+	UHawkeyeMainMenuWidget* EnsureMainMenuWidget();
+
+	/** Creates the safehouse widget and binds it, once. */
+	UHawkeyeSafehouseWidget* EnsureSafehouseWidget();
+
+	void SetSafehouseStatus(const FText& Status);
+
 	/** Creates PauseWidget (if needed) and adds it to the viewport. Returns the widget or null. */
 	UHawkeyePauseWidget* ShowPauseWidget();
 
@@ -347,6 +437,25 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Inventory")
 	bool bInventoryOpen = false;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Main menu")
+	TObjectPtr<UHawkeyeMainMenuWidget> MainMenuWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Main menu")
+	bool bMainMenuOpen = false;
+
+	/** The menu is up over the district as it booted, untouched: New Game can just start playing. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Main menu")
+	bool bMainMenuOverFreshBoot = false;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Safehouse")
+	TObjectPtr<UHawkeyeSafehouseWidget> SafehouseWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Safehouse")
+	TObjectPtr<ASafehouse> ActiveSafehouse = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Safehouse")
+	bool bSafehouseMenuOpen = false;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
 	TObjectPtr<UMissionEndCardWidget> EndCardWidget = nullptr;
