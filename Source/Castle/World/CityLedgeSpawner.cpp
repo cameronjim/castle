@@ -6,7 +6,10 @@
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInterface.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
@@ -15,16 +18,22 @@
 #include "HAL/PlatformTime.h"
 #include "Player/GrappleComponent.h"
 #include "World/CityLedgeData.h"
+#include "World/FireEscapeLanding.h"
 #include "World/GrappleAnchor.h"
 
 const FName ACityLedgeSpawner::LedgeTag(TEXT("CityLedge"));
 const FName ACityLedgeSpawner::AnchorTag(TEXT("CityAnchor"));
+const FName ACityLedgeSpawner::FireEscapeTag(TEXT("CityFireEscape"));
 
 namespace CastleCitySpawn
 {
 	static const FName CityTag(TEXT("City"));
 	static const TCHAR* LedgeLabelPrefix = TEXT("City_Ledge_");
 	static const TCHAR* AnchorLabelPrefix = TEXT("City_Anchor_");
+	static const TCHAR* FireEscapeLabelPrefix = TEXT("City_FireEscape_");
+	static const TCHAR* FireEscapeLedgeLabelPrefix = TEXT("City_FireEscapeLedge_");
+	static const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
+	static const TCHAR* CylinderPath = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
 
 	static FActorSpawnParameters MakeParams(AActor* Owner, bool bEditorWorld)
 	{
@@ -47,11 +56,19 @@ ACityLedgeSpawner::ACityLedgeSpawner()
 	PrimaryActorTick.bStartWithTickEnabled = false;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	RootComponent->SetMobility(EComponentMobility::Static);
+	FireEscapeClass = AFireEscapeLanding::StaticClass();
 }
 
 bool ACityLedgeSpawner::IsSpawnComplete() const
 {
-	return Data && SpawnedLedges.Num() >= Data->Ledges.Num() && SpawnedAnchors.Num() >= Data->Anchors.Num();
+	return Data && SpawnedLedges.Num() >= Data->Ledges.Num() && SpawnedAnchors.Num() >= Data->Anchors.Num()
+		&& SpawnedFireEscapes.Num() >= Data->FireEscapes.Num();
+}
+
+int32 ACityLedgeSpawner::GetFireEscapeInstanceCount() const
+{
+	return (FireEscapeCubes ? FireEscapeCubes->GetInstanceCount() : 0)
+		+ (FireEscapeCylinders ? FireEscapeCylinders->GetInstanceCount() : 0);
 }
 
 void ACityLedgeSpawner::BeginPlay()
@@ -66,13 +83,15 @@ void ACityLedgeSpawner::BeginPlay()
 	SpawnAnchors();
 
 	const double Start = FPlatformTime::Seconds();
+	SpawnFireEscapeVisuals();
 	QueueLedges(FindFocus());
 	SpawnQueuedLedges(ImmediateRadius, TNumericLimits<double>::Max());
 	LoadLedgeSeconds = static_cast<float>(FPlatformTime::Seconds() - Start);
 	TotalLedgeSeconds = LoadLedgeSeconds;
 
-	UE_LOG(LogCastle, Log, TEXT("%s: at load %d anchors in %.0f ms, %d of %d ledges within %.0f m in %.0f ms; the rest at %.1f ms a frame"),
+	UE_LOG(LogCastle, Log, TEXT("%s: at load %d anchors in %.0f ms, %d of %d ledges and %d of %d fire-escape landings (%d parts) within %.0f m in %.0f ms; the rest at %.1f ms a frame"),
 		*GetName(), SpawnedAnchors.Num(), AnchorSeconds * 1000.f, SpawnedLedges.Num(), Data->Ledges.Num(),
+		SpawnedFireEscapes.Num(), Data->FireEscapes.Num(), GetFireEscapeInstanceCount(),
 		ImmediateRadius / 100.f, LoadLedgeSeconds * 1000.f, FrameBudgetMs);
 	SetActorTickEnabled(!IsSpawnComplete());
 }
@@ -92,8 +111,9 @@ void ACityLedgeSpawner::Tick(float DeltaSeconds)
 	if (LedgeQueueNext >= LedgeQueue.Num())
 	{
 		SetActorTickEnabled(false);
-		UE_LOG(LogCastle, Log, TEXT("%s: all %d ledges out; %.0f ms at load, %.0f ms in total over %d more frames"),
-			*GetName(), SpawnedLedges.Num(), LoadLedgeSeconds * 1000.f, TotalLedgeSeconds * 1000.f, BackgroundFrames);
+		UE_LOG(LogCastle, Log, TEXT("%s: all %d ledges and %d fire-escape landings out; %.0f ms at load, %.0f ms in total over %d more frames"),
+			*GetName(), SpawnedLedges.Num(), SpawnedFireEscapes.Num(), LoadLedgeSeconds * 1000.f, TotalLedgeSeconds * 1000.f,
+			BackgroundFrames);
 	}
 }
 
@@ -180,7 +200,7 @@ void ACityLedgeSpawner::MakeTraceOnly(AActor* Ledge)
 	}
 }
 
-AActor* ACityLedgeSpawner::SpawnLedge(const FCityLedgeRecord& Record)
+AActor* ACityLedgeSpawner::SpawnLedgeActor(const FTransform& Transform, const TArray<FName>& LedgeTags, const FString& Label)
 {
 	UWorld* World = GetWorld();
 	if (!World || !LedgeClass)
@@ -189,14 +209,11 @@ AActor* ACityLedgeSpawner::SpawnLedge(const FCityLedgeRecord& Record)
 	}
 	const bool bEditorWorld = !World->IsGameWorld();
 	FActorSpawnParameters Params = CastleCitySpawn::MakeParams(this, bEditorWorld);
-	const FName OsmTag(*(TEXT("osm:") + Record.OsmId));
-	Params.CustomPreSpawnInitialization = [OsmTag](AActor* Actor)
+	Params.CustomPreSpawnInitialization = [LedgeTags](AActor* Actor)
 	{
-		Actor->Tags = { CastleCitySpawn::CityTag, LedgeTag, OsmTag };
+		Actor->Tags = LedgeTags;
 	};
 #if WITH_EDITOR
-	const FString Label = bEditorWorld
-		? FString::Printf(TEXT("%s%s_%d"), CastleCitySpawn::LedgeLabelPrefix, *Record.OsmId, Record.EdgeIndex) : FString();
 	if (bEditorWorld)
 	{
 		Params.InitialActorLabel = Label;
@@ -205,14 +222,122 @@ AActor* ACityLedgeSpawner::SpawnLedge(const FCityLedgeRecord& Record)
 	// Deferred, then finished with a non-default transform: a plain SpawnActor of a Blueprint whose
 	// root comes from its construction script takes the template's scale, not ours.
 	Params.bDeferConstruction = true;
-	AActor* Ledge = World->SpawnActor(LedgeClass, &Record.Transform, Params);
+	AActor* Ledge = World->SpawnActor(LedgeClass, &Transform, Params);
 	if (Ledge)
 	{
-		Ledge->FinishSpawning(Record.Transform, /*bIsDefaultTransform=*/false);
+		Ledge->FinishSpawning(Transform, /*bIsDefaultTransform=*/false);
 		MakeTraceOnly(Ledge);
+	}
+	return Ledge;
+}
+
+AActor* ACityLedgeSpawner::SpawnLedge(const FCityLedgeRecord& Record)
+{
+	const FName OsmTag(*(TEXT("osm:") + Record.OsmId));
+	AActor* Ledge = SpawnLedgeActor(Record.Transform, { CastleCitySpawn::CityTag, LedgeTag, OsmTag },
+		FString::Printf(TEXT("%s%s_%d"), CastleCitySpawn::LedgeLabelPrefix, *Record.OsmId, Record.EdgeIndex));
+	if (Ledge)
+	{
 		SpawnedLedges.Add(Ledge);
 	}
 	return Ledge;
+}
+
+AFireEscapeLanding* ACityLedgeSpawner::SpawnFireEscape(const FCityFireEscapeRecord& Record)
+{
+	UWorld* World = GetWorld();
+	if (!World || !FireEscapeClass)
+	{
+		return nullptr;
+	}
+	const bool bEditorWorld = !World->IsGameWorld();
+	const FName OsmTag(*(TEXT("osm:") + Record.OsmId));
+	const FName FloorTag(*FString::Printf(TEXT("floor:%d"), Record.Floor));
+	const FString Suffix = FString::Printf(TEXT("%s_%d"), *Record.OsmId, Record.Floor);
+	FActorSpawnParameters Params = CastleCitySpawn::MakeParams(this, bEditorWorld);
+	Params.CustomPreSpawnInitialization = [OsmTag, FloorTag, Record](AActor* Actor)
+	{
+		Actor->Tags = { CastleCitySpawn::CityTag, FireEscapeTag, OsmTag, FloorTag };
+		if (AFireEscapeLanding* Landing = Cast<AFireEscapeLanding>(Actor))
+		{
+			Landing->ApplyRecord(Record);
+		}
+	};
+#if WITH_EDITOR
+	if (bEditorWorld)
+	{
+		Params.InitialActorLabel = CastleCitySpawn::FireEscapeLabelPrefix + Suffix;
+	}
+#endif
+	const FTransform Placement(Record.Transform.GetRotation(), Record.Transform.GetLocation());
+	AFireEscapeLanding* Landing = World->SpawnActor<AFireEscapeLanding>(FireEscapeClass, Placement, Params);
+	if (!Landing)
+	{
+		return nullptr;
+	}
+	SpawnedFireEscapes.Add(Landing);
+	SpawnedFireEscapeLedges.Add(SpawnLedgeActor(AFireEscapeLanding::ComputeLedgeTransform(Record),
+		{ CastleCitySpawn::CityTag, LedgeTag, FireEscapeTag, OsmTag, FloorTag }, CastleCitySpawn::FireEscapeLedgeLabelPrefix + Suffix));
+	return Landing;
+}
+
+void ACityLedgeSpawner::SpawnFireEscapeVisuals()
+{
+	if (!Data || Data->FireEscapes.Num() == 0 || FireEscapeCubes)
+	{
+		return;
+	}
+	UStaticMesh* Cube = FireEscapeCube ? FireEscapeCube.Get() : LoadObject<UStaticMesh>(nullptr, CastleCitySpawn::CubePath);
+	UStaticMesh* Cylinder = FireEscapeCylinder ? FireEscapeCylinder.Get() : LoadObject<UStaticMesh>(nullptr, CastleCitySpawn::CylinderPath);
+	if (!Cube || !Cylinder)
+	{
+		UE_LOG(LogCastle, Warning, TEXT("%s: no cube or cylinder mesh; fire escapes have collision but no bars."), *GetName());
+		return;
+	}
+	auto Make = [this](const TCHAR* Name, UStaticMesh* Mesh, bool bShadows)
+	{
+		UHierarchicalInstancedStaticMeshComponent* Instances = NewObject<UHierarchicalInstancedStaticMeshComponent>(
+			this, Name, RF_Transient);
+		Instances->SetMobility(EComponentMobility::Static);
+		Instances->SetStaticMesh(Mesh);
+		if (FireEscapeMaterial)
+		{
+			Instances->SetMaterial(0, FireEscapeMaterial);
+		}
+		Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Instances->SetCanEverAffectNavigation(false);
+		Instances->SetCastShadow(bShadows);
+		Instances->SetupAttachment(RootComponent);
+		Instances->RegisterComponent();
+		return Instances;
+	};
+	FireEscapeCubes = Make(TEXT("FireEscapeCubes"), Cube, true);
+	FireEscapeCylinders = Make(TEXT("FireEscapeCylinders"), Cylinder, false);
+
+	TArray<FTransform> Cubes;
+	TArray<FTransform> Cylinders;
+	for (const FCityFireEscapeRecord& Record : Data->FireEscapes)
+	{
+		AFireEscapeLanding::BuildParts(Record, Cubes, Cylinders);
+	}
+	FireEscapeCubes->AddInstances(Cubes, /*bShouldReturnIndices=*/false, /*bWorldSpace=*/true);
+	FireEscapeCylinders->AddInstances(Cylinders, /*bShouldReturnIndices=*/false, /*bWorldSpace=*/true);
+}
+
+void ACityLedgeSpawner::SpawnQueued(int32 Entry)
+{
+	if (!Data)
+	{
+		return;
+	}
+	if (Entry < Data->Ledges.Num())
+	{
+		SpawnLedge(Data->Ledges[Entry]);
+	}
+	else if (Data->FireEscapes.IsValidIndex(Entry - Data->Ledges.Num()))
+	{
+		SpawnFireEscape(Data->FireEscapes[Entry - Data->Ledges.Num()]);
+	}
 }
 
 void ACityLedgeSpawner::QueueLedges(const FVector& Focus)
@@ -226,10 +351,14 @@ void ACityLedgeSpawner::QueueLedges(const FVector& Focus)
 		return;
 	}
 	TArray<TPair<float, int32>> Order;
-	Order.Reserve(Data->Ledges.Num());
+	Order.Reserve(Data->Ledges.Num() + Data->FireEscapes.Num());
 	for (int32 Index = 0; Index < Data->Ledges.Num(); ++Index)
 	{
 		Order.Emplace(FVector::Dist2D(Data->Ledges[Index].Transform.GetLocation(), Focus), Index);
+	}
+	for (int32 Index = 0; Index < Data->FireEscapes.Num(); ++Index)
+	{
+		Order.Emplace(FVector::Dist2D(Data->FireEscapes[Index].Transform.GetLocation(), Focus), Data->Ledges.Num() + Index);
 	}
 	Order.Sort([](const TPair<float, int32>& A, const TPair<float, int32>& B) { return A.Key < B.Key; });
 	for (const TPair<float, int32>& Entry : Order)
@@ -251,7 +380,7 @@ void ACityLedgeSpawner::SpawnQueuedLedges(float MaxDistance, double Deadline)
 		{
 			return;
 		}
-		SpawnLedge(Data->Ledges[LedgeQueue[LedgeQueueNext]]);
+		SpawnQueued(LedgeQueue[LedgeQueueNext]);
 		++LedgeQueueNext;
 	}
 }
@@ -315,10 +444,11 @@ int32 ACityLedgeSpawner::SpawnAll()
 		UE_LOG(LogCastle, Warning, TEXT("%s: no world or no ledge data; nothing spawned."), *GetName());
 		return 0;
 	}
-	const int32 Before = SpawnedLedges.Num() + SpawnedAnchors.Num();
+	const int32 Before = SpawnedLedges.Num() + SpawnedAnchors.Num() + SpawnedFireEscapes.Num();
 	SpawnAnchors();
 
 	const double Start = FPlatformTime::Seconds();
+	SpawnFireEscapeVisuals();
 	if (!bLedgesQueued)
 	{
 		QueueLedges(FindFocus());
@@ -328,10 +458,10 @@ int32 ACityLedgeSpawner::SpawnAll()
 	TotalLedgeSeconds = LoadLedgeSeconds;
 	SetActorTickEnabled(false);
 
-	UE_LOG(LogCastle, Log, TEXT("%s: SpawnAll: %d ledges in %.0f ms and %d anchors in %.0f ms from %s"),
-		*GetName(), SpawnedLedges.Num(), LoadLedgeSeconds * 1000.f, SpawnedAnchors.Num(), AnchorSeconds * 1000.f,
-		*GetNameSafe(Data));
-	return SpawnedLedges.Num() + SpawnedAnchors.Num() - Before;
+	UE_LOG(LogCastle, Log, TEXT("%s: SpawnAll: %d ledges and %d fire-escape landings in %.0f ms and %d anchors in %.0f ms from %s"),
+		*GetName(), SpawnedLedges.Num(), SpawnedFireEscapes.Num(), LoadLedgeSeconds * 1000.f, SpawnedAnchors.Num(),
+		AnchorSeconds * 1000.f, *GetNameSafe(Data));
+	return SpawnedLedges.Num() + SpawnedAnchors.Num() + SpawnedFireEscapes.Num() - Before;
 }
 
 void ACityLedgeSpawner::DestroySpawned()
@@ -350,6 +480,31 @@ void ACityLedgeSpawner::DestroySpawned()
 			Anchor->Destroy();
 		}
 	}
+	for (AFireEscapeLanding* Landing : SpawnedFireEscapes)
+	{
+		if (IsValid(Landing))
+		{
+			Landing->Destroy();
+		}
+	}
+	for (AActor* Ledge : SpawnedFireEscapeLedges)
+	{
+		if (IsValid(Ledge))
+		{
+			Ledge->Destroy();
+		}
+	}
+	for (UHierarchicalInstancedStaticMeshComponent* Instances : { FireEscapeCubes.Get(), FireEscapeCylinders.Get() })
+	{
+		if (IsValid(Instances))
+		{
+			Instances->DestroyComponent();
+		}
+	}
+	FireEscapeCubes = nullptr;
+	FireEscapeCylinders = nullptr;
+	SpawnedFireEscapes.Reset();
+	SpawnedFireEscapeLedges.Reset();
 	SpawnedLedges.Reset();
 	SpawnedAnchors.Reset();
 	LedgeQueue.Reset();

@@ -47,8 +47,55 @@ struct CASTLE_API FCityAnchorRecord
 };
 
 /**
+ * One fire-escape landing on a tenement's street facade (claude-docs/gameplay-semantics.md,
+ * traversal): AFireEscapeLanding at Transform plus a traversable ledge on its outer top rail.
+ * Transform's origin is on the facade line at the middle of the landing, at the slab top; local
+ * +X runs along the facade and +Y points out of it. AFireEscapeLanding::BuildParts turns the
+ * numbers into the slab, rails and ladder.
+ */
+USTRUCT(BlueprintType)
+struct CASTLE_API FCityFireEscapeRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	FTransform Transform;
+
+	/** Slab length along the facade, depth out of it, thickness, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	FVector SlabSize = FVector(240.f, 90.f, 8.f);
+
+	/** Gap between the facade and the slab, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	float FacadeGap = 5.f;
+
+	/** Rail height above the slab top, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	float RailHeight = 90.f;
+
+	/** Rail thickness (its collision is this thick; the visible bars are thinner), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	float RailThickness = 6.f;
+
+	/** From this slab's top down to the slab top of the landing below; 0 for the lowest landing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	float LadderDrop = 0.f;
+
+	/** Which end of the landing the ladder down is at: +1 the +X end, -1 the -X end (zig-zag). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	float LadderSide = 1.f;
+
+	/** 1 for the second floor (330 cm up), counting up. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	int32 Floor = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	FString OsmId;
+};
+
+/**
  * The generated district's many small actors, as data instead of saved actors: every roof-edge
- * traversable ledge and every grapple anchor. Tools/Editor/generate_city.py writes it
+ * traversable ledge, every grapple anchor and every fire-escape landing. Tools/Editor/generate_city.py writes it
  * (DA_EastVillage_CityProps) and ACityLedgeSpawner spawns the actors at load. Saved as actors
  * they made the district map 72 MB.
  */
@@ -63,6 +110,9 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
 	TArray<FCityAnchorRecord> Anchors;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TArray<FCityFireEscapeRecord> FireEscapes;
 
 	/** Hash of the generator inputs that produced the arrays; a rerun with the same hash saves nothing. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")

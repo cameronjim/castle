@@ -6,8 +6,13 @@
 #include "GameFramework/Actor.h"
 #include "CityLedgeSpawner.generated.h"
 
+class AFireEscapeLanding;
 class AGrappleAnchor;
 class UCityLedgeData;
+class UHierarchicalInstancedStaticMeshComponent;
+class UMaterialInterface;
+class UStaticMesh;
+struct FCityFireEscapeRecord;
 struct FCityLedgeRecord;
 
 /**
@@ -25,6 +30,12 @@ struct FCityLedgeRecord;
  * Traversable channel (ECC_GameTraceChannel1), tagged City, CityLedge and osm:<id>. Every anchor
  * is AnchorClass (BP_GrappleAnchor) tagged City, CityAnchor and osm:<id>. In an editor world they
  * also get their generator labels (City_Ledge_<osm id>_<edge>, City_Anchor_<n>).
+ *
+ * Fire escapes: every FCityFireEscapeRecord is an AFireEscapeLanding (its collision, tagged City,
+ * CityFireEscape, osm:<id>, floor:<n>, labelled City_FireEscape_<osm id>_<floor>) plus a LedgeClass
+ * block on its outer rail (City_FireEscapeLedge_...), queued nearest first with the roof ledges.
+ * Their visible bars are instances in two transient instanced-mesh components (cube and
+ * cylinder, FireEscapeMaterial), all added at once; they are never saved with the map.
  */
 UCLASS(Blueprintable, BlueprintType)
 class CASTLE_API ACityLedgeSpawner : public AActor
@@ -44,6 +55,22 @@ public:
 	/** What each anchor record spawns. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
 	TSubclassOf<AGrappleAnchor> AnchorClass;
+
+	/** What each fire-escape record spawns (its collision). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TSubclassOf<AFireEscapeLanding> FireEscapeClass;
+
+	/** The unit cube the fire escapes' slabs, rails and posts are instances of. Engine cube when empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TObjectPtr<UStaticMesh> FireEscapeCube;
+
+	/** The unit cylinder the ladders are instances of. Engine cylinder when empty. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TObjectPtr<UStaticMesh> FireEscapeCylinder;
+
+	/** Black iron (M_SteelPainted). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
+	TObjectPtr<UMaterialInterface> FireEscapeMaterial;
 
 	/** Show the spawned actors in the editor viewport (transient, never saved). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
@@ -82,6 +109,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "City")
 	TArray<AGrappleAnchor*> GetSpawnedAnchors() const { return TArray<AGrappleAnchor*>(SpawnedAnchors); }
 
+	UFUNCTION(BlueprintPure, Category = "City")
+	int32 GetSpawnedFireEscapeCount() const { return SpawnedFireEscapes.Num(); }
+
+	UFUNCTION(BlueprintPure, Category = "City")
+	TArray<AFireEscapeLanding*> GetSpawnedFireEscapes() const { return TArray<AFireEscapeLanding*>(SpawnedFireEscapes); }
+
+	/** The ledge blocks on the fire escapes' outer rails, in the same order as their landings. */
+	UFUNCTION(BlueprintPure, Category = "City")
+	TArray<AActor*> GetSpawnedFireEscapeLedges() const { return TArray<AActor*>(SpawnedFireEscapeLedges); }
+
+	/** Visible fire-escape parts drawn (cube and cylinder instances together). */
+	UFUNCTION(BlueprintPure, Category = "City")
+	int32 GetFireEscapeInstanceCount() const;
+
 	/** Wall time spent spawning ledges before the first frame (all of them for SpawnAll), s. */
 	UFUNCTION(BlueprintPure, Category = "City")
 	float GetLoadLedgeSpawnSeconds() const { return LoadLedgeSeconds; }
@@ -96,6 +137,7 @@ public:
 
 	static const FName LedgeTag;
 	static const FName AnchorTag;
+	static const FName FireEscapeTag;
 
 protected:
 	virtual void BeginPlay() override;
@@ -115,6 +157,18 @@ protected:
 
 	AActor* SpawnLedge(const FCityLedgeRecord& Record);
 
+	/** One queue entry: a roof ledge (index into Ledges) or a fire escape (Ledges.Num() + index). */
+	void SpawnQueued(int32 Entry);
+
+	/** A fire-escape landing's collision actor and its rail ledge. */
+	AFireEscapeLanding* SpawnFireEscape(const FCityFireEscapeRecord& Record);
+
+	/** Adds every fire escape's visible parts as instances, once. */
+	void SpawnFireEscapeVisuals();
+
+	/** The ledge class at Transform, trace-only, tagged; Label in an editor world. */
+	AActor* SpawnLedgeActor(const FTransform& Transform, const TArray<FName>& LedgeTags, const FString& Label);
+
 	/** Hidden, query only, blocking nothing but the Traversable channel; the height labels hidden. */
 	static void MakeTraceOnly(AActor* Ledge);
 
@@ -126,6 +180,18 @@ protected:
 
 	UPROPERTY(Transient, VisibleInstanceOnly, Category = "City")
 	TArray<TObjectPtr<AGrappleAnchor>> SpawnedAnchors;
+
+	UPROPERTY(Transient, VisibleInstanceOnly, Category = "City")
+	TArray<TObjectPtr<AFireEscapeLanding>> SpawnedFireEscapes;
+
+	UPROPERTY(Transient, VisibleInstanceOnly, Category = "City")
+	TArray<TObjectPtr<AActor>> SpawnedFireEscapeLedges;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHierarchicalInstancedStaticMeshComponent> FireEscapeCubes;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHierarchicalInstancedStaticMeshComponent> FireEscapeCylinders;
 
 	/** Indices into Data->Ledges, nearest first, and how far down the list spawning has got. */
 	TArray<int32> LedgeQueue;
