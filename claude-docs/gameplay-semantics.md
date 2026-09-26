@@ -302,6 +302,26 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   one presses Build Paths, so this is what makes guards able to move at all. The smoke
   test asserts a navmesh exists and at least one guard is moving after a few seconds.
 
+## Melee and thugs (built 2026-09-26)
+- Kate's strike is on V: tap for a light (15 damage, lands at 0.1 s, 0.3 s total, 120 cm
+  sphere sweep, 20 cm lunge); hold 0.4 s for a heavy (35 damage after a 0.6 s wind-up,
+  40 cm lunge) that knocks the thug down for 3 s. Takedown from behind on F is unchanged.
+  No attack animation exists yet; strikes are procedural lunges.
+- Dodge: tap Ctrl while moving and not sprinting dashes 300 cm in 0.4 s, invulnerable for
+  the first 0.25 s, cooldown 0.8 s. Ctrl held crouches; Ctrl while sprinting slides.
+- Thug melee: `EThugWeapon {Fists, Bat}` plus the gunner's pistol. Alerted and within
+  250 cm they rush at 450 cm/s, close to 120 cm, and swing after a 0.6 s wind-up (a log
+  line and a glowing mask) for 15 (fists) or 25 (bat) with a stagger; cooldown 1.2 s;
+  after two swings they back off 2 m. Hitting a thug during the wind-up cancels the swing.
+- Feel: 2-frame hit stop (time 0.1 for 0.033 s) on melee hits, camera shake when Kate is
+  hit, a 0.1 s flash on a hit thug, and desaturation plus vignette under 40% health.
+- Tracksuits: red suit, white stripes, black ski mask, all from one material on the old
+  mannequin's single slot. No flashlight. Sight and hearing unchanged.
+- CH01 placements: a roof pair (fists, bat) on the `cross_block` roof tagged RoofPair, whose
+  deaths complete `clear_roof` (between `cross_block` and `find_arrow`); a street pair
+  (bat, gunner) patrolling 40 m of the Avenue A sidewalk by the park. Verify projects every
+  thug's feet onto the navmesh.
+
 ## Guard AI states (stage 2/3)
 - `Calm`: patrol. Hearing radius `CalmHearingRadius`, sight cone `SightHalfAngle`.
 - `Suspicious`: heard something or saw something briefly. Walks to the stimulus,
