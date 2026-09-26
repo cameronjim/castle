@@ -1,6 +1,8 @@
 """Create the player-framework Blueprints and wire their class defaults.
 
     /Game/Blueprints/Player/BP_CastleCharacter        parent ACastleCharacter
+    /Game/Blueprints/Player/BP_Kate                   parent BP_CastleCharacter (170 cm, purple suit)
+    /Game/Characters/Kate/M_KateSuit, M_KateSuitDark  her stand-in materials
     /Game/Blueprints/Player/BP_CastlePlayerController parent ACastlePlayerController
     /Game/Blueprints/Player/BP_CastleGameMode         parent ACastleGameMode
     /Game/Blueprints/UI/WBP_Flashback                 parent UFlashbackWidget
@@ -14,7 +16,7 @@ Then, on the class default objects:
 
     BP_CastleCharacter       DefaultMappingContext = IMC_Default, every IA_* property
                              that exists on ACastleCharacter
-    BP_CastleGameMode        DefaultPawnClass, PlayerControllerClass
+    BP_CastleGameMode        DefaultPawnClass = BP_Kate_C, PlayerControllerClass
     BP_CastlePlayerController FlashbackWidgetClass = WBP_Flashback_C,
                              PauseWidgetClass = WBP_Pause_C,
                              SettingsWidgetClass = WBP_Settings_C, PauseAction = IA_Pause,
@@ -43,6 +45,22 @@ INPUT_PATH = "/Game/Input"
 MANNEQUIN_MESH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
 MANNEQUIN_IDLE = "/Game/Mannequin/Animations/ThirdPersonIdle"
 MANNEQUIN_WALK = "/Game/Mannequin/Animations/ThirdPersonWalk"
+MANNEQUIN_RUN = "/Game/Mannequin/Animations/ThirdPersonRun"
+MANNEQUIN_FALL = "/Game/Mannequin/Animations/ThirdPersonJump_Loop"
+
+# BP_Kate: the playable stand-in until a real Kate mesh exists. A child of BP_CastleCharacter,
+# so the input wiring and Hands stay in one place. 170 cm: the mannequin is about 183 cm, so it
+# is scaled to fit a capsule of that height with its feet on the capsule's bottom.
+KATE_NAME = "BP_Kate"
+KATE_MATERIAL_PATH = "/Game/Characters/Kate"
+M_KATE_SUIT = KATE_MATERIAL_PATH + "/M_KateSuit"
+M_KATE_SUIT_DARK = KATE_MATERIAL_PATH + "/M_KateSuitDark"
+KATE_SUIT_COLOR = (0.25, 0.05, 0.35)
+KATE_SUIT_DARK_COLOR = (0.08, 0.08, 0.08)
+KATE_SUIT_ROUGHNESS = 0.6
+KATE_CAPSULE_RADIUS = 30.0
+KATE_CAPSULE_HALF_HEIGHT = 85.0
+KATE_MESH_SCALE = 0.93
 
 # ACastleCharacter input property name -> IA asset name.
 # Pause lives on ACastlePlayerController, not the pawn, so that Escape still works when the
@@ -277,6 +295,106 @@ def configure_body(bp):
         c.save(bp)
 
 
+def ensure_kate_materials():
+    """M_KateSuit (purple) and M_KateSuitDark at /Game/Characters/Kate, both skeletal-mesh usable."""
+    import _materials as m  # noqa: PLC0415 - only this step needs the material helpers
+
+    c.ensure_directory(KATE_MATERIAL_PATH)
+    return (
+        m.ensure_material(M_KATE_SUIT, m._build_flat(KATE_SUIT_COLOR, KATE_SUIT_ROUGHNESS), skeletal=True),
+        m.ensure_material(
+            M_KATE_SUIT_DARK, m._build_flat(KATE_SUIT_DARK_COLOR, KATE_SUIT_ROUGHNESS), skeletal=True),
+    )
+
+
+def cdo_component(bp, component_name):
+    cdo = c.blueprint_cdo(bp)
+    if cdo is None:
+        return None
+    try:
+        return cdo.get_editor_property(component_name)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def close_enough(current, wanted, tolerance=1e-3):
+    """Equality that survives float32 round trips (0.93 reads back as 0.9300000071)."""
+    if isinstance(wanted, float):
+        return abs(float(current) - wanted) < tolerance
+    if isinstance(wanted, unreal.Vector):
+        return all(abs(getattr(current, axis) - getattr(wanted, axis)) < tolerance for axis in "xyz")
+    return current == wanted
+
+
+def set_if_different(component, values, context):
+    """set_editor_property only for the values that differ. Returns the names written."""
+    wanted = []
+    for prop, value in values:
+        try:
+            if close_enough(component.get_editor_property(prop), value):
+                continue
+        except Exception:  # noqa: BLE001 - set_props reports a missing property
+            pass
+        wanted.append((prop, value))
+    return c.set_props(component, wanted, context) if wanted else []
+
+
+def set_material_slot(component, slot, material, context):
+    if component is None or material is None:
+        return False
+    try:
+        if component.get_material(slot) == material:
+            return False
+    except Exception:  # noqa: BLE001 - an empty slot reads back as None
+        pass
+    try:
+        component.set_material(slot, material)
+        c.log("updated", context, "slot {0} = {1}".format(slot, material.get_name()))
+        return True
+    except Exception as exc:  # noqa: BLE001
+        c.log_error(context, exc)
+        return False
+
+
+def configure_kate(bp):
+    """Capsule 170 cm tall, the mannequin scaled to it, purple suit. Saves only on a change."""
+    if bp is None:
+        return
+    context = c.asset_path(PLAYER_PATH, KATE_NAME)
+    suit, suit_dark = ensure_kate_materials()
+
+    changed = []
+    capsule = cdo_component(bp, "capsule_component")
+    if capsule is not None:
+        changed += set_if_different(capsule, [
+            ("capsule_radius", KATE_CAPSULE_RADIUS),
+            ("capsule_half_height", KATE_CAPSULE_HALF_HEIGHT),
+        ], KATE_NAME + ".CapsuleComponent")
+    else:
+        c.log("skipped", context, "no capsule component")
+
+    body = cdo_component(bp, "mesh")
+    if body is not None:
+        changed += set_if_different(body, [
+            ("relative_location", unreal.Vector(0.0, 0.0, -KATE_CAPSULE_HALF_HEIGHT)),
+            ("relative_scale3d", unreal.Vector(KATE_MESH_SCALE, KATE_MESH_SCALE, KATE_MESH_SCALE)),
+        ], KATE_NAME + ".Mesh")
+        # The UE4 mannequin has two slots: the body (head included) and the chest logo patch.
+        if set_material_slot(body, 0, suit, KATE_NAME + ".Mesh"):
+            changed.append("material 0")
+        if set_material_slot(body, 1, suit_dark, KATE_NAME + ".Mesh"):
+            changed.append("material 1")
+    else:
+        c.log("skipped", context, "no mesh component")
+
+    if changed:
+        c.compile_blueprint(bp)
+        c.save(bp)
+        c.log("updated", context, ", ".join(changed))
+    else:
+        c.log("exists", context, "capsule, mesh and suit already set")
+
+
 def run():
     c.ensure_directory(PLAYER_PATH)
     c.ensure_directory(UI_PATH)
@@ -335,8 +453,21 @@ def run():
         # The body plays the same two sequences the thugs do; there is no AnimBP.
         values.append(("idle_anim", c.load_or_none(MANNEQUIN_IDLE)))
         values.append(("walk_anim", c.load_or_none(MANNEQUIN_WALK)))
+        values.append(("run_anim", c.load_or_none(MANNEQUIN_RUN)))
+        values.append(("fall_anim", c.load_or_none(MANNEQUIN_FALL)))
         apply_defaults(bp_character, "BP_CastleCharacter", PLAYER_PATH, values)
         configure_body(bp_character)
+
+    # --- BP_Kate --------------------------------------------------------------------------
+    # After the base is compiled and saved, so its generated class exists to derive from.
+    bp_kate = None
+    if bp_character is not None:
+        kate_parent = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+        bp_kate, kate_created = make_blueprint(KATE_NAME, PLAYER_PATH, kate_parent, bp_factories)
+        if bp_kate is not None and kate_created:
+            c.compile_blueprint(bp_kate)
+            c.save(bp_kate)
+        configure_kate(bp_kate)
 
     # --- BP_CastlePlayerController ------------------------------------------------------
     if bp_controller is not None:
@@ -365,7 +496,8 @@ def run():
             "BP_CastleGameMode",
             PLAYER_PATH,
             [
-                ("default_pawn_class", c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")),
+                # Kate is who you play; BP_CastleCharacter stays the base she derives from.
+                ("default_pawn_class", c.load_generated_class(PLAYER_PATH, KATE_NAME)),
                 (
                     "player_controller_class",
                     c.load_generated_class(PLAYER_PATH, "BP_CastlePlayerController"),
@@ -375,6 +507,7 @@ def run():
 
     return {
         "character": bp_character,
+        "kate": bp_kate,
         "controller": bp_controller,
         "game_mode": bp_game_mode,
         "flashback_widget": wbp_flashback,
