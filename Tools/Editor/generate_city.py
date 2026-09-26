@@ -27,6 +27,11 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
 * grapple anchors (``City_Anchor_<n>``, BP_GrappleAnchor): on every building over 8 m, one on
   the parapet at each roof corner and one mid-edge on edges over 25 m, none within 4 m of
   another, each with its landing point on the roof clear of the parapet.
+* traversable ledges (``City_Ledge_<id>_<edge>``): a hidden Game Animation Sample
+  LevelBlock_Traversable along every roof edge of 1 m or more, its Ledge_1 spline on the
+  parapet's outer top edge, so the sample's vault and mantle see the tenements. Parkour test
+  blocks: ``City_Test_Vault`` (90 cm) and ``City_Test_Mantle`` (150 cm) on the street by the
+  PlayerStart, and three low ``City_ParkWall_<n>`` in the park.
 
 Idempotent: each mesh carries a ``CityHash`` metadata tag (hash of its source record and the
 generator version); a mesh is rebuilt only when that hash changes. Actors are found by label
@@ -1451,6 +1456,274 @@ def ensure_grapple_anchors(district, existing):
 
 
 # --------------------------------------------------------------------------------------
+# traversable ledges and parkour test obstacles
+# --------------------------------------------------------------------------------------
+
+# The Game Animation Sample's traversal (AC_TraversalLogic on BP_Kate) sweeps forward on its
+# Traversable trace channel - our first custom channel - and only acts on a LevelBlock_Traversable
+# it hits. That block is a 1 m cube (pivot at a bottom corner) with four ledge splines on its top
+# edges, Ledge_1 along local y = 0 facing -Y and Ledge_2 opposite it along y = 100; a spline's up
+# vector is the ledge's outward normal. So each roof edge gets one, scaled into a slab: local X
+# along the edge, local -Y out of the facade, the top at the parapet top. Ledge_1 is then the
+# outer top edge of the parapet (corner to corner), Ledge_2 its inner edge, and the short ends are
+# narrower than the sample's 60 cm minimum ledge width. The slab is hidden, stands LEDGE_OUTSET
+# proud of the facade so the sweep meets it before the wall, and blocks only that channel.
+LEDGE_PREFIX = "City_Ledge_"
+# BP_TraversableBlock (create_world_blueprints.py) is LevelBlock_Traversable with the sample's
+# level-style lookup switched off; the sample's cast accepts it.
+TRAVERSABLE_PATH = "/Game/Blueprints/World"
+TRAVERSABLE_NAME = "BP_TraversableBlock"
+LEDGE_MIN_EDGE = 100.0      # cm; shorter roof edges get no ledge (the sample wants 60 cm of it)
+LEDGE_OUTSET = 2.0          # cm the slab stands out from the facade
+LEDGE_SLAB_HEIGHT = 400.0   # cm down from the top; covers a step up from a lower neighbour's roof
+LEDGE_SPLINE = "Ledge_1"
+
+TEST_VAULT_LABEL = "City_Test_Vault"
+TEST_MANTLE_LABEL = "City_Test_Mantle"
+PARK_WALL_PREFIX = "City_ParkWall_"
+TEST_BLOCKS = (
+    # label, tag, along the street from the PlayerStart (cm), width, depth, height
+    (TEST_VAULT_LABEL, "CityTestVault", 700.0, 250.0, 60.0, 90.0),
+    (TEST_MANTLE_LABEL, "CityTestMantle", -700.0, 250.0, 150.0, 150.0),
+)
+PARK_WALLS = (
+    # in from the park edge nearest the PlayerStart (cm), width, depth, height
+    (600.0, 400.0, 40.0, 70.0),
+    (1200.0, 400.0, 40.0, 90.0),
+    (1800.0, 400.0, 40.0, 100.0),
+)
+
+
+def traversable_class():
+    return c.load_generated_class(TRAVERSABLE_PATH, TRAVERSABLE_NAME)
+
+
+def traversable_channel():
+    """ECC_GameTraceChannel1 as Python names it: by its display name, which in this project is
+    Weapon (the sample calls the same channel Traversable)."""
+    for name in ("ECC_WEAPON", "ECC_GAME_TRACE_CHANNEL1", "ECC_TRAVERSABLE"):
+        if hasattr(unreal.CollisionChannel, name):
+            return getattr(unreal.CollisionChannel, name)
+    return None
+
+
+def ledge_spots(district):
+    """[(label, osm id, origin, yaw, scale, outer corner a, outer corner b, hash)] in a stable order.
+
+    One per roof edge of LEDGE_MIN_EDGE or more, on every building. ``origin`` is the slab's
+    bottom corner; ``a`` and ``b`` are where Ledge_1 should end: on the parapet top, LEDGE_OUTSET
+    outside the facade line, at the two ends of the edge.
+    """
+    spots = []
+    for rec in sorted(district.buildings, key=lambda r: r["id"]):
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) < 3:
+            continue
+        height_cm = rec["height_m"] * 100.0
+        parapet = rec["height_m"] >= PARAPET_MIN_HEIGHT_M
+        top = height_cm + (PARAPET_HEIGHT if parapet else 0.0)
+        slab = min(top, LEDGE_SLAB_HEIGHT)
+        depth = PARAPET_THICK + LEDGE_OUTSET
+        inward = 1.0 if geo.is_ccw(ring) else -1.0
+        n = len(ring)
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            length = math.hypot(bx - ax, by - ay)
+            if length < LEDGE_MIN_EDGE:
+                continue
+            nx, ny = -(by - ay) / length * inward, (bx - ax) / length * inward
+            ux, uy = ny, -nx                       # local X: turning it +90 degrees gives the inward normal
+            if (ax * ux + ay * uy) > (bx * ux + by * uy):
+                ax, ay, bx, by = bx, by, ax, ay
+            ox, oy = ax - nx * LEDGE_OUTSET, ay - ny * LEDGE_OUTSET
+            corner_a = (ox, oy, top)
+            corner_b = (bx - nx * LEDGE_OUTSET, by - ny * LEDGE_OUTSET, top)
+            yaw = math.degrees(math.atan2(uy, ux))
+            scale = (length / 100.0, depth / 100.0, slab / 100.0)
+            origin = (ox, oy, top - slab)
+            spec = geo.record_hash(GENERATOR_VERSION, "ledge", rec["id"], i, list(origin), yaw, list(scale))
+            spots.append((LEDGE_PREFIX + "{0}_{1}".format(rec["id"], i), rec["id"], origin, yaw, scale,
+                          corner_a, corner_b, spec))
+    return spots
+
+
+def _set_components(actor, visible, traversable_only, context):
+    """Hide the block's height labels (and, for ledges, the block), and for ledges block only the
+    Traversable channel so nothing but the sample's sweep ever meets them."""
+    changes = 0
+    for text in actor.get_components_by_class(unreal.TextRenderComponent):
+        changes += set_if_different(text, "visible", False, context)
+    channel = traversable_channel()
+    for mesh in actor.get_components_by_class(unreal.StaticMeshComponent):
+        changes += set_if_different(mesh, "visible", bool(visible), context)
+        if not traversable_only or channel is None:
+            continue
+        if mesh.get_collision_enabled() != unreal.CollisionEnabled.QUERY_ONLY:
+            mesh.set_collision_enabled(unreal.CollisionEnabled.QUERY_ONLY)
+            changes += 1
+        pawn = mesh.get_collision_response_to_channel(unreal.CollisionChannel.ECC_PAWN)
+        trace = mesh.get_collision_response_to_channel(channel)
+        seen = mesh.get_collision_response_to_channel(unreal.CollisionChannel.ECC_VISIBILITY)
+        if pawn != unreal.CollisionResponseType.ECR_IGNORE or seen != unreal.CollisionResponseType.ECR_IGNORE \
+                or trace != unreal.CollisionResponseType.ECR_BLOCK:
+            _set_trace_only_body(mesh, context)
+            changes += 1
+    return changes
+
+
+LEDGE_IGNORED_CHANNELS = ("WorldStatic", "WorldDynamic", "Pawn", "Visibility", "Camera", "PhysicsBody",
+                          "Vehicle", "Destructible")
+LEDGE_BLOCKED_CHANNEL = "Weapon"   # ECC_GameTraceChannel1, the sample's Traversable
+
+
+def _response_channel(name, response):
+    entry = unreal.ResponseChannel()
+    entry.set_editor_property("channel", name)
+    entry.set_editor_property("response", response)
+    return entry
+
+
+def _set_trace_only_body(mesh, context):
+    """Query only, ignore everything but the Traversable channel. Written through the body
+    instance property (not the runtime setters) so it is recorded as an instance edit and
+    survives the construction script re-running when the map loads."""
+    try:
+        body = mesh.get_editor_property("body_instance")
+        body.set_editor_property("collision_profile_name", "Custom")
+        body.set_editor_property("collision_enabled", unreal.CollisionEnabled.QUERY_ONLY)
+        body.set_editor_property("object_type", unreal.CollisionChannel.ECC_WORLD_STATIC)
+        responses = body.get_editor_property("collision_responses")
+        ignore = unreal.CollisionResponseType.ECR_IGNORE
+        array = [_response_channel(name, ignore) for name in LEDGE_IGNORED_CHANNELS]
+        array.append(_response_channel(LEDGE_BLOCKED_CHANNEL, unreal.CollisionResponseType.ECR_BLOCK))
+        responses.set_editor_property("response_array", array)
+        body.set_editor_property("collision_responses", responses)
+        mesh.set_editor_property("body_instance", body)
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("collision " + context, exc)
+    # And the live component, so the check above reads the new responses straight away.
+    mesh.set_collision_enabled(unreal.CollisionEnabled.QUERY_ONLY)
+    mesh.set_collision_response_to_all_channels(unreal.CollisionResponseType.ECR_IGNORE)
+    mesh.set_collision_response_to_channel(traversable_channel(), unreal.CollisionResponseType.ECR_BLOCK)
+
+
+def _ensure_block(existing, label, cls, origin, yaw, scale, tags, visible, traversable_only):
+    """A BP_TraversableBlock at origin (its bottom corner), turned yaw, scaled. Returns changes."""
+    loc = unreal.Vector(*origin)
+    rot = unreal.Rotator(0.0, 0.0, yaw)
+    want_scale = unreal.Vector(*scale)
+    changes = 0
+    actor = existing.get(label)
+    if actor is not None and actor.get_class() != cls:
+        actor.destroy_actor()
+        actor = None
+    if actor is None:
+        actor = c.spawn_actor(cls, loc, rot, label=label)
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return 0
+        existing[label] = actor
+        changes += 1
+    if not same_vector(actor.get_actor_location(), loc, 0.05):
+        actor.set_actor_location(loc, False, True)
+        changes += 1
+    if abs(((actor.get_actor_rotation().yaw - yaw) + 180.0) % 360.0 - 180.0) > 0.01:
+        actor.set_actor_rotation(rot, False)
+        changes += 1
+    if not same_vector(actor.get_actor_scale3d(), want_scale, 1e-4):
+        actor.set_actor_scale3d(want_scale)
+        changes += 1
+    changes += _set_components(actor, visible, traversable_only, label)
+    if actor.get_actor_label() != label:
+        actor.set_actor_label(label)
+        changes += 1
+    return changes + _ensure_tags(actor, tags)
+
+
+def ensure_ledges(district, existing):
+    """City_Ledge_<osm id>_<edge>: a hidden BP_TraversableBlock along every roof edge."""
+    cls = traversable_class()
+    if cls is None:
+        c.log("FAILED", LEDGE_PREFIX + "*",
+              "BP_TraversableBlock not found; run Tools\\create-content.ps1 (import_gasp, world blueprints)")
+        return 0
+    if traversable_channel() is None:
+        c.log("FAILED", LEDGE_PREFIX + "*", "no Python name for ECC_GameTraceChannel1")
+        return 0
+    spots = ledge_spots(district)
+    wanted = set()
+    changes = 0
+    changed = 0
+    for label, osm, origin, yaw, scale, _a, _b, spec in spots:
+        wanted.add(label)
+        n = _ensure_block(existing, label, cls, origin, yaw, scale,
+                          ["City", "CityLedge", "osm:" + osm, "ledgehash:" + spec], False, True)
+        if n:
+            changed += 1
+        changes += n
+    removed = 0
+    for label, actor in list(existing.items()):
+        if label.startswith(LEDGE_PREFIX) and label not in wanted:
+            actor.destroy_actor()
+            existing.pop(label, None)
+            removed += 1
+    c.log("updated" if (changed or removed) else "exists", "traversable ledges",
+          "{0} ledges on {1} buildings, {2} changed, {3} removed".format(
+              len(spots), len({s[1] for s in spots}), changed, removed))
+    return changes + removed
+
+
+def test_block_spots(district):
+    """[(label, tag, origin, yaw, scale)] for the street test blocks and the park walls."""
+    loc, rot = player_start_transform(district)
+    yaw = rot.yaw
+    across = (math.cos(math.radians(yaw)), math.sin(math.radians(yaw)))    # out of the park, across the street
+    along = (-across[1], across[0])                                          # along the street: local +Y
+    spots = []
+    for label, tag, offset, width, depth, height in TEST_BLOCKS:
+        cx, cy = loc.x + along[0] * offset, loc.y + along[1] * offset
+        ox = cx - across[0] * width * 0.5 - along[0] * depth * 0.5
+        oy = cy - across[1] * width * 0.5 - along[1] * depth * 0.5
+        spots.append((label, tag, (ox, oy, ROAD_TOP), yaw, (width / 100.0, depth / 100.0, height / 100.0)))
+
+    park = district.parks[0] if district.parks else None
+    if park is not None:
+        ring = district.ring_cm(park["outer"])
+        edge = closest_point_on_polyline((loc.x, loc.y), list(ring) + [ring[0]])[1]
+        cx, cy = geo.centroid(ring)
+        dx, dy = cx - edge[0], cy - edge[1]
+        dl = math.hypot(dx, dy) or 1.0
+        inward = (dx / dl, dy / dl)                                          # local +Y
+        xaxis = (inward[1], -inward[0])
+        wall_yaw = math.degrees(math.atan2(xaxis[1], xaxis[0]))
+        for i, (distance, width, depth, height) in enumerate(PARK_WALLS):
+            px, py = edge[0] + inward[0] * distance, edge[1] + inward[1] * distance
+            ox = px - xaxis[0] * width * 0.5 - inward[0] * depth * 0.5
+            oy = py - xaxis[1] * width * 0.5 - inward[1] * depth * 0.5
+            spots.append((PARK_WALL_PREFIX + str(i), "CityParkWall", (ox, oy, PARK_TOP), wall_yaw,
+                          (width / 100.0, depth / 100.0, height / 100.0)))
+    return spots
+
+
+def ensure_test_blocks(district, existing):
+    """City_Test_Vault (90 cm) and City_Test_Mantle (150 cm) on the street by the PlayerStart, and
+    City_ParkWall_<n> low walls in the park: visible BP_TraversableBlocks to vault and mantle."""
+    cls = traversable_class()
+    if cls is None:
+        c.log("FAILED", "parkour test blocks", "BP_TraversableBlock not found")
+        return 0
+    spots = test_block_spots(district)
+    changes = 0
+    for label, tag, origin, yaw, scale in spots:
+        changes += _ensure_block(existing, label, cls, origin, yaw, scale, ["City", "CityParkour", tag], True, False)
+    c.log("updated" if changes else "exists", "parkour test blocks",
+          "{0} blocks: {1}".format(len(spots), ", ".join(
+              "{0} {1:.0f} cm".format(s[0], s[4][2] * 100.0) for s in spots)))
+    return changes
+
+
+# --------------------------------------------------------------------------------------
 # level
 # --------------------------------------------------------------------------------------
 
@@ -1507,6 +1780,8 @@ def run():
     changes += ensure_objective_volumes(district, existing)
     changes += ensure_street_lamps(district, existing)
     changes += ensure_grapple_anchors(district, existing)
+    changes += ensure_ledges(district, existing)
+    changes += ensure_test_blocks(district, existing)
 
     if created or changes:
         c.level_editor_subsystem().save_current_level()

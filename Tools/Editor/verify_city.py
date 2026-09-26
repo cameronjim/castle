@@ -14,6 +14,9 @@ Prints one line per check and a final ``[Castle] verify_city PASS`` or ``FAIL``:
   generator, and no prison-build actors (thugs, keycards, doors, pickups)
 * the grapple anchors match the generator, and every anchor's landing point is on a roof: a
   trace from just above it down 50 cm hits a City_Bldg mesh
+* one City_Ledge_ BP_TraversableBlock per roof edge the generator considers, hidden and
+  blocking only the Traversable channel, its Ledge_1 spline ending on the parapet's outer
+  corners within 5 cm; the parkour test blocks and park walls at their heights
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
     UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
@@ -28,6 +31,7 @@ import unreal
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
 import generate_city as gen  # noqa: E402
+import _geo as geo  # noqa: E402
 
 HEIGHT_TOLERANCE_CM = 1.0
 
@@ -154,6 +158,86 @@ def check_anchors(district, actors):
     if heights:
         unreal.log("[Castle] info  anchors sit {0:.0f} to {1:.0f} cm above their landing points".format(
             min(heights), max(heights)))
+
+
+LEDGE_TOLERANCE_CM = 5.0
+
+
+
+def closest_point_on_ring(pt, ring):
+    return gen.closest_point_on_polyline(pt, list(ring) + [ring[0]])[0]
+
+
+def check_ledges(district, actors):
+    """Every roof edge the generator considers has its City_Ledge_ block, and each block's Ledge_1
+    spline runs corner to corner along the parapet top: both ends within LEDGE_TOLERANCE_CM of the
+    expected corners, of the footprint outline (horizontally) and of the parapet top (vertically)."""
+    expected = gen.ledge_spots(district)
+    ledges = {label: a for label, a in actors.items() if label.startswith(gen.LEDGE_PREFIX)}
+    labels_ok = set(ledges) == {s[0] for s in expected}
+    check(labels_ok, "traversable ledges match the generator's roof edges",
+          "{0} ledges, {1} roof edges of {2} cm or more on {3} buildings".format(
+              len(ledges), len(expected), int(gen.LEDGE_MIN_EDGE), len({s[1] for s in expected})))
+
+    rings = {}
+    for rec in district.buildings:
+        rings[rec["id"]] = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+    cls = gen.traversable_class()
+    channel = gen.traversable_channel()
+    wrong_class, no_spline, off_corner, off_edge, visible, bad_collision = [], [], [], [], [], []
+    worst = 0.0
+    for label, osm, _origin, _yaw, _scale, corner_a, corner_b, _spec in expected:
+        actor = ledges.get(label)
+        if actor is None:
+            continue
+        if cls is not None and actor.get_class() != cls:
+            wrong_class.append(label)
+            continue
+        spline = next((comp for comp in actor.get_components_by_class(unreal.SplineComponent)
+                       if comp.get_name() == gen.LEDGE_SPLINE), None)
+        if spline is None or spline.get_number_of_spline_points() < 2:
+            no_spline.append(label)
+            continue
+        ends = [spline.get_location_at_spline_point(i, unreal.SplineCoordinateSpace.WORLD)
+                for i in (0, spline.get_number_of_spline_points() - 1)]
+        for end, want in zip(ends, (corner_a, corner_b)):
+            error = max(abs(end.x - want[0]), abs(end.y - want[1]), abs(end.z - want[2]))
+            worst = max(worst, error)
+            if error > LEDGE_TOLERANCE_CM:
+                off_corner.append("{0} {1:.1f} cm".format(label, error))
+            if closest_point_on_ring((end.x, end.y), rings[osm]) > LEDGE_TOLERANCE_CM:
+                off_edge.append(label)
+        for mesh in actor.get_components_by_class(unreal.StaticMeshComponent):
+            if mesh.get_editor_property("visible"):
+                visible.append(label)
+            if channel is not None and (
+                    mesh.get_collision_response_to_channel(channel) != unreal.CollisionResponseType.ECR_BLOCK
+                    or mesh.get_collision_response_to_channel(unreal.CollisionChannel.ECC_PAWN)
+                    != unreal.CollisionResponseType.ECR_IGNORE):
+                bad_collision.append(label)
+    check(not wrong_class, "every ledge is a BP_TraversableBlock (a LevelBlock_Traversable)", ", ".join(wrong_class[:5]))
+    check(not no_spline, "every ledge has its " + gen.LEDGE_SPLINE + " spline", ", ".join(no_spline[:5]))
+    check(not off_corner, "ledge spline ends on the parapet corners within {0:.0f} cm (worst {1:.2f} cm)".format(
+        LEDGE_TOLERANCE_CM, worst), "; ".join(off_corner[:5]))
+    check(not off_edge, "ledge spline ends on the roof outline within {0:.0f} cm".format(LEDGE_TOLERANCE_CM),
+          ", ".join(off_edge[:5]))
+    check(not visible, "ledge blocks are hidden", ", ".join(visible[:5]))
+    check(not bad_collision, "ledge blocks block only the Traversable channel (not Pawn)", ", ".join(bad_collision[:5]))
+
+    blocks = gen.test_block_spots(district)
+    missing = [s[0] for s in blocks if s[0] not in actors]
+    check(not missing, "parkour test blocks present ({0})".format(", ".join(
+        "{0} {1:.0f} cm".format(s[0], s[4][2] * 100.0) for s in blocks)), ", ".join(missing))
+    wrong_height = []
+    for label, _tag, origin, _yaw, scale in blocks:
+        actor = actors.get(label)
+        if actor is None:
+            continue
+        box_origin, extent = actor.get_actor_bounds(True)
+        top = box_origin.z + extent.z
+        if abs(top - (origin[2] + scale[2] * 100.0)) > 1.0:
+            wrong_height.append("{0} top {1:.1f}".format(label, top))
+    check(not wrong_height, "parkour test blocks stand at their heights within 1 cm", "; ".join(wrong_height))
 
 
 def run():
@@ -292,6 +376,7 @@ def run():
               len(lights), len(poles), len(heads), expected, shadowed))
 
     check_anchors(district, actors)
+    check_ledges(district, actors)
 
     prison = [a.get_actor_label() for a in all_actors
               if any(w in gen.actor_class_name(a) for w in gen.PRISON_CLASS_WORDS)]
