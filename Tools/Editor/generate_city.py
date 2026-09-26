@@ -23,7 +23,9 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   ``City_LampPole_<n>`` and ``City_LampHead_<n>``); only the ones around the park cast shadows.
   Lit windows are not built yet.
 * chapter 1: the BP_GameMode_EastVillage override (starts DA_CH01_Rooftops) and three
-  ``City_Obj_<objective>`` trigger volumes on roofs picked from the records.
+  ``City_Obj_<objective>`` trigger volumes on roofs picked from the records, each with a 1 m
+  ``City_Beacon_<objective>`` (pole, emissive purple ``City_BeaconTop_``, and a movable 300 lm
+  purple ``City_BeaconLight_``) at the end of the roof nearest the start.
 * chapter 1's first fight: four ``City_Thug_<n>`` (BP_Thug). A Fists and a Bat thug face each
   other on the cross_block roof (tag RoofPair, counted by ``City_ThugGroup_clear_roof``, which
   completes ``clear_roof``); a Bat thug and the gunner patrol the Avenue A sidewalk beside the
@@ -1076,6 +1078,134 @@ def ensure_objective_volumes(district, existing):
             existing.pop(label, None)
             changes += 1
             c.log("updated", label, "removed stray objective volume")
+    return changes
+
+
+# Each objective roof also gets a beacon: a 1 m pole with an emissive purple cap and a faint
+# purple point light, at the end of the roof nearest the start, so the roof reads from the street
+# at night. Labels City_Beacon_<id> (pole), City_BeaconTop_<id> (cap), City_BeaconLight_<id>.
+BEACON_PREFIX = "City_Beacon_"
+BEACON_TOP_PREFIX = "City_BeaconTop_"
+BEACON_LIGHT_PREFIX = "City_BeaconLight_"
+BEACON_HEIGHT = 100.0             # cm, roof to the top of the cap
+BEACON_CAP = 10.0                 # cm of the height that is the emissive cap
+BEACON_POLE_DIAMETER = 6.0
+BEACON_CAP_DIAMETER = 12.0
+BEACON_INSET = 150.0              # cm in from the end of the roof nearest the start
+BEACON_MIN_CLEARANCE = 100.0      # cm from any roof edge, else the beacon goes to the roof centre
+BEACON_LUMENS = 300.0
+BEACON_RADIUS = 1000.0
+BEACON_COLOR = (0.62, 0.25, 1.0)  # Kate purple
+BEACON_EMISSIVE = 4.0             # before m.EMISSIVE_INTENSITY_FACTOR
+MI_BEACON = m.MATERIALS_PATH + "/MI_ObjectiveBeacon"
+
+
+def beacon_spots(district):
+    """{objective id: (x, y, roof z, how it was placed)} for every objective roof.
+
+    On the roof's long axis, BEACON_INSET in from the end nearer the start: the side seen first,
+    and clear of the RoofPair, who stand either side of the centre. The other end if that one is
+    not BEACON_MIN_CLEARANCE inside the outline, the roof's centre if neither is."""
+    start, _rot = player_start_transform(district)
+    start = (start.x, start.y)
+    out = {}
+    for oid, rec in objective_roofs(district).items():
+        ring = rec["ring"]
+        cx, cy, half_l, _hw, yaw = oriented_rect(ring)
+        ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+        reach = max(half_l - BEACON_INSET, 0.0)
+        ends = [(cx + ux * reach, cy + uy * reach), (cx - ux * reach, cy - uy * reach)]
+        ends.sort(key=lambda p: math.hypot(p[0] - start[0], p[1] - start[1]))
+        how, spot = next((("end", p) for p in ends if _edge_clearance(p, ring) >= BEACON_MIN_CLEARANCE),
+                         ("centre", (cx, cy)))
+        out[oid] = (spot[0], spot[1], rec["height_m"] * 100.0, how)
+    return out
+
+
+def _ensure_no_collision(actor, label):
+    comp = actor.get_editor_property("static_mesh_component")
+    if str(comp.get_collision_profile_name()) != "NoCollision":
+        comp.set_collision_profile_name("NoCollision")
+        return 1
+    return 0
+
+
+def _ensure_beacon_light(existing, label, loc, tags):
+    changes = 0
+    actor = existing.get(label)
+    if actor is not None and not isinstance(actor, unreal.PointLight):
+        actor.destroy_actor()
+        actor = None
+    if actor is None:
+        actor = c.spawn_actor(unreal.PointLight, loc, label=label)
+        if actor is None:
+            c.log("FAILED", label, "spawn_actor returned None")
+            return 0
+        existing[label] = actor
+        changes += 1
+    if not same_vector(actor.get_actor_location(), loc, 0.5):
+        actor.set_actor_location(loc, False, True)
+        changes += 1
+    comp = actor.get_editor_property("point_light_component")
+    changes += set_if_different(comp, "mobility", unreal.ComponentMobility.MOVABLE, label)
+    changes += set_if_different(comp, "intensity_units", unreal.LightUnits.LUMENS, label)
+    changes += set_if_different(comp, "intensity", BEACON_LUMENS, label, 0.5)
+    changes += set_if_different(comp, "attenuation_radius", BEACON_RADIUS, label, 0.5)
+    changes += set_if_different(comp, "cast_shadows", False, label)
+    changes += set_if_different(comp, "use_temperature", False, label)
+    want = unreal.Color(r=int(BEACON_COLOR[0] * 255), g=int(BEACON_COLOR[1] * 255), b=int(BEACON_COLOR[2] * 255), a=255)
+    have = comp.get_editor_property("light_color")
+    if (have.r, have.g, have.b) != (want.r, want.g, want.b):
+        comp.set_editor_property("light_color", want)
+        changes += 1
+    return changes + _ensure_tags(actor, tags)
+
+
+def ensure_objective_beacons(district, existing):
+    cylinder = c.load_or_none(CYLINDER)
+    if cylinder is None:
+        c.log("FAILED", BEACON_PREFIX + "*", "engine cylinder not found")
+        return 0
+    emissive = m.ensure_material(m.M_EMISSIVE, m._build_emissive)
+    cap_mat = m.ensure_material_instance(
+        MI_BEACON, emissive,
+        vectors=[(m.EMISSIVE_COLOR_PARAM, BEACON_COLOR)],
+        scalars=[(m.EMISSIVE_INTENSITY_PARAM, BEACON_EMISSIVE * m.EMISSIVE_INTENSITY_FACTOR)])
+    pole_mat = m.ensure_steel_painted()
+    spots = beacon_spots(district)
+    changes = 0
+    wanted = set()
+    no_rot = unreal.Rotator(0.0, 0.0, 0.0)
+    for oid in OBJECTIVE_IDS:
+        spot = spots.get(oid)
+        if spot is None:
+            c.log("FAILED", BEACON_PREFIX + oid, "no objective roof")
+            continue
+        x, y, roof_z, how = spot
+        tags = ["City", "CityBeacon", "objective:" + oid]
+        pole_label, top_label, light_label = BEACON_PREFIX + oid, BEACON_TOP_PREFIX + oid, BEACON_LIGHT_PREFIX + oid
+        wanted.update((pole_label, top_label, light_label))
+        pole_h = BEACON_HEIGHT - BEACON_CAP
+        n = _ensure_mesh_actor(
+            existing, pole_label, cylinder, pole_mat, unreal.Vector(x, y, roof_z + pole_h * 0.5), no_rot,
+            unreal.Vector(BEACON_POLE_DIAMETER / 100.0, BEACON_POLE_DIAMETER / 100.0, pole_h / 100.0), tags)
+        n += _ensure_mesh_actor(
+            existing, top_label, cylinder, cap_mat, unreal.Vector(x, y, roof_z + pole_h + BEACON_CAP * 0.5), no_rot,
+            unreal.Vector(BEACON_CAP_DIAMETER / 100.0, BEACON_CAP_DIAMETER / 100.0, BEACON_CAP / 100.0), tags)
+        for label in (pole_label, top_label):
+            if label in existing:
+                n += _ensure_no_collision(existing[label], label)
+        n += _ensure_beacon_light(existing, light_label, unreal.Vector(x, y, roof_z + BEACON_HEIGHT + 20.0), tags)
+        changes += n
+        c.log("updated" if n else "exists", pole_label, "at {0:.0f}, {1:.0f} on a {2:.1f} m roof ({3})".format(
+            x, y, roof_z / 100.0, how))
+
+    for label, actor in list(existing.items()):
+        if label.startswith((BEACON_PREFIX, BEACON_TOP_PREFIX, BEACON_LIGHT_PREFIX)) and label not in wanted:
+            actor.destroy_actor()
+            existing.pop(label, None)
+            changes += 1
+            c.log("updated", label, "removed stray beacon")
     return changes
 
 
@@ -2302,6 +2432,7 @@ def run():
     changes += ensure_game_mode()
     changes += remove_prison_actors(existing)
     changes += ensure_objective_volumes(district, existing)
+    changes += ensure_objective_beacons(district, existing)
     changes += ensure_thugs(district, existing)
     changes += ensure_street_lamps(district, existing)
     changes += ensure_ledge_spawner(district, existing)
