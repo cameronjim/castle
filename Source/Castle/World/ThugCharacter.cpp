@@ -153,7 +153,58 @@ void AThugCharacter::Tick(float DeltaSeconds)
 	if (!bKnockedDown)
 	{
 		UpdateLocomotionAnimation();
+		UpdateHeldWeaponPose();
 	}
+}
+
+FVector AThugCharacter::ComputeBatDirection() const
+{
+	const FQuat Actor = GetActorQuat();
+	const FVector Hang = Actor.RotateVector(BatHangDirection.GetSafeNormal());
+	const FVector Cocked = Actor.RotateVector(BatCockedDirection.GetSafeNormal());
+	const FVector Swung = Actor.RotateVector(BatSwungDirection.GetSafeNormal());
+	auto Blend = [](const FVector& From, const FVector& To, float Alpha)
+	{
+		return FQuat::Slerp(FQuat::Identity, FQuat::FindBetweenNormals(From, To), FMath::Clamp(Alpha, 0.f, 1.f)).RotateVector(From);
+	};
+
+	if (!MeleeComponent || !MeleeComponent->IsAttacking())
+	{
+		return Hang;
+	}
+	const FCastleMeleeAttack& Attack = MeleeComponent->GetCurrentAttack();
+	if (MeleeComponent->IsWindingUp())
+	{
+		// Up and back over the telegraph.
+		const float Elapsed = Attack.WindupSeconds - MeleeComponent->GetPhaseRemaining();
+		return Blend(Hang, Cocked, FMath::SmoothStep(0.f, 1.f, Attack.WindupSeconds > 0.f ? Elapsed / Attack.WindupSeconds : 1.f));
+	}
+	// The swing across the front, fast, then down again over the rest of the recovery.
+	const float Elapsed = Attack.RecoverSeconds - MeleeComponent->GetPhaseRemaining();
+	if (Elapsed < BatSwingSeconds)
+	{
+		return Blend(Cocked, Swung, Elapsed / BatSwingSeconds);
+	}
+	const float Rest = FMath::Max(Attack.RecoverSeconds - BatSwingSeconds, 0.01f);
+	return Blend(Swung, Hang, FMath::SmoothStep(0.f, 1.f, (Elapsed - BatSwingSeconds) / Rest));
+}
+
+void AThugCharacter::UpdateHeldWeaponPose()
+{
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	if (!HeldWeaponComponent || !HeldWeaponComponent->IsVisible() || !SkeletalMesh
+		|| !SkeletalMesh->DoesSocketExist(HeldWeaponSocketName))
+	{
+		return;
+	}
+	// The hand's bone axes differ between skeletons and clips; the bat's direction comes from the
+	// actor and the swing instead, and only its grip from the hand. The engine cylinder is 100 cm
+	// along Z about its centre, scaled to the bat's length.
+	const FVector Direction = ComputeBatDirection();
+	const float Length = 100.f * HeldWeaponComponent->GetRelativeScale3D().Z;
+	const FVector Hand = SkeletalMesh->GetSocketLocation(HeldWeaponSocketName);
+	HeldWeaponComponent->SetWorldLocationAndRotation(Hand + Direction * (Length * 0.5f - BatGripFromEnd),
+		FRotationMatrix::MakeFromZ(Direction).Rotator());
 }
 
 void AThugCharacter::RefreshHeldWeapon()

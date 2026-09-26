@@ -109,6 +109,39 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug|Components")
 	UStaticMeshComponent* GetHeldWeaponComponent() const { return HeldWeaponComponent; }
 
+	/**
+	 * Which way the bat points from the grip, in world space, for the swing he is (or is not) in:
+	 * hanging down along the leg (BatHangDirection) while he walks, up to horizontal behind him
+	 * (BatCockedDirection) over the wind-up, across to horizontal in front (BatSwungDirection) in
+	 * the first BatSwingSeconds of the recovery, and back down over the rest of it.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
+	FVector ComputeBatDirection() const;
+
+	/** Places the bat in his right hand along ComputeBatDirection, gripped near its end. Called from Tick. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Combat")
+	void UpdateHeldWeaponPose();
+
+	/** The bat hanging from the hand while walking, in the actor's frame (X forward, Y right, Z up). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FVector BatHangDirection = FVector(0.2f, 0.18f, -1.f);
+
+	/** The bat at the end of the wind-up: out behind him, level, in the actor's frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FVector BatCockedDirection = FVector(-0.45f, 1.f, 0.1f);
+
+	/** The bat at the end of the swing: across in front of him, level, in the actor's frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FVector BatSwungDirection = FVector(0.7f, -1.f, -0.05f);
+
+	/** How long the swing from behind to in front takes, at the start of the recovery, s. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat", meta = (ClampMin = "0.01"))
+	float BatSwingSeconds = 0.15f;
+
+	/** How far from the bat's end the hand grips it, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat", meta = (ClampMin = "0.0"))
+	float BatGripFromEnd = 8.f;
+
 	// --- Hit reactions --------------------------------------------------------------------------
 
 	/**
