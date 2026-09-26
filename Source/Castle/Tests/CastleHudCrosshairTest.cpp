@@ -6,47 +6,35 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
- * The crosshair's rules, without building Slate: the gap tightens while aiming, the bars flash
- * white on a hit and go back to green, and sprinting fades them. The layout itself (four bars,
- * centred) is a visual thing and is checked by eye.
+ * The third-person reticle's rules, without building Slate: hidden at the hip, a small dot while
+ * aiming, white on a hit and back again. Where it lands on screen is checked by eye.
  */
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleHudCrosshairGap, "Castle.Hud.CrosshairGap",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleHudReticleOnlyWhileAiming, "Castle.Hud.ReticleOnlyWhileAiming",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleHudCrosshairGap::RunTest(const FString& Parameters)
+bool FCastleHudReticleOnlyWhileAiming::RunTest(const FString& Parameters)
 {
 	UCastleHudWidget* Hud = NewObject<UCastleHudWidget>();
 
-	TestEqual(TEXT("Hip fire leaves a 3 pixel gap"), Hud->GetCrosshairGap(), 3.f);
+	TestFalse(TEXT("No reticle at the hip"), Hud->IsReticleVisible());
 
-	Hud->SetCrosshairAiming(true);
-	TestEqual(TEXT("Aiming tightens it to 2"), Hud->GetCrosshairGap(), 2.f);
+	Hud->SetReticleAiming(true);
+	TestTrue(TEXT("Aiming shows it"), Hud->IsReticleVisible());
 
-	Hud->SetCrosshairAiming(false);
-	TestEqual(TEXT("And it opens back up"), Hud->GetCrosshairGap(), 3.f);
+	Hud->SetReticleAiming(false);
+	TestFalse(TEXT("And lowering hides it again"), Hud->IsReticleVisible());
 
 	return true;
 }
 
-/**
- * The bars are small on purpose: 7 x 2 pixels with a 3 pixel gap. Cameron asked for a much
- * smaller crosshair after the third play, and a later tweak that quietly grows it back is
- * exactly the regression worth a test.
- */
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleHudCrosshairSize, "Castle.Hud.CrosshairSize",
+/** A 4 pixel dot. A later tweak that quietly grows it into a target is the regression to catch. */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleHudReticleSize, "Castle.Hud.ReticleSize",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleHudCrosshairSize::RunTest(const FString& Parameters)
+bool FCastleHudReticleSize::RunTest(const FString& Parameters)
 {
 	UCastleHudWidget* Hud = NewObject<UCastleHudWidget>();
-
-	TestEqual(TEXT("Bars are 7 pixels long"), Hud->GetCrosshairBarLength(), 7.f);
-	TestEqual(TEXT("And 2 pixels thick"), Hud->GetCrosshairBarThickness(), 2.f);
-	TestTrue(TEXT("A bar is longer than it is thick"),
-		Hud->GetCrosshairBarLength() > Hud->GetCrosshairBarThickness());
-	TestTrue(TEXT("The whole plus is no more than 20 pixels across"),
-		2.f * (Hud->GetCrosshairGap() + Hud->GetCrosshairBarLength()) <= 20.f);
-
+	TestEqual(TEXT("The dot is 4 pixels"), Hud->GetReticleSize(), 4.f);
 	return true;
 }
 
@@ -57,27 +45,22 @@ bool FCastleHudHitMarkerFlash::RunTest(const FString& Parameters)
 {
 	UCastleHudWidget* Hud = NewObject<UCastleHudWidget>();
 
-	const FLinearColor Resting = Hud->GetCrosshairColor();
-	TestEqual(TEXT("At rest the crosshair is the green it was authored as"),
-		Resting, FLinearColor(0.22f, 1.f, 0.08f, 1.f));
+	const FLinearColor Resting = Hud->GetReticleColor();
+	TestNotEqual(TEXT("At rest the dot is not white"), Resting, FLinearColor::White);
 
 	Hud->FlashHitMarker();
-	TestEqual(TEXT("A hit turns the bars white"), Hud->GetCrosshairColor(), FLinearColor::White);
+	TestEqual(TEXT("A hit turns it white"), Hud->GetReticleColor(), FLinearColor::White);
 
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleHudCrosshairHiddenUnarmed, "Castle.Hud.CrosshairHiddenUnarmed",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleHudDebugLineOffByDefault, "Castle.Hud.DebugLineOffByDefault",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FCastleHudCrosshairHiddenUnarmed::RunTest(const FString& Parameters)
+bool FCastleHudDebugLineOffByDefault::RunTest(const FString& Parameters)
 {
 	UCastleHudWidget* Hud = NewObject<UCastleHudWidget>();
-
-	// With no owning pawn there is no weapon, which is the same answer as being empty-handed:
-	// Frank sees no crosshair until he picks the pistol up.
-	TestFalse(TEXT("No weapon, no crosshair"), Hud->IsCrosshairVisible());
-
+	TestTrue(TEXT("castle.DebugMovement is off unless asked for"), Hud->GetMovementDebugText().IsEmpty());
 	return true;
 }
 

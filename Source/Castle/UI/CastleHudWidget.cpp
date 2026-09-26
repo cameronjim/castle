@@ -18,7 +18,6 @@
 #include "Mission/MissionObjective.h"
 #include "Mission/MissionSubsystem.h"
 #include "Player/CastleCharacter.h"
-#include "Player/InventoryComponent.h"
 #include "UI/CastleHotbarWidget.h"
 
 TSharedRef<SWidget> UCastleHudWidget::RebuildWidget()
@@ -48,8 +47,10 @@ TSharedRef<SWidget> UCastleHudWidget::RebuildWidget()
 		AddText(ObjectiveText, TEXT("ObjectiveText"), HAlign_Left, VAlign_Top, FMargin(48.f, 48.f, 0.f, 0.f));
 		AddText(AmmoText, TEXT("AmmoText"), HAlign_Right, VAlign_Bottom, FMargin(0.f, 0.f, 48.f, 48.f));
 		AddText(PromptText, TEXT("PromptText"), HAlign_Center, VAlign_Center, FMargin(0.f, 120.f, 0.f, 0.f));
+		AddText(DebugText, TEXT("DebugText"), HAlign_Left, VAlign_Top, FMargin(48.f, 80.f, 0.f, 0.f));
+		DebugText->SetVisibility(ESlateVisibility::Collapsed);
 
-		BuildCrosshair(Root);
+		BuildReticle(Root);
 
 		// The hotbar is its own widget so it can be styled and tested on its own, but it lives
 		// inside the HUD's overlay rather than being a second thing the controller manages.
@@ -70,190 +71,115 @@ TSharedRef<SWidget> UCastleHudWidget::RebuildWidget()
 	return Super::RebuildWidget();
 }
 
-void UCastleHudWidget::BuildCrosshair(UOverlay* Root)
+void UCastleHudWidget::BuildReticle(UOverlay* Root)
 {
 	if (!WidgetTree || !Root)
 	{
 		return;
 	}
 
-	if (!Crosshair)
+	if (!Reticle)
 	{
-		Crosshair = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("Crosshair"));
+		Reticle = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("Reticle"));
 	}
 
-	// The canvas fills the screen and every bar is anchored to its centre, which is the only
-	// way to land on the exact centre pixel regardless of resolution.
-	if (UOverlaySlot* CrosshairSlot = Cast<UOverlaySlot>(Root->AddChild(Crosshair)))
+	// The canvas fills the screen and the dot is anchored to its centre, which is the only way
+	// to land on the exact centre pixel regardless of resolution.
+	if (UOverlaySlot* ReticleSlot = Cast<UOverlaySlot>(Root->AddChild(Reticle)))
 	{
-		CrosshairSlot->SetHorizontalAlignment(HAlign_Fill);
-		CrosshairSlot->SetVerticalAlignment(VAlign_Fill);
+		ReticleSlot->SetHorizontalAlignment(HAlign_Fill);
+		ReticleSlot->SetVerticalAlignment(VAlign_Fill);
 	}
 
-	static const TCHAR* BarNames[] = { TEXT("CrosshairTop"), TEXT("CrosshairBottom"),
-		TEXT("CrosshairLeft"), TEXT("CrosshairRight") };
-
-	CrosshairBars.Reset();
-	for (const TCHAR* BarName : BarNames)
+	ReticleDot = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("ReticleDot"));
+	ReticleDot->SetPadding(FMargin(0.f));
+	if (UCanvasPanelSlot* DotSlot = Cast<UCanvasPanelSlot>(Reticle->AddChild(ReticleDot)))
 	{
-		UBorder* Bar = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), BarName);
-		Bar->SetPadding(FMargin(0.f));
-		if (UCanvasPanelSlot* BarSlot = Cast<UCanvasPanelSlot>(Crosshair->AddChild(Bar)))
-		{
-			BarSlot->SetAnchors(FAnchors(0.5f, 0.5f));
-			BarSlot->SetAlignment(FVector2D(0.5f, 0.5f));
-			BarSlot->SetAutoSize(false);
-		}
-		CrosshairBars.Add(Bar);
+		DotSlot->SetAnchors(FAnchors(0.5f, 0.5f));
+		DotSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		DotSlot->SetAutoSize(false);
+		DotSlot->SetPosition(FVector2D::ZeroVector);
 	}
 
-	RefreshCrosshair();
+	RefreshReticle();
 }
 
-void UCastleHudWidget::RefreshCrosshair()
+void UCastleHudWidget::RefreshReticle()
 {
-	if (CrosshairBars.Num() < 4)
+	if (ReticleDot)
+	{
+		ReticleDot->SetBrushColor(GetReticleColor());
+		if (UCanvasPanelSlot* DotSlot = Cast<UCanvasPanelSlot>(ReticleDot->Slot))
+		{
+			DotSlot->SetSize(FVector2D(ReticleSizePixels, ReticleSizePixels));
+		}
+	}
+
+	if (Reticle)
+	{
+		Reticle->SetVisibility(IsReticleVisible() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+}
+
+FLinearColor UCastleHudWidget::GetReticleColor() const
+{
+	return HitFlashRemaining > 0.f ? HitMarkerColor : ReticleColor;
+}
+
+void UCastleHudWidget::SetReticleAiming(bool bNewAiming)
+{
+	if (bReticleAiming == bNewAiming)
 	{
 		return;
 	}
 
-	// Centre of a bar sits a gap plus half its own length away from the middle.
-	const float Offset = GetCrosshairGap() + BarLengthPixels * 0.5f;
-	const FVector2D VerticalSize(BarThicknessPixels, BarLengthPixels);
-	const FVector2D HorizontalSize(BarLengthPixels, BarThicknessPixels);
-
-	const FVector2D Sizes[] = { VerticalSize, VerticalSize, HorizontalSize, HorizontalSize };
-	const FVector2D Positions[] = {
-		FVector2D(0.f, -Offset), FVector2D(0.f, Offset),
-		FVector2D(-Offset, 0.f), FVector2D(Offset, 0.f) };
-
-	const FLinearColor Color = GetCrosshairColor();
-
-	for (int32 Index = 0; Index < 4; ++Index)
-	{
-		UBorder* Bar = CrosshairBars[Index];
-		if (!Bar)
-		{
-			continue;
-		}
-
-		Bar->SetBrushColor(Color);
-
-		// Fists get a dot, not a cone: the first bar becomes the dot and the other three go.
-		if (bDotMode)
-		{
-			Bar->SetVisibility(Index == 0 ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-			if (Index == 0)
-			{
-				if (UCanvasPanelSlot* DotSlot = Cast<UCanvasPanelSlot>(Bar->Slot))
-				{
-					DotSlot->SetSize(FVector2D(DotSizePixels, DotSizePixels));
-					DotSlot->SetPosition(FVector2D::ZeroVector);
-				}
-			}
-			continue;
-		}
-
-		Bar->SetVisibility(ESlateVisibility::HitTestInvisible);
-		if (UCanvasPanelSlot* BarSlot = Cast<UCanvasPanelSlot>(Bar->Slot))
-		{
-			BarSlot->SetSize(Sizes[Index]);
-			BarSlot->SetPosition(Positions[Index]);
-		}
-	}
-
-	if (Crosshair)
-	{
-		Crosshair->SetRenderOpacity(bCrosshairSprinting ? SprintOpacity : 1.f);
-		Crosshair->SetVisibility(IsCrosshairVisible()
-			? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
-	}
-}
-
-FLinearColor UCastleHudWidget::GetCrosshairColor() const
-{
-	return HitFlashRemaining > 0.f ? HitMarkerColor : CrosshairColor;
-}
-
-bool UCastleHudWidget::IsCrosshairVisible() const
-{
-	// Fists are a weapon too, so the crosshair stays up for them - as a dot, not as bars.
-	if (FindPawnInventory() != nullptr)
-	{
-		return true;
-	}
-
-	const UWeaponComponent* Weapon = FindPawnWeapon();
-	return Weapon != nullptr && Weapon->HasWeapon();
-}
-
-void UCastleHudWidget::SetCrosshairDotMode(bool bNewDotMode)
-{
-	if (bDotMode == bNewDotMode)
-	{
-		return;
-	}
-
-	bDotMode = bNewDotMode;
-	RefreshCrosshair();
-}
-
-UInventoryComponent* UCastleHudWidget::FindPawnInventory() const
-{
-	const APlayerController* PC = GetOwningPlayer();
-	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
-	return Pawn ? Pawn->FindComponentByClass<UInventoryComponent>() : nullptr;
-}
-
-void UCastleHudWidget::SetCrosshairAiming(bool bNewAiming)
-{
-	if (bCrosshairAiming == bNewAiming)
-	{
-		return;
-	}
-
-	bCrosshairAiming = bNewAiming;
-	RefreshCrosshair();
-}
-
-void UCastleHudWidget::SetCrosshairSprinting(bool bNewSprinting)
-{
-	if (bCrosshairSprinting == bNewSprinting)
-	{
-		return;
-	}
-
-	bCrosshairSprinting = bNewSprinting;
-	RefreshCrosshair();
+	bReticleAiming = bNewAiming;
+	RefreshReticle();
 }
 
 void UCastleHudWidget::FlashHitMarker()
 {
 	HitFlashRemaining = HitFlashSeconds;
-	RefreshCrosshair();
+	RefreshReticle();
 }
 
-void UCastleHudWidget::PollPawnCrosshairState()
+void UCastleHudWidget::PollPawnReticleState()
 {
 	const APlayerController* PC = GetOwningPlayer();
 	const ACastleCharacter* Character = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
-	if (!Character)
+	SetReticleAiming(Character != nullptr && Character->IsAiming());
+}
+
+FText UCastleHudWidget::GetMovementDebugText() const
+{
+	if (!ACastleCharacter::IsMovementDebugEnabled())
+	{
+		return FText::GetEmpty();
+	}
+
+	const APlayerController* PC = GetOwningPlayer();
+	const ACastleCharacter* Character = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
+	return Character ? FText::FromString(Character->GetMovementDebugText()) : FText::GetEmpty();
+}
+
+void UCastleHudWidget::RefreshMovementDebug()
+{
+	if (!DebugText)
 	{
 		return;
 	}
 
-	SetCrosshairAiming(Character->IsAiming());
-	SetCrosshairSprinting(Character->IsSprinting());
-
-	const UWeaponComponent* Weapon = FindPawnWeapon();
-	SetCrosshairDotMode(Weapon != nullptr && !Weapon->HasWeapon());
+	const FText Line = GetMovementDebugText();
+	DebugText->SetText(Line);
+	DebugText->SetVisibility(Line.IsEmpty() ? ESlateVisibility::Collapsed : ESlateVisibility::HitTestInvisible);
 }
 
 void UCastleHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSeconds)
 {
 	Super::NativeTick(MyGeometry, DeltaSeconds);
 
-	PollPawnCrosshairState();
+	PollPawnReticleState();
+	RefreshMovementDebug();
 
 	if (HitFlashRemaining > 0.f)
 	{
@@ -261,7 +187,7 @@ void UCastleHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSecond
 		if (HitFlashRemaining <= 0.f)
 		{
 			HitFlashRemaining = 0.f;
-			RefreshCrosshair();
+			RefreshReticle();
 		}
 	}
 }
@@ -412,9 +338,6 @@ void UCastleHudWidget::RefreshAmmo()
 		Weapon->OnHit.AddDynamic(this, &UCastleHudWidget::HandleWeaponHit);
 		BoundWeapon = Weapon;
 	}
-
-	// Picking the pistol up is what makes the crosshair appear.
-	RefreshCrosshair();
 
 	if (!AmmoText)
 	{

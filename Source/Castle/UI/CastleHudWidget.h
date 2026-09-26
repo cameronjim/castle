@@ -17,11 +17,12 @@ class UMissionObjective;
 class UWeaponComponent;
 
 /**
- * Bare gameplay HUD: current objective, ammo, an interaction prompt and a crosshair.
+ * Bare gameplay HUD: current objective, ammo, an interaction prompt, a third-person reticle and
+ * an optional movement debug line.
  *
- * Reparent a UMG widget to this class and name widgets ObjectiveText, AmmoText, PromptText and
- * Crosshair to have them driven automatically; a subclass with no designer layout works too,
- * because RebuildWidget builds them itself (same approach as UFlashbackWidget).
+ * Reparent a UMG widget to this class and name widgets ObjectiveText, AmmoText, PromptText,
+ * DebugText and Reticle to have them driven automatically; a subclass with no designer layout
+ * works too, because RebuildWidget builds them itself (same approach as UFlashbackWidget).
  *
  * All of the state comes from delegates: the mission subsystem drives the objective line, the
  * pawn's UWeaponComponent drives the ammo line, and UInteractionComponent drives the prompt.
@@ -71,55 +72,36 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Hotbar")
 	UCastleHotbarWidget* GetHotbar() const { return Hotbar; }
 
-	// --- Crosshair ------------------------------------------------------------------------------
+	// --- Reticle --------------------------------------------------------------------------------
 
-	/** Tightens the centre gap to AimGapPixels. Driven from the pawn's aim state every frame. */
-	UFUNCTION(BlueprintCallable, Category = "HUD|Crosshair")
-	void SetCrosshairAiming(bool bNewAiming);
-
-	/** Fades the bars to SprintOpacity: you cannot shoot accurately while sprinting anyway. */
-	UFUNCTION(BlueprintCallable, Category = "HUD|Crosshair")
-	void SetCrosshairSprinting(bool bNewSprinting);
+	/** Shows the reticle while aiming, hides it otherwise. Driven from the pawn every frame. */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Reticle")
+	void SetReticleAiming(bool bNewAiming);
 
 	/**
-	 * Collapses the four bars to a single centre dot. Hands get a dot rather than bars: there
-	 * is no cone of fire to show, only where the punch lands.
+	 * Third person has no crosshair at the hip: the body and the camera say where you face. The
+	 * dot only appears while aiming, where the arrow will go.
 	 */
-	UFUNCTION(BlueprintCallable, Category = "HUD|Crosshair")
-	void SetCrosshairDotMode(bool bNewDotMode);
+	UFUNCTION(BlueprintPure, Category = "HUD|Reticle")
+	bool IsReticleVisible() const { return bReticleAiming; }
 
-	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
-	bool IsCrosshairDotMode() const { return bDotMode; }
+	/** Side of the square dot, in pixels. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Reticle")
+	float GetReticleSize() const { return ReticleSizePixels; }
 
-	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
-	float GetCrosshairDotSize() const { return DotSizePixels; }
+	/** White while a hit marker is flashing, ReticleColor otherwise. Pure so a test can read it. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Reticle")
+	FLinearColor GetReticleColor() const;
 
-	/** Flashes the four bars white for HitFlashSeconds. Bound to UWeaponComponent::OnHit. */
-	UFUNCTION(BlueprintCallable, Category = "HUD|Crosshair")
+	/** Flashes the dot white for HitFlashSeconds. Bound to UWeaponComponent::OnHit. */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Reticle")
 	void FlashHitMarker();
 
-	/** Distance in pixels from screen centre to the near end of each bar. */
-	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
-	float GetCrosshairGap() const { return bCrosshairAiming ? AimGapPixels : HipGapPixels; }
+	// --- Movement debug -------------------------------------------------------------------------
 
-	/** How long each bar is, in pixels. Exposed so the size is a rule and not a guess. */
-	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
-	float GetCrosshairBarLength() const { return BarLengthPixels; }
-
-	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
-	float GetCrosshairBarThickness() const { return BarThicknessPixels; }
-
-	/** The crosshair is hidden until Frank has a weapon in his hands. */
-	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
-	bool IsCrosshairVisible() const;
-
-	/** White while a hit marker is flashing, CrosshairColor otherwise. Pure so a test can read it. */
-	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
-	FLinearColor GetCrosshairColor() const;
-
-	/** Bars currently in the crosshair: four, unless the widget was never built. */
-	UFUNCTION(BlueprintPure, Category = "HUD|Crosshair")
-	int32 GetCrosshairBarCount() const { return CrosshairBars.Num(); }
+	/** The debug line's text, or empty while castle.DebugMovement is 0 or there is no player. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Debug")
+	FText GetMovementDebugText() const;
 
 protected:
 	//~ Begin UUserWidget interface
@@ -129,14 +111,17 @@ protected:
 	virtual void NativeTick(const FGeometry& MyGeometry, float DeltaSeconds) override;
 	//~ End UUserWidget interface
 
-	/** Builds the four bars into a screen-filling canvas so they land on the exact centre pixel. */
-	void BuildCrosshair(UOverlay* Root);
+	/** Builds the dot into a screen-filling canvas so it lands on the exact centre pixel. */
+	void BuildReticle(UOverlay* Root);
 
-	/** Re-positions the bars for the current gap and re-applies colour, opacity and visibility. */
-	void RefreshCrosshair();
+	/** Re-applies size, colour and visibility to the dot. */
+	void RefreshReticle();
 
-	/** Reads aim and sprint off the pawn; the HUD has no input of its own to listen to. */
-	void PollPawnCrosshairState();
+	/** Reads aim off the pawn; the HUD has no input of its own to listen to. */
+	void PollPawnReticleState();
+
+	/** Shows or hides the debug line and repaints it. */
+	void RefreshMovementDebug();
 
 	UFUNCTION()
 	void HandleMissionStarted(UMissionDefinition* Mission);
@@ -171,52 +156,33 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "HUD", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> PromptText = nullptr;
 
-	/** Screen-filling canvas the crosshair bars are anchored to. Built in RebuildWidget. */
-	UPROPERTY(BlueprintReadOnly, Category = "HUD|Crosshair", meta = (BindWidgetOptional))
-	TObjectPtr<UCanvasPanel> Crosshair = nullptr;
+	/** castle.DebugMovement line, under the objective. Collapsed while the cvar is 0. */
+	UPROPERTY(BlueprintReadOnly, Category = "HUD|Debug", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DebugText = nullptr;
 
-	/** Top, bottom, left, right. No texture: four coloured borders in a plus with a centre gap. */
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Crosshair")
-	TArray<TObjectPtr<UBorder>> CrosshairBars;
+	/** Screen-filling canvas the dot is anchored to. Built in RebuildWidget. */
+	UPROPERTY(BlueprintReadOnly, Category = "HUD|Reticle", meta = (BindWidgetOptional))
+	TObjectPtr<UCanvasPanel> Reticle = nullptr;
 
-	/** Toxic green, the one bright thing on a grey-box prison HUD. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair")
-	FLinearColor CrosshairColor = FLinearColor(0.22f, 1.f, 0.08f, 1.f);
+	/** The dot itself: a coloured border, no texture. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Reticle")
+	TObjectPtr<UBorder> ReticleDot = nullptr;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair")
+	/** Kate purple, light enough to read against a night sky and a grey wall alike. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Reticle")
+	FLinearColor ReticleColor = FLinearColor(0.78f, 0.55f, 1.f, 1.f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Reticle")
 	FLinearColor HitMarkerColor = FLinearColor::White;
 
-	/** Small: Cameron's note after the third play was that the old 14 x 3 plus was a target. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "1.0"))
-	float BarLengthPixels = 7.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Reticle", meta = (ClampMin = "1.0"))
+	float ReticleSizePixels = 4.f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "1.0"))
-	float BarThicknessPixels = 2.f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0"))
-	float HipGapPixels = 3.f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0"))
-	float AimGapPixels = 2.f;
-
-	/** Size of the single dot drawn instead of the bars while Frank's fists are up. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "1.0"))
-	float DotSizePixels = 2.f;
-
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Crosshair")
-	bool bDotMode = false;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Reticle", meta = (ClampMin = "0.0"))
 	float HitFlashSeconds = 0.1f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Crosshair", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float SprintOpacity = 0.4f;
-
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Crosshair")
-	bool bCrosshairAiming = false;
-
-	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Crosshair")
-	bool bCrosshairSprinting = false;
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Reticle")
+	bool bReticleAiming = false;
 
 	/** Seconds of hit-marker flash left to run. */
 	UPROPERTY(Transient)
@@ -236,9 +202,6 @@ protected:
 	/** The hotbar along the bottom of the screen. Built into the HUD's own overlay. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hotbar")
 	TObjectPtr<UCastleHotbarWidget> Hotbar = nullptr;
-
-	/** The pawn's inventory, for the ammo line and the crosshair's dot mode. */
-	UInventoryComponent* FindPawnInventory() const;
 
 	bool bBound = false;
 };
