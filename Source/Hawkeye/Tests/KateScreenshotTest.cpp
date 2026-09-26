@@ -28,12 +28,16 @@
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "Mission/MissionObjective.h"
+#include "Mission/MissionSubsystem.h"
+#include "Mission/ObjectiveTriggerVolume.h"
 #include "Player/HawkeyeCharacter.h"
 #include "Player/GrappleComponent.h"
 #include "Player/InventoryComponent.h"
 #include "Player/ParkourComponent.h"
 #include "Tests/AutomationCommon.h"
 #include "UI/HawkeyeHudWidget.h"
+#include "UI/HawkeyeObjectiveWidget.h"
 #include "UnrealClient.h"
 #include "World/FireEscapeLanding.h"
 #include "World/GrappleAnchor.h"
@@ -87,6 +91,14 @@
  *   fight_roof.png     on the cross_block roof, the RoofPair alerted and rushing her
  *   fight_hit.png      her heavy landed: a thug knocked down (ragdoll)
  *   fight_dodge.png    mid-dodge, sideways from the thug still standing
+ *
+ *   objective_marker.png    at the PlayerStart looking toward reach_roof: the cream diamond with the
+ *                           distance under it, and the compass strip at the top with the objective on it
+ *   objective_offscreen.png the camera turned 150 degrees away: the marker held at the screen edge with
+ *                           its arrow
+ *   objective_complete.png  0.6 s after Kate is put inside City_Obj_reach_roof: the "Objective complete"
+ *                           toast, looking on toward cross_block
+ *   (these three come first, while reach_roof is still the current objective)
  *
  * The district's placed thugs are frozen (thinking off) for every shot but their own, and Kate is
  * invulnerable through the roof fight so a swing cannot end the pass.
@@ -2297,6 +2309,156 @@ bool FHawkeyeKateEndRoll::Update()
 	return true;
 }
 
+// --- Objective marker, compass and toasts -------------------------------------------------------
+
+namespace HawkeyeKateShots
+{
+	enum class EObjectiveShot : uint8
+	{
+		Marker,
+		Offscreen,
+		Complete,
+	};
+
+	static AObjectiveTriggerVolume* FindObjectiveVolume(UWorld* World, FName ObjectiveId)
+	{
+		for (TActorIterator<AObjectiveTriggerVolume> It(World); It; ++It)
+		{
+			if (It->ObjectiveId == ObjectiveId)
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+
+	static UHawkeyeObjectiveWidget* FindObjectiveWidget(APlayerController* PC)
+	{
+		const AHawkeyePlayerController* HawkeyePC = Cast<AHawkeyePlayerController>(PC);
+		const UHawkeyeHudWidget* Hud = HawkeyePC ? HawkeyePC->GetHawkeyeHud() : nullptr;
+		return Hud ? Hud->GetObjectiveMarker() : nullptr;
+	}
+
+	/** Control rotation from Kate's head toward Target, pitch kept where the arm stays behind her. */
+	static FRotator LookAt(const AHawkeyeCharacter* Kate, const FVector& Target)
+	{
+		const FVector From = Kate->GetActorLocation() + FVector(0.f, 0.f, 60.f);
+		const FVector Delta = Target - From;
+		const float Pitch = FMath::RadiansToDegrees(FMath::Atan2(Delta.Z, Delta.Size2D()));
+		return FRotator(FMath::Clamp(Pitch, -30.f, 30.f), Delta.Rotation().Yaw, 0.f);
+	}
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeKateObjectiveShot, FAutomationTestBase*, Test, uint8, Shot);
+
+bool FHawkeyeKateObjectiveShot::Update()
+{
+	using namespace HawkeyeKateShots;
+
+	APlayerController* PC = nullptr;
+	AHawkeyeCharacter* Kate = FindKate(PC);
+	UWorld* World = FindWorld();
+	const AObjectiveTriggerVolume* Roof = World ? FindObjectiveVolume(World, TEXT("reach_roof")) : nullptr;
+	if (!Kate || !Roof)
+	{
+		Test->AddError(TEXT("objective shots: no Kate or City_Obj_reach_roof."));
+		return true;
+	}
+
+	FVector Ground;
+	switch (static_cast<EObjectiveShot>(Shot))
+	{
+	case EObjectiveShot::Marker:
+	{
+		TActorIterator<APlayerStart> StartIt(World);
+		const FVector Start = StartIt ? StartIt->GetActorLocation() : Kate->GetActorLocation();
+		if (FindGround(World, Start, Start.Z + 300.f, Kate, Ground))
+		{
+			PlaceKate(Kate, PC, Ground, 0.f, 0.f);
+			PC->SetControlRotation(LookAt(Kate, Roof->GetActorLocation()));
+		}
+		break;
+	}
+
+	case EObjectiveShot::Offscreen:
+	{
+		FRotator Away = PC->GetControlRotation();
+		Away.Yaw += 150.f;
+		Away.Pitch = HipPitch;
+		PC->SetControlRotation(Away);
+		break;
+	}
+
+	case EObjectiveShot::Complete:
+	{
+		// Onto the roof inside the volume: the overlap completes reach_roof and the toast starts.
+		const FVector Centre = Roof->GetActorLocation();
+		if (FindGround(World, Centre, Centre.Z, Kate, Ground))
+		{
+			const AObjectiveTriggerVolume* Next = FindObjectiveVolume(World, TEXT("cross_block"));
+			PlaceKate(Kate, PC, Ground, 0.f, 0.f);
+			PC->SetControlRotation(Next ? LookAt(Kate, Next->GetActorLocation()) : FRotator(-10.f, 0.f, 0.f));
+		}
+		break;
+	}
+	}
+	return true;
+}
+
+/** Logs what the objective HUD is showing, and fails the shot it was framed for if it is not there. */
+DEFINE_LATENT_AUTOMATION_COMMAND_THREE_PARAMETER(FHawkeyeKateReportObjective, FAutomationTestBase*, Test, FString, Label,
+	uint8, Shot);
+
+bool FHawkeyeKateReportObjective::Update()
+{
+	using namespace HawkeyeKateShots;
+
+	APlayerController* PC = nullptr;
+	FindKate(PC);
+	const UHawkeyeObjectiveWidget* Widget = FindObjectiveWidget(PC);
+	const UMissionSubsystem* Missions = UMissionSubsystem::Get(PC);
+	if (!Widget || !Missions)
+	{
+		Test->AddError(FString::Printf(TEXT("%s: no objective widget or mission subsystem."), *Label));
+		return true;
+	}
+
+	const FObjectiveMarkerPlacement Placement = Widget->GetMarkerPlacement();
+	const UMissionObjective* Current = Missions->GetCurrentObjective();
+	Test->AddInfo(FString::Printf(
+		TEXT("%s: current %s, marker visible %d on screen %d at (%.0f, %.0f) arrow %.0f deg, distance '%s', ")
+		TEXT("view bearing %.0f, compass icon %d at %+.0f px, toast '%s' / '%s'"),
+		*Label, Current ? *Current->ObjectiveId.ToString() : TEXT("none"), Widget->IsMarkerVisible() ? 1 : 0,
+		Placement.bOnScreen ? 1 : 0, Placement.Position.X, Placement.Position.Y, Placement.ArrowAngleDegrees,
+		*Widget->GetDistanceText().ToString(), Widget->GetViewBearing(), Widget->IsCompassIconVisible() ? 1 : 0,
+		Widget->GetCompassIconOffset(), *Widget->GetToastHeading().ToString(), *Widget->GetToastTitle().ToString()));
+
+	const TArray<UMissionObjective*> Objectives = Missions->GetActiveObjectives();
+	switch (static_cast<EObjectiveShot>(Shot))
+	{
+	case EObjectiveShot::Marker:
+		if (!Widget->IsMarkerVisible() || !Placement.bOnScreen)
+		{
+			Test->AddError(FString::Printf(TEXT("%s: the objective marker is not on screen."), *Label));
+		}
+		break;
+	case EObjectiveShot::Offscreen:
+		if (!Widget->IsMarkerVisible() || Placement.bOnScreen)
+		{
+			Test->AddError(FString::Printf(TEXT("%s: the marker should be held at the screen edge."), *Label));
+		}
+		break;
+	case EObjectiveShot::Complete:
+		if (Objectives.Num() == 0 || !Objectives[0]->IsCompleted() || !Widget->IsToastVisible()
+			|| !Widget->GetToastTitle().EqualTo(Objectives[0]->Title))
+		{
+			Test->AddError(FString::Printf(TEXT("%s: no \"Objective complete\" toast for reach_roof."), *Label));
+		}
+		break;
+	}
+	return true;
+}
+
 bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 {
 	using namespace HawkeyeKateShots;
@@ -2313,6 +2475,29 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	// The district's thugs stand still until their own shots.
 	using EFight = HawkeyeKateFight::EFightShot;
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFightShot(this, static_cast<uint8>(EFight::FreezeAll)));
+
+	// The objective marker, first, while reach_roof is still current and its volume untriggered.
+	using EObjective = HawkeyeKateShots::EObjectiveShot;
+	const TPair<EObjective, const TCHAR*> ObjectiveShots[] = {
+		{ EObjective::Marker, TEXT("objective_marker.png") },
+		{ EObjective::Offscreen, TEXT("objective_offscreen.png") },
+	};
+	for (const TPair<EObjective, const TCHAR*>& ShotAndFile : ObjectiveShots)
+	{
+		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateObjectiveShot(this, static_cast<uint8>(ShotAndFile.Key)));
+		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateReportObjective(this, FString(ShotAndFile.Value),
+			static_cast<uint8>(ShotAndFile.Key)));
+		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, FString(ShotAndFile.Value)));
+		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	}
+	// Inside the 2 s the toast is up.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateObjectiveShot(this, static_cast<uint8>(EObjective::Complete)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.6f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateReportObjective(this, TEXT("objective_complete.png"),
+		static_cast<uint8>(EObjective::Complete)));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("objective_complete.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
 	// The debug line goes into the shots so gait and fall height can be read off them.
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.DebugMovement 1")));
