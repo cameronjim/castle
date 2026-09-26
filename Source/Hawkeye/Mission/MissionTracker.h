@@ -115,6 +115,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
 	bool GetCurrentObjectiveLocation(FVector& OutLocation) const;
 
+	/** Ids of every completed objective, optional ones included, in array order. The save writes these. */
+	UFUNCTION(BlueprintPure, Category = "Mission")
+	TArray<FName> GetCompletedObjectiveIds() const;
+
+	/**
+	 * Loading a save: marks each listed objective complete without firing OnObjectiveUpdated or
+	 * OnMissionComplete (the player already saw them happen). Ignores bEnforceOrder. Unknown ids
+	 * log a warning and are skipped. Returns how many objectives changed.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Mission")
+	int32 RestoreCompletedObjectives(const TArray<FName>& ObjectiveIds);
+
 	/** Drops every binding and all state; the subsystem calls this on Deinitialize. */
 	void Reset();
 

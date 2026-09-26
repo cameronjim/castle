@@ -233,6 +233,42 @@ bool UMissionTracker::GetCurrentObjectiveLocation(FVector& OutLocation) const
 	return GetRegisteredObjectiveLocation(Objective->ObjectiveId, OutLocation);
 }
 
+TArray<FName> UMissionTracker::GetCompletedObjectiveIds() const
+{
+	TArray<FName> Ids;
+	for (const TObjectPtr<UMissionObjective>& Objective : ActiveObjectives)
+	{
+		if (Objective && Objective->IsCompleted())
+		{
+			Ids.Add(Objective->ObjectiveId);
+		}
+	}
+	return Ids;
+}
+
+int32 UMissionTracker::RestoreCompletedObjectives(const TArray<FName>& ObjectiveIds)
+{
+	int32 Restored = 0;
+	for (const FName Id : ObjectiveIds)
+	{
+		UMissionObjective* Objective = FindObjective(Id);
+		if (!Objective)
+		{
+			UE_LOG(LogHawkeye, Warning, TEXT("%s: saved objective '%s' is not in mission '%s'; skipped."),
+				*GetNameSafe(this), *Id.ToString(), *GetNameSafe(CurrentMission));
+			continue;
+		}
+		if (!Objective->bCompleted)
+		{
+			// Straight to the flag: Complete() would broadcast, and the HUD would toast old news.
+			Objective->bCompleted = true;
+			++Restored;
+		}
+	}
+	bMissionComplete = bMissionComplete || AreRequiredObjectivesComplete();
+	return Restored;
+}
+
 void UMissionTracker::Reset()
 {
 	OnMissionStarted.Clear();
