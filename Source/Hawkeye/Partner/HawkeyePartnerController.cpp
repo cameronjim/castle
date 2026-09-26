@@ -120,12 +120,7 @@ void AHawkeyePartnerController::OnPossess(APawn* InPawn)
 		Partner->SetAIGait(EHawkeyeGait::Run);
 	}
 
-	// A partner placed in the district follows whoever the player is playing.
-	if (!Leader.IsValid())
-	{
-		const APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
-		SetLeader(PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr);
-	}
+	EnsureLeader();
 
 	if (PartnerStateTree && StateTreeComponent)
 	{
@@ -175,6 +170,23 @@ void AHawkeyePartnerController::EndPlay(const EEndPlayReason::Type EndPlayReason
 	}
 	BindLeaderEvents(Leader.Get(), false);
 	Super::EndPlay(EndPlayReason);
+}
+
+void AHawkeyePartnerController::EnsureLeader()
+{
+	if (Leader.IsValid())
+	{
+		return;
+	}
+	// A partner placed in the district follows whoever the player is playing; at level load the
+	// player's pawn may not exist yet, so Think asks again until it does.
+	const APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	AHawkeyeCharacter* Played = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	if (Played && Played != GetPawn())
+	{
+		SetLeader(Played);
+		UE_LOG(LogHawkeye, Log, TEXT("%s: now backing up %s."), *GetName(), *GetNameSafe(Played));
+	}
 }
 
 AHawkeyeCharacter* AHawkeyePartnerController::GetPartner() const
@@ -448,6 +460,12 @@ void AHawkeyePartnerController::TickFollow(float /*DeltaSeconds*/)
 	if (!ComputeFollowGoal(Lead->GetActorLocation(), Partner->GetActorLocation(), FollowMinDistance, FollowMaxDistance,
 			FollowSettleDistance, Goal))
 	{
+		// Once he has set off he carries on to the settle distance rather than stopping at the band's edge.
+		const float Distance = FVector::Dist2D(Lead->GetActorLocation(), Partner->GetActorLocation());
+		if (bHasMoveGoal && GetMoveStatus() == EPathFollowingStatus::Moving && Distance > FollowSettleDistance + 50.f)
+		{
+			return;
+		}
 		if (bHasMoveGoal)
 		{
 			StopMovement();
@@ -795,6 +813,7 @@ void AHawkeyePartnerController::Think(float DeltaSeconds)
 	{
 		return;
 	}
+	EnsureLeader();
 	UpdateSenses(DeltaSeconds);
 	if (!IsUsingStateTree())
 	{

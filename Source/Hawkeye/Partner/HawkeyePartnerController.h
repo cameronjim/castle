@@ -263,6 +263,9 @@ protected:
 
 	void TickThink();
 
+	/** Takes the player's pawn as the lead when there is none yet. */
+	void EnsureLeader();
+
 	/** Contact from thugs rushing a Hawkeye, the fight-over edge, self heal, catch-up clock. */
 	void UpdateSenses(float DeltaSeconds);
 
