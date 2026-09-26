@@ -38,6 +38,8 @@ enum class ECastleParkourMove : uint8
 	LedgeGrab,
 	/** Hanging to standing on top. Only ever started from a hang. */
 	Climb,
+	/** Standing at a roof or landing edge: over it and down to the hang on its outer face. */
+	DropToHang,
 };
 
 /** Who is moving the body through a traversal move. */

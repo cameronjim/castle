@@ -50,7 +50,12 @@ struct CASTLE_API FCastleParkourClip
  *
  * The ledge grab has no sample equivalent: the character jumps to a hang (the sample's 2.5 m
  * climb clip paused where the hands reach the edge), then the jump key climbs and crouch drops.
- * Falling past a ledge between CatchMinHeight and LedgeMaxHeight above the feet catches it.
+ * Falling past a ledge between CatchMinHeight and CatchMaxHeight above the feet catches it.
+ *
+ * The way down: standing within DropToHangReach of an edge with more than DropToHangMinDrop
+ * beyond it (a roof edge over its parapet, a fire-escape landing over its rail, or any walkable
+ * edge), TryDropToHang goes over it to the same hang on its outer face. A drop from that hang
+ * catches the next ledge below, so a fire escape comes down as hang, drop, catch, drop.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UParkourComponent : public UActorComponent
@@ -80,6 +85,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Parkour")
 	bool DetectObstacle(float MaxDistance, FCastleParkourObstacle& OutObstacle) const;
 
+	/** DetectObstacle for faces and tops up to MaxHeight above the feet (the catch looks higher). */
+	bool DetectObstacleUpTo(float MaxDistance, float MaxHeight, FCastleParkourObstacle& OutObstacle) const;
+
+	/** The ledge the last drop let go of is still ignored (the fall has not ended). */
+	bool IsIgnoringDroppedLedge() const { return bIgnoreDroppedLedge; }
+
 	/** Probe and start whatever fits: bAuto is the sprint trigger, false the jump key. */
 	UFUNCTION(BlueprintCallable, Category = "Parkour")
 	bool TryParkour(bool bAuto);
@@ -95,9 +106,29 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Parkour")
 	bool ClimbFromHang();
 
-	/** From a hang: let go and fall. The same ledge is not caught again for DropRegrabSeconds. */
+	/**
+	 * From a hang: let go and fall. The same ledge is not caught again for DropRegrabSeconds, nor
+	 * at all until the fall ends; any other ledge in the catch window is.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Parkour")
 	bool DropFromHang();
+
+	/**
+	 * The edge Direction points at, if there is one to hang from: within DropToHangReach of the
+	 * capsule, either a thin top at most MaxLipHeight high (a parapet or a rail) or the floor
+	 * simply ending, with more than DropToHangMinDrop beyond it and room to hang on its outer
+	 * face. WallNormal points out of that face (away from the character), LedgePoint is its top
+	 * edge, LandingDrop the drop beyond, StandPoint where the character stands now.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Parkour")
+	bool FindDropEdge(const FVector& Direction, FCastleParkourObstacle& OutEdge) const;
+
+	/**
+	 * On the ground at an edge along Direction: over it to the hang (crouch moving toward an edge,
+	 * or the jump key with the edge behind). False when there is no edge to hang from.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Parkour")
+	bool TryDropToHang(const FVector& Direction, const FString& Trigger);
 
 	/** Falling with a ledge in reach: catch it. Tick calls this while airborne. */
 	UFUNCTION(BlueprintCallable, Category = "Parkour")
@@ -161,9 +192,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Heights", meta = (ClampMin = "0.0"))
 	float LedgeMaxHeight = 260.f;
 
-	/** Falling, a ledge at least this far above the feet (and at most LedgeMaxHeight) is caught. */
+	/** Falling, a ledge at least this far above the feet (and at most CatchMaxHeight) is caught. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Heights", meta = (ClampMin = "0.0"))
 	float CatchMinHeight = 150.f;
+
+	/**
+	 * Falling, a ledge up to this far above the feet is caught. One floor (330 cm) so a drop from
+	 * one fire-escape landing reaches the next one down even when a frame is late.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Heights", meta = (ClampMin = "0.0"))
+	float CatchMaxHeight = 330.f;
 
 	// --- Detection ------------------------------------------------------------------------------
 
@@ -199,6 +237,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
 	float ClimbOverMaxDrop = 120.f;
 
+	/** An edge this close to the capsule (along the probe) can be dropped to a hang from, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
+	float DropToHangReach = 60.f;
+
+	/** Only an edge with more than this below it is one to hang from (less is a step down), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
+	float DropToHangMinDrop = 150.f;
+
+	/** The tallest lip at an edge that still counts as one (a 90 cm parapet, a 98 cm rail), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
+	float MaxLipHeight = 130.f;
+
+	/** The deepest lip that still counts (a 30 cm parapet); anything deeper is a raised floor, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
+	float MaxLipDepth = 60.f;
+
 	/** Vault and mantle try the Game Animation Sample's traversal first when the owner has it. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection")
 	bool bUseSampleTraversal = true;
@@ -221,6 +275,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Timing", meta = (ClampMin = "0.05"))
 	float ClimbSeconds = 1.f;
+
+	/** Standing at an edge, over it and down to the hang. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Timing", meta = (ClampMin = "0.05"))
+	float DropToHangSeconds = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Timing", meta = (ClampMin = "0.0"))
 	float DropRegrabSeconds = 0.6f;
@@ -271,11 +329,11 @@ protected:
 	/** Sprinting into something: TryParkour(true). */
 	void TryAutoParkour();
 
-	/** Nearest near-vertical face within Reach of the capsule axis, probed at several heights. */
-	bool FindFrontFace(const FVector& Feet, const FVector& Forward, float Reach, FHitResult& OutHit) const;
+	/** Nearest near-vertical face within Reach of the capsule axis, probed at several heights up to MaxHeight. */
+	bool FindFrontFace(const FVector& Feet, const FVector& Forward, float Reach, float MaxHeight, FHitResult& OutHit) const;
 
 	/** The top surface just behind the front face, with open air above it. */
-	bool FindTop(const FHitResult& Face, const FVector& Normal, const FVector& Feet, FVector& OutTop) const;
+	bool FindTop(const FHitResult& Face, const FVector& Normal, const FVector& Feet, float MaxHeight, FVector& OutTop) const;
 
 	/** Back edge, far floor and whether the capsule fits there. */
 	void ProbeBeyond(const FVector& Feet, FCastleParkourObstacle& Obstacle) const;
@@ -355,6 +413,11 @@ protected:
 	float ClipPeakUp = 0.f;
 	float ClipEndUp = 0.f;
 	float RegrabCooldown = 0.f;
+	/** The ledge the last drop let go of: not caught again until the fall ends. */
+	FVector DroppedLedgePoint = FVector::ZeroVector;
+	bool bIgnoreDroppedLedge = false;
+	/** Hop over the lip during a drop to hang, cm above a straight line. */
+	float DropHop = 0.f;
 	bool bRootMotionOverridden = false;
 	TEnumAsByte<ERootMotionMode::Type> SavedRootMotionMode = ERootMotionMode::RootMotionFromMontagesOnly;
 	TWeakObjectPtr<UActorComponent> SampleTraversal;

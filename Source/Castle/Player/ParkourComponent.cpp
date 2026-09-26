@@ -33,8 +33,8 @@ namespace CastleParkour
 	/** Heights the front face is probed at, above the feet. The lowest skips kerbs and steps. */
 	static constexpr float FaceProbeLowest = 35.f;
 	static constexpr float FaceProbeStep = 35.f;
-	/** How far behind the front face the top is looked for, cm. */
-	static constexpr float TopInset = 10.f;
+	/** How far behind the front face the top is looked for, cm. Less than a fire-escape rail is thick. */
+	static constexpr float TopInset = 4.f;
 	/** A top this steep is not a top. */
 	static constexpr float MinFloorNormalZ = 0.7f;
 	/** Step between back-edge probes, cm. */
@@ -47,6 +47,16 @@ namespace CastleParkour
 	static constexpr float MaxProbeDrop = 800.f;
 	/** Capsule centres are placed this far above the floor so the first floor check finds it. */
 	static constexpr float FloorGap = 2.f;
+	/** Step between the probes that walk out to an edge, cm. */
+	static constexpr float EdgeStep = 5.f;
+	/** How far below the feet the drop beyond an edge is measured, cm. */
+	static constexpr float EdgeProbeDepth = 1000.f;
+	/** A floor within this of the feet is still the floor being stood on, cm. */
+	static constexpr float FloorTolerance = 20.f;
+	/** The drop to hang hops this far over the lip on its way over, cm. */
+	static constexpr float DropHopClearance = 30.f;
+	/** A ledge within this of the one just let go of is the same ledge, cm. */
+	static constexpr float SameLedgeTolerance = 40.f;
 }
 
 UParkourComponent::UParkourComponent()
@@ -100,6 +110,7 @@ float UParkourComponent::GetMoveSeconds(ECastleParkourMove Move) const
 	case ECastleParkourMove::Mantle: return MantleSeconds;
 	case ECastleParkourMove::LedgeGrab: return GrabSeconds;
 	case ECastleParkourMove::Climb: return ClimbSeconds;
+	case ECastleParkourMove::DropToHang: return DropToHangSeconds;
 	default: return 0.f;
 	}
 }
@@ -167,10 +178,11 @@ bool UParkourComponent::CapsuleFits(const FVector& Centre) const
 		FCollisionShape::MakeCapsule(Radius, HalfHeight), Params);
 }
 
-bool UParkourComponent::FindFrontFace(const FVector& Feet, const FVector& Forward, float Reach, FHitResult& OutHit) const
+bool UParkourComponent::FindFrontFace(const FVector& Feet, const FVector& Forward, float Reach, float MaxHeight,
+	FHitResult& OutHit) const
 {
 	bool bFound = false;
-	for (float Height = CastleParkour::FaceProbeLowest; Height <= LedgeMaxHeight; Height += CastleParkour::FaceProbeStep)
+	for (float Height = CastleParkour::FaceProbeLowest; Height <= MaxHeight; Height += CastleParkour::FaceProbeStep)
 	{
 		const FVector From = Feet + FVector(0.f, 0.f, Height);
 		FHitResult Hit;
@@ -187,11 +199,12 @@ bool UParkourComponent::FindFrontFace(const FVector& Feet, const FVector& Forwar
 	return bFound;
 }
 
-bool UParkourComponent::FindTop(const FHitResult& Face, const FVector& Normal, const FVector& Feet, FVector& OutTop) const
+bool UParkourComponent::FindTop(const FHitResult& Face, const FVector& Normal, const FVector& Feet, float MaxHeight,
+	FVector& OutTop) const
 {
 	const FVector Inside = Face.ImpactPoint - Normal * CastleParkour::TopInset;
 	FHitResult Top;
-	const FVector From(Inside.X, Inside.Y, Feet.Z + LedgeMaxHeight + 50.f);
+	const FVector From(Inside.X, Inside.Y, Feet.Z + MaxHeight + 50.f);
 	const FVector To(Inside.X, Inside.Y, Face.ImpactPoint.Z - 1.f);
 	if (!TraceLine(From, To, Top) || Top.ImpactNormal.Z < CastleParkour::MinFloorNormalZ)
 	{
@@ -277,6 +290,11 @@ void UParkourComponent::ProbeStanding(FCastleParkourObstacle& Obstacle) const
 
 bool UParkourComponent::DetectObstacle(float MaxDistance, FCastleParkourObstacle& OutObstacle) const
 {
+	return DetectObstacleUpTo(MaxDistance, LedgeMaxHeight, OutObstacle);
+}
+
+bool UParkourComponent::DetectObstacleUpTo(float MaxDistance, float MaxHeight, FCastleParkourObstacle& OutObstacle) const
+{
 	OutObstacle = FCastleParkourObstacle();
 	const ACharacter* Character = GetCharacter();
 	if (!Character || !GetWorld())
@@ -289,13 +307,13 @@ bool UParkourComponent::DetectObstacle(float MaxDistance, FCastleParkourObstacle
 	const FVector Forward = Character->GetActorForwardVector().GetSafeNormal2D();
 
 	FHitResult Face;
-	if (!FindFrontFace(Feet, Forward, Radius + MaxDistance, Face))
+	if (!FindFrontFace(Feet, Forward, Radius + MaxDistance, MaxHeight, Face))
 	{
 		return false;
 	}
 	const FVector Normal = Face.ImpactNormal.GetSafeNormal2D();
 	FVector Top;
-	if (FVector::DotProduct(Normal, -Forward) < 0.5f || !FindTop(Face, Normal, Feet, Top))
+	if (FVector::DotProduct(Normal, -Forward) < 0.5f || !FindTop(Face, Normal, Feet, MaxHeight, Top))
 	{
 		return false;
 	}
@@ -400,6 +418,13 @@ bool UParkourComponent::StartMove(ECastleParkourMove Move, const FCastleParkourO
 		return BeginMove(Move, HangLocationFor(Obstacle), -1.f, bFalling ? CatchSeconds : GrabSeconds,
 			bFalling ? CatchClip : GrabClip);
 	}
+	case ECastleParkourMove::DropToHang:
+	{
+		// Over the lip (a parapet or a rail) with a hop that clears it, then down to the hang.
+		HangObstacle = Obstacle;
+		DropHop = FMath::Max(0.f, Obstacle.Height) + CastleParkour::DropHopClearance;
+		return BeginMove(Move, HangLocationFor(Obstacle), DropHop, DropToHangSeconds, CatchClip);
+	}
 	default:
 		return false;
 	}
@@ -456,6 +481,14 @@ FVector UParkourComponent::ClipRootOffset(float Time) const
 void UParkourComponent::ComputeMoveShape(float Alpha, float& OutForward, float& OutUp) const
 {
 	const bool bArc = ActiveMove == ECastleParkourMove::Vault;
+	if (ActiveMove == ECastleParkourMove::DropToHang)
+	{
+		// Out over the lip in the first 70% with a hop that peaks halfway there; the clip only
+		// poses the hands. The drop to the hang comes in with the left-over Z.
+		OutForward = FMath::SmoothStep(0.f, 0.7f, Alpha);
+		OutUp = FMath::Sin(PI * FMath::Min(Alpha / 0.7f, 1.f));
+		return;
+	}
 	if (MoveClip && ClipForwardTotal > 1.f && ClipPeakUp > 1.f)
 	{
 		const FVector Offset = ClipRootOffset(FMath::Lerp(ClipStart, ClipEnd, Alpha));
@@ -511,7 +544,7 @@ void UParkourComponent::FinishMove()
 {
 	const ECastleParkourMove Move = ActiveMove;
 	ActiveMove = ECastleParkourMove::None;
-	if (Move == ECastleParkourMove::LedgeGrab)
+	if (Move == ECastleParkourMove::LedgeGrab || Move == ECastleParkourMove::DropToHang)
 	{
 		EnterHang();
 		return;
@@ -574,6 +607,10 @@ bool UParkourComponent::DropFromHang()
 		Movement->SetMovementMode(MOVE_Falling);
 	}
 	RegrabCooldown = DropRegrabSeconds;
+	DroppedLedgePoint = HangObstacle.LedgePoint;
+	bIgnoreDroppedLedge = true;
+	UE_LOG(LogCastle, Log, TEXT("%s: dropped from the hang on a ledge at %.0f cm, feet at %.0f"), *GetNameSafe(Character),
+		HangObstacle.LedgePoint.Z, Character->GetActorLocation().Z - Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
 	OnParkourFinished.Broadcast(ECastleParkourMove::LedgeGrab);
 	return true;
 }
@@ -586,11 +623,159 @@ bool UParkourComponent::TryCatchLedge()
 		return false;
 	}
 	FCastleParkourObstacle Obstacle;
-	if (!DetectObstacle(CatchDistance, Obstacle) || Obstacle.Height < CatchMinHeight || Obstacle.Height > LedgeMaxHeight)
+	if (!DetectObstacleUpTo(CatchDistance, CatchMaxHeight, Obstacle) || Obstacle.Height < CatchMinHeight
+		|| Obstacle.Height > CatchMaxHeight)
 	{
 		return false;
 	}
+	if (bIgnoreDroppedLedge && FMath::Abs(Obstacle.LedgePoint.Z - DroppedLedgePoint.Z) < CastleParkour::SameLedgeTolerance
+		&& FVector::Dist2D(Obstacle.LedgePoint, DroppedLedgePoint) < 200.f)
+	{
+		return false;
+	}
+	UE_LOG(LogCastle, Log, TEXT("%s: falling, caught a ledge %.0f cm above the feet at %s on %s"), *GetNameSafe(GetOwner()),
+		Obstacle.Height, *Obstacle.LedgePoint.ToCompactString(), *GetNameSafe(Obstacle.Actor));
+	bIgnoreDroppedLedge = false;
 	return StartMove(ECastleParkourMove::LedgeGrab, Obstacle);
+}
+
+bool UParkourComponent::FindDropEdge(const FVector& Direction, FCastleParkourObstacle& OutEdge) const
+{
+	OutEdge = FCastleParkourObstacle();
+	const ACharacter* Character = GetCharacter();
+	const FVector D = Direction.GetSafeNormal2D();
+	if (!Character || !GetWorld() || D.IsNearlyZero())
+	{
+		return false;
+	}
+	const UCapsuleComponent* Capsule = Character->GetCapsuleComponent();
+	const float Radius = Capsule->GetScaledCapsuleRadius();
+	const FVector Feet = Character->GetActorLocation() - FVector(0.f, 0.f, Capsule->GetScaledCapsuleHalfHeight());
+	const float ProbeTop = MaxLipHeight + 20.f;
+	const float MaxK = DropToHangReach + MaxLipDepth + CastleParkour::EdgeStep;
+
+	// Anything taller than a lip in the way is a wall, not an edge (a line trace that starts
+	// inside a wall would miss it, so check across first).
+	FHitResult Wall;
+	const FVector High = Feet + FVector(0.f, 0.f, ProbeTop);
+	if (TraceLine(High, High + D * (Radius + MaxK), Wall))
+	{
+		return false;
+	}
+
+	// Walk out from the capsule surface: floor, then maybe a lip, then the drop.
+	float FloorZ = Feet.Z;
+	float LipTopZ = 0.f;
+	float LipStartK = -1.f;
+	float EdgeK = -1.f;
+	for (float K = 0.f; K <= MaxK; K += CastleParkour::EdgeStep)
+	{
+		const FVector P = Feet + D * (Radius + K);
+		FHitResult Down;
+		const bool bHit = TraceLine(FVector(P.X, P.Y, Feet.Z + ProbeTop),
+			FVector(P.X, P.Y, Feet.Z - CastleParkour::EdgeProbeDepth), Down);
+		const float H = bHit ? Down.ImpactPoint.Z - Feet.Z : -CastleParkour::EdgeProbeDepth;
+		if (LipStartK < 0.f)
+		{
+			if (FMath::Abs(H) <= CastleParkour::FloorTolerance)
+			{
+				FloorZ = Down.ImpactPoint.Z;
+				continue;
+			}
+			if (K > DropToHangReach)
+			{
+				return false;
+			}
+			if (H > CastleParkour::FloorTolerance)
+			{
+				LipStartK = K;
+				LipTopZ = Down.ImpactPoint.Z;
+				continue;
+			}
+			if (H < -DropToHangMinDrop)
+			{
+				EdgeK = K;
+				break;
+			}
+			return false;   // a step down, not an edge
+		}
+		if (H >= LipTopZ - Feet.Z - CastleParkour::FloorTolerance)
+		{
+			if (K - LipStartK > MaxLipDepth)
+			{
+				return false;   // a raised floor, not a lip
+			}
+			LipTopZ = FMath::Max(LipTopZ, static_cast<float>(Down.ImpactPoint.Z));
+			continue;
+		}
+		if (H < -DropToHangMinDrop)
+		{
+			EdgeK = K;
+			break;
+		}
+		return false;   // a low wall with floor behind it
+	}
+	if (EdgeK < 0.f)
+	{
+		return false;
+	}
+	const float TopZ = LipStartK >= 0.f ? LipTopZ : FloorZ;
+
+	// The outer face, from outside looking back in, just under the top.
+	FHitResult Face;
+	const FVector Outside = Feet + D * (Radius + EdgeK + 30.f);
+	const FVector From(Outside.X, Outside.Y, TopZ - 3.f);
+	if (!TraceLine(From, From - D * (Radius + EdgeK + 30.f), Face) || FMath::Abs(Face.ImpactNormal.Z) > 0.5f)
+	{
+		return false;
+	}
+	const FVector N = Face.ImpactNormal.GetSafeNormal2D();
+	if (FVector::DotProduct(N, D) < 0.7f)
+	{
+		return false;
+	}
+
+	// The drop beyond, measured where the hanging capsule would fall.
+	FHitResult Beyond;
+	const FVector Below = Face.ImpactPoint + N * (Radius + 15.f);
+	const bool bBeyond = TraceLine(FVector(Below.X, Below.Y, TopZ - 5.f),
+		FVector(Below.X, Below.Y, Feet.Z - CastleParkour::EdgeProbeDepth), Beyond);
+	const float Drop = bBeyond ? Feet.Z - Beyond.ImpactPoint.Z : CastleParkour::EdgeProbeDepth;
+	if (Drop <= DropToHangMinDrop)
+	{
+		return false;
+	}
+
+	OutEdge.bFound = true;
+	OutEdge.WallPoint = Face.ImpactPoint;
+	OutEdge.WallNormal = N;
+	OutEdge.LedgePoint = FVector(Face.ImpactPoint.X, Face.ImpactPoint.Y, TopZ);
+	OutEdge.Height = TopZ - Feet.Z;
+	OutEdge.Distance = LipStartK >= 0.f ? LipStartK : EdgeK;
+	OutEdge.Depth = LipStartK >= 0.f ? EdgeK - LipStartK : 0.f;
+	OutEdge.LandingDrop = Drop;
+	OutEdge.LandingPoint = bBeyond ? FVector(Beyond.ImpactPoint) : Below - FVector(0.f, 0.f, CastleParkour::EdgeProbeDepth);
+	OutEdge.bStandingSurface = true;
+	OutEdge.StandPoint = Feet;
+	OutEdge.Actor = Face.GetActor();
+	return CapsuleFits(HangLocationFor(OutEdge));
+}
+
+bool UParkourComponent::TryDropToHang(const FVector& Direction, const FString& Trigger)
+{
+	const UCharacterMovementComponent* Movement = GetMovement();
+	if (IsBusy() || !Movement || !Movement->IsMovingOnGround())
+	{
+		return false;
+	}
+	FCastleParkourObstacle Edge;
+	if (!FindDropEdge(Direction, Edge))
+	{
+		return false;
+	}
+	UE_LOG(LogCastle, Log, TEXT("%s: %s: drop to hang over a %.0f cm lip %.0f cm away, %.0f cm drop beyond, on %s"),
+		*GetNameSafe(GetOwner()), *Trigger, Edge.Height, Edge.Distance, Edge.LandingDrop, *GetNameSafe(Edge.Actor));
+	return StartMove(ECastleParkourMove::DropToHang, Edge);
 }
 
 void UParkourComponent::TryAutoParkour()
@@ -615,6 +800,14 @@ void UParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	RegrabCooldown = FMath::Max(0.f, RegrabCooldown - DeltaTime);
+	if (bIgnoreDroppedLedge && !bHanging && !IsPerformingMove())
+	{
+		const UCharacterMovementComponent* Movement = GetMovement();
+		if (Movement && !Movement->IsFalling())
+		{
+			bIgnoreDroppedLedge = false;
+		}
+	}
 	if (IsPerformingMove())
 	{
 		AdvanceMove(DeltaTime);
