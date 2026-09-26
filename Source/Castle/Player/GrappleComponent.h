@@ -16,13 +16,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrapp
 /**
  * The grapple arrow (claude-docs/gameplay-semantics.md, PLANNED: traversal).
  *
- * Every RefreshSeconds it picks the best anchor: enabled, within Range of the character, within
+ * Every RefreshSeconds it picks the best anchor: enabled, between MinRange and Range of the character, within
  * ConeDegrees of the camera forward, in line of sight of the camera; the smallest angle wins.
  * TryFire spends a grapple arrow and shoots it at that anchor; when it arrives the character
  * zips along a straight line to the anchor's landing point at ZipSpeed, in Flying mode with
  * gravity and movement input off (the camera still turns). Firing again mid-zip is allowed once
  * ZipProgress reaches ChainMinProgress and redirects the zip to the new anchor. A zip blocked by
- * anything but the anchor's own building stops and drops the character. Arrows stay in the
+ * anything but the anchor's own building (the one under its landing point, and any neighbour
+ * sharing its corner) stops and drops the character. Arrows stay in the
  * anchor and come back when the character is within RecoverRadius of it.
  *
  * Anchors are bucketed into a GridCellSize grid the first time they are needed, so the query
@@ -123,6 +124,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
 	float Range = 2500.f;
 
+	/**
+	 * Anchors closer than this are never targeted: the one just landed beside would otherwise keep
+	 * the marker lit and a press would zip less than a metre. cm.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float MinRange = 300.f;
+
 	/** Largest angle between the camera forward and the anchor, degrees. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0", ClampMax = "90.0"))
 	float ConeDegrees = 30.f;
@@ -142,6 +150,14 @@ public:
 	/** A line-of-sight hit this close to the anchor still counts as seeing it (the parapet it sits on). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
 	float SightTolerance = 60.f;
+
+	/**
+	 * Static geometry within this of the anchor counts as the anchor's building and does not
+	 * block the zip: the line clips the parapet it sits on, and at a corner the neighbouring
+	 * tenement's parapet too. cm.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float SupportRadius = 150.f;
 
 	/** Within this of an anchor, its stuck arrows go back in the quiver, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
@@ -191,14 +207,20 @@ protected:
 	/** Puts gravity and the building collision back. Shared by landing and cancelling. */
 	void EndZipMovement();
 
-	/** The building the anchor stands on: found under its landing point, ignored by the zip sweep. */
-	AActor* FindAnchorSupport(const AGrappleAnchor* Anchor) const;
+	/**
+	 * The building the anchor stands on, found under its landing point, plus any static actor
+	 * within SupportRadius of the anchor. The zip sweep ignores all of them.
+	 */
+	void FindAnchorSupports(const AGrappleAnchor* Anchor, TArray<AActor*>& OutSupports) const;
+
+	/** Starts or stops the capsule ignoring the current supports. */
+	void SetSupportsIgnored(bool bIgnore);
 
 	ACharacter* GetCharacter() const;
 
 	TWeakObjectPtr<AGrappleAnchor> TargetAnchor;
 	TWeakObjectPtr<AGrappleAnchor> ZipAnchor;
-	TWeakObjectPtr<AActor> ZipIgnoredSupport;
+	TArray<TWeakObjectPtr<AActor>> ZipIgnoredSupports;
 	TWeakObjectPtr<AGrappleArrowProjectile> InFlightArrow;
 
 	/** Built on the first query (anchors are placed with the level) and by RebuildAnchorGrid. */

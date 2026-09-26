@@ -94,6 +94,7 @@ bool FCastleGrappleSelection::RunTest(const FString& Parameters)
 	const float Tan29 = FMath::Tan(FMath::DegreesToRadians(29.f));
 	const float Tan31 = FMath::Tan(FMath::DegreesToRadians(31.f));
 
+	AGrappleAnchor* AtFeet = SpawnAnchor(TestWorld, FVector(200.f, 0.f, 0.f));           // 0 deg, 200 cm
 	AGrappleAnchor* Ahead = SpawnAnchor(TestWorld, FVector(2000.f, 0.f, 0.f));           // 0 deg, 2000 cm
 	AGrappleAnchor* NearEdge = SpawnAnchor(TestWorld, FVector(2450.f, 300.f, 0.f));      // 7 deg, 2468 cm
 	AGrappleAnchor* Side = SpawnAnchor(TestWorld, FVector(2000.f, 700.f, 0.f));          // 19 deg
@@ -101,7 +102,7 @@ bool FCastleGrappleSelection::RunTest(const FString& Parameters)
 	AGrappleAnchor* Wide = SpawnAnchor(TestWorld, FVector(1000.f, 1000.f, 0.f));         // 45 deg
 	AGrappleAnchor* Cone29 = SpawnAnchor(TestWorld, FVector(1500.f, -1500.f * Tan29, 0.f));
 	AGrappleAnchor* Cone31 = SpawnAnchor(TestWorld, FVector(1500.f, -1500.f * Tan31, 0.f));
-	if (!Ahead || !NearEdge || !Side || !TooFar || !Wide || !Cone29 || !Cone31)
+	if (!AtFeet || !Ahead || !NearEdge || !Side || !TooFar || !Wide || !Cone29 || !Cone31)
 	{
 		AddError(TEXT("Could not spawn the anchors."));
 		return false;
@@ -109,7 +110,8 @@ bool FCastleGrappleSelection::RunTest(const FString& Parameters)
 
 	TestEqual(TEXT("Range is 2500"), Grapple->Range, 2500.f);
 	TestEqual(TEXT("Cone is 30 degrees"), Grapple->ConeDegrees, 30.f);
-	TestTrue(TEXT("The smallest angle in range wins"), Grapple->SelectBestAnchor(View, Forward) == Ahead);
+	TestTrue(TEXT("The smallest angle in range wins; one under 300 cm away does not count"),
+		Grapple->SelectBestAnchor(View, Forward) == Ahead);
 
 	Ahead->bEnabled = false;
 	TestTrue(TEXT("A disabled anchor is skipped; next smallest angle, just inside 2500 cm"),
@@ -204,12 +206,14 @@ bool FCastleGrappleIgnoresAnchorBuilding::RunTest(const FString& Parameters)
 {
 	using namespace CastleGrappleTest;
 	const FCastleTestWorld TestWorld;
-	ACastleAimTestCharacter* Kate = SpawnKate(TestWorld, FVector(0.f, 0.f, 0.f));
-	// A building whose roof is at z = 200; the anchor stands on its near edge. The line up from
-	// the street clips the roof edge on the way in, which must not count as blocked.
-	ACastleTestBlocker* Building = SpawnBlocker(TestWorld, FVector(2200.f, 0.f, 100.f), FVector(200.f, 300.f, 100.f));
-	AGrappleAnchor* Anchor = SpawnAnchor(TestWorld, FVector(2010.f, 0.f, 200.f));
-	if (!Kate || !Building || !Anchor)
+	ACastleAimTestCharacter* Kate = SpawnKate(TestWorld, FVector(0.f, 30.f, 0.f));
+	// Two adjoining buildings with roofs at z = 200, sharing a wall along y = 0; the anchor stands
+	// on the first one's front corner, right by the second. The line up from the street clips both
+	// roof edges on the way in, which must not count as blocked.
+	ACastleTestBlocker* Building = SpawnBlocker(TestWorld, FVector(2200.f, 300.f, 100.f), FVector(200.f, 300.f, 100.f));
+	ACastleTestBlocker* Neighbour = SpawnBlocker(TestWorld, FVector(2200.f, -300.f, 100.f), FVector(200.f, 300.f, 100.f));
+	AGrappleAnchor* Anchor = SpawnAnchor(TestWorld, FVector(2010.f, 30.f, 200.f));
+	if (!Kate || !Building || !Neighbour || !Anchor)
 	{
 		AddError(TEXT("Could not spawn the scene."));
 		return false;

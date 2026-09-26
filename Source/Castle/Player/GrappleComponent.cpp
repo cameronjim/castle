@@ -6,6 +6,7 @@
 #include "Castle.h"
 #include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Character.h"
@@ -124,7 +125,8 @@ bool UGrappleComponent::IsAnchorValid(const AGrappleAnchor* Anchor, const FVecto
 
 	const AActor* Owner = GetOwner();
 	const FVector Marker = Anchor->GetMarkerLocation();
-	if (!Owner || FVector::Dist(Owner->GetActorLocation(), Marker) > Range)
+	const float Distance = Owner ? FVector::Dist(Owner->GetActorLocation(), Marker) : 0.f;
+	if (!Owner || Distance > Range || Distance < MinRange)
 	{
 		return false;
 	}
@@ -326,20 +328,52 @@ FVector UGrappleComponent::ComputeZipEnd(const AGrappleAnchor* Anchor) const
 	return Anchor->GetLandingLocation() + FVector(0.f, 0.f, HalfHeight + 2.f);
 }
 
-AActor* UGrappleComponent::FindAnchorSupport(const AGrappleAnchor* Anchor) const
+void UGrappleComponent::FindAnchorSupports(const AGrappleAnchor* Anchor, TArray<AActor*>& OutSupports) const
 {
 	const UWorld* World = GetWorld();
 	if (!World || !Anchor)
 	{
-		return nullptr;
+		return;
 	}
-	const FVector Landing = Anchor->GetLandingLocation();
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(GrappleSupport), true, GetOwner());
 	Params.AddIgnoredActor(Anchor);
+
+	const FVector Landing = Anchor->GetLandingLocation();
 	FHitResult Hit;
-	World->LineTraceSingleByChannel(Hit, Landing + FVector(0.f, 0.f, 50.f),
-		Landing - FVector(0.f, 0.f, CastleGrapple::SupportProbeDepth), ECC_WorldStatic, Params);
-	return Hit.GetActor();
+	if (World->LineTraceSingleByChannel(Hit, Landing + FVector(0.f, 0.f, 50.f),
+			Landing - FVector(0.f, 0.f, CastleGrapple::SupportProbeDepth), ECC_WorldStatic, Params)
+		&& Hit.GetActor())
+	{
+		OutSupports.AddUnique(Hit.GetActor());
+	}
+
+	TArray<FOverlapResult> Overlaps;
+	World->OverlapMultiByObjectType(Overlaps, Anchor->GetActorLocation(), FQuat::Identity,
+		FCollisionObjectQueryParams(ECC_WorldStatic), FCollisionShape::MakeSphere(SupportRadius), Params);
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		if (AActor* Actor = Overlap.GetActor())
+		{
+			OutSupports.AddUnique(Actor);
+		}
+	}
+}
+
+void UGrappleComponent::SetSupportsIgnored(bool bIgnore)
+{
+	const ACharacter* Character = GetCharacter();
+	UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
+	if (!Capsule)
+	{
+		return;
+	}
+	for (const TWeakObjectPtr<AActor>& Support : ZipIgnoredSupports)
+	{
+		if (AActor* Actor = Support.Get())
+		{
+			Capsule->IgnoreActorWhenMoving(Actor, bIgnore);
+		}
+	}
 }
 
 bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
@@ -354,10 +388,7 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 	if (bZipping)
 	{
 		// A chain: the old building stops being ignored, the new one starts.
-		if (UCapsuleComponent* Capsule = Character->GetCapsuleComponent(); Capsule && ZipIgnoredSupport.IsValid())
-		{
-			Capsule->IgnoreActorWhenMoving(ZipIgnoredSupport.Get(), false);
-		}
+		SetSupportsIgnored(false);
 	}
 	else
 	{
@@ -379,11 +410,14 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 
 	// The line ends on the anchor's roof and clips its parapet on the way in; that building is
 	// expected. Anything else in the way cancels the zip.
-	ZipIgnoredSupport = FindAnchorSupport(Anchor);
-	if (UCapsuleComponent* Capsule = Character->GetCapsuleComponent(); Capsule && ZipIgnoredSupport.IsValid())
+	TArray<AActor*> Supports;
+	FindAnchorSupports(Anchor, Supports);
+	ZipIgnoredSupports.Reset();
+	for (AActor* Support : Supports)
 	{
-		Capsule->IgnoreActorWhenMoving(ZipIgnoredSupport.Get(), true);
+		ZipIgnoredSupports.Add(Support);
 	}
+	SetSupportsIgnored(true);
 
 	Movement->GravityScale = 0.f;
 	Movement->Velocity = FVector::ZeroVector;
@@ -395,9 +429,10 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 		Character->SetActorRotation(FRotator(0.f, Direction.Rotation().Yaw, 0.f));
 	}
 
-	UE_LOG(LogCastle, Log, TEXT("%s: zip to %s, %.0f cm at %.0f cm/s (%.2f s), ignoring %s"),
+	UE_LOG(LogCastle, Log, TEXT("%s: zip to %s, %.0f cm at %.0f cm/s (%.2f s), ignoring %s%s"),
 		*GetNameSafe(Character), *GetNameSafe(Anchor), ZipLength, ZipSpeed, ZipLength / ZipSpeed,
-		*GetNameSafe(ZipIgnoredSupport.Get()));
+		*GetNameSafe(Supports.Num() > 0 ? Supports[0] : nullptr),
+		Supports.Num() > 1 ? *FString::Printf(TEXT(" and %d more"), Supports.Num() - 1) : TEXT(""));
 	return true;
 }
 
@@ -444,11 +479,8 @@ void UGrappleComponent::EndZipMovement()
 	{
 		return;
 	}
-	if (UCapsuleComponent* Capsule = Character->GetCapsuleComponent(); Capsule && ZipIgnoredSupport.IsValid())
-	{
-		Capsule->IgnoreActorWhenMoving(ZipIgnoredSupport.Get(), false);
-	}
-	ZipIgnoredSupport.Reset();
+	SetSupportsIgnored(false);
+	ZipIgnoredSupports.Reset();
 	if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
 	{
 		Movement->GravityScale = PreZipGravityScale;
