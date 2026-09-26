@@ -31,6 +31,10 @@ void UHawkeyePauseWidget::ApplyDefaultLabels()
 	{
 		RestartMissionLabel = NSLOCTEXT("Hawkeye", "PauseRestart", "Restart mission");
 	}
+	if (QuitToMenuLabel.IsEmpty())
+	{
+		QuitToMenuLabel = NSLOCTEXT("Hawkeye", "PauseQuitToMenu", "Quit to menu");
+	}
 	if (QuitToDesktopLabel.IsEmpty())
 	{
 		QuitToDesktopLabel = NSLOCTEXT("Hawkeye", "PauseQuit", "Quit to desktop");
@@ -103,6 +107,7 @@ TSharedRef<SWidget> UHawkeyePauseWidget::RebuildWidget()
 		AddButton(ResumeButton, TEXT("ResumeButton"), ResumeLabel);
 		AddButton(SettingsButton, TEXT("SettingsButton"), SettingsLabel);
 		AddButton(RestartMissionButton, TEXT("RestartMissionButton"), RestartMissionLabel);
+		AddButton(QuitToMenuButton, TEXT("QuitToMenuButton"), QuitToMenuLabel);
 		AddButton(QuitToDesktopButton, TEXT("QuitToDesktopButton"), QuitToDesktopLabel);
 	}
 
@@ -132,6 +137,10 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		RestartMissionButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleRestartMissionClicked);
 	}
+	if (QuitToMenuButton)
+	{
+		QuitToMenuButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleQuitToMenuClicked);
+	}
 	if (QuitToDesktopButton)
 	{
 		QuitToDesktopButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleQuitToDesktopClicked);
@@ -156,6 +165,10 @@ void UHawkeyePauseWidget::NativeDestruct()
 		{
 			RestartMissionButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleRestartMissionClicked);
 		}
+		if (QuitToMenuButton)
+		{
+			QuitToMenuButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleQuitToMenuClicked);
+		}
 		if (QuitToDesktopButton)
 		{
 			QuitToDesktopButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleQuitToDesktopClicked);
@@ -179,6 +192,11 @@ void UHawkeyePauseWidget::HandleSettingsClicked()
 void UHawkeyePauseWidget::HandleRestartMissionClicked()
 {
 	OnRestartMissionClicked.Broadcast();
+}
+
+void UHawkeyePauseWidget::HandleQuitToMenuClicked()
+{
+	OnQuitToMenuClicked.Broadcast();
 }
 
 void UHawkeyePauseWidget::HandleQuitToDesktopClicked()

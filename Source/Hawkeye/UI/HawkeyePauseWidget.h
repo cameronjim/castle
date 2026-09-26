@@ -13,10 +13,10 @@ class UVerticalBox;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPauseMenuChoiceSignature);
 
 /**
- * The Escape menu: Resume, Settings, Restart mission, Quit to desktop.
+ * The Escape menu: Resume, Settings, Restart mission (the last save), Quit to menu, Quit to desktop.
  *
- * Reparent a UMG widget to this class and name four buttons ResumeButton, SettingsButton,
- * RestartMissionButton and QuitToDesktopButton to have them driven automatically. A subclass
+ * Reparent a UMG widget to this class and name the buttons ResumeButton, SettingsButton,
+ * RestartMissionButton, QuitToMenuButton and QuitToDesktopButton to have them driven automatically. A subclass
  * with no designer layout works too, because RebuildWidget builds a vertical stack itself
  * (the same approach as UHawkeyeHudWidget and UFlashbackWidget).
  *
@@ -39,6 +39,9 @@ public:
 	FOnPauseMenuChoiceSignature OnRestartMissionClicked;
 
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
+	FOnPauseMenuChoiceSignature OnQuitToMenuClicked;
+
+	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnQuitToDesktopClicked;
 
 	/** Label text, so the three buttons can be renamed without touching the layout code. */
@@ -53,6 +56,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText RestartMissionLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
+	FText QuitToMenuLabel;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText QuitToDesktopLabel;
@@ -74,6 +80,9 @@ protected:
 	void HandleRestartMissionClicked();
 
 	UFUNCTION()
+	void HandleQuitToMenuClicked();
+
+	UFUNCTION()
 	void HandleQuitToDesktopClicked();
 
 	/** Fills in any label the designer left empty. Called before the layout is built. */
@@ -87,6 +96,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> RestartMissionButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> QuitToMenuButton = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> QuitToDesktopButton = nullptr;
