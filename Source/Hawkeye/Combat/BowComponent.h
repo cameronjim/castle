@@ -85,6 +85,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Bow")
 	FVector ComputeAimPoint() const;
 
+	/**
+	 * Aims at Point instead of the reticle until ClearAimOverride: the AI partner has no camera to
+	 * trace from, so he draws on a thug's chest this way. Same draw, spread and projectile.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Bow")
+	void SetAimOverride(const FVector& Point);
+
+	UFUNCTION(BlueprintCallable, Category = "Bow")
+	void ClearAimOverride() { bHasAimOverride = false; }
+
+	UFUNCTION(BlueprintPure, Category = "Bow")
+	bool HasAimOverride() const { return bHasAimOverride; }
+
 	/** Spawns Arrow's projectile at the bow hand. The grapple uses this for its own flight. */
 	AArrowProjectile* SpawnArrowProjectile(UArrowDefinition* Arrow, TSubclassOf<AArrowProjectile> FallbackClass,
 		const FVector& Direction) const;
@@ -254,6 +267,9 @@ protected:
 
 	/** The bow stays in the hand until this time after a shot (the follow-through). */
 	double FollowThroughUntilSeconds = -1.0;
+
+	bool bHasAimOverride = false;
+	FVector AimOverridePoint = FVector::ZeroVector;
 
 	bool bUseTestTime = false;
 	double TestTimeOverride = 0.0;

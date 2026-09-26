@@ -317,6 +317,11 @@ FVector UBowComponent::ComputeAimPoint() const
 		return FVector::ZeroVector;
 	}
 
+	if (bHasAimOverride)
+	{
+		return AimOverridePoint;
+	}
+
 	FVector ViewLocation;
 	FVector ViewForward;
 	const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(Owner);
@@ -345,6 +350,12 @@ FVector UBowComponent::ComputeAimPoint() const
 		return Hit.ImpactPoint;
 	}
 	return End;
+}
+
+void UBowComponent::SetAimOverride(const FVector& Point)
+{
+	bHasAimOverride = true;
+	AimOverridePoint = Point;
 }
 
 void UBowComponent::NotifyArrowHit(AActor* HitActor, float Damage, bool bHeadshot)

@@ -99,6 +99,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Health")
 	bool IsInvulnerable() const { return bInvulnerable; }
 
+	/**
+	 * While set, damage still lands (and still staggers) but never takes health below 1, so OnDeath
+	 * cannot fire. The AI partner carries it: he is immortal for now but can be knocked about.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Health")
+	void SetCannotDie(bool bNewCannotDie) { bCannotDie = bNewCannotDie; }
+
+	UFUNCTION(BlueprintPure, Category = "Health")
+	bool CannotDie() const { return bCannotDie; }
+
 	UFUNCTION(BlueprintPure, Category = "Health")
 	bool IsDead() const { return bIsDead; }
 
@@ -123,6 +133,10 @@ protected:
 	/** While true all damage is ignored (used by boss phase transitions). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Health")
 	bool bInvulnerable = false;
+
+	/** See SetCannotDie. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Health")
+	bool bCannotDie = false;
 
 	/** Set the first time health reaches 0; cleared only by Revive. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")

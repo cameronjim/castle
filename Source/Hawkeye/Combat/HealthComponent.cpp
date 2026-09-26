@@ -58,7 +58,9 @@ float UHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator
 	}
 
 	const float OldHealth = CurrentHealth;
-	CurrentHealth = FMath::Clamp(CurrentHealth - DamageAmount, 0.f, MaxHealth);
+	// The partner's floor: one point short of dead, whatever the hit.
+	const float Floor = bCannotDie ? FMath::Min(1.f, OldHealth) : 0.f;
+	CurrentHealth = FMath::Clamp(CurrentHealth - DamageAmount, Floor, MaxHealth);
 
 	const float ActualDelta = CurrentHealth - OldHealth;
 	if (FMath::IsNearlyZero(ActualDelta))
