@@ -661,7 +661,7 @@ def _build_fluorescent_flicker(material):
 # --------------------------------------------------------------------------------------
 
 # Metadata tag on every look asset. A different value rebuilds each one once (functions first).
-LOOK_BUILD = "night-12"
+LOOK_BUILD = "night-15"
 LOOK_TAG = "HawkeyeBuild"
 
 MF_SNOW = MATERIALS_PATH + "/MF_Snow"
@@ -700,23 +700,33 @@ SIGN_TOP = 395.0
 STOREFRONT_MIN_TOP = 700.0           # only buildings this tall get storefronts and a cornice
 CORNICE_FROM_TOP = (90.0, 145.0)     # cm under the top of the mesh (the parapet top)
 CORNICE_INK = 13.0                   # the black line under the cornice
-LIT_STORE_FRACTION = 0.6
-WINDOW_GLASS = (0.015, 0.018, 0.03)
-WINDOW_LIT = (1.0, 0.62, 0.30)       # warm
+LIT_STORE_FRACTION = 0.4             # was 0.6; storefront bands read as a light board otherwise
+WINDOW_GLASS = (0.05, 0.07, 0.12)     # faint dark-blue reflection, not pure black, so the grid still reads
+WINDOW_LIT = (1.0, 0.62, 0.30)       # warm; also the "warm" bucket of WINDOW_LIT_COLORS below
+WINDOW_LIT_COOL = (0.85, 0.9, 1.0)    # cool white bucket
+WINDOW_LIT_TV = (0.5, 0.6, 1.0)       # TV-blue bucket
+WINDOW_COOL_FRACTION = 0.20           # of lit windows: cool white
+WINDOW_TV_FRACTION = 0.10            # of lit windows: TV-blue (the remaining 0.70 is warm)
+WINDOW_JITTER_MIN = 0.6               # per-window brightness jitter range
+WINDOW_JITTER_MAX = 1.0
 ROOF_COLOR = (0.05, 0.05, 0.055)
 SIGN_COLOR = (0.025, 0.02, 0.03)
 INK = (0.008, 0.008, 0.01)
 
-# name: (wall, trim, lit fraction)
+# name: (wall, trim, lit fraction). Wall colours bumped ~1.15-1.4x over the original so brick reads
+# under lamp light instead of going flat black; lit fractions were 0.35 (0.15 for Painted) before
+# windows read as a light board - scaled down by the same 22/35 ratio as the residential-floor spec.
 FACADE_STYLES = {
-    "BrickRed": ((0.23, 0.075, 0.055), (0.55, 0.50, 0.40), 0.35),
-    "BrickBrown": ((0.17, 0.09, 0.06), (0.50, 0.46, 0.38), 0.35),
-    "BrickPurple": ((0.13, 0.065, 0.10), (0.52, 0.48, 0.42), 0.35),
-    "Brownstone": ((0.16, 0.095, 0.07), (0.09, 0.055, 0.04), 0.35),
-    "Stone": ((0.38, 0.35, 0.30), (0.17, 0.16, 0.15), 0.35),
-    "Painted": ((0.17, 0.17, 0.19), (0.03, 0.03, 0.035), 0.15),
+    "BrickRed": ((0.32, 0.105, 0.077), (0.55, 0.50, 0.40), 0.22),
+    "BrickBrown": ((0.24, 0.13, 0.084), (0.50, 0.46, 0.38), 0.22),
+    "BrickPurple": ((0.18, 0.091, 0.14), (0.52, 0.48, 0.42), 0.22),
+    "Brownstone": ((0.22, 0.13, 0.098), (0.09, 0.055, 0.04), 0.22),
+    "Stone": ((0.44, 0.40, 0.35), (0.17, 0.16, 0.15), 0.22),
+    "Painted": ((0.24, 0.24, 0.27), (0.03, 0.03, 0.035), 0.09),
 }
-WINDOW_GLOW = 0.7                    # before EMISSIVE_INTENSITY_FACTOR; warm orange, not clipped to white
+WINDOW_GLOW = 0.04                    # before EMISSIVE_INTENSITY_FACTOR; was 0.7, then 0.175 (/4), then 0.08 - each
+                                       # round's screenshot still read brighter than the lamp head, scaled down to
+                                       # land near 60% of it on screen
 
 STAR_CELLS = 250.0                   # per unit of view direction; a star is about 3 pixels at 720p (smaller
                                      # ones flicker between jitter samples and the upscaler drops them)
@@ -993,11 +1003,21 @@ def _build_facade_function(mf):
                       const_b=1.37)
     tone = add(mf, multiply(mf, hash01(mf, d_seed, -2150, 1400), None, -1700, 1400, const_b=0.3), None, -1550, 1400,
                const_b=0.85)
+    # A fine world-space noise reads as mortar joints/brick grain once the base wall colour is bright
+    # enough to catch lamp light; a matching roughness ripple keeps it from looking like a flat tint.
+    mortar = noise(mf, 0.02, -1550, 1480, out_min=0.88, out_max=1.15, levels=2, turbulence=False)
+    tone = multiply(mf, tone, mortar, -1400, 1450)
+    rough_ripple = noise(mf, 0.015, -1550, 1580, out_min=-0.08, out_max=0.12, levels=2, turbulence=False)
+    brick_roughness = clamp01(mf, add(mf, rough_ripple, None, -1400, 1580, const_b=0.85), -1250, 1580)
     base = lerp(mf, constant3(mf, ROOF_COLOR, -1300, 1500), multiply(mf, wall, tone, -1300, 1400), vertical, -600, 1400)
     base = lerp(mf, base, trim, multiply(mf, frame, upper, -600, -400), -400, 1400)
     base = lerp(mf, base, trim, cornice, -250, 1400)
     base = lerp(mf, base, constant3(mf, INK, -400, 1560), ink, -100, 1400)
     base = lerp(mf, base, constant3(mf, SIGN_COLOR, -250, 1560), sign, 50, 1400)
+    # A 30 cm band at the bottom of every floor, lighter than the field: a belt course/lintel line
+    # so brick still reads as courses of masonry rather than a flat tinted slab in low light.
+    belt = multiply(mf, band(mf, vz, 0.0, 30.0, -1550, 1350), vertical, -1350, 1350)
+    base = lerp(mf, base, trim, multiply(mf, belt, None, -1200, 1350, const_b=0.4), 150, 1350)
 
     # Which windows are lit: a hash of the bay, the floor and the facade plane.
     bay = floor_node(mf, divide(mf, u, None, -2300, 1700, const_b=BAY_PITCH), -2150, 1700)
@@ -1013,11 +1033,28 @@ def _build_facade_function(mf):
     glass_upper = multiply(mf, win, upper, -800, -200)
     lit = add(mf, multiply(mf, glass_upper, lit_upper, -600, 1750), multiply(mf, store, lit_shop, -600, 1950), -450, 1850)
     glass = maximum(mf, glass_upper, store, -600, 1600)
-    glass_color = lerp(mf, constant3(mf, WINDOW_GLASS, -450, 1650), multiply(mf, lit_color, None, -450, 1700, const_b=0.3),
+
+    # Per-window warmth: a hash of the same bay/floor/plane seed picks 70% warm (LitColor), 20% cool
+    # white, 10% TV-blue, decorrelated from the lit/unlit hash by a different constant offset. A second
+    # hash jitters each lit window's brightness so no two are identical.
+    color_seed = add(mf, seed, None, -1550, 2050, const_b=51.7)
+    color_hash = hash01(mf, color_seed, -1400, 2050)
+    cool_mask = band(mf, color_hash, 1.0 - WINDOW_COOL_FRACTION - WINDOW_TV_FRACTION, 1.0 - WINDOW_TV_FRACTION,
+                     -1100, 2050)
+    tv_mask = step(mf, color_hash, 1.0 - WINDOW_TV_FRACTION, -1100, 2150)
+    win_color = lerp(mf, lit_color, constant3(mf, WINDOW_LIT_COOL, -900, 2100), cool_mask, -700, 2050)
+    win_color = lerp(mf, win_color, constant3(mf, WINDOW_LIT_TV, -700, 2150), tv_mask, -500, 2100)
+
+    jitter_seed = add(mf, seed, None, -1550, 2250, const_b=137.3)
+    jitter = add(mf, multiply(mf, hash01(mf, jitter_seed, -1400, 2250), None, -1200, 2250,
+                              const_b=WINDOW_JITTER_MAX - WINDOW_JITTER_MIN), None, -1050, 2250,
+                const_b=WINDOW_JITTER_MIN)
+
+    glass_color = lerp(mf, constant3(mf, WINDOW_GLASS, -450, 1650), multiply(mf, win_color, None, -450, 1700, const_b=0.3),
                        clamp01(mf, lit, -300, 1850), -250, 1650)
     base = lerp(mf, base, glass_color, glass, 200, 1400)
-    emissive = multiply(mf, multiply(mf, lit_color, glow, -250, 2000), lit, -100, 2000)
-    roughness = lerp(mf, None, None, glass, 200, 1600, const_a=0.85, const_b=0.2)
+    emissive = multiply(mf, multiply(mf, multiply(mf, win_color, glow, -250, 2000), jitter, -50, 2050), lit, 100, 2000)
+    roughness = lerp(mf, brick_roughness, None, glass, 200, 1600, const_b=0.2)
 
     function_output(mf, "BaseColor", 0, base, 500, 1400)
     function_output(mf, "Roughness", 1, roughness, 500, 1600)
