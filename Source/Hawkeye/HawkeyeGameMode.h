@@ -65,7 +65,10 @@ public:
 	 * autosave waits for this to clear.
 	 */
 	UFUNCTION(BlueprintPure, Category = "Save")
-	bool IsInCombat() const;
+	bool IsInCombat() const { return IsWorldInCombat(GetWorld()); }
+
+	/** IsInCombat for any world; static so a test can ask it of a bare test world. */
+	static bool IsWorldInCombat(const UWorld* World);
 
 	/** The roaming autosave's gate: a living, standing player on the ground, and no fight on. */
 	UFUNCTION(BlueprintPure, Category = "Save")

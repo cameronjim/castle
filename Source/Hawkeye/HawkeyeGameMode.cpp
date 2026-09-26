@@ -86,9 +86,8 @@ void AHawkeyeGameMode::HandleObjectiveUpdated(UMissionObjective* Objective, int3
 	}
 }
 
-bool AHawkeyeGameMode::IsInCombat() const
+bool AHawkeyeGameMode::IsWorldInCombat(const UWorld* World)
 {
-	UWorld* World = GetWorld();
 	if (!World)
 	{
 		return false;
