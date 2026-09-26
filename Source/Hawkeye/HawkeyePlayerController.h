@@ -70,7 +70,7 @@ public:
 
 	/** Used when MenuLevelName has not been built yet, so the campaign end never dead-ends. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "End card")
-	FName FallbackMenuLevelName = FName(TEXT("/Game/Maps/L_Sandbox"));
+	FName FallbackMenuLevelName = FName(TEXT("/Game/Maps/L_District_EastVillage"));
 
 	/** Shown on the final card, which waits for a key instead of counting down. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "End card")
