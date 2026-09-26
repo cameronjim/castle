@@ -56,7 +56,8 @@
  * down to a last drop to the street), and run back to the start along the navmesh. Nothing
  * teleports her after the start. Measures the time, how often the capsule was stopped for more than 0.5 s with
  * move input held, the attempts each move took, and the frame time; writes
- * Saved/Automation/lap_eastvillage.json and Saved/Screenshots/Lap/lap_{start,roof,end}.png.
+ * Saved/Automation/lap_eastvillage.json and Saved/Screenshots/Lap/lap_{start,roof,end}.png, plus
+ * chain_midair.png a moment after the first chain that redirected in the air.
  *
  * Input: movement, sprint, jump, grapple, fire and melee go through Enhanced Input injection on
  * the real IA_ assets every frame (the same bindings a key press reaches). The camera is turned by
@@ -439,6 +440,11 @@ private:
 	float TouchSeconds = 0.f;
 	float LongestTouch = 0.f;
 	TArray<FString> ChainNotes;
+	// Every leg of every chain, and any time on a roof between two zips of one.
+	TArray<FString> ChainLegs;
+	int32 ChainTouchDowns = 0;
+	double ChainShotAt = -1.0;
+	bool bChainShotTaken = false;
 	FVector RunTarget = FVector::ZeroVector;
 
 	// Descent.
@@ -1233,6 +1239,7 @@ void FCastleLapRunner::Finish(UWorld* World, APlayerController* PC, ACastleChara
 		"  \"blocked_events\": %d,\n  \"blocked_where\": [%s],\n  \"max_attempts\": %d,\n  \"all_first_attempt\": %s,\n"
 		"  \"moves\": [\n    %s\n  ],\n  \"roofs\": [%s],\n  \"longest_chain_zips\": %d,\n"
 		"  \"chain_midair_redirects\": %d,\n  \"chain_touch_and_go\": %d,\n  \"chain_longest_touch_seconds\": %.2f,\n"
+		"  \"chain_touchdowns\": %d,\n  \"chain_legs\": [%s],\n"
 		"  \"frames\": %d,\n  \"excluded_script_frames\": %d,\n  \"average_frame_ms\": %.2f,\n  \"worst_frame_ms\": %.2f,\n  \"worst_frame_index\": %d,\n  \"frames_over_33ms\": %d,\n"
 		"  \"ledge_spawn_load_ms\": %.1f,\n  \"ledge_spawn_total_ms\": %.1f,\n  \"anchor_spawn_ms\": %.1f,\n"
 		"  \"street_grapple_note\": \"%s\",\n  \"kate_health\": %.1f,\n  \"survey_roofs\": %d,\n  \"survey_roofs_with_clear_roof_grapple\": %d\n}\n"),
@@ -1241,7 +1248,8 @@ void FCastleLapRunner::Finish(UWorld* World, APlayerController* PC, ACastleChara
 		DescentLandings, DescentLastDrop, DescentEnd > 0.0 ? DescentEnd - DescentStart : -1.0,
 		*FailReason.ReplaceCharWithEscapedChar(), Seconds, StreetMetres,
 		Meter.BlockedEvents, *FString::Join(Blocked, TEXT(", ")), MaxAttempts, bAllFirst ? TEXT("true") : TEXT("false"),
-		*FString::Join(MoveLines, TEXT(",\n    ")), *FString::Join(Roofs, TEXT(", ")), LongestChain, ChainMidAir, ChainTouchAndGo, LongestTouch, Meter.Frames, ExcludedFrames,
+		*FString::Join(MoveLines, TEXT(",\n    ")), *FString::Join(Roofs, TEXT(", ")), LongestChain, ChainMidAir, ChainTouchAndGo, LongestTouch,
+		ChainTouchDowns, *FString::Join(ChainLegs, TEXT(", ")), Meter.Frames, ExcludedFrames,
 		Meter.AverageMs(), Meter.WorstFrame * 1000.0, Meter.WorstFrameIndex, Meter.FramesOver33, Spawner ? Spawner->GetLoadLedgeSpawnSeconds() * 1000.f : -1.f,
 		Spawner ? Spawner->GetTotalLedgeSpawnSeconds() * 1000.f : -1.f, Spawner ? Spawner->GetAnchorSpawnSeconds() * 1000.f : -1.f,
 		*StreetGrappleNote.ReplaceCharWithEscapedChar(), Kate->GetHealthComponent()->GetCurrentHealth(), SurveyRoofs, SurveyRoofsWithExit);
@@ -1468,10 +1476,17 @@ bool FCastleLapRunner::Update()
 	case EStep::ZipAcross:
 	case EStep::ZipOn:
 	{
-		// Chaining: from 40% along, look at an anchor on a building not yet visited; press at 70%.
+		// Chaining: from 40% along, look at an anchor on a building not yet visited and press as
+		// soon as the chain window is open.
 		if (!Grapple->IsZipping() && Grapple->IsArrowInFlight() && Kate->GetCharacterMovement()->IsMovingOnGround())
 		{
 			TouchSeconds += DeltaSeconds;
+		}
+		if (ChainShotAt > 0.0 && !bChainShotTaken && Now(World) >= ChainShotAt)
+		{
+			// A moment after the first mid-air redirect, the camera on the new anchor.
+			bChainShotTaken = true;
+			Shot(Test, TEXT("chain_midair.png"));
 		}
 		if (Grapple->IsZipping())
 		{
@@ -1483,6 +1498,14 @@ bool FCastleLapRunner::Update()
 				const bool bMidAir = Grapple->GetZipLaunch().Equals(Grapple->GetZipStart(), 1.f);
 				ChainMidAir += bMidAir ? 1 : 0;
 				ChainTouchAndGo += bMidAir ? 0 : 1;
+				ChainTouchDowns += bMidAir ? 0 : 1;
+				ChainLegs.Add(FString::Printf(TEXT("\"%s -> %s: %s, new line %.0f cm\""), *GetNameSafe(ZipTarget.Get()),
+					*GetNameSafe(Current), bMidAir ? TEXT("redirected in the air") : *FString::Printf(TEXT("touched down %.2f s"), TouchSeconds),
+					Grapple->GetZipLength()));
+				if (bMidAir && ChainShotAt < 0.0)
+				{
+					ChainShotAt = Now(World) + 0.12;
+				}
 				LongestTouch = FMath::Max(LongestTouch, bMidAir ? 0.f : TouchSeconds);
 				ChainNotes.Add(FString::Printf(TEXT("%s %s"), *GetNameSafe(Current),
 					bMidAir ? TEXT("in the air") : *FString::Printf(TEXT("after %.2f s on the roof"), TouchSeconds)));
@@ -1511,11 +1534,12 @@ bool FCastleLapRunner::Update()
 					const FVector End = Current->GetLandingLocation();
 					const FVector Dir = (End - Kate->GetActorLocation()).GetSafeNormal2D();
 					const AActor* Across = BuildingUnder(World, End, Kate);
-					// Where she will be when the chain is pressed: 75% along the current line.
+					// Where she will be when the chain is pressed: a few frames on, just past the window.
 					const float Progress = Grapple->GetZipProgress();
+					const float PressProgress = FMath::Max(Progress, Grapple->ChainMinProgress) + 0.05f;
 					const FVector ZipEndCentre = Grapple->ComputeZipEnd(Current);
 					const FVector PressAt = Kate->GetActorLocation()
-						+ (ZipEndCentre - Kate->GetActorLocation()) * FMath::Clamp((0.75f - Progress) / FMath::Max(1.f - Progress, 0.01f), 0.f, 1.f);
+						+ (ZipEndCentre - Kate->GetActorLocation()) * FMath::Clamp((PressProgress - Progress) / FMath::Max(1.f - Progress, 0.01f), 0.f, 1.f);
 					int32 Blocked = 0;
 					// A roof with a fire escape first (the chain may be the last hop), then any roof.
 					for (const bool bEscapeOnly : { true, false })
