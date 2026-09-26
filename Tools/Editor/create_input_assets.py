@@ -8,6 +8,8 @@
     IA_Slot1 .. IA_Slot6  IA_Inventory             (Digital / bool, keys 1..6: quiver slots)
     IA_Grapple                      (Digital / bool, Q: the grapple arrow)
     IA_Melee                        (Digital / bool, V: bow strike, tap light / hold heavy)
+    IA_SwitchCharacter              (Digital / bool, X / LB: swap between Kate and Clint)
+    IA_PartnerMark                  (Digital / bool, T: send the partner to the point under the view)
     IA_SlotScroll                   (Axis1D, the mouse wheel and the D-pad left/right)
     IMC_Default                     with the UE first-person template's WASD + mouse setup, plus
                                      a full Xbox-layout gamepad mapping (PlayStation pads read the
@@ -56,6 +58,8 @@ ACTIONS = [
     ("IA_Inventory", BOOL),
     ("IA_Grapple", BOOL),
     ("IA_Melee", BOOL),
+    ("IA_SwitchCharacter", BOOL),
+    ("IA_PartnerMark", BOOL),
 ]
 
 # (action name, FKey name, [modifier specs])
@@ -108,6 +112,9 @@ MAPPINGS = [
     ("IA_Grapple", "Q", []),
     # V: a bow strike. Tap for the light, hold 0.4 s for the heavy (AHawkeyeCharacter decides).
     ("IA_Melee", "V", []),
+    # Partner and switching, bound on AHawkeyePlayerController: X swaps who you play, T marks a point.
+    ("IA_SwitchCharacter", "X", []),
+    ("IA_PartnerMark", "T", []),
 
     # --- Gamepad (Xbox layout; a PlayStation pad reports the same Gamepad_* keys) --------------
     ("IA_Move", "Gamepad_Left2D", [STICK_MOVE_DEADZONE]),
@@ -135,6 +142,8 @@ MAPPINGS = [
     ("IA_SlotScroll", "Gamepad_DPad_Right", []),
     ("IA_Slot1", "Gamepad_DPad_Up", []),
     ("IA_Slot2", "Gamepad_DPad_Down", []),
+    # LB swaps Kate and Clint. The mark has no pad button yet: the D-pad belongs to the quiver.
+    ("IA_SwitchCharacter", "Gamepad_LeftShoulder", []),
 ]
 
 
