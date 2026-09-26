@@ -1089,6 +1089,8 @@ PATROL_POINT_HEIGHT = 100.0       # cm above the sidewalk
 STREET_PAIR_SPACING = 150.0       # cm; the second walks this far ahead of the first
 CROSSING_CLEARANCE = 300.0        # cm; a patrol point this far from any other road's carriageway
 
+# Every thug keeps AThugCharacter's own "Thug" tag first: the takedown looks for it and a thug's
+# swing skips anyone carrying it. The labels' other tags come after.
 # (weapon, group tag) per thug, in label order: the roof pair (one fists, one bat), then the
 # street pair (one bat, one gunner). One gunner in four.
 THUG_LOADOUT = (("FISTS", ROOF_PAIR_TAG), ("BAT", ROOF_PAIR_TAG),
@@ -1182,7 +1184,7 @@ def thug_placements(district):
         for i, spot in enumerate((a, b)):
             weapon, tag = THUG_LOADOUT[i]
             thugs.append((THUG_PREFIX + str(i), spot[0], spot[1], spot[2], spot[3], weapon,
-                          ["City", "CityThug", tag, "osm:" + roof_rec["id"]], []))
+                          ["Thug", "City", "CityThug", tag, "osm:" + roof_rec["id"]], []))
     if patrol is not None:
         p0, p1, yaw = patrol
         z_walk = SIDEWALK_TOP
@@ -1194,7 +1196,7 @@ def thug_placements(district):
             along = STREET_PAIR_SPACING * j
             thugs.append((THUG_PREFIX + str(2 + j), p0[0] + ux * along, p0[1] + uy * along,
                           z_walk + THUG_HALF_HEIGHT + 2.0, yaw, weapon,
-                          ["City", "CityThug", tag, "street:" + PATROL_STREET],
+                          ["Thug", "City", "CityThug", tag, "street:" + PATROL_STREET],
                           [PATROL_PREFIX + "1", PATROL_PREFIX + "0"]))
     return thugs, points, roof_rec
 
@@ -1267,7 +1269,7 @@ def ensure_thugs(district, existing):
         n += _ensure_tags(actor, tags)
         changes += n
         c.log("updated" if n else "exists", label, "{0} {1} at ({2:.0f}, {3:.0f}, {4:.0f}) yaw {5:.0f}".format(
-            weapon.lower(), tags[2], x, y, z, yaw))
+            weapon.lower(), tags[3], x, y, z, yaw))
     if roof_rec is not None:
         cx, cy = geo.centroid(roof_rec["ring"])
         loc = unreal.Vector(cx, cy, roof_rec["height_m"] * 100.0 + 100.0)

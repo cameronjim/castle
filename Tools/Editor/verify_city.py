@@ -292,6 +292,8 @@ def check_thugs(district, actors, records):
             label, weapon.lower(), "/".join(t for t in tags if t.endswith("Pair")), loc.x, loc.y, loc.z,
             " patrol " + ">".join(patrol) if patrol else ""))
     unreal.log("[Castle] info  thugs: " + "; ".join(detail))
+    untagged = [l for l, a in thugs.items() if "Thug" not in [str(t) for t in a.get_editor_property("tags")]]
+    check(not untagged, "every thug keeps the Thug tag (takedowns and friendly swings use it)", ", ".join(untagged))
     check(weapons.get("PISTOL", 0) == 1 and weapons.get("BAT", 0) == 2 and weapons.get("FISTS", 0) == 1,
           "one gunner, two bats, one fists", str(weapons))
 
