@@ -6,6 +6,7 @@
 #include "Combat/MeleeComponent.h"
 #include "Combat/Takedownable.h"
 #include "GameFramework/Character.h"
+#include "ISpudObject.h"
 #include "ThugCharacter.generated.h"
 
 class APickupActor;
@@ -49,7 +50,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAlertStateChangedSignature, EThu
  * takedown or a bullet can all read and change it without knowing about the controller.
  */
 UCLASS(Blueprintable, BlueprintType)
-class HAWKEYE_API AThugCharacter : public ACharacter, public ITakedownable
+class HAWKEYE_API AThugCharacter : public ACharacter, public ITakedownable, public ISpudObject, public ISpudObjectCallback
 {
 	GENERATED_BODY()
 
@@ -315,6 +316,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Animation", meta = (ClampMin = "0.0"))
 	float RunAnimSpeedThreshold = 350.f;
 
+	/**
+	 * Loading a save made after this thug died: he goes down where he lies, with no loot drop.
+	 * Routed through health so a thug group objective counts him like any other death.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void RestoreAsDead();
+
+	//~ Begin ISpudObjectCallback interface (SPUD saves position and bSavedDead)
+	virtual void SpudPreStore_Implementation(const USpudState* State) override;
+	virtual void SpudPostRestore_Implementation(const USpudState* State) override;
+	//~ End ISpudObjectCallback interface
+
 	//~ Begin ITakedownable interface
 	virtual bool CanBeTakenDown_Implementation(AActor* Attacker) override;
 	virtual void OnTakedown_Implementation(AActor* Attacker) override;
@@ -432,6 +445,10 @@ private:
 
 	/** The mesh's mount on the capsule, restored when he stands back up. */
 	FTransform MeshRelativeTransform = FTransform::Identity;
+
+	/** Dead at the last save. Written by SpudPreStore, read by SpudPostRestore. */
+	UPROPERTY(SaveGame)
+	bool bSavedDead = false;
 
 	bool bLootDropped = false;
 	bool bLimp = false;

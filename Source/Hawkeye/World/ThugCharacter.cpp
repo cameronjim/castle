@@ -622,6 +622,32 @@ void AThugCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 	DropLoot();
 }
 
+void AThugCharacter::RestoreAsDead()
+{
+	if (!HealthComponent || !HealthComponent->IsAlive())
+	{
+		return;
+	}
+	// Whatever he carried was dropped the first time he died; the save does not keep pickups.
+	bLootDropped = true;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: dead in the save; putting him down again."), *GetName());
+	HealthComponent->SetInvulnerable(false);
+	HealthComponent->ApplyDamage(HealthComponent->GetMaxHealth() * 10.f, nullptr);
+}
+
+void AThugCharacter::SpudPreStore_Implementation(const USpudState* /*State*/)
+{
+	bSavedDead = HealthComponent && !HealthComponent->IsAlive();
+}
+
+void AThugCharacter::SpudPostRestore_Implementation(const USpudState* /*State*/)
+{
+	if (bSavedDead)
+	{
+		RestoreAsDead();
+	}
+}
+
 void AThugCharacter::GoLimp(AActor* Killer)
 {
 	if (bLimp)
