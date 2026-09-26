@@ -28,7 +28,6 @@
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
-#include "Mission/ObjectiveTriggerVolume.h"
 #include "Player/CastleCharacter.h"
 #include "Player/GrappleComponent.h"
 #include "Player/InventoryComponent.h"
@@ -37,6 +36,7 @@
 #include "UI/CastleHudWidget.h"
 #include "UnrealClient.h"
 #include "World/GrappleAnchor.h"
+#include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -73,7 +73,13 @@
  *   bow_draw.png       half drawn: bow in the left hand, the spread ring and the draw bar
  *   bow_hit.png        a full draw loosed at a thug 15 m down the street, stuck in him, reticle flashing
  *
- * At the end two thugs are put on the cross_block roof (with their AI) and reported.
+ *   street_patrol.png  across Avenue A from the StreetPair, patrolling the park-side sidewalk
+ *   fight_roof.png     on the cross_block roof, the RoofPair alerted and rushing her
+ *   fight_hit.png      her heavy landed: a thug knocked down (ragdoll)
+ *   fight_dodge.png    mid-dodge, sideways from the thug still standing
+ *
+ * The district's placed thugs are frozen (thinking off) for every shot but their own, and Kate is
+ * invulnerable through the roof fight so a swing cannot end the pass.
  *
  * Each shot reports how far the arm pulled in and warns if the lens is inside geometry. The pass
  * drops Kate 12 m onto the street and reports the landing height and health it cost, then fires
@@ -1207,7 +1213,6 @@ namespace CastleKateShots
 		HitDraw,
 		HitRelease,
 		Cleanup,
-		RoofThugs,
 	};
 
 	/** The thug the hit shot aims at. */
@@ -1388,31 +1393,6 @@ bool FCastleKateBowShot::Update()
 		TargetThug.Reset();
 		break;
 
-	case EBowShot::RoofThugs:
-	{
-		// TODO(stage2): placing thugs on the district belongs to the combat task; generate_city.py
-		// is not the place. Until then the shot pass puts two on the cross_block roof to look at.
-		for (TActorIterator<AObjectiveTriggerVolume> It(World); It; ++It)
-		{
-			if (It->ObjectiveId != FName(TEXT("cross_block")))
-			{
-				continue;
-			}
-			for (const float Offset : { -150.f, 150.f })
-			{
-				FVector Roof;
-				const FVector At = It->GetActorLocation() + FVector(Offset, 0.f, 0.f);
-				if (FindGround(World, At, At.Z + 300.f, Kate, Roof))
-				{
-					AThugCharacter* Thug = SpawnThug(World, Roof, 0.f, true);
-					Test->AddInfo(FString::Printf(TEXT("Roof thug %s on cross_block at %s."), *GetNameSafe(Thug),
-						*Roof.ToCompactString()));
-				}
-			}
-			break;
-		}
-		break;
-	}
 	}
 	return true;
 }
@@ -1468,6 +1448,385 @@ private:
 	double StartTime = -1.0;
 };
 
+// --- The first fight --------------------------------------------------------------------------
+
+namespace CastleKateFight
+{
+	static const FName RoofPairTag(TEXT("RoofPair"));
+	static const FName StreetPairTag(TEXT("StreetPair"));
+
+	/** Kate stands this far from the roof pair's midpoint when the fight starts. */
+	static constexpr float RoofStandOff = 450.f;
+
+	/**
+	 * And this far across the avenue from the street pair's patrol line. Outside their 35 degree
+	 * cone until they are 16 m off, and by then more than their 15 m sight radius away.
+	 */
+	static constexpr float StreetStandOff = 1100.f;
+
+	/** How far ahead of the pair, towards the patrol point they walk to next, Kate stands across from. */
+	static constexpr float StreetAhead = 900.f;
+
+	/** Yaw the camera swings round by for the heavy's frame, so the body on the floor is not behind her. */
+	static constexpr float HitCameraYaw = 65.f;
+
+	enum class EFightShot : uint8
+	{
+		/** Every placed thug stops thinking, so the other shots are not a brawl. */
+		FreezeAll,
+		/** Kate across Avenue A from the street pair, who patrol. */
+		StreetSetup,
+		/** Kate on the cross_block roof, the roof pair still frozen, so the camera can settle. */
+		RoofSetup,
+		/** The roof pair alerted: they rush her. */
+		RoofAlert,
+		/** The heavy, once a roof thug is in reach. */
+		Heavy,
+		/** The camera swung round to see the knocked-down thug beside her. */
+		HitCamera,
+		/** A dodge sideways from the other thug. */
+		Dodge,
+		/** Thugs frozen again, Kate mortal again. */
+		Cleanup,
+	};
+
+	static TArray<AThugCharacter*> Tagged(UWorld* World, FName Tag)
+	{
+		TArray<AThugCharacter*> Out;
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			if (It->ActorHasTag(Tag) && !It->IsLimp())
+			{
+				Out.Add(*It);
+			}
+		}
+		Out.Sort([](const AThugCharacter& A, const AThugCharacter& B) { return A.GetName() < B.GetName(); });
+		return Out;
+	}
+
+	static void SetThinking(UWorld* World, FName Tag, bool bEnabled)
+	{
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			if (Tag.IsNone() || It->ActorHasTag(Tag))
+			{
+				if (AThugAIController* Brain = Cast<AThugAIController>(It->GetController()))
+				{
+					Brain->SetThinkingEnabled(bEnabled);
+				}
+			}
+		}
+	}
+
+	static FVector Midpoint(const TArray<AThugCharacter*>& Thugs)
+	{
+		FVector Sum = FVector::ZeroVector;
+		for (const AThugCharacter* Thug : Thugs)
+		{
+			Sum += Thug->GetActorLocation();
+		}
+		return Thugs.Num() ? Sum / Thugs.Num() : Sum;
+	}
+
+	static AThugCharacter* Nearest(const TArray<AThugCharacter*>& Thugs, const FVector& From, float& OutDistance)
+	{
+		AThugCharacter* Best = nullptr;
+		OutDistance = TNumericLimits<float>::Max();
+		for (AThugCharacter* Thug : Thugs)
+		{
+			const float Distance = FVector::Dist2D(Thug->GetActorLocation(), From);
+			if (Distance < OutDistance)
+			{
+				OutDistance = Distance;
+				Best = Thug;
+			}
+		}
+		return Best;
+	}
+
+	static void Report(FAutomationTestBase* Test, UWorld* World, const ACastleCharacter* Kate, const TCHAR* Label)
+	{
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			const FVector To = Kate->GetActorLocation() - It->GetActorLocation();
+			const float Facing = FVector::DotProduct(It->GetActorForwardVector(), To.GetSafeNormal2D());
+			Test->AddInfo(FString::Printf(
+				TEXT("%s: %s at %s, %.0f cm from Kate, facing her %.2f, speed %.0f, health %.0f, alert %d, swing %d, down %d, anim %s"),
+				Label, *It->GetName(), *It->GetActorLocation().ToCompactString(), To.Size2D(), Facing,
+				It->GetVelocity().Size2D(), It->GetHealthComponent()->GetCurrentHealth(),
+				static_cast<int32>(It->GetAlertState()), It->GetMeleeComponent()->IsAttacking() ? 1 : 0,
+				It->IsKnockedDown() ? 1 : 0, *GetNameSafe(It->GetCurrentLocomotionAnim())));
+		}
+		Test->AddInfo(FString::Printf(TEXT("%s: Kate at %s, health %.0f, dodging %d, attacking %d"), Label,
+			*Kate->GetActorLocation().ToCompactString(), Kate->GetHealthComponent()->GetCurrentHealth(),
+			Kate->IsDodging() ? 1 : 0, Kate->IsMeleeAttacking() ? 1 : 0));
+	}
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FCastleKateFightShot, FAutomationTestBase*, Test, uint8, Shot);
+
+bool FCastleKateFightShot::Update()
+{
+	using namespace CastleKateShots;
+	using namespace CastleKateFight;
+	UWorld* World = FindWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	ACastleCharacter* Kate = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
+	if (!Kate)
+	{
+		Test->AddError(TEXT("No Kate for the fight shots."));
+		return true;
+	}
+
+	switch (static_cast<EFightShot>(Shot))
+	{
+	case EFightShot::FreezeAll:
+		SetThinking(World, NAME_None, false);
+		Test->AddInfo(FString::Printf(TEXT("Froze the placed thugs: %d on the roof, %d on the street."),
+			Tagged(World, RoofPairTag).Num(), Tagged(World, StreetPairTag).Num()));
+		break;
+
+	case EFightShot::StreetSetup:
+	{
+		const TArray<AThugCharacter*> Pair = Tagged(World, StreetPairTag);
+		if (Pair.Num() != 2 || Pair[0]->PatrolPoints.Num() != 2)
+		{
+			Test->AddWarning(TEXT("No patrolling street pair on the district."));
+			break;
+		}
+		// They walk towards whichever patrol point is further from them (they may already have
+		// walked the first leg before the pass froze them).
+		const FVector P0 = Pair[0]->PatrolPoints[0]->GetActorLocation();
+		const FVector P1 = Pair[0]->PatrolPoints[1]->GetActorLocation();
+		const FVector Here = Midpoint(Pair);
+		const bool bToP0 = FVector::DistSquared2D(Here, P0) > FVector::DistSquared2D(Here, P1);
+		const FVector A = bToP0 ? P0 : P1;
+		const FVector B = bToP0 ? P1 : P0;
+		const FVector Along = (A - B).GetSafeNormal2D();
+		FVector Across = FVector::CrossProduct(FVector::UpVector, Along);
+		// Out into the avenue, away from the park: the side the thugs are not walking on.
+		FBox Park;
+		if (FindParkBounds(World, Park) && FVector::DotProduct(Park.GetCenter() - A, Across) > 0.f)
+		{
+			Across = -Across;
+		}
+		const FVector Mid = Midpoint(Pair) + Along * StreetAhead;
+		FVector Ground;
+		if (!FindGround(World, Mid + Across * StreetStandOff, 3000.f, Kate, Ground))
+		{
+			Test->AddWarning(TEXT("No ground across the avenue from the street pair."));
+			break;
+		}
+		PlaceKate(Kate, PC, Ground, (-Across).Rotation().Yaw, HipPitch);
+		SetThinking(World, StreetPairTag, true);
+		// Between where they start and where they will be at the shot.
+		AimCameraAt(PC, Kate, Midpoint(Pair) + Along * (StreetAhead * 0.5f) + FVector(0.f, 0.f, 20.f));
+		Report(Test, World, Kate, TEXT("street_patrol (setup)"));
+		break;
+	}
+
+	case EFightShot::RoofSetup:
+	{
+		SetThinking(World, StreetPairTag, false);
+		const TArray<AThugCharacter*> Pair = Tagged(World, RoofPairTag);
+		if (Pair.Num() != 2)
+		{
+			Test->AddWarning(TEXT("No roof pair on the district."));
+			break;
+		}
+		const FVector Mid = Midpoint(Pair);
+		FVector Axis = (Pair[1]->GetActorLocation() - Pair[0]->GetActorLocation()).GetSafeNormal2D();
+		// Along the roof's long axis, at whichever end leaves the camera room behind her: the
+		// cross_block roof backs onto a taller neighbour at one end.
+		for (const float Sign : { 1.f, -1.f })
+		{
+			const FVector Stand = Mid - Axis * Sign * RoofStandOff + FVector(0.f, 0.f, 60.f);
+			FHitResult Hit;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(KateFightCamera), false, Kate);
+			if (!World->LineTraceSingleByChannel(Hit, Stand, Stand - Axis * Sign * 400.f, ECC_Camera, Params))
+			{
+				Axis *= Sign;
+				break;
+			}
+		}
+		FVector Ground;
+		if (!FindGround(World, Mid - Axis * RoofStandOff, Mid.Z + 300.f, Kate, Ground))
+		{
+			Test->AddWarning(TEXT("No roof to stand on beside the roof pair."));
+			break;
+		}
+		PlaceKate(Kate, PC, Ground, Axis.Rotation().Yaw, HipPitch);
+		Kate->GetHealthComponent()->SetInvulnerable(true);
+		Report(Test, World, Kate, TEXT("fight_roof (setup)"));
+		break;
+	}
+
+	case EFightShot::RoofAlert:
+	{
+		const TArray<AThugCharacter*> Pair = Tagged(World, RoofPairTag);
+		SetThinking(World, RoofPairTag, true);
+		for (AThugCharacter* Thug : Pair)
+		{
+			if (AThugAIController* Brain = Cast<AThugAIController>(Thug->GetController()))
+			{
+				Brain->SetTarget(Kate);
+				Brain->ReportStimulus(EStimulusKind::Hearing, Kate->GetActorLocation(), true, Brain->GunshotLoudnessThreshold);
+			}
+		}
+		break;
+	}
+
+	case EFightShot::Heavy:
+	{
+		float Distance = 0.f;
+		const AThugCharacter* Target = Nearest(Tagged(World, RoofPairTag), Kate->GetActorLocation(), Distance);
+		if (!Kate->StartHeavyAttack())
+		{
+			Test->AddWarning(TEXT("The heavy would not start."));
+		}
+		Test->AddInfo(FString::Printf(TEXT("fight_hit: heavy started at %s, %.0f cm away."), *GetNameSafe(Target), Distance));
+		break;
+	}
+
+	case EFightShot::HitCamera:
+	{
+		const FRotator Control = PC->GetControlRotation();
+		PC->SetControlRotation(FRotator(Control.Pitch - 8.f, Control.Yaw + HitCameraYaw, 0.f));
+		break;
+	}
+
+	case EFightShot::Dodge:
+	{
+		float Distance = 0.f;
+		const TArray<AThugCharacter*> Standing = Tagged(World, RoofPairTag).FilterByPredicate(
+			[](const AThugCharacter* Thug) { return !Thug->IsKnockedDown(); });
+		const AThugCharacter* Threat = Nearest(Standing, Kate->GetActorLocation(), Distance);
+		// Sideways to whoever is still coming, so the camera sees her slip past him.
+		const FVector From = Threat ? (Kate->GetActorLocation() - Threat->GetActorLocation()).GetSafeNormal2D()
+			: -Kate->GetActorForwardVector();
+		const FVector Side = FVector::CrossProduct(FVector::UpVector, From);
+		if (!Kate->TryDodge(Side))
+		{
+			Test->AddWarning(TEXT("The dodge was refused."));
+		}
+		Report(Test, World, Kate, TEXT("fight_dodge (start)"));
+		break;
+	}
+
+	case EFightShot::Cleanup:
+		SetThinking(World, NAME_None, false);
+		Kate->GetHealthComponent()->SetInvulnerable(false);
+		break;
+	}
+	return true;
+}
+
+/** Waits (up to TimeoutSeconds) for a roof thug to come within Reach of Kate. */
+class FCastleKateWaitThugInReach : public IAutomationLatentCommand
+{
+public:
+	FCastleKateWaitThugInReach(FAutomationTestBase* InTest, float InReach, float InTimeoutSeconds)
+		: Test(InTest), Reach(InReach), TimeoutSeconds(InTimeoutSeconds)
+	{
+	}
+
+	virtual bool Update() override
+	{
+		UWorld* World = CastleKateShots::FindWorld();
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		const APawn* Kate = PC ? PC->GetPawn() : nullptr;
+		if (!Kate)
+		{
+			return true;
+		}
+		if (StartTime < 0.0)
+		{
+			StartTime = World->GetTimeSeconds();
+		}
+		float Distance = 0.f;
+		CastleKateFight::Nearest(CastleKateFight::Tagged(World, CastleKateFight::RoofPairTag), Kate->GetActorLocation(), Distance);
+		if (Distance <= Reach)
+		{
+			Test->AddInfo(FString::Printf(TEXT("A roof thug is %.0f cm from Kate after %.2f s."), Distance,
+				World->GetTimeSeconds() - StartTime));
+			return true;
+		}
+		if (World->GetTimeSeconds() - StartTime > TimeoutSeconds)
+		{
+			Test->AddWarning(FString::Printf(TEXT("No roof thug came within %.0f cm (nearest %.0f)."), Reach, Distance));
+			return true;
+		}
+		return false;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float Reach;
+	float TimeoutSeconds;
+	double StartTime = -1.0;
+};
+
+/** Waits (up to TimeoutSeconds) for a roof thug to be knocked down, then reports the fight. */
+class FCastleKateWaitKnockdown : public IAutomationLatentCommand
+{
+public:
+	FCastleKateWaitKnockdown(FAutomationTestBase* InTest, float InTimeoutSeconds)
+		: Test(InTest), TimeoutSeconds(InTimeoutSeconds)
+	{
+	}
+
+	virtual bool Update() override
+	{
+		UWorld* World = CastleKateShots::FindWorld();
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		const ACastleCharacter* Kate = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
+		if (!Kate)
+		{
+			return true;
+		}
+		if (StartTime < 0.0)
+		{
+			StartTime = World->GetTimeSeconds();
+		}
+		for (const AThugCharacter* Thug : CastleKateFight::Tagged(World, CastleKateFight::RoofPairTag))
+		{
+			if (Thug->IsKnockedDown())
+			{
+				Test->AddInfo(FString::Printf(TEXT("%s knocked down after %.2f s (ragdoll %d)."), *Thug->GetName(),
+					World->GetTimeSeconds() - StartTime, Thug->IsRagdolling() ? 1 : 0));
+				CastleKateFight::Report(Test, World, Kate, TEXT("fight_hit"));
+				return true;
+			}
+		}
+		if (World->GetTimeSeconds() - StartTime > TimeoutSeconds)
+		{
+			Test->AddWarning(TEXT("The heavy knocked nobody down."));
+			CastleKateFight::Report(Test, World, Kate, TEXT("fight_hit (missed)"));
+			return true;
+		}
+		return false;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float TimeoutSeconds;
+	double StartTime = -1.0;
+};
+
+/** Reports the fight state at the moment of a shot. */
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FCastleKateReportFight, FAutomationTestBase*, Test, FString, Label);
+
+bool FCastleKateReportFight::Update()
+{
+	UWorld* World = CastleKateShots::FindWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	if (const ACastleCharacter* Kate = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr)
+	{
+		CastleKateFight::Report(Test, World, Kate, *Label);
+	}
+	return true;
+}
+
 bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 {
 	using namespace CastleKateShots;
@@ -1480,6 +1839,10 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(6.f));
+
+	// The district's thugs stand still until their own shots.
+	using EFight = CastleKateFight::EFightShot;
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::FreezeAll)));
 
 	// The debug line goes into the shots so gait and fall height can be read off them.
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("castle.DebugMovement 1")));
@@ -1615,8 +1978,34 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("climb_top.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
-	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::RoofThugs)));
+	// The first fight: the street pair on patrol, then the roof pair.
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::StreetSetup)));
+	// Up to PatrolWaitSeconds at the point they stand on, then the walk towards her.
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportFight(this, TEXT("street_patrol.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("street_patrol.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::RoofSetup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::RoofAlert)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportFight(this, TEXT("fight_roof.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("fight_roof.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitThugInReach(this, 170.f, 4.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::Heavy)));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitKnockdown(this, 1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::HitCamera)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.35f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("fight_hit.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::Dodge)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.15f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportFight(this, TEXT("fight_dodge.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("fight_dodge.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFightShot(this, static_cast<uint8>(EFight::Cleanup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("castle.DebugMovement 0")));
 	return true;
