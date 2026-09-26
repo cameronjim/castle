@@ -120,7 +120,7 @@ So every pass that touches materials, meshes, lighting, or the viewmodel must al
 ## 3. Playtest checklist (human)
 
 Before any commit that touches player feel, AI, or a level, play through this in
-`L_Sandbox` or the affected mission. Two minutes.
+`L_District_EastVillage` or the affected chapter. Two minutes.
 
 - [ ] Walk, sprint, crouch, jump. Nothing snaps or floats.
 - [ ] Look sensitivity unchanged (or changed on purpose).

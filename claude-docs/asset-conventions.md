@@ -7,29 +7,26 @@ Chapters replace missions: `DA_CH01_Rooftops`, `L_CH04_AuctionHouse`, one-pagers
 `BP_Lucky`. Arrows: `DA_Arrow_Standard`, `DA_Arrow_Grapple`, `DA_Arrow_Putty` and
 `BP_Arrow_<Type>` projectiles. Bows: `DA_Bow_Kate`, `DA_Bow_Clint`. Grapple anchors:
 `BP_GrappleAnchor`. Generated city actors carry the `City_` label prefix; hand-dressed
-hero blocks carry `Art_` as before. The old `M01`, guard, and pistol assets are removed in
-the stage 2 cleanup; until then they exist but nothing new should reference them.
+hero blocks carry `Art_` as before. The prison maps, mission, flashback, keycard, guard,
+and pistol assets are gone (prison content removed 2026-09-26).
 
 ## Content folder layout
 
 ```
 Content/
-  Maps/                 L_Sandbox, L_MainMenu, L_M01_CellBlockD ... L_M08_Exit
-  Missions/             DA_M01_CellBlockD ... DA_M08_Exit   (UMissionDefinition)
+  Maps/                 L_District_EastVillage (the only map), later L_MainMenu, L_CH0X_*
+  Missions/             DA_CH01_Rooftops ...   (UMissionDefinition)
   Flashbacks/
-    Definitions/        DA_FB01_Sunday, DA_FB02_TheRoad, DA_FB03_ThePark, DA_FB04_ThreeCoffins
-    Images/             T_FB01_01 ... (one folder per flashback if it gets big)
-    Audio/              S_FB01_Frank_01 ...
+    Definitions/        DA_FBXX_Name (UFlashbackDefinition; none yet)
+    Images/             T_FBXX_01 ... (one folder per flashback if it gets big)
+    Audio/              S_FBXX_Kate_01 ...
   Blueprints/
     Player/             BP_HawkeyeCharacter, BP_HawkeyePlayerController, BP_HawkeyeGameMode
-    Weapons/            DA_Weapon_Hands, DA_Weapon_Pistol, DA_Weapon_Rifle (UWeaponDefinition)
-    AI/                 BP_Guard, BP_Guard_Baton, BP_Guard_Rifle, BP_Inmate_Broken,
-                        BT_Guard, BB_Guard, EQS_CoverPoints, BTT_*, BTS_*, BTD_*
-    Bosses/             BP_Boss_Base, BP_Boss_Orderly, BP_Boss_Deacon, BP_Boss_Sniper,
-                        BP_Boss_Warden, BP_ArenaController_*, BT_Boss_*
-    World/              BP_Door_Keycard, BP_Door_Powered, BP_Vent, BP_Light_Shootable,
-                        BP_Generator, BP_Switch, BP_Checkpoint, BP_MissionStarter,
-                        BP_Pickup_Keycard, BP_Pickup_Ammo
+    Weapons/            DA_Weapon_Hands (UWeaponDefinition), DA_Bow_*, DA_Arrow_*, BP_Arrow_*
+    AI/                 BP_Thug, later BP_Thug_Gunner, StateTree/, EQS_*, BTT_*, BTS_*
+    Bosses/             BP_Boss_Base, BP_Archer, BP_Trickshot, BP_ArenaController_*
+    World/              BP_GrappleAnchor, BP_TraversableBlock, later BP_Door_*, BP_Switch,
+                        BP_Checkpoint, BP_MissionStarter, BP_Pickup_*
     UI/                 WBP_Hud, WBP_Hotbar, WBP_Inventory, WBP_Flashback, WBP_EndCard,
                         WBP_Pause, WBP_Settings, later WBP_Subtitle, WBP_BossHealth, WBP_MainMenu
   Input/                IMC_Default, IMC_Flashback, IA_Move, IA_Look, IA_Jump, IA_Sprint,
@@ -41,15 +38,13 @@ Content/
                         edit these by hand. Maps/L_District_EastVillage is the district map.
   Kit/                  Grey-box modular meshes and M_Greybox materials
   Mannequin/            UE mannequin feature pack, copied verbatim (assets hard-reference
-                        /Game/Mannequin, so the path is fixed). Used for guards and the
-                        first-person arms fallback.
-  Weapons/Pistol/       UE template pistol (Meshes, Materials, Textures), copied verbatim
-                        for the same reason. Weapons/Rifle/Materials/M_Weapon is its parent.
-  Materials/            Procedural M_Concrete, M_ConcreteFloor, M_SteelPainted, M_Pistol,
-                        M_KeycardBody, M_Emissive and its MI_ instances, M_FluorescentFlicker
-  Characters/Guard/     M_GuardBody, M_GuardVisor
-  Environment/          Final art, one subfolder per area: CellBlock, Infirmary, Yard ...
-  Characters/           Frank/ (arms), Guards/, Bosses/
+                        /Game/Mannequin, so the path is fixed). Used for thugs.
+  Materials/            Procedural M_Concrete, M_ConcreteFloor, M_SteelPainted, M_Asphalt,
+                        M_Grass, M_Emissive and its MI_ instances, M_FluorescentFlicker
+                        (built by Tools/Editor/_materials.py; kept for interiors)
+  Characters/Thug/      M_ThugTracksuit, M_ThugTrim, M_ThugBody, M_ThugVisor
+  Environment/          Final art, one subfolder per area
+  Characters/           Kate/, Thug/, later Clint/, Bosses/
   Materials/            M_ master materials, MI_ instances, MF_ functions
   Audio/                SFX/ (S_), Music/ (S_Music_), Voice/ (S_VO_), Ambient/ (S_Amb_)
   VFX/                  NS_ Niagara systems
@@ -65,7 +60,7 @@ Content/
 | `L_` | Level | `L_M03_YardRiot` |
 | `BP_` | Blueprint class | `BP_Guard_Rifle` |
 | `WBP_` | Widget Blueprint | `WBP_Hud` |
-| `DA_` | Data asset | `DA_M01_CellBlockD` |
+| `DA_` | Data asset | `DA_CH01_Rooftops` |
 | `DT_` | Data table | `DT_Dialogue` |
 | `CU_` | Curve | `CU_DamageFalloff_Pistol` |
 | `IA_` / `IMC_` | Input action / mapping context | `IA_Fire`, `IMC_Default` |
@@ -75,14 +70,14 @@ Content/
 | `SM_` / `SK_` | Static / skeletal mesh | `SM_Kit_Wall400`, `SK_Guard` |
 | `M_` / `MI_` / `MF_` | Material / instance / function | `M_Concrete`, `MI_Concrete_Wet` |
 | `T_` | Texture, with suffix | `T_Concrete_D`, `_N`, `_ORM`, `_M` for mask |
-| `S_` | Sound (wave or cue) | `S_Pistol_Fire`, `S_VO_Frank_M01_01`, `S_Amb_CellBlock` |
+| `S_` | Sound (wave or cue) | `S_Bow_Release`, `S_VO_Kate_CH01_01`, `S_Amb_Rooftop` |
 | `SC_` / `MS_` | Sound cue / MetaSound | `MS_Footsteps` |
 | `A_` / `AM_` / `ABP_` | Anim sequence / montage / anim BP | `AM_Takedown_Front`, `ABP_Guard` |
 | `NS_` | Niagara system | `NS_MuzzleFlash_Pistol` |
 | `PM_` | Physical material | `PM_Concrete` |
 | `DMG_` | Damage type | `DMG_Bullet` |
 
-Mission-scoped assets carry the mission tag: `M01`, `FB03`. Flashback images are
+Chapter-scoped assets carry the chapter tag: `CH01`, `FB03`. Flashback images are
 numbered in slide order: `T_FB02_04` is the fourth slide of the second flashback.
 
 ## Data-driven rules
@@ -104,10 +99,9 @@ numbered in slide order: `T_FB02_04` is the fourth slide of the second flashback
   found, verified, and removed without touching gameplay actors.
 - Dressing never sits on a patrol path: the scripts log any placed footprint within
   60 cm of an `ATargetPoint`, and the smoke test fails if guards stop moving.
-- Rooms are built one at a time to a finished look before the next one starts. The
-  cell and corridor 1 of M01 are the reference; new rooms match their material and light
-  vocabulary (concrete, painted steel, fluorescent tubes, one red emergency light per
-  corridor, green exit signs over doors).
+- Rooms are built one at a time to a finished look before the next one starts. Interiors
+  use the kept material and light vocabulary (concrete, painted steel, fluorescent tubes,
+  red emergency lights, green exit signs over doors).
 
 ## Blueprint hygiene
 - Parent class is the C++ class when one exists. `BP_Guard` derives `AGuardCharacter`,

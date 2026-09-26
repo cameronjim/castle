@@ -4,6 +4,8 @@ Paths, commands, and the machine. Everything here is Windows.
 
 Renamed from Castle to Hawkeye on 2026-09-26; CoreRedirects in DefaultEngine.ini map the old script package and classes.
 
+Prison content removed 2026-09-26; the district is the only map.
+
 ## Paths
 
 | Thing | Path |
@@ -77,7 +79,7 @@ Full editor (visual work only):
 Play a specific map in a standalone window without the editor UI (fast iteration on feel):
 
 ```powershell
-& "$UE\Engine\Binaries\Win64\UnrealEditor.exe" "$Proj" /Game/Maps/L_M01_CellBlockD -game -windowed -ResX=1600 -ResY=900 -log
+& "$UE\Engine\Binaries\Win64\UnrealEditor.exe" "$Proj" /Game/Maps/L_District_EastVillage -game -windowed -ResX=1600 -ResY=900 -log
 ```
 
 ## Headless editor

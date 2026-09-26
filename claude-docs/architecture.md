@@ -176,7 +176,7 @@ UMissionSubsystem (world subsystem)
 
 ## Boundaries
 - C++ never references a specific mission, boss, or level by name. If you find
-  `"M01"` in a .cpp file, that's a bug.
+  `"CH01"` in a .cpp file, that's a bug.
 - Blueprints never implement rules that a test should cover. Health math, objective
   ordering, phase thresholds, ammo counts: C++.
 - Widgets: layout in `WBP_*`, behaviour in the C++ parent. A widget Blueprint with more
