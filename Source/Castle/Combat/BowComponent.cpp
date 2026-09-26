@@ -371,7 +371,7 @@ void UBowComponent::RefreshBowVisual()
 		return;
 	}
 
-	for (UStaticMeshComponent* Existing : { BowMesh.Get(), StringUpper.Get(), StringLower.Get() })
+	for (UStaticMeshComponent* Existing : { BowMesh.Get(), StringUpper.Get(), StringLower.Get(), NockedShaft.Get(), NockedNock.Get() })
 	{
 		if (Existing)
 		{
@@ -381,6 +381,8 @@ void UBowComponent::RefreshBowVisual()
 	BowMesh = nullptr;
 	StringUpper = nullptr;
 	StringLower = nullptr;
+	NockedShaft = nullptr;
+	NockedNock = nullptr;
 	VisualBow = Bow;
 
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
@@ -418,6 +420,27 @@ void UBowComponent::RefreshBowVisual()
 			if (UMaterialInstanceDynamic* Tint = String->CreateDynamicMaterialInstance(0))
 			{
 				Tint->SetVectorParameterValue(TEXT("Color"), StringColor);
+			}
+		}
+	}
+
+	// The arrow on the string: the same pale shaft and purple nock as a loosed one.
+	NockedShaft = MakePart(BowMesh, NAME_None, Cylinder);
+	NockedNock = MakePart(BowMesh, NAME_None, Cylinder);
+	const TPair<UStaticMeshComponent*, FLinearColor> ArrowParts[] = {
+		{ NockedShaft.Get(), FLinearColor(0.6f, 0.55f, 0.45f) },
+		{ NockedNock.Get(), FLinearColor(0.45f, 0.1f, 0.75f) },
+	};
+	for (const TPair<UStaticMeshComponent*, FLinearColor>& Part : ArrowParts)
+	{
+		Part.Key->SetCastShadow(false);
+		Part.Key->SetVisibility(false);
+		if (ShapeMaterial)
+		{
+			Part.Key->SetMaterial(0, ShapeMaterial);
+			if (UMaterialInstanceDynamic* Tint = Part.Key->CreateDynamicMaterialInstance(0))
+			{
+				Tint->SetVectorParameterValue(TEXT("Color"), Part.Value);
 			}
 		}
 	}
@@ -492,9 +515,27 @@ void UBowComponent::UpdateBowVisual()
 	PlaceString(StringUpper, BowTransform.TransformPosition(StringTip), Nock);
 	PlaceString(StringLower, BowTransform.TransformPosition(FVector(StringTip.X, StringTip.Y, -StringTip.Z)), Nock);
 
+	// The arrow on the string, from the nock forward along the bow through the grip, while drawing.
+	const bool bShowArrow = bDrawing && NockedShaft && NockedNock;
+	if (bShowArrow)
+	{
+		const FVector Along = BowTransform.GetUnitAxis(EAxis::X);
+		PlaceString(NockedShaft, Nock, Nock + Along * NockedArrowLength);
+		NockedShaft->SetWorldScale3D(FVector(0.015f, 0.015f, NockedArrowLength / 100.f));
+		PlaceString(NockedNock, Nock - Along * 1.f, Nock + Along * 4.f);
+		NockedNock->SetWorldScale3D(FVector(0.025f, 0.025f, 0.05f));
+	}
+	for (UStaticMeshComponent* Part : { NockedShaft.Get(), NockedNock.Get() })
+	{
+		if (Part && Part->IsVisible() != bShowArrow)
+		{
+			Part->SetVisibility(bShowArrow);
+		}
+	}
+
 	// The body hides from its own camera when a wall pulls the lens in; the bow goes with it.
 	const bool bHidden = Body->bOwnerNoSee;
-	for (UStaticMeshComponent* Part : { BowMesh.Get(), StringUpper.Get(), StringLower.Get() })
+	for (UStaticMeshComponent* Part : { BowMesh.Get(), StringUpper.Get(), StringLower.Get(), NockedShaft.Get(), NockedNock.Get() })
 	{
 		if (Part && Part->bOwnerNoSee != bHidden)
 		{

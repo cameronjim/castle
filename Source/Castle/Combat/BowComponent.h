@@ -31,7 +31,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnArrowHitSignature, AActor*, Hi
  * Also owns the bow's look: the mesh on the back while holstered, attached to the left hand while
  * drawing, turned toward the aim as the draw builds and the string pulled back. No draw animation
  * exists and the arm cannot be posed without an AnimBP change, so the grip also blends from the
- * hand up to a point held out in front of the left shoulder, where a drawn bow would be.
+ * hand up to a point held out in front of the left shoulder, where a drawn bow would be. An arrow
+ * sits on the string from the nock forward through the grip while drawing.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Castle), meta = (BlueprintSpawnableComponent))
 class CASTLE_API UBowComponent : public UActorComponent
@@ -190,6 +191,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
 	FLinearColor StringColor = FLinearColor(0.85f, 0.85f, 0.8f);
 
+	/** Length of the arrow shown on the string while drawing, from the nock forward past the grip, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual", meta = (ClampMin = "1.0"))
+	float NockedArrowLength = 80.f;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -229,6 +234,13 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMeshComponent> StringLower = nullptr;
+
+	/** The arrow on the string while drawing: a pale shaft and Kate's purple nock. */
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMeshComponent> NockedShaft = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UStaticMeshComponent> NockedNock = nullptr;
 
 	/** The bow the visual was built for, so a new bow rebuilds it. */
 	UPROPERTY(Transient)
