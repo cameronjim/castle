@@ -144,7 +144,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   point in front of the left shoulder while drawing and rides across the back when
   holstered. A layered upper-body aim animation is stage 3 work.
 
-## Trick arrows (specified 2026-09-26)
+## Trick arrows (built 2026-09-26; effects are custom actors, no GAS; smoke, EMP ring and fireball are placeholder shapes until Niagara systems exist)
 - Slot order is fixed: 1 standard, 2 grapple, 3 putty, 4 bola, 5 smoke, 6 EMP, 7
   explosive. Keys 1 to 6, the mouse wheel, and the radial wheel select; explosive is
   reached by wheel or radial. Holding Tab (View on a pad) opens the radial with game time
