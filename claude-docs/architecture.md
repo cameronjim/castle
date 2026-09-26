@@ -24,8 +24,11 @@ This document describes the code as it is, plus what changes. Sections below are
 | First-person arms component, viewmodel, body-mesh head hiding | remove |
 | Third-person camera, spring arm, aim offset | planned |
 | Locomotion via Game Animation Sample, parkour, grapple | planned |
-| Partner AI and character switching | planned |
-| City generator from OSM, World Partition streaming | planned |
+| Partner AI and character switching | built: `AHawkeyePartnerController` on a headless-built StateTree, `SwitchCharacter()` on the controller, `UBanterComponent` |
+| Save, checkpoints, safehouse, main menu | built on SPUD: `Plugins/SPUD`, campaign state object, `ASafehouse`, menu widgets |
+| Trick arrows, quiver wheel | built: `Combat/ArrowEffects/*`, radial widget |
+| Objective markers, compass, beacons | built: `UHawkeyeObjectiveWidget`, `UObjectiveMarkerMath` |
+| City generator from OSM, props data, load-time spawner | built: `Tools/Editor/generate_city.py`, `UCityLedgeData`, `ACityLedgeSpawner`; World Partition still off |
 | Settings, pause, end card, HUD, inventory widgets | keep, restyle later |
 | Materials and room-art scripts | keep; extend to facades and streets |
 | Pipeline, tests, verify, screenshots | keep |

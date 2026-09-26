@@ -138,6 +138,12 @@ republished, and 2 GB is past the free LFS quota. Consequences:
 - The full `Hawkeye.Screenshot` group has hung once mid-run; run `Hawkeye.Screenshot.Kate`
   and the others separately.
 
+## Vendored plugins
+- `Plugins/SPUD` (Steve's Persistent Unreal Data, MIT, commit 12a30da, source checked in,
+  not a submodule). Saves the world state; see the Save section of gameplay-semantics.md.
+  Builds on 5.8 unchanged. Update by copying a newer checkout over it and re-running the
+  save round-trip test.
+
 ## City generation from OpenStreetMap
 
 The district is generated, never hand-placed. Scripts under `Tools/`:
