@@ -42,6 +42,19 @@ enum class ECastleParkourMove : uint8
 	DropToHang,
 };
 
+/** What a landing turned into. See ACastleCharacter::ApplyLanding. */
+UENUM(BlueprintType)
+enum class ECastleLanding : uint8
+{
+	None,
+	/** A controlled drop from above ControlledDropDipHeight: a short camera dip and speed cut. */
+	Dip,
+	/** Above RollHeight while moving: a forward roll along the move direction. */
+	Roll,
+	/** Above RollHeight standing still: speed builds from 0 back to a run. */
+	Stumble,
+};
+
 /** Who is moving the body through a traversal move. */
 UENUM(BlueprintType)
 enum class ECastleParkourRoute : uint8

@@ -677,8 +677,8 @@ void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 	LastMoveWorldDirection = (FRotationMatrix(InputYaw).GetUnitAxis(EAxis::X) * MoveInput.Y
 		+ FRotationMatrix(InputYaw).GetUnitAxis(EAxis::Y) * MoveInput.X).GetSafeNormal2D();
 
-	// A swing, a dodge or a stagger owns the body for its length.
-	if (IsMeleeAttacking() || IsDodging() || IsStaggered())
+	// A swing, a dodge, a stagger or the start of a landing roll owns the body for its length.
+	if (IsMeleeAttacking() || IsDodging() || IsStaggered() || IsLandingInputLocked())
 	{
 		return;
 	}
@@ -694,9 +694,12 @@ void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 		return;
 	}
 
+	// The sample's graph owns MaxWalkSpeed, so a stumble slows her through the input instead: the
+	// movement component caps speed by how hard the stick is pushed.
+	const float InputScale = UsesGaspLocomotion() ? GetLandingSpeedFactor() : 1.f;
 	const FRotator YawRotation(0.f, Controller->GetControlRotation().Yaw, 0.f);
-	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X), MoveInput.Y);
-	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), MoveInput.X);
+	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X), MoveInput.Y * InputScale);
+	AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), MoveInput.X * InputScale);
 }
 
 void ACastleCharacter::BindToSettingsSubsystem()
@@ -962,10 +965,11 @@ void ACastleCharacter::UpdateMaxWalkSpeed()
 		const float Progress = 1.f - FMath::Clamp(SlideRemaining / SlideSeconds, 0.f, 1.f);
 		Speed = FMath::Lerp(SlideSpeed, CrouchSpeed, Progress);
 	}
-	if (LandingRecoverRemaining > 0.f)
+	if (IsStumbling())
 	{
-		Speed *= LandingSpeedMultiplier;
+		Speed = FMath::Min(Speed, RunSpeed);
 	}
+	Speed *= GetLandingSpeedFactor();
 	if (IsDrawingBow())
 	{
 		Speed *= DrawWalkSpeedMultiplier;
@@ -1026,10 +1030,10 @@ void ACastleCharacter::UpdateCamera(float DeltaSeconds)
 	FCastleCameraTargets Blend = FCastleCameraTargets::Lerp(
 		ComputeCameraTargets(false, Pitch), ComputeCameraTargets(true, Pitch), FMath::SmoothStep(0.f, 1.f, AimAlpha));
 
-	// The roll placeholder: the camera sinks and comes back up over the recovery.
-	if (LandingRecoverRemaining > 0.f && LandingRecoverSeconds > 0.f)
+	// A controlled drop's dip: the camera sinks and comes back up over the recovery.
+	if (LandingState == ECastleLanding::Dip && LandingRecoverSeconds > 0.f)
 	{
-		const float Phase = 1.f - LandingRecoverRemaining / LandingRecoverSeconds;
+		const float Phase = FMath::Clamp(LandingElapsed / LandingRecoverSeconds, 0.f, 1.f);
 		Blend.SocketOffset.Z -= LandingCameraDip * FMath::Sin(PI * Phase);
 	}
 
@@ -1051,6 +1055,12 @@ void ACastleCharacter::UpdateCamera(float DeltaSeconds)
 	if (FollowCamera)
 	{
 		FollowCamera->SetFieldOfView(Blend.FieldOfView);
+		// A roll tips the lens down and back up with her.
+		const float RollPitch = GetLandingCameraPitch();
+		if (!FMath::IsNearlyEqual(FollowCamera->GetRelativeRotation().Pitch, RollPitch))
+		{
+			FollowCamera->SetRelativeRotation(FRotator(RollPitch, 0.f, 0.f));
+		}
 	}
 }
 
@@ -1080,6 +1090,7 @@ void ACastleCharacter::Tick(float DeltaSeconds)
 	UpdateLowHealthPostProcess();
 	UpdateSlide(DeltaSeconds);
 	UpdateFalling(DeltaSeconds);
+	UpdateLanding(DeltaSeconds);
 	UpdateMaxWalkSpeed();
 	UpdateCamera(DeltaSeconds);
 	UpdateBodyVisibilityForCamera();
@@ -1134,6 +1145,11 @@ void ACastleCharacter::UpdateBodyLocomotion()
 
 void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 {
+	// The roll owns the crouch until it stands her up.
+	if (IsRolling())
+	{
+		return;
+	}
 	// Crouch lets go of a ledge.
 	if (ParkourComponent && ParkourComponent->IsHanging())
 	{
@@ -1345,7 +1361,7 @@ bool ACastleCharacter::TryDodge(FVector WorldDirection)
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
 	const FVector Direction = WorldDirection.GetSafeNormal2D();
 	if (!Movement || Direction.IsNearlyZero() || bIsSprinting || IsDodging() || DodgeCooldownRemaining > 0.f
-		|| IsLockedOutByTakedown() || IsZipping() || IsTraversing() || IsStaggered())
+		|| IsLockedOutByTakedown() || IsZipping() || IsTraversing() || IsStaggered() || IsRolling())
 	{
 		return false;
 	}
@@ -1555,6 +1571,10 @@ void ACastleCharacter::EndSlide()
 
 void ACastleCharacter::Jump()
 {
+	if (IsLandingInputLocked())
+	{
+		return;
+	}
 	if (IsZipping())
 	{
 		// The jump key lets go of the line; the catch rule still applies on the way down.
@@ -1619,11 +1639,6 @@ void ACastleCharacter::UpdateFalling(float DeltaSeconds)
 	{
 		FallApexZ = FMath::Max(FallApexZ, GetActorLocation().Z);
 	}
-
-	if (LandingRecoverRemaining > 0.f)
-	{
-		LandingRecoverRemaining = FMath::Max(0.f, LandingRecoverRemaining - DeltaSeconds);
-	}
 }
 
 float ACastleCharacter::GetCurrentFallHeight() const
@@ -1667,12 +1682,36 @@ void ACastleCharacter::ApplyLanding(float FallHeight)
 
 	if (FallHeight > RollHeight)
 	{
-		// TODO(stage2): the parkour step swaps this for a real roll (moving) or stumble (standing).
-		LandingRecoverRemaining = LandingRecoverSeconds;
+		// Moving: roll along the stick (or the way she was travelling). Standing: stumble.
+		FVector Direction = MoveInputMagnitude > 0.1f ? LastMoveWorldDirection : FVector::ZeroVector;
+		if (Direction.IsNearlyZero() && GetVelocity().Size2D() >= RollMinSpeed)
+		{
+			Direction = GetVelocity().GetSafeNormal2D();
+		}
+		if (!Direction.IsNearlyZero())
+		{
+			StartRoll(Direction);
+		}
+		else
+		{
+			if (IsRolling())
+			{
+				EndRoll();
+			}
+			LandingState = ECastleLanding::Stumble;
+			LandingElapsed = 0.f;
+			UE_LOG(LogCastle, Log, TEXT("%s: landed standing from %.0f cm: stumble %.2f s"), *GetNameSafe(this), FallHeight,
+				StumbleSeconds);
+		}
 	}
 	else if (bControlledDrop && FallHeight > ControlledDropDipHeight)
 	{
-		LandingRecoverRemaining = LandingRecoverSeconds;
+		if (IsRolling())
+		{
+			EndRoll();
+		}
+		LandingState = ECastleLanding::Dip;
+		LandingElapsed = 0.f;
 		UE_LOG(LogCastle, Log, TEXT("%s: controlled drop landed from %.0f cm: landing dip"), *GetNameSafe(this), FallHeight);
 	}
 	bControlledDrop = false;
@@ -1691,6 +1730,173 @@ void ACastleCharacter::ApplyLanding(float FallHeight)
 		}
 	}
 	UpdateMaxWalkSpeed();
+}
+
+float ACastleCharacter::GetLandingSpeedFactor() const
+{
+	switch (LandingState)
+	{
+	case ECastleLanding::Stumble:
+		return StumbleSeconds > 0.f ? FMath::Clamp(LandingElapsed / StumbleSeconds, 0.f, 1.f) : 1.f;
+	case ECastleLanding::Dip:
+		return LandingSpeedMultiplier;
+	default:
+		return 1.f;
+	}
+}
+
+float ACastleCharacter::GetLandingCameraPitch() const
+{
+	if (!IsRolling() || RollSeconds <= 0.f)
+	{
+		return 0.f;
+	}
+	return -RollCameraPitchDegrees * FMath::Sin(PI * FMath::Clamp(LandingElapsed / RollSeconds, 0.f, 1.f));
+}
+
+void ACastleCharacter::StartRoll(const FVector& Direction)
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	USkeletalMeshComponent* Body = GetMesh();
+	if (!Movement)
+	{
+		return;
+	}
+	if (IsRolling())
+	{
+		EndRoll();
+	}
+
+	EndSlide();
+	StopAim();
+	RollDirection = Direction.GetSafeNormal2D();
+	LandingState = ECastleLanding::Roll;
+	LandingElapsed = 0.f;
+	SetActorRotation(FRotator(0.f, RollDirection.Rotation().Yaw, 0.f));
+
+	// Low for the length of the roll; the crouch is ours to undo only if she was standing.
+	PreRollCrouchedHalfHeight = Movement->GetCrouchedHalfHeight();
+	Movement->SetCrouchedHalfHeight(RollCapsuleHalfHeight);
+	bRollOwnsCrouch = !bIsCrouched;
+	Movement->bWantsToCrouch = true;
+	Movement->Crouch();
+
+	// A root motion force, like the dodge: it overrides the gait speed the sample's graph writes, so
+	// the roll covers RollDistance whatever gait she landed in.
+	TSharedPtr<FRootMotionSource_ConstantForce> Carry = MakeShared<FRootMotionSource_ConstantForce>();
+	Carry->InstanceName = FName(TEXT("LandingRoll"));
+	Carry->AccumulateMode = ERootMotionAccumulateMode::Override;
+	Carry->Priority = 5;
+	Carry->Force = RollDirection * (RollDistance / RollSeconds);
+	Carry->Duration = RollSeconds;
+	Carry->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::ClampVelocity;
+	Carry->FinishVelocityParams.ClampVelocity = RunSpeed;
+	Movement->ApplyRootMotionSource(Carry);
+
+	if (Body)
+	{
+		RollMeshBaseLocation = Body->GetRelativeLocation();
+		RollMeshBaseRotation = Body->GetRelativeRotation().Quaternion();
+		RollMeshBaseScale = Body->GetRelativeScale3D();
+	}
+
+	UE_LOG(LogCastle, Log, TEXT("%s: landing roll %.0f cm toward %s over %.2f s, capsule half-height %.0f, input locked %.2f s"),
+		*GetNameSafe(this), RollDistance, *RollDirection.ToCompactString(), RollSeconds,
+		GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight(), RollInputLockSeconds);
+}
+
+void ACastleCharacter::ApplyRollPose()
+{
+	USkeletalMeshComponent* Body = GetMesh();
+	if (!Body || !IsRolling())
+	{
+		return;
+	}
+	// Once forward head over heels about the capsule centre, squashed into a tuck so the head clears
+	// the floor when she is upside down, then straightened for the rest of the roll.
+	const float Phase = FMath::Clamp(LandingElapsed / FMath::Max(RollTumbleSeconds, 0.01f), 0.f, 1.f);
+	const float Angle = 360.f * FMath::SmoothStep(0.f, 1.f, Phase);
+	const float Tuck = FMath::Clamp(1.5f * FMath::Sin(PI * Phase), 0.f, 1.f);
+	const float Height = FMath::Lerp(1.f, RollTuckScale, Tuck);
+	const float HalfHeight = GetCapsuleComponent()->GetUnscaledCapsuleHalfHeight();
+	// The feet ride from the capsule's bottom up to just under its centre as she tucks.
+	const float FeetZ = FMath::Lerp(RollMeshBaseLocation.Z, -HalfHeight * Height * 0.9f, Tuck);
+	const FQuat Spin = FRotator(-Angle, 0.f, 0.f).Quaternion();
+	Body->SetRelativeLocationAndRotation(FVector(RollMeshBaseLocation.X, RollMeshBaseLocation.Y, 0.f)
+		+ Spin.RotateVector(FVector(0.f, 0.f, FeetZ)), Spin * RollMeshBaseRotation);
+	Body->SetRelativeScale3D(FVector(RollMeshBaseScale.X, RollMeshBaseScale.Y, RollMeshBaseScale.Z * Height));
+}
+
+void ACastleCharacter::EndRoll()
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (USkeletalMeshComponent* Body = GetMesh())
+	{
+		Body->SetRelativeLocationAndRotation(RollMeshBaseLocation, RollMeshBaseRotation);
+		Body->SetRelativeScale3D(RollMeshBaseScale);
+	}
+	if (Movement)
+	{
+		Movement->RemoveRootMotionSource(FName(TEXT("LandingRoll")));
+		if (bRollOwnsCrouch)
+		{
+			// UnCrouch checks for headroom; under a low ceiling she stays crouched.
+			Movement->bWantsToCrouch = false;
+			Movement->UnCrouch();
+		}
+		if (PreRollCrouchedHalfHeight > 0.f)
+		{
+			Movement->SetCrouchedHalfHeight(PreRollCrouchedHalfHeight);
+		}
+	}
+	bRollOwnsCrouch = false;
+	LandingState = ECastleLanding::None;
+	LandingElapsed = 0.f;
+	if (FollowCamera)
+	{
+		FollowCamera->SetRelativeRotation(FRotator::ZeroRotator);
+	}
+	UpdateMaxWalkSpeed();
+}
+
+void ACastleCharacter::UpdateLanding(float DeltaSeconds)
+{
+	if (LandingState == ECastleLanding::None)
+	{
+		return;
+	}
+	LandingElapsed += DeltaSeconds;
+	switch (LandingState)
+	{
+	case ECastleLanding::Roll:
+	{
+		// Rolling off an edge ends it: the override force would hold her level in the air.
+		const UCharacterMovementComponent* Movement = GetCharacterMovement();
+		if (LandingElapsed >= RollSeconds || (Movement && Movement->IsFalling()))
+		{
+			EndRoll();
+		}
+		else
+		{
+			ApplyRollPose();
+		}
+		break;
+	}
+	case ECastleLanding::Stumble:
+		if (LandingElapsed >= StumbleSeconds)
+		{
+			LandingState = ECastleLanding::None;
+		}
+		break;
+	case ECastleLanding::Dip:
+		if (LandingElapsed >= LandingRecoverSeconds)
+		{
+			LandingState = ECastleLanding::None;
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 bool ACastleCharacter::IsMovementDebugEnabled()
@@ -1725,7 +1931,8 @@ FString ACastleCharacter::GetMovementDebugText() const
 	}
 
 	return FString::Printf(TEXT("%s  %.0f cm/s  fall %.0f cm  last landing %.0f cm%s"),
-		State, Speed, GetCurrentFallHeight(), LastFallHeight, IsRecoveringFromLanding() ? TEXT("  (roll)") : TEXT(""));
+		State, Speed, GetCurrentFallHeight(), LastFallHeight,
+		IsRolling() ? TEXT("  (roll)") : (IsStumbling() ? TEXT("  (stumble)") : (IsRecoveringFromLanding() ? TEXT("  (dip)") : TEXT(""))));
 }
 
 bool ACastleCharacter::IsLockedOutByTakedown() const

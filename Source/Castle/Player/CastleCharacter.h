@@ -32,8 +32,8 @@ struct FInputActionValue;
  *
  * Movement picks a gait every frame (walk, run, sprint, crouch, slide) from how hard the stick
  * is pushed and for how long; every number is a property so BP_Kate can tune it. Landings are
- * measured from the top of the arc: a long drop dips speed and camera (the roll placeholder)
- * and a very long one costs health, never all of it.
+ * measured from the top of the arc: a long drop rolls (moving) or stumbles (standing), a
+ * controlled drop dips the camera, and a very long one costs health, never all of it.
  *
  * Body animation: when the mesh runs an AnimBP (BP_Kate: the Game Animation Sample's
  * motion-matched SandboxCharacter_CMC_ABP) the AnimBP owns the body, and the idle/walk/run clip
@@ -242,12 +242,45 @@ public:
 	float GetCurrentFallHeight() const;
 
 	/**
-	 * True for LandingRecoverSeconds after a landing from above RollHeight, or from above
-	 * ControlledDropDipHeight when the fall was a controlled drop (stepped off an edge, let go of
-	 * a hang or a zip) rather than a jump.
+	 * True through a landing roll or stumble (a landing from above RollHeight), and for
+	 * LandingRecoverSeconds after a controlled drop (stepped off an edge, let go of a hang or a
+	 * zip, not a jump) from above ControlledDropDipHeight.
 	 */
 	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
-	bool IsRecoveringFromLanding() const { return LandingRecoverRemaining > 0.f; }
+	bool IsRecoveringFromLanding() const { return LandingState != ECastleLanding::None; }
+
+	/** What the last landing turned into, while it lasts; None once it is over. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	ECastleLanding GetLandingState() const { return LandingState; }
+
+	/** Seconds since the current landing roll, stumble or dip began. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	float GetLandingElapsed() const { return LandingElapsed; }
+
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	bool IsRolling() const { return LandingState == ECastleLanding::Roll; }
+
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	bool IsStumbling() const { return LandingState == ECastleLanding::Stumble; }
+
+	/** The first RollInputLockSeconds of a roll: move, jump, crouch and dodge input are ignored. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	bool IsLandingInputLocked() const { return IsRolling() && LandingElapsed < RollInputLockSeconds; }
+
+	/**
+	 * How much of her speed a landing leaves her: rising 0 to 1 over a stumble,
+	 * LandingSpeedMultiplier through a dip, 1 otherwise (a roll is carried by its own force).
+	 */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	float GetLandingSpeedFactor() const;
+
+	/** Camera pitch added by a roll, degrees: down to -RollCameraPitchDegrees halfway and back. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	float GetLandingCameraPitch() const;
+
+	/** The flattened direction the current (or last) roll travels. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
+	FVector GetRollDirection() const { return RollDirection; }
 
 	/** The current fall began as a controlled drop: off an edge, a hang or a zip, not a jump. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Falling")
@@ -449,8 +482,23 @@ protected:
 	/** Stands back up and restores friction. Safe when not sliding. */
 	void EndSlide();
 
-	/** Roll placeholder and fall damage for a landing FallHeight below the top of the arc. */
+	/** Roll, stumble or dip, and fall damage, for a landing FallHeight below the top of the arc. */
 	void ApplyLanding(float FallHeight);
+
+	/**
+	 * A roll along Direction: RollDistance over RollSeconds as a root motion force, the capsule down
+	 * to RollCapsuleHalfHeight, the body tumbling once forward about the capsule centre.
+	 */
+	void StartRoll(const FVector& Direction);
+
+	/** Counts the landing state on and ends it; the roll's body tumble and capsule are handled here. */
+	void UpdateLanding(float DeltaSeconds);
+
+	/** Puts the body and capsule back after a roll and clears the landing state. */
+	void EndRoll();
+
+	/** Writes one frame of the roll's tumble onto the body mesh. */
+	void ApplyRollPose();
 
 	/** Swaps the body between IdleAnim, WalkAnim, RunAnim and FallAnim. See LocomotionAnim.h. */
 	void UpdateBodyLocomotion();
@@ -752,18 +800,55 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
 	float RollHeight = 400.f;
 
+	/** How long a controlled drop's dip lasts. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
 	float LandingRecoverSeconds = 0.3f;
+
+	/** Length of a landing roll, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.01"))
+	float RollSeconds = 0.5f;
+
+	/** How far a roll carries her along the move direction, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float RollDistance = 200.f;
+
+	/** Capsule half-height through a roll, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "10.0"))
+	float RollCapsuleHalfHeight = 50.f;
+
+	/** How far the camera pitches down at the middle of a roll, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float RollCameraPitchDegrees = 8.f;
+
+	/** Input is ignored for this much of the roll, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float RollInputLockSeconds = 0.35f;
+
+	/** Landing with move input held, or faster than this, counts as moving: a roll, not a stumble. cm/s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
+	float RollMinSpeed = 150.f;
+
+	/** The body turns once over in this much of the roll, then straightens, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.01"))
+	float RollTumbleSeconds = 0.4f;
+
+	/** Height of the body through the tumble as a fraction of its own, so the tuck clears the floor. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.1", ClampMax = "1.0"))
+	float RollTuckScale = 0.55f;
+
+	/** Landing standing still from above RollHeight: speed climbs from 0 back to a run over this, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.01"))
+	float StumbleSeconds = 0.4f;
 
 	/** A controlled drop (not a jump) landing from above this height gets the landing dip too, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
 	float ControlledDropDipHeight = 150.f;
 
-	/** Speed multiplier for the length of the roll. */
+	/** Speed multiplier for the length of a controlled drop's dip. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float LandingSpeedMultiplier = 0.5f;
 
-	/** How far the camera drops at the bottom of the roll, cm. */
+	/** How far the camera drops at the bottom of a controlled drop's dip, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Falling", meta = (ClampMin = "0.0"))
 	float LandingCameraDip = 30.f;
 
@@ -979,7 +1064,24 @@ protected:
 	float LastFallHeight = 0.f;
 
 	UPROPERTY(Transient)
-	float LandingRecoverRemaining = 0.f;
+	ECastleLanding LandingState = ECastleLanding::None;
+
+	UPROPERTY(Transient)
+	float LandingElapsed = 0.f;
+
+	UPROPERTY(Transient)
+	FVector RollDirection = FVector::ZeroVector;
+
+	/** The roll crouched the capsule (she was standing), so it stands her back up. */
+	bool bRollOwnsCrouch = false;
+
+	/** The crouched half-height before the roll set its own. */
+	float PreRollCrouchedHalfHeight = 0.f;
+
+	/** The body's mount on the capsule once crouched, which the tumble is built from. */
+	FVector RollMeshBaseLocation = FVector::ZeroVector;
+	FQuat RollMeshBaseRotation = FQuat::Identity;
+	FVector RollMeshBaseScale = FVector::OneVector;
 
 	/** Set when a fall starts without a jump; cleared on landing. */
 	UPROPERTY(Transient)
