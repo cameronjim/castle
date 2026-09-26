@@ -158,8 +158,9 @@ public:
 
 	/**
 	 * Kate's heavy: he goes over (a ragdoll when the mesh can, otherwise only the state), stays down
-	 * KnockdownSeconds, then stands back up where his body landed. His swing is dropped, his AI
-	 * holds off, and he is Alerted. There is no get-up animation; standing up is a snap.
+	 * KnockdownSeconds, then stands back up where his body landed: the capsule moves under the
+	 * body and the ragdoll pose blends into the animated one over GetUpSeconds (the physics blend
+	 * weight going 1 to 0). His swing is dropped, his AI holds off until he is up, and he is Alerted.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Thug")
 	void Knockdown(AActor* By);
@@ -167,9 +168,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	bool IsKnockedDown() const { return bKnockedDown; }
 
-	/** Staggered or on the floor: the AI does nothing. */
+	/** The ragdoll pose blending back into the animated one after a knockdown. */
 	UFUNCTION(BlueprintPure, Category = "Thug")
-	bool IsIncapacitated() const { return IsStaggered() || bKnockedDown; }
+	bool IsGettingUp() const { return bGettingUp; }
+
+	/** Staggered, on the floor or getting up: the AI does nothing. */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	bool IsIncapacitated() const { return IsStaggered() || bKnockedDown || bGettingUp; }
 
 	/** Counts a knockdown down and stands him up at the end. Called from Tick; public for tests. */
 	UFUNCTION(BlueprintCallable, Category = "Thug")
@@ -186,6 +191,10 @@ public:
 	/** Seconds a heavy keeps him on the floor. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
 	float KnockdownSeconds = 3.f;
+
+	/** How long the ragdoll pose takes to blend back into the animated one when he gets up, s. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.01"))
+	float GetUpSeconds = 0.4f;
 
 	/** Speed the body is thrown away from the hit at, cm/s. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
@@ -323,8 +332,17 @@ protected:
 	/** Throws the mesh into a ragdoll for a knockdown. False when it cannot simulate. */
 	bool BeginKnockdownRagdoll(AActor* By);
 
-	/** Ends a knockdown: the capsule moves to where the body lies and the mesh snaps back upright. */
+	/**
+	 * Ends a knockdown: the capsule moves to where the body lies and, when he was a ragdoll, the
+	 * bodies keep simulating while their blend weight falls to 0 over GetUpSeconds.
+	 */
 	void StandUp();
+
+	/** Moves the get-up blend on; at the end the bodies stop simulating. Called from Tick. */
+	void UpdateGetUp(float DeltaSeconds);
+
+	/** Puts the mesh back to an ordinary animated character mesh. */
+	void FinishGetUp();
 
 	/** Tells the brain (or, without one, the state) that By just hurt him. */
 	void AlertTo(AActor* By);
@@ -393,6 +411,8 @@ private:
 	bool bKnockedDown = false;
 	bool bKnockdownRagdoll = false;
 	float KnockdownRemaining = 0.f;
+	bool bGettingUp = false;
+	float GetUpElapsed = 0.f;
 	float HitFlashRemaining = 0.f;
 
 	/** What the materials were last given, so the parameters are only written on a change. */

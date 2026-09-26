@@ -150,6 +150,7 @@ void AThugCharacter::Tick(float DeltaSeconds)
 
 	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
 	UpdateKnockdown(DeltaSeconds);
+	UpdateGetUp(DeltaSeconds);
 	if (!bKnockedDown)
 	{
 		UpdateLocomotionAnimation();
@@ -356,6 +357,8 @@ void AThugCharacter::Knockdown(AActor* By)
 		return;
 	}
 
+	// Knocked over again while still getting up: the blend ends here and the ragdoll starts over.
+	FinishGetUp();
 	bKnockedDown = true;
 	KnockdownRemaining = KnockdownSeconds;
 	StaggerRemaining = 0.f;
@@ -432,7 +435,34 @@ void AThugCharacter::StandUp()
 {
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	UCapsuleComponent* Capsule = GetCapsuleComponent();
-	if (SkeletalMesh && Capsule && SkeletalMesh->IsSimulatingPhysics())
+	bool bBlendUp = false;
+	if (SkeletalMesh && Capsule && SkeletalMesh->IsSimulatingPhysics() && GetUpSeconds > 0.f)
+	{
+		// Stand where the body came to rest, on whatever floor is under the pelvis.
+		const FVector Pelvis = SkeletalMesh->GetBoneLocation(FName(TEXT("pelvis")));
+		FVector Stand = Pelvis + FVector(0.f, 0.f, Capsule->GetScaledCapsuleHalfHeight());
+		FHitResult Floor;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(ThugStandUp), false, this);
+		if (GetWorld() && GetWorld()->LineTraceSingleByChannel(Floor, Pelvis + FVector(0.f, 0.f, 50.f),
+				Pelvis - FVector(0.f, 0.f, 300.f), ECC_Visibility, Params))
+		{
+			Stand = Floor.ImpactPoint + FVector(0.f, 0.f, Capsule->GetScaledCapsuleHalfHeight() + 2.f);
+		}
+
+		// The bodies keep simulating where they lie, but stop carrying the component with them, and
+		// they stop answering the capsule so it can stand inside them. The mesh goes back on the
+		// capsule, the clip plays, and the physics weight on every body starts at 1: what shows is
+		// still the ragdoll, until UpdateGetUp brings the weight down.
+		SkeletalMesh->PhysicsTransformUpdateMode = EPhysicsTransformUpdateMode::ComponentTransformIsKinematic;
+		SkeletalMesh->SetEnablePhysicsBlending(false);
+		SkeletalMesh->SetAllBodiesPhysicsBlendWeight(1.f);
+		SkeletalMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		SetActorLocation(Stand, false, nullptr, ETeleportType::None);
+		SkeletalMesh->AttachToComponent(Capsule, FAttachmentTransformRules::KeepWorldTransform);
+		SkeletalMesh->SetRelativeTransform(MeshRelativeTransform);
+		bBlendUp = true;
+	}
+	else if (SkeletalMesh && Capsule && SkeletalMesh->IsSimulatingPhysics())
 	{
 		// Stand where the body came to rest, on whatever floor is under the pelvis.
 		const FVector Pelvis = SkeletalMesh->GetBoneLocation(FName(TEXT("pelvis")));
@@ -467,14 +497,54 @@ void AThugCharacter::StandUp()
 	bKnockedDown = false;
 	bKnockdownRagdoll = false;
 	KnockdownRemaining = 0.f;
+	bGettingUp = bBlendUp;
+	GetUpElapsed = 0.f;
 
 	// The ragdoll left the bones wherever they fell; re-playing the clip puts him back on his feet.
 	CurrentLocomotionAnim = nullptr;
 	UpdateLocomotionAnimation();
 	if (bWasDown)
 	{
-		UE_LOG(LogCastle, Log, TEXT("%s: back on his feet."), *GetName());
+		UE_LOG(LogCastle, Log, TEXT("%s: %s."), *GetName(),
+			bBlendUp ? *FString::Printf(TEXT("getting up, blending out of the ragdoll over %.2f s"), GetUpSeconds) : TEXT("back on his feet"));
 	}
+}
+
+void AThugCharacter::UpdateGetUp(float DeltaSeconds)
+{
+	if (!bGettingUp)
+	{
+		return;
+	}
+	GetUpElapsed += DeltaSeconds;
+	const float Alpha = FMath::Clamp(GetUpElapsed / GetUpSeconds, 0.f, 1.f);
+	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
+	{
+		SkeletalMesh->SetAllBodiesPhysicsBlendWeight(1.f - FMath::SmoothStep(0.f, 1.f, Alpha));
+	}
+	if (Alpha >= 1.f)
+	{
+		FinishGetUp();
+	}
+}
+
+void AThugCharacter::FinishGetUp()
+{
+	if (!bGettingUp)
+	{
+		return;
+	}
+	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
+	{
+		SkeletalMesh->SetAllBodiesSimulatePhysics(false);
+		SkeletalMesh->SetAllBodiesPhysicsBlendWeight(0.f);
+		SkeletalMesh->PhysicsTransformUpdateMode = EPhysicsTransformUpdateMode::SimulationUpatesComponentTransform;
+		SkeletalMesh->SetCollisionProfileName(TEXT("CharacterMesh"));
+		SkeletalMesh->SetCollisionResponseToChannel(ECC_CastleWeapon, ECR_Block);
+	}
+	bGettingUp = false;
+	GetUpElapsed = 0.f;
+	UE_LOG(LogCastle, Log, TEXT("%s: back on his feet."), *GetName());
 }
 
 UAnimSequence* AThugCharacter::SelectLocomotionAnim() const
@@ -573,12 +643,13 @@ void AThugCharacter::GoLimp(AActor* Killer)
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
-	// A swing in progress dies with him; a knockdown ends here.
+	// A swing in progress dies with him; a knockdown or a get-up ends here.
 	if (MeleeComponent)
 	{
 		MeleeComponent->CancelAttack();
 	}
 	bKnockedDown = false;
+	FinishGetUp();
 
 	// A greybox thug may have no skeletal mesh at all; ragdoll only when there is something to
 	// sim, and only when the mesh has a physics asset to sim it with.
