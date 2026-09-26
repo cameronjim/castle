@@ -41,6 +41,7 @@ namespace HawkeyeSmoke
 
 	/** Two patrolling the street, the RoofPair on the cross_block roof. */
 	static constexpr int32 ExpectedThugs = 4;
+	static constexpr int32 ExpectedArchers = 2;
 
 	/** The game world the map was opened into, or null. */
 	static UWorld* FindGameWorld()
@@ -100,11 +101,14 @@ bool FHawkeyeAssertEastVillagePlayable::Update()
 
 	// --- world actors -------------------------------------------------------------------------
 	int32 ThugCount = 0;
+	int32 ArcherCount = 0;
 	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
-		++ThugCount;
+		// Barney's archers (BP_Archer, tag ArcherPair) are placed beside chapter 1's four.
+		(It->ActorHasTag(FName(TEXT("ArcherPair"))) ? ArcherCount : ThugCount)++;
 	}
 	Test->TestEqual(TEXT("Four thugs are placed"), ThugCount, HawkeyeSmoke::ExpectedThugs);
+	Test->TestEqual(TEXT("And the two archers facing the find_arrow roof"), ArcherCount, HawkeyeSmoke::ExpectedArchers);
 
 	int32 PlayerStartCount = 0;
 	for (TActorIterator<APlayerStart> It(World); It; ++It)
