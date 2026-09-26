@@ -273,6 +273,17 @@ AHawkeyeTestBlocker::AHawkeyeTestBlocker()
 	Box->SetCollisionResponseToAllChannels(ECR_Block);
 }
 
+AHawkeyeTestSolidTakedownTarget::AHawkeyeTestSolidTakedownTarget()
+{
+	Box = CreateDefaultSubobject<UBoxComponent>(TEXT("Box"));
+	RootComponent = Box;
+	Box->SetBoxExtent(FVector(30.f, 30.f, 90.f));
+	Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	Box->SetCollisionObjectType(ECC_Pawn);
+	Box->SetCollisionResponseToAllChannels(ECR_Block);
+	Tags.Add(FName(TEXT("Thug")));
+}
+
 void AHawkeyeTestBlocker::SetExtent(const FVector& HalfExtent)
 {
 	Box->SetBoxExtent(HalfExtent, /*bUpdateOverlaps=*/false);

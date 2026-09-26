@@ -354,6 +354,19 @@ public:
 	virtual void OnTakedown_Implementation(AActor* Attacker) override { ++TakedownReceivedCount; }
 };
 
+/** A takedown target with a box that blocks every channel, so the takedown's sweep finds it. */
+UCLASS()
+class HAWKEYE_API AHawkeyeTestSolidTakedownTarget : public AHawkeyeTestTakedownTarget
+{
+	GENERATED_BODY()
+
+public:
+	AHawkeyeTestSolidTakedownTarget();
+
+	UPROPERTY()
+	TObjectPtr<UBoxComponent> Box;
+};
+
 /**
  * A box that blocks every channel, for line-of-sight and sweep tests. Tests never load Content,
  * and a box component needs no mesh. Size it with SetExtent.
