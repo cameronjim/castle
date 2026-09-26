@@ -6,6 +6,10 @@
 #include "Camera/CameraComponent.h"
 #include "CastlePlayerController.h"
 #include "CollisionQueryParams.h"
+#include "Combat/ArrowDefinition.h"
+#include "Combat/ArrowProjectile.h"
+#include "Combat/BowComponent.h"
+#include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -24,13 +28,16 @@
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
+#include "Mission/ObjectiveTriggerVolume.h"
 #include "Player/CastleCharacter.h"
 #include "Player/GrappleComponent.h"
+#include "Player/InventoryComponent.h"
 #include "Player/ParkourComponent.h"
 #include "Tests/AutomationCommon.h"
 #include "UI/CastleHudWidget.h"
 #include "UnrealClient.h"
 #include "World/GrappleAnchor.h"
+#include "World/ThugCharacter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -60,6 +67,13 @@
  *   mantle_mid.png   the jump key 36 cm from City_Test_Mantle (150 cm): hands on the top
  *   ledge_hang.png   dropped in against a tenement 230 cm under its parapet top: caught, hanging
  *   climb_top.png    the jump key from the hang: over the parapet onto the roof
+ *
+ *   bow_holstered.png  hip camera on the street: DA_Bow_Kate across Kate's back
+ *   quiver_hud.png     the same frame for the hotbar: standard arrows "30", grapple "6/6"
+ *   bow_draw.png       half drawn: bow in the left hand, the spread ring and the draw bar
+ *   bow_hit.png        a full draw loosed at a thug 15 m down the street, stuck in him, reticle flashing
+ *
+ * At the end two thugs are put on the cross_block roof (with their AI) and reported.
  *
  * Each shot reports how far the arm pulled in and warns if the lens is inside geometry. The pass
  * drops Kate 12 m onto the street and reports the landing height and health it cost, then fires
@@ -1172,6 +1186,288 @@ bool FCastleKateReportLookup::Update()
 	return true;
 }
 
+
+// --- The bow ------------------------------------------------------------------------------------
+
+namespace CastleKateShots
+{
+	static const TCHAR* ThugClassPath = TEXT("/Game/Blueprints/AI/BP_Thug.BP_Thug_C");
+	static const TCHAR* BowAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Bow_Kate.DA_Bow_Kate");
+	static const TCHAR* StandardAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Standard.DA_Arrow_Standard");
+	static const TCHAR* GrappleAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Grapple.DA_Arrow_Grapple");
+	static constexpr float ThugDistance = 1500.f;
+
+	enum class EBowShot : uint8
+	{
+		Holster,
+		DrawStart,
+		DrawCancel,
+		HitSetup,
+		HitAim,
+		HitDraw,
+		HitRelease,
+		Cleanup,
+		RoofThugs,
+	};
+
+	/** The thug the hit shot aims at. */
+	static TWeakObjectPtr<AThugCharacter> TargetThug;
+
+	static AThugCharacter* SpawnThug(UWorld* World, const FVector& Ground, float Yaw, bool bWithBrain)
+	{
+		UClass* ThugClass = LoadClass<AThugCharacter>(nullptr, ThugClassPath);
+		if (!ThugClass)
+		{
+			ThugClass = AThugCharacter::StaticClass();
+		}
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+		const float HalfHeight = GetDefault<AThugCharacter>()->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		AThugCharacter* Thug = World->SpawnActor<AThugCharacter>(ThugClass,
+			Ground + FVector(0.f, 0.f, HalfHeight + 2.f), FRotator(0.f, Yaw, 0.f), Params);
+		if (Thug && !bWithBrain)
+		{
+			// A target, not a fight: without its brain it stands still and never shoots back.
+			if (AController* Brain = Thug->GetController())
+			{
+				Brain->UnPossess();
+				Brain->Destroy();
+			}
+		}
+		return Thug;
+	}
+
+	/** Makes sure Kate carries the chapter's quiver; warns when the mission did not grant it. */
+	static void EnsureQuiver(FAutomationTestBase* Test, UInventoryComponent* Inventory)
+	{
+		if (Inventory->HasBow() && Inventory->GetArrowCount(1) > 0)
+		{
+			return;
+		}
+		Test->AddWarning(TEXT("Kate had no bow or arrows on the district; DA_CH01_Rooftops should grant them."));
+		UBowDefinition* Bow = LoadObject<UBowDefinition>(nullptr, BowAssetPath);
+		FCastleQuiverSlot Standard;
+		Standard.Arrow = LoadObject<UArrowDefinition>(nullptr, StandardAssetPath);
+		Standard.Count = 30;
+		FCastleQuiverSlot Grapple;
+		Grapple.Arrow = LoadObject<UArrowDefinition>(nullptr, GrappleAssetPath);
+		Grapple.Count = 6;
+		Inventory->ApplyStartingQuiver(Bow, { Standard, Grapple });
+	}
+
+	/** Where the bow sits against the bones it hangs off, for tuning the holster and the grip. */
+	static void ReportBow(FAutomationTestBase* Test, ACastleCharacter* Kate, const TCHAR* Label)
+	{
+		const UBowComponent* Bow = Kate->GetBowComponent();
+		const UStaticMeshComponent* Mesh = Bow ? Bow->GetBowMeshComponent() : nullptr;
+		const UInventoryComponent* Inventory = Kate->GetInventoryComponent();
+		if (!Mesh || !Inventory)
+		{
+			Test->AddWarning(FString::Printf(TEXT("%s: no bow mesh on Kate."), Label));
+			return;
+		}
+		const FTransform Actor = Kate->GetActorTransform();
+		const FVector Spine = Kate->GetMesh()->GetSocketLocation(Bow->HolsterBone);
+		const FVector Hand = Kate->GetMesh()->GetSocketLocation(Inventory->GetBow()->HandSocket);
+		Test->AddInfo(FString::Printf(
+			TEXT("%s: bow %s mesh %s at %s (actor frame %s), rot %s; spine_03 %s, hand %s (actor frame); draw %.2f, spread %.2f; quiver %d / %d, slot %d"),
+			Label, *GetNameSafe(Inventory->GetBow()), *GetNameSafe(Mesh->GetStaticMesh()),
+			*Mesh->GetComponentLocation().ToCompactString(),
+			*Actor.InverseTransformPosition(Mesh->GetComponentLocation()).ToCompactString(),
+			*Mesh->GetComponentRotation().ToCompactString(),
+			*Actor.InverseTransformPosition(Spine).ToCompactString(),
+			*Actor.InverseTransformPosition(Hand).ToCompactString(),
+			Bow->GetDrawFraction(), Bow->GetCurrentSpreadDegrees(),
+			Inventory->GetArrowCount(1), Inventory->GetArrowCount(2), Inventory->GetActiveArrowSlot()));
+	}
+
+	/** Points the camera from where it is now at Target. The arm follows, so do it twice. */
+	static void AimCameraAt(APlayerController* PC, ACastleCharacter* Kate, const FVector& Target)
+	{
+		const FVector Lens = Kate->GetFollowCamera()->GetComponentLocation();
+		const FRotator Rotation = (Target - Lens).Rotation();
+		PC->SetControlRotation(FRotator(Rotation.Pitch, Rotation.Yaw, 0.f));
+		Kate->SetActorRotation(FRotator(0.f, Rotation.Yaw, 0.f));
+	}
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FCastleKateBowShot, FAutomationTestBase*, Test, uint8, Shot);
+
+bool FCastleKateBowShot::Update()
+{
+	using namespace CastleKateShots;
+	UWorld* World = FindWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	ACastleCharacter* Kate = PC ? Cast<ACastleCharacter>(PC->GetPawn()) : nullptr;
+	UBowComponent* Bow = Kate ? Kate->GetBowComponent() : nullptr;
+	UInventoryComponent* Inventory = Kate ? Kate->GetInventoryComponent() : nullptr;
+	if (!Bow || !Inventory)
+	{
+		Test->AddError(TEXT("No Kate with a bow component and an inventory."));
+		return true;
+	}
+
+	switch (static_cast<EBowShot>(Shot))
+	{
+	case EBowShot::Holster:
+		EnsureQuiver(Test, Inventory);
+		ReportBow(Test, Kate, TEXT("bow_holstered.png"));
+		break;
+
+	case EBowShot::DrawStart:
+		if (!Bow->StartDraw())
+		{
+			Test->AddWarning(TEXT("The bow would not draw."));
+		}
+		break;
+
+	case EBowShot::DrawCancel:
+		ReportBow(Test, Kate, TEXT("bow_draw.png"));
+		Bow->CancelDraw();
+		break;
+
+	case EBowShot::HitSetup:
+	{
+		FVector Spot, Away, Ground, ThugGround;
+		if (!FindStreetSpot(World, Spot, Away) || !FindGround(World, Spot, 3000.f, Kate, Ground))
+		{
+			Test->AddWarning(TEXT("No street spot for the bow hit."));
+			break;
+		}
+		const float AlongYaw = FVector::CrossProduct(FVector::UpVector, Away).Rotation().Yaw;
+		PlaceKate(Kate, PC, Ground, AlongYaw, 0.f);
+		const FVector Along = FRotator(0.f, AlongYaw, 0.f).Vector();
+		if (!FindGround(World, Ground + Along * ThugDistance, Ground.Z + 400.f, Kate, ThugGround))
+		{
+			Test->AddWarning(TEXT("No ground 15 m down the street for the thug."));
+			break;
+		}
+		TargetThug = SpawnThug(World, ThugGround, AlongYaw + 180.f, false);
+		Kate->StartAim();
+		Test->AddInfo(FString::Printf(TEXT("Thug %s at %s, %.0f cm from Kate."), *GetNameSafe(TargetThug.Get()),
+			*ThugGround.ToCompactString(), FVector::Dist2D(ThugGround, Ground)));
+		break;
+	}
+
+	case EBowShot::HitAim:
+		if (AThugCharacter* Thug = TargetThug.Get())
+		{
+			// The chest, plus the 30 cm an arrow drops over 15 m at full draw.
+			AimCameraAt(PC, Kate, Thug->GetActorLocation() + FVector(0.f, 0.f, 60.f));
+		}
+		break;
+
+	case EBowShot::HitDraw:
+		if (AThugCharacter* Thug = TargetThug.Get())
+		{
+			AimCameraAt(PC, Kate, Thug->GetActorLocation() + FVector(0.f, 0.f, 60.f));
+		}
+		Bow->StartDraw();
+		break;
+
+	case EBowShot::HitRelease:
+		ReportBow(Test, Kate, TEXT("bow_hit (release)"));
+		if (!Bow->ReleaseDraw())
+		{
+			Test->AddWarning(TEXT("The release did not fire."));
+		}
+		// The player keeps the aim button held through the shot, so the camera stays in.
+		Kate->StartAim();
+		break;
+
+	case EBowShot::Cleanup:
+		Kate->StopAim();
+		for (TActorIterator<AArrowProjectile> It(World); It; ++It)
+		{
+			It->Destroy();
+		}
+		if (AThugCharacter* Thug = TargetThug.Get())
+		{
+			Thug->Destroy();
+		}
+		TargetThug.Reset();
+		break;
+
+	case EBowShot::RoofThugs:
+	{
+		// TODO(stage2): placing thugs on the district belongs to the combat task; generate_city.py
+		// is not the place. Until then the shot pass puts two on the cross_block roof to look at.
+		for (TActorIterator<AObjectiveTriggerVolume> It(World); It; ++It)
+		{
+			if (It->ObjectiveId != FName(TEXT("cross_block")))
+			{
+				continue;
+			}
+			for (const float Offset : { -150.f, 150.f })
+			{
+				FVector Roof;
+				const FVector At = It->GetActorLocation() + FVector(Offset, 0.f, 0.f);
+				if (FindGround(World, At, At.Z + 300.f, Kate, Roof))
+				{
+					AThugCharacter* Thug = SpawnThug(World, Roof, 0.f, true);
+					Test->AddInfo(FString::Printf(TEXT("Roof thug %s on cross_block at %s."), *GetNameSafe(Thug),
+						*Roof.ToCompactString()));
+				}
+			}
+			break;
+		}
+		break;
+	}
+	}
+	return true;
+}
+
+/** Waits (up to TimeoutSeconds) for an arrow to stick, then reports what it hit. */
+class FCastleKateWaitArrowHit : public IAutomationLatentCommand
+{
+public:
+	FCastleKateWaitArrowHit(FAutomationTestBase* InTest, float InTimeoutSeconds)
+		: Test(InTest), TimeoutSeconds(InTimeoutSeconds)
+	{
+	}
+
+	virtual bool Update() override
+	{
+		UWorld* World = CastleKateShots::FindWorld();
+		if (!World)
+		{
+			return true;
+		}
+		if (StartTime < 0.0)
+		{
+			StartTime = World->GetTimeSeconds();
+		}
+		for (TActorIterator<AArrowProjectile> It(World); It; ++It)
+		{
+			if (It->IsStuck())
+			{
+				const AThugCharacter* Thug = CastleKateShots::TargetThug.Get();
+				Test->AddInfo(FString::Printf(TEXT("Arrow stuck in %s at %s after %.2f s; thug health %.1f, staggered %d."),
+					*GetNameSafe(It->GetStuckInActor()), *It->GetActorLocation().ToCompactString(),
+					World->GetTimeSeconds() - StartTime,
+					Thug && Thug->GetHealthComponent() ? Thug->GetHealthComponent()->GetCurrentHealth() : -1.f,
+					Thug && Thug->IsStaggered() ? 1 : 0));
+				if (It->GetStuckInActor() != Thug)
+				{
+					Test->AddWarning(TEXT("The arrow did not stick in the thug."));
+				}
+				return true;
+			}
+		}
+		if (World->GetTimeSeconds() - StartTime > TimeoutSeconds)
+		{
+			Test->AddWarning(TEXT("No arrow stuck anywhere."));
+			return true;
+		}
+		return false;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float TimeoutSeconds;
+	double StartTime = -1.0;
+};
+
 bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 {
 	using namespace CastleKateShots;
@@ -1203,6 +1499,34 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 		ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, FString(ShotAndFile.Value)));
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	}
+	// The bow: on her back, the quiver, half drawn, then an arrow into a thug 15 m away.
+	using EBow = CastleKateShots::EBowShot;
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameShot(this, static_cast<uint8>(EShot::Street)));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::Holster)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("bow_holstered.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("quiver_hud.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::DrawStart)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.4f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("bow_draw.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.1f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::DrawCancel)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::HitSetup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::HitAim)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::HitDraw)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.85f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::HitRelease)));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitArrowHit(this, 2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("bow_hit.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::Cleanup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
 	// Locomotion: a run, the stop after it, and an aimed strafe, captured mid-move.
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameShot(this, static_cast<uint8>(EShot::Run)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
@@ -1289,6 +1613,9 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportParkour(this, TEXT("climb_top.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportCamera(this, TEXT("climb_top.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("climb_top.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateBowShot(this, static_cast<uint8>(EBow::RoofThugs)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("castle.DebugMovement 0")));
