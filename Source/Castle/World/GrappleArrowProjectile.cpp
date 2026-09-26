@@ -38,6 +38,23 @@ void AGrappleArrowProjectile::Launch(AGrappleAnchor* Anchor, UGrappleComponent* 
 	}
 }
 
+void AGrappleArrowProjectile::Launch(AGrappleAnchor* Anchor, UGrappleComponent* InGrapple, float InSpeed)
+{
+	Launch(Anchor, InGrapple);
+	if (InSpeed > 0.f)
+	{
+		Speed = InSpeed;
+		return;
+	}
+	if (!IsValid(Anchor))
+	{
+		Destroy();
+		return;
+	}
+	SetActorLocation(Anchor->GetMarkerLocation());
+	Arrive();
+}
+
 void AGrappleArrowProjectile::Tick(float DeltaSeconds)
 {
 	// Not Super: the anchor, not a walk-over, takes this arrow back.

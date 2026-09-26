@@ -298,7 +298,16 @@ bool UGrappleComponent::TryFire()
 		return true;
 	}
 	InFlightArrow = Arrow;
-	Arrow->Launch(Anchor, this);
+	if (bZipping)
+	{
+		// A chain: the arrow has to beat the rest of the line, or she lands first and it is a
+		// fresh zip off the roof rather than a redirect in the air.
+		Arrow->Launch(Anchor, this, ChainArrowSpeed);
+	}
+	else
+	{
+		Arrow->Launch(Anchor, this);
+	}
 	return true;
 }
 
@@ -594,6 +603,7 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 
 	// From the ground there is a hop to the launch point; a chain or a mid-air zip goes straight.
 	const bool bFromGround = !bZipping && Movement->IsMovingOnGround();
+	const bool bRedirect = bZipping && !bHopping;
 	if (bZipping)
 	{
 		// A chain: the old building stops being ignored, the new one starts.
@@ -620,6 +630,21 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 	bHopping = bFromGround && ZipHopSeconds > 0.f;
 	HopElapsed = 0.f;
 
+	// A chain in the air keeps moving the way it was going and turns onto the new line over
+	// RedirectBlendSeconds; anything else starts on its line.
+	const FVector NewDirection = (ZipEnd - ZipLaunch).GetSafeNormal();
+	bRedirecting = bRedirect && RedirectBlendSeconds > 0.f && !ZipDirection.IsNearlyZero();
+	RedirectElapsed = 0.f;
+	RedirectFromDirection = bRedirecting ? ZipDirection : NewDirection;
+	if (!bRedirecting)
+	{
+		ZipDirection = NewDirection;
+	}
+	if (bRedirect)
+	{
+		++RedirectCount;
+	}
+
 	// The line ends on the anchor's roof and clips its parapet on the way in; that building is
 	// expected, and so is the roof and parapet she leaves from until she is clear of them.
 	// Anything else in the way cancels the zip.
@@ -645,14 +670,15 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 	Movement->SetMovementMode(MOVE_Flying);
 
 	const FVector Direction = (ZipEnd - ZipStart).GetSafeNormal2D();
-	if (!Direction.IsNearlyZero())
+	if (!Direction.IsNearlyZero() && !bRedirecting)
 	{
 		Character->SetActorRotation(FRotator(0.f, Direction.Rotation().Yaw, 0.f));
 	}
 
 	UE_LOG(LogCastle, Log, TEXT("%s: zip to %s, %.0f cm at %.0f cm/s (%.2f s), %s, line %+.0f cm, ignoring %s%s and %d start support(s)"),
 		*GetNameSafe(Character), *GetNameSafe(Anchor), ZipLength, ZipSpeed, ZipLength / ZipSpeed,
-		bHopping ? *FString::Printf(TEXT("hop %.0f cm in %.2f s"), ZipLaunchHeight, ZipHopSeconds) : TEXT("no hop"),
+		bRedirecting ? *FString::Printf(TEXT("mid-air redirect over %.2f s"), RedirectBlendSeconds)
+			: (bHopping ? *FString::Printf(TEXT("hop %.0f cm in %.2f s"), ZipLaunchHeight, ZipHopSeconds) : TEXT("no hop")),
 		ZipEnd.Z - ZipLaunch.Z, *GetNameSafe(Supports.Num() > 0 ? Supports[0] : nullptr),
 		Supports.Num() > 1 ? *FString::Printf(TEXT(" and %d more"), Supports.Num() - 1) : TEXT(""), StartSupports.Num());
 	return true;
@@ -681,10 +707,34 @@ void UGrappleComponent::AdvanceZip(float DeltaSeconds)
 		return;
 	}
 
-	ZipTravelled = FMath::Min(ZipTravelled + ZipSpeed * DeltaSeconds, ZipLength);
-	const FVector Target = ZipLength > 0.f
-		? ZipLaunch + (ZipEnd - ZipLaunch) / ZipLength * ZipTravelled
-		: ZipEnd;
+	// Head for the landing point from wherever she is. On a straight line that is the line itself;
+	// after a chain the direction swings from the old line onto the new over RedirectBlendSeconds.
+	const FVector Current = Character->GetActorLocation();
+	const FVector ToEnd = ZipEnd - Current;
+	const float Remaining = ToEnd.Size();
+	const float Step = ZipSpeed * DeltaSeconds;
+	FVector Direction = Remaining > KINDA_SMALL_NUMBER ? ToEnd / Remaining : ZipDirection;
+	if (bRedirecting)
+	{
+		RedirectElapsed += DeltaSeconds;
+		const float Alpha = FMath::Clamp(RedirectElapsed / RedirectBlendSeconds, 0.f, 1.f);
+		const FVector Blended = RedirectFromDirection * (1.f - Alpha) + Direction * Alpha;
+		Direction = Blended.IsNearlyZero() ? Direction : Blended.GetSafeNormal();
+		bRedirecting = Alpha < 1.f;
+		const FVector Flat = Direction.GetSafeNormal2D();
+		if (!Flat.IsNearlyZero())
+		{
+			Character->SetActorRotation(FRotator(0.f, Flat.Rotation().Yaw, 0.f));
+		}
+	}
+	const bool bArrives = Remaining <= Step;
+	const FVector Target = bArrives ? ZipEnd : Current + Direction * Step;
+	ZipDirection = Direction;
+	ZipTravelled = FMath::Clamp(ZipLength - FVector::Dist(Target, ZipEnd), ZipTravelled, ZipLength);
+	if (bArrives)
+	{
+		ZipTravelled = ZipLength;
+	}
 
 	FHitResult Hit;
 	Character->SetActorLocation(Target, /*bSweep=*/true, &Hit);
@@ -725,6 +775,8 @@ void UGrappleComponent::EndZipMovement()
 	ZipStartSupports.Reset();
 	bStartSupportsIgnored = false;
 	bHopping = false;
+	bRedirecting = false;
+	ZipDirection = FVector::ZeroVector;
 	if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
 	{
 		Movement->GravityScale = PreZipGravityScale;

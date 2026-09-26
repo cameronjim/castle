@@ -30,6 +30,12 @@ public:
 	/** Sends the arrow at Anchor's marker. Grapple is told when it arrives; either may be null. */
 	void Launch(AGrappleAnchor* Anchor, UGrappleComponent* Grapple);
 
+	/**
+	 * The same at InSpeed cm/s instead of Speed; 0 or less and it arrives (and tells Grapple) before
+	 * this returns. A chain fired mid-zip uses this so the redirect happens in the air.
+	 */
+	void Launch(AGrappleAnchor* Anchor, UGrappleComponent* Grapple, float InSpeed);
+
 	/** A grapple arrow only ever flies at an anchor; a plain launch does nothing. */
 	virtual void LaunchWithVelocity(const FVector& Velocity) override;
 

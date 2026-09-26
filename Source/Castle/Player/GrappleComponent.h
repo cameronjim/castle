@@ -27,7 +27,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrapp
  * gravity and movement input off (the camera still turns). From the ground the line starts at a
  * launch point ZipLaunchHeight above where she stood, reached by a ZipHopSeconds hop, so a level
  * or downward line clears her own parapet. Firing again mid-zip is allowed once
- * ZipProgress reaches ChainMinProgress and redirects the zip to the new anchor. A zip blocked by
+ * ZipProgress reaches ChainMinProgress; the chain arrow travels at ChainArrowSpeed (0: it is there
+ * at once) so the zip is redirected to the new anchor in the air, the direction of travel turning
+ * onto the new line over RedirectBlendSeconds rather than snapping. A zip blocked by
  * anything but the anchor's own building (the one under its landing point, and any static actor
  * within SupportRadius of the anchor) or, until she is ZipStartIgnoreRadius clear of the start,
  * the geometry round where she stood (her own roof and parapet), stops and drops the character.
@@ -153,6 +155,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Grapple")
 	bool IsIgnoringStartSupports() const { return bZipping && bStartSupportsIgnored; }
 
+	/** A chain is still turning the direction of travel onto the new line. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	bool IsRedirecting() const { return bZipping && bRedirecting; }
+
+	/** Unit direction the zip moved in on its last step; zero before the first. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	FVector GetZipDirection() const { return ZipDirection; }
+
+	/** Mid-air redirects (chains that took before landing) this session. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	int32 GetRedirectCount() const { return RedirectCount; }
+
 	UPROPERTY(BlueprintAssignable, Category = "Grapple")
 	FOnGrappleLandedSignature OnGrappleLanded;
 
@@ -180,7 +194,18 @@ public:
 
 	/** How far along a zip a second arrow may be fired to chain, 0..1. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float ChainMinProgress = 0.7f;
+	float ChainMinProgress = 0.4f;
+
+	/**
+	 * Speed of an arrow fired mid-zip (a chain), cm/s; 0 means it arrives the moment it leaves the
+	 * bow. At the 6000 cm/s of a standing shot a short line ended before the arrow got there.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float ChainArrowSpeed = 0.f;
+
+	/** A chain turns the direction of travel from the old line onto the new one over this long, s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float RedirectBlendSeconds = 0.1f;
 
 	/** Seconds between target refreshes. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.01"))
@@ -309,6 +334,11 @@ protected:
 	FVector ZipEnd = FVector::ZeroVector;
 	bool bHopping = false;
 	bool bStartSupportsIgnored = false;
+	bool bRedirecting = false;
+	float RedirectElapsed = 0.f;
+	FVector RedirectFromDirection = FVector::ZeroVector;
+	FVector ZipDirection = FVector::ZeroVector;
+	int32 RedirectCount = 0;
 	float HopElapsed = 0.f;
 	float ZipLength = 0.f;
 	float ZipTravelled = 0.f;

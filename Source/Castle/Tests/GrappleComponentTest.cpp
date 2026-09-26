@@ -16,7 +16,7 @@
 /**
  * The grapple arrow rules from claude-docs/gameplay-semantics.md (PLANNED: traversal): anchors
  * within 2500 cm and 30 degrees of the camera forward, in sight; a straight zip at 1800 cm/s to
- * the landing point; chaining only past 70% of the line; one arrow per shot, recoverable at the
+ * the landing point; chaining from 40% of the line, redirected in the air; one arrow per shot, recoverable at the
  * anchor; a blocked zip drops the character.
  */
 namespace CastleGrappleTest
@@ -247,7 +247,7 @@ bool FCastleGrappleIgnoresAnchorBuilding::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGrappleChain, "Castle.Grapple.ChainOnlyPast70Percent",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCastleGrappleChain, "Castle.Grapple.ChainRedirectsMidAirFrom40Percent",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FCastleGrappleChain::RunTest(const FString& Parameters)
@@ -263,50 +263,62 @@ bool FCastleGrappleChain::RunTest(const FString& Parameters)
 		return false;
 	}
 	UGrappleComponent* Grapple = Kate->GetGrappleComponent();
-	TestEqual(TEXT("The chain window opens at 70%"), Grapple->ChainMinProgress, 0.7f);
+	TestEqual(TEXT("The chain window opens at 40%"), Grapple->ChainMinProgress, 0.4f);
+	TestEqual(TEXT("A chain arrow arrives at once"), Grapple->ChainArrowSpeed, 0.f);
+	TestEqual(TEXT("The turn onto the new line takes 0.1 s"), Grapple->RedirectBlendSeconds, 0.1f);
 
 	Grapple->StartZip(First);
 	const float Length = Grapple->GetZipLength();
+	const FVector FirstEnd = Grapple->ComputeZipEnd(First);
 	auto AimAtSecond = [Grapple, Kate, Second]()
 	{
 		const FVector View = Kate->GetActorLocation();
 		Grapple->UpdateTarget(View, (Second->GetMarkerLocation() - View).GetSafeNormal());
 	};
 
-	Grapple->AdvanceZip(0.5f * Length / Grapple->ZipSpeed);
+	Grapple->AdvanceZip(0.35f * Length / Grapple->ZipSpeed);
 	AimAtSecond();
 	TestTrue(TEXT("The next anchor is targeted mid-zip"), Grapple->GetTargetAnchor() == Second);
-	TestFalse(TEXT("At 50% a second arrow is refused"), Grapple->TryFire());
+	TestFalse(TEXT("At 35% a second arrow is refused"), Grapple->TryFire());
 	TestEqual(TEXT("And costs nothing"), Grapple->GetGrappleArrows(), 99);
 	TestTrue(TEXT("Still zipping to the first anchor"), Grapple->GetZipAnchor() == First);
 
-	Grapple->AdvanceZip(0.19f * Length / Grapple->ZipSpeed);
-	TestFalse(TEXT("At 69% still refused"), Grapple->TryFire());
-
-	Grapple->AdvanceZip(0.06f * Length / Grapple->ZipSpeed);
+	Grapple->AdvanceZip(0.15f * Length / Grapple->ZipSpeed);
 	AimAtSecond();
-	TestTrue(TEXT("At 75% the chain fires"), Grapple->TryFire());
+	const FVector OldDirection = Grapple->GetZipDirection();
+	const FVector AtPress = Kate->GetActorLocation();
+	TestTrue(TEXT("At 50% the chain fires"), Grapple->TryFire());
 	TestEqual(TEXT("One arrow spent"), Grapple->GetGrappleArrows(), 98);
-	TestTrue(TEXT("The arrow is in flight"), Grapple->IsArrowInFlight());
-	TestTrue(TEXT("The zip carries on while it flies"), Grapple->IsZipping() && Grapple->GetZipAnchor() == First);
-
-	AGrappleArrowProjectile* Arrow = FindArrowInFlight(TestWorld.Get());
-	if (!TestNotNull(TEXT("A projectile was spawned"), Arrow))
-	{
-		return false;
-	}
-	TestEqual(TEXT("The grapple arrow flies at 6000 cm/s"), Arrow->Speed, 6000.f);
-	Arrow->Advance(1.f);
-	TestTrue(TEXT("It arrived"), Arrow->HasArrived());
-	TestFalse(TEXT("Nothing in flight any more"), Grapple->IsArrowInFlight());
-	TestTrue(TEXT("The zip is redirected to the second anchor"), Grapple->GetZipAnchor() == Second);
+	TestFalse(TEXT("The chain arrow is already there"), Grapple->IsArrowInFlight());
+	TestEqual(TEXT("It stays in the new anchor"), Second->GetStuckArrowCount(), 1);
+	TestTrue(TEXT("The zip target changed before landing"), Grapple->IsZipping() && Grapple->GetZipAnchor() == Second);
+	TestTrue(TEXT("She is still in the air, nowhere near the first roof"),
+		FVector::Dist(Kate->GetActorLocation(), FirstEnd) > 0.4f * Length);
+	TestEqual(TEXT("Flying, not landed"), ModeOf(Kate), static_cast<int32>(MOVE_Flying));
 	TestEqual(TEXT("From the start of its new line"), Grapple->GetZipProgress(), 0.f);
-	TestEqual(TEXT("The arrow stays in the anchor"), Second->GetStuckArrowCount(), 1);
-	TestFalse(TEXT("And a new line starts the 70% rule over"), Grapple->TryFire());
+	TestTrue(TEXT("From where she was, with no hop"), Grapple->GetZipLaunch().Equals(AtPress, 0.5f));
+	TestTrue(TEXT("Turning onto the new line"), Grapple->IsRedirecting());
+	TestEqual(TEXT("Counted as a mid-air redirect"), Grapple->GetRedirectCount(), 1);
+	TestFalse(TEXT("A new line starts the 40% rule over"), Grapple->TryFire());
+
+	// Half the blend: the direction is between the old line and the new one, not snapped.
+	const FVector NewDirection = (Grapple->ComputeZipEnd(Second) - AtPress).GetSafeNormal();
+	Grapple->AdvanceZip(0.05f);
+	const FVector Mid = Grapple->GetZipDirection();
+	const float ToOld = FVector::DotProduct(Mid, OldDirection);
+	const float ToNew = FVector::DotProduct(Mid, NewDirection);
+	TestTrue(TEXT("Half way through the blend it has turned part of the way"),
+		ToNew > FVector::DotProduct(OldDirection, NewDirection) + 0.05f && ToNew < 0.999f && ToOld < 0.999f);
+	Grapple->AdvanceZip(0.06f);
+	TestFalse(TEXT("After 0.1 s the blend is done"), Grapple->IsRedirecting());
+	TestTrue(TEXT("And she heads straight for the new landing point"),
+		FVector::DotProduct(Grapple->GetZipDirection(),
+			(Grapple->ComputeZipEnd(Second) - Kate->GetActorLocation()).GetSafeNormal()) > 0.999f);
 
 	RunZip(Grapple, 0.05f, 5.f);
 	TestTrue(TEXT("She lands on the second anchor's roof"),
 		Kate->GetActorLocation().Equals(Grapple->ComputeZipEnd(Second), 0.5f));
+	TestEqual(TEXT("Walking"), ModeOf(Kate), static_cast<int32>(MOVE_Walking));
 	return true;
 }
 
