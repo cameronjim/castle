@@ -386,6 +386,7 @@ private:
 	bool bSprintHeld = false;
 	bool bMoveInjecting = false;
 	bool bRoofShotTaken = false;
+	bool bRoofShotPending = false;
 	bool bDescentScripted = false;
 	FString DescentNote;
 	FString FailReason;
@@ -1615,8 +1616,9 @@ bool FCastleLapRunner::Update()
 			}
 			if (bFirst && !bRoofShotTaken)
 			{
-				bRoofShotTaken = true;
-				Shot(Test, TEXT("lap_roof.png"));
+				// Taken a moment into the run across the roof, once the camera has come down
+				// from looking up at the anchor.
+				bRoofShotPending = true;
 			}
 			// The roofs landed on, with the one she stands on last. A building whose anchor a chain
 			// only passed through may be landed on later.
@@ -1658,6 +1660,12 @@ bool FCastleLapRunner::Update()
 
 	case EStep::RoofRun:
 		Leg = TEXT("roof run");
+		if (bRoofShotPending && Now(World) - StepStart > 0.8)
+		{
+			bRoofShotPending = false;
+			bRoofShotTaken = true;
+			Shot(Test, TEXT("lap_roof.png"));
+		}
 		if (Steer(PC, Kate, RunTarget, true, 60.f, DeltaSeconds) || Now(World) - StepStart > 10.0)
 		{
 			StopMoving(PC);
