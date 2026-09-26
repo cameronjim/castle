@@ -254,6 +254,8 @@ AFireEscapeLanding* ACityLedgeSpawner::SpawnFireEscape(const FCityFireEscapeReco
 	const FName OsmTag(*(TEXT("osm:") + Record.OsmId));
 	const FName FloorTag(*FString::Printf(TEXT("floor:%d"), Record.Floor));
 	const FString Suffix = FString::Printf(TEXT("%s_%d"), *Record.OsmId, Record.Floor);
+	// Params only views the label, so it has to outlive the spawn.
+	const FString Label = CastleCitySpawn::FireEscapeLabelPrefix + Suffix;
 	FActorSpawnParameters Params = CastleCitySpawn::MakeParams(this, bEditorWorld);
 	Params.CustomPreSpawnInitialization = [OsmTag, FloorTag, Record](AActor* Actor)
 	{
@@ -266,7 +268,7 @@ AFireEscapeLanding* ACityLedgeSpawner::SpawnFireEscape(const FCityFireEscapeReco
 #if WITH_EDITOR
 	if (bEditorWorld)
 	{
-		Params.InitialActorLabel = CastleCitySpawn::FireEscapeLabelPrefix + Suffix;
+		Params.InitialActorLabel = Label;
 	}
 #endif
 	const FTransform Placement(Record.Transform.GetRotation(), Record.Transform.GetLocation());
