@@ -21,9 +21,15 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   faces the camera yaw. Look input never rotates her while idle.
 
 ## Movement (built 2026-09-26; every number is a property on BP_Kate)
-- Speeds: walk 250, run 500, sprint 700, crouch 200. Gamepad: stick at 0.9 or more runs
-  immediately, 0.4 or more runs after 0.2 s, lighter walks. Keyboard always runs; Shift
-  sprints.
+- Locomotion animation is motion matching from the Game Animation Sample (see
+  infrastructure.md). Kate's speeds are currently set by the sample's character graph
+  (run 500, stop 200, aimed strafe 180, plus its walk and sprint gaits chosen from the
+  bridged `WantsToWalk` / `WantsToSprint` flags). The native speeds below apply to thugs
+  and to any character not derived from the sample. Reconciling the two is a stage 2
+  TODO once traversal feel is settled.
+- Native speeds: walk 250, run 500, sprint 700, crouch 200. Gamepad: stick at 0.9 or
+  more runs immediately, 0.4 or more runs after 0.2 s, lighter walks. Keyboard always
+  runs; Shift sprints.
 - Jump height 90 cm, air control 0.3.
 - Slide: crouch while sprinting; 0.7 s, speed eases 750 to 200, capsule half-height 50,
   restored after.
