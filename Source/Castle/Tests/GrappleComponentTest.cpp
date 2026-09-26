@@ -193,7 +193,7 @@ bool FCastleGrappleZipKinematics::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Gravity is back"), Movement->GravityScale, 1.f);
 	TestEqual(TEXT("OnGrappleLanded fired once"), Listener->GrappleLandedCount, 1);
 	TestTrue(TEXT("For this anchor"), Listener->LastGrappleAnchor == Anchor);
-	TestTrue(TEXT("The landing dips the camera like a roll"), Kate->IsRecoveringFromLanding());
+	TestFalse(TEXT("A zip landing is not a roll: no camera dip, no speed cut"), Kate->IsRecoveringFromLanding());
 	TestEqual(TEXT("A zip landing is a 0 cm landing"), Kate->GetLastFallHeight(), 0.f);
 	TestEqual(TEXT("And costs no health"), Kate->GetHealthComponent()->GetCurrentHealth(), HealthBefore);
 	return true;
