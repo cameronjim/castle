@@ -51,14 +51,19 @@ only question that matters: is moving through this city fun?
 8. **Play it twenty times.** Run laps. Time a circuit. Note every snag on geometry, every
    move that felt slow, every place you wanted to go and couldn't.
 
-## Done when
-- [ ] A full lap of the block, street to rooftop and back, in under 90 seconds, without
-      touching a wall you didn't mean to
-- [ ] Grapple chains across at least three rooftops without stopping
-- [ ] Vault, mantle, ledge, and roll all trigger without thinking about them
-- [ ] A fight with four thugs is winnable with bow and melee and isn't annoying
-- [ ] One other person has run the block and said it felt good without prompting
-- [ ] Still greybox. No art. If there's a texture on a building, take it off.
+## Done when (status 2026-09-26, from the scripted lap `Castle.Lap.EastVillage`)
+- [x] A full lap of the block, street to rooftop and back, in under 90 seconds, without
+      touching a wall you didn't mean to. Scripted lap: 61.75 s, 0 wall contacts, every
+      move first try, descent by fire escape. A human lap is still needed.
+- [~] Grapple chains across at least three rooftops without stopping. Three zips, but
+      touch-and-go on the roofs rather than a mid-air redirect.
+- [~] Vault, mantle, ledge, and roll all trigger without thinking about them. Vault,
+      mantle, catch, and drop-to-hang do. The roll is still a placeholder dip.
+- [~] A fight with four thugs is winnable with bow and melee and isn't annoying. The roof
+      pair is winnable (scripted: 8.2 s, 85 health left). The street pair and "isn't
+      annoying" need Cameron.
+- [ ] One other person has run the block and said it felt good without prompting.
+- [x] Still greybox. No art.
 
 ## Cut list if it's dragging
 In this order: slide, ledge shimmy, chaining grapples, thug melee (leave them shooting).

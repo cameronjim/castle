@@ -70,6 +70,28 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   the rest nearest-first at 4 ms per frame, done about 5 s after load. The grapple grid is
   rebuilt after the spawn. The district map is 2.8 MB (was 72 MB). Street lamps are still
   saved actors.
+- Fire escapes (built 2026-09-26): every building 10 to 30 m tall gets one zig-zag
+  escape on its longest road-facing edge (487 of 494 qualify; the rest would hit a
+  neighbour, a lamp, or another escape). Landings 240 x 90 cm with 90 cm rails at 330 cm
+  and every 330 cm above, the top one at least 180 cm under the roof, ladders alternating
+  between them. The outer rail carries a traversable ledge so mantle and vault work onto
+  it. 2,010 landings, stored in the props data asset and spawned nearest-first. Black
+  iron `M_SteelPainted`.
+- Drop to hang: within 60 cm of an edge with more than 150 cm of drop beyond it (lips up
+  to 130 cm), crouch while moving toward the edge or jump while facing away transitions
+  to the hang on that edge. From a hang, crouch drops. The catch window is 150 to 330 cm
+  above the feet so floor-spaced landings chain: hang, drop, catch, repeat. A drop never
+  re-catches the ledge it let go of. Walking off an edge, letting go of a hang, or
+  cancelling a zip is a controlled drop; landings over 150 cm get the dip.
+- Grapple launch: the zip starts from a launch point 120 cm above the feet, reached by a
+  0.15 s hop, and ignores her own roof, parapet, and fire escape until 250 cm plus the
+  capsule radius clear of the start (plus the 150 cm allowance at the anchor). Level and
+  downward lines are allowed. Jump or crouch mid-zip lets go with the catch active. 62 of
+  63 anchored roofs within 150 m of the start have a clear roof-to-roof zip.
+- Chaining caveat: with the 70% rule and a 6000 cm/s arrow, short lines land before the
+  chain arrow arrives, so a three-roof chain is touch-and-go (0.03 to 0.23 s on the
+  roof), not a mid-air redirect. Lowering the threshold or speeding the chain arrow is
+  the fix.
 - Landing above 400 cm triggers the placeholder dip (roll and stumble not built).
   Grapple landings never trigger it. Fall damage begins at 900 cm and never kills from a
   rooftop you can reach by grapple.
