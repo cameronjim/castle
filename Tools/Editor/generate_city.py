@@ -33,7 +33,10 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   another, each with its landing point on the roof clear of the parapet.
 * traversable ledges (``City_Ledge_<id>_<edge>``): a hidden Game Animation Sample
   LevelBlock_Traversable along every roof edge of 1 m or more, its Ledge_1 spline on the
-  parapet's outer top edge, so the sample's vault and mantle see the tenements. Parkour test
+  parapet's outer top edge, so the sample's vault and mantle see the tenements.
+  Neither the anchors nor the ledges are saved in the map (5,400 actors made it 72 MB): they go
+  into ``/Game/City/EastVillage/DA_EastVillage_CityProps`` (UCityLedgeData) and one
+  ``City_LedgeSpawner`` (ACityLedgeSpawner) spawns them at BeginPlay. Parkour test
   blocks: ``City_Test_Vault`` (90 cm) and ``City_Test_Mantle`` (150 cm) on the street by the
   PlayerStart, and three low ``City_ParkWall_<n>`` in the park.
 
@@ -1638,65 +1641,6 @@ def anchor_class():
     return cls
 
 
-def _ensure_anchor(existing, label, cls, spot):
-    x, y, z, yaw, forward, drop, osm = spot
-    loc = unreal.Vector(x, y, z)
-    rot = unreal.Rotator(0.0, 0.0, yaw)
-    changes = 0
-    actor = existing.get(label)
-    if actor is not None and actor.get_class() != cls:
-        actor.destroy_actor()
-        actor = None
-    if actor is None:
-        actor = c.spawn_actor(cls, loc, rot, label=label)
-        if actor is None:
-            c.log("FAILED", label, "spawn_actor returned None")
-            return 0
-        existing[label] = actor
-        changes += 1
-    if not same_vector(actor.get_actor_location(), loc, 0.5):
-        actor.set_actor_location(loc, False, True)
-        changes += 1
-    if abs(((actor.get_actor_rotation().yaw - yaw) + 180.0) % 360.0 - 180.0) > 0.05:
-        actor.set_actor_rotation(rot, False)
-        changes += 1
-    landing = actor.get_landing_point()
-    want = unreal.Vector(forward, 0.0, -drop)
-    if landing is not None and not same_vector(landing.get_editor_property("relative_location"), want, 0.5):
-        landing.set_editor_property("relative_location", want)
-        changes += 1
-    return changes + _ensure_tags(actor, ["City", "CityAnchor", "osm:" + osm])
-
-
-def ensure_grapple_anchors(district, existing):
-    """City_Anchor_<n>: BP_GrappleAnchor on every tall roof's corners and long edges."""
-    cls = anchor_class()
-    if cls is None:
-        c.log("FAILED", ANCHOR_PREFIX + "*", "no grapple anchor class; build the module")
-        return 0
-    spots = anchor_spots(district)
-    changes = 0
-    changed_anchors = 0
-    for i, spot in enumerate(spots):
-        n = _ensure_anchor(existing, ANCHOR_PREFIX + str(i), cls, spot)
-        if n:
-            changed_anchors += 1
-        changes += n
-
-    removed = 0
-    for label, actor in list(existing.items()):
-        rest = label[len(ANCHOR_PREFIX):] if label.startswith(ANCHOR_PREFIX) else ""
-        if rest.isdigit() and int(rest) >= len(spots):
-            actor.destroy_actor()
-            existing.pop(label, None)
-            removed += 1
-    changes += removed
-    c.log("updated" if (changed_anchors or removed) else "exists", "grapple anchors",
-          "{0} anchors on {1} roofs over {2:.0f} m, {3} changed, {4} removed".format(
-              len(spots), len({s[6] for s in spots}), ANCHOR_MIN_HEIGHT_M, changed_anchors, removed))
-    return changes
-
-
 # --------------------------------------------------------------------------------------
 # traversable ledges and parkour test obstacles
 # --------------------------------------------------------------------------------------
@@ -1719,6 +1663,12 @@ LEDGE_MIN_EDGE = 100.0      # cm; shorter roof edges get no ledge (the sample wa
 LEDGE_OUTSET = 2.0          # cm the slab stands out from the facade
 LEDGE_SLAB_HEIGHT = 400.0   # cm down from the top; covers a step up from a lower neighbour's roof
 LEDGE_SPLINE = "Ledge_1"
+
+# The ledges and the anchors are not saved in the map: generate_city writes them into a
+# UCityLedgeData and City_LedgeSpawner (ACityLedgeSpawner) spawns them at BeginPlay.
+CITY_PROPS_PATH = "/Game/City/EastVillage"
+CITY_PROPS_NAME = "DA_EastVillage_CityProps"
+SPAWNER_LABEL = "City_LedgeSpawner"
 
 TEST_VAULT_LABEL = "City_Test_Vault"
 TEST_MANTLE_LABEL = "City_Test_Mantle"
@@ -1883,37 +1833,107 @@ def _ensure_block(existing, label, cls, origin, yaw, scale, tags, visible, trave
     return changes + _ensure_tags(actor, tags)
 
 
-def ensure_ledges(district, existing):
-    """City_Ledge_<osm id>_<edge>: a hidden BP_TraversableBlock along every roof edge."""
-    cls = traversable_class()
-    if cls is None:
+def _ledge_edge_index(label):
+    return int(label.rsplit("_", 1)[1])
+
+
+def city_props_hash(ledges, anchors, ledge_cls, anchor_cls):
+    """What the props asset was written from: every ledge and anchor spot and the two classes."""
+    return geo.record_hash(GENERATOR_VERSION, "props",
+                           [[s[0], list(s[2]), s[3], list(s[4])] for s in ledges],
+                           [list(a) for a in anchors], c.safe_name(ledge_cls), c.safe_name(anchor_cls))
+
+
+def _ledge_record(spot):
+    label, osm, origin, yaw, scale, _a, _b, _spec = spot
+    rec = unreal.CityLedgeRecord()
+    rec.set_editor_property("transform", unreal.Transform(
+        unreal.Vector(*origin), unreal.Rotator(0.0, 0.0, yaw), unreal.Vector(*scale)))
+    rec.set_editor_property("edge_index", _ledge_edge_index(label))
+    rec.set_editor_property("osm_id", osm)
+    return rec
+
+
+def _anchor_record(index, spot):
+    x, y, z, yaw, forward, drop, osm = spot
+    rec = unreal.CityAnchorRecord()
+    rec.set_editor_property("transform", unreal.Transform(
+        unreal.Vector(x, y, z), unreal.Rotator(0.0, 0.0, yaw), unreal.Vector(1.0, 1.0, 1.0)))
+    rec.set_editor_property("landing_offset", unreal.Vector(forward, 0.0, -drop))
+    rec.set_editor_property("index", index)
+    rec.set_editor_property("osm_id", osm)
+    return rec
+
+
+def ensure_city_props(district):
+    """DA_EastVillage_CityProps: every roof-edge ledge and grapple anchor as data. Returns
+    (asset, ledge class, anchor class), the asset None on failure. Saved only when its hash changes."""
+    ledge_cls = traversable_class()
+    anchor_cls = anchor_class()
+    if ledge_cls is None:
         c.log("FAILED", LEDGE_PREFIX + "*",
               "BP_TraversableBlock not found; run Tools\\create-content.ps1 (import_gasp, world blueprints)")
-        return 0
-    if traversable_channel() is None:
-        c.log("FAILED", LEDGE_PREFIX + "*", "no Python name for ECC_GameTraceChannel1")
-        return 0
-    spots = ledge_spots(district)
-    wanted = set()
+    if anchor_cls is None:
+        c.log("FAILED", ANCHOR_PREFIX + "*", "no grapple anchor class; build the module")
+    data_cls = getattr(unreal, "CityLedgeData", None)
+    if data_cls is None:
+        c.log("FAILED", CITY_PROPS_NAME, "UCityLedgeData not found; build the module")
+        return None, ledge_cls, anchor_cls
+
+    ledges = ledge_spots(district)
+    anchors = anchor_spots(district)
+    want_hash = city_props_hash(ledges, anchors, ledge_cls, anchor_cls)
+    full = c.asset_path(CITY_PROPS_PATH, CITY_PROPS_NAME)
+    asset = c.load_or_none(full)
+    if asset is None:
+        factory = c.new_factory("DataAssetFactory")
+        c.set_props(factory, [("data_asset_class", data_cls)], "DataAssetFactory")
+        asset, _created = c.create_asset(CITY_PROPS_NAME, CITY_PROPS_PATH, data_cls, factory, quiet=True)
+        if asset is None:
+            return None, ledge_cls, anchor_cls
+    if str(asset.get_editor_property("source_hash")) == want_hash             and len(asset.get_editor_property("ledges")) == len(ledges)             and len(asset.get_editor_property("anchors")) == len(anchors):
+        c.log("exists", full, "{0} ledges on {1} buildings, {2} anchors on {3} roofs; hash unchanged".format(
+            len(ledges), len({s[1] for s in ledges}), len(anchors), len({a[6] for a in anchors})))
+        return asset, ledge_cls, anchor_cls
+    asset.set_editor_property("ledges", [_ledge_record(spot) for spot in ledges])
+    asset.set_editor_property("anchors", [_anchor_record(i, spot) for i, spot in enumerate(anchors)])
+    asset.set_editor_property("source_hash", want_hash)
+    c.save(asset)
+    c.log("updated", full, "{0} ledges on {1} buildings, {2} anchors on {3} roofs".format(
+        len(ledges), len({s[1] for s in ledges}), len(anchors), len({a[6] for a in anchors})))
+    return asset, ledge_cls, anchor_cls
+
+
+def ensure_ledge_spawner(district, existing):
+    """City_LedgeSpawner (ACityLedgeSpawner) pointing at the props asset, and none of the ledges or
+    anchors the map used to carry as saved actors. Returns changes."""
+    asset, ledge_cls, anchor_cls = ensure_city_props(district)
     changes = 0
-    changed = 0
-    for label, osm, origin, yaw, scale, _a, _b, spec in spots:
-        wanted.add(label)
-        n = _ensure_block(existing, label, cls, origin, yaw, scale,
-                          ["City", "CityLedge", "osm:" + osm, "ledgehash:" + spec], False, True)
-        if n:
-            changed += 1
-        changes += n
     removed = 0
     for label, actor in list(existing.items()):
-        if label.startswith(LEDGE_PREFIX) and label not in wanted:
+        rest = label[len(ANCHOR_PREFIX):] if label.startswith(ANCHOR_PREFIX) else ""
+        if label.startswith(LEDGE_PREFIX) or rest.isdigit():
             actor.destroy_actor()
             existing.pop(label, None)
             removed += 1
-    c.log("updated" if (changed or removed) else "exists", "traversable ledges",
-          "{0} ledges on {1} buildings, {2} changed, {3} removed".format(
-              len(spots), len({s[1] for s in spots}), changed, removed))
-    return changes + removed
+    changes += removed
+
+    spawner_cls = c.find_class("CityLedgeSpawner", "/Script/Castle.CityLedgeSpawner")
+    if spawner_cls is None or asset is None:
+        c.log("FAILED", SPAWNER_LABEL, "no ACityLedgeSpawner class or no props asset")
+        return changes
+    spawner, n = _ensure_located(existing, SPAWNER_LABEL, spawner_cls, unreal.Vector(0.0, 0.0, 0.0), 0.0)
+    changes += n
+    if spawner is not None:
+        for prop, value in (("data", asset), ("ledge_class", ledge_cls), ("anchor_class", anchor_cls),
+                            ("spawn_in_editor", False)):
+            if spawner.get_editor_property(prop) != value:
+                spawner.set_editor_property(prop, value)
+                changes += 1
+        changes += _ensure_tags(spawner, ["City", "CityLedgeSpawner"])
+    c.log("updated" if changes else "exists", SPAWNER_LABEL,
+          "spawns the props at load; {0} saved ledge/anchor actors removed".format(removed))
+    return changes
 
 
 _GROUND_PREFIXES = (ROAD_PREFIX, SIDEWALK_PREFIX, PARK_PREFIX, GROUND_LABEL)
@@ -2078,8 +2098,7 @@ def run():
     changes += ensure_objective_volumes(district, existing)
     changes += ensure_thugs(district, existing)
     changes += ensure_street_lamps(district, existing)
-    changes += ensure_grapple_anchors(district, existing)
-    changes += ensure_ledges(district, existing)
+    changes += ensure_ledge_spawner(district, existing)
     changes += ensure_test_blocks(district, existing)
 
     if created or changes:
