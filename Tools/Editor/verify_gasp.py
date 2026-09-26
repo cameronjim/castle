@@ -7,6 +7,7 @@ skeleton and physics asset, the pose-search chooser, IMC_Sandbox and BP_Kate, th
     BP_Kate.Mesh = SKM_UEFN_Mannequin, AnimBP SandboxCharacter_CMC_ABP, suit on slot 0
     IMC_Sandbox has no mappings                                    (Castle input owns every key)
     SandboxCharacter_CMC has CharacterInputState                   (what ACastleCharacter writes)
+    AC_TraversalLogic, CHT_TraversalMontages_CMC, LevelBlock_Traversable and the parkour clips load
 
 Load warnings ("Failed to load", "Can't find file") go to the log, not to Python; read them
 from the log of this run:
@@ -27,6 +28,7 @@ import _common as c  # noqa: E402
 
 PLAYER_PATH = "/Game/Blueprints/Player"
 GASP_PATH = "/Game/Blueprints"
+TRAVERSAL_ANIMS = "/Game/Characters/UEFN_Mannequin/Animations/Traversal/"
 
 EXPECTED_ASSETS = [
     GASP_PATH + "/SandboxCharacter_CMC",
@@ -36,6 +38,14 @@ EXPECTED_ASSETS = [
     "/Game/Characters/UEFN_Mannequin/Meshes/SK_UEFN_Mannequin",
     "/Game/Characters/UEFN_Mannequin/Animations/MotionMatchingData/CHT_PoseSearchDatabases",
     "/Game/Input/IMC_Sandbox",
+    # Traversal: the sample's component and chooser, the block its sweep looks for (the city's
+    # City_Ledge_ actors and parkour test blocks), and the clips UParkourComponent poses Kate with.
+    GASP_PATH + "/AC_TraversalLogic",
+    "/Game/Characters/UEFN_Mannequin/Animations/Traversal/CHT_TraversalMontages_CMC",
+    "/Game/Levels/LevelPrototyping/LevelBlock_Traversable",
+    TRAVERSAL_ANIMS + "Hurdle/M_Neutral_Traversal_Hurdle_1_0_stand_F_V2_Lfoot",
+    TRAVERSAL_ANIMS + "Mantle/M_Neutral_Traversal_Mantle_1_0_stand_F_Lfoot",
+    TRAVERSAL_ANIMS + "Climb/M_Neutral_Traversal_Climb_Start_2_5_stand_F_Lfoot",
 ]
 
 PROBLEMS = []
