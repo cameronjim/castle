@@ -26,6 +26,7 @@
 #include "Misc/Paths.h"
 #include "Player/CastleCharacter.h"
 #include "Player/GrappleComponent.h"
+#include "Player/ParkourComponent.h"
 #include "Tests/AutomationCommon.h"
 #include "UI/CastleHudWidget.h"
 #include "UnrealClient.h"
@@ -51,6 +52,14 @@
  *   grapple_marker.png  back on the street, looking up at a tenement anchor with its marker showing
  *   grapple_mid.png     part way along the zip, the camera following
  *   grapple_roof.png    landed on the anchor's roof
+ *
+ *   kate_lookup.png  on the street 13 m out from a facade, the camera pitched straight at a rooftop
+ *                    anchor: the arm shortens and lifts, so Kate stays out of the centre and the lens
+ *                    off the pavement (the report gives the lens height and Kate's screen box)
+ *   vault_mid.png    sprinting at City_Test_Vault (90 cm): the auto vault, mid-move
+ *   mantle_mid.png   the jump key 36 cm from City_Test_Mantle (150 cm): hands on the top
+ *   ledge_hang.png   dropped in against a tenement 230 cm under its parapet top: caught, hanging
+ *   climb_top.png    the jump key from the hang: over the parapet onto the roof
  *
  * Each shot reports how far the arm pulled in and warns if the lens is inside geometry. The pass
  * drops Kate 12 m onto the street and reports the landing height and health it cost, then fires
@@ -778,6 +787,391 @@ bool FCastleKateTakeShot::Update()
 	return true;
 }
 
+// --- Parkour and the look-up camera -------------------------------------------------------------
+
+namespace CastleKateShots
+{
+	static const TCHAR* SprintActionPath = TEXT("/Game/Input/IA_Sprint.IA_Sprint");
+
+	enum class EParkourShot : uint8
+	{
+		Lookup,
+		VaultRun,
+		MantleStand,
+		MantleJump,
+		LedgeFall,
+		Climb,
+		EndInput,
+	};
+
+	/** Holds or releases IA_Sprint through Enhanced Input injection, like HoldMove. */
+	static void HoldSprint(APlayerController* PC, bool bHold)
+	{
+		const UInputAction* Sprint = LoadObject<UInputAction>(nullptr, SprintActionPath);
+		ULocalPlayer* Player = PC ? PC->GetLocalPlayer() : nullptr;
+		UEnhancedInputLocalPlayerSubsystem* Input = Player
+			? ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(Player) : nullptr;
+		if (!Sprint || !Input)
+		{
+			return;
+		}
+		if (bHold)
+		{
+			Input->StartContinuousInputInjectionForAction(Sprint, FInputActionValue(true), {}, {});
+		}
+		else
+		{
+			Input->StopContinuousInputInjectionForAction(Sprint);
+		}
+	}
+
+	static AActor* FindTagged(UWorld* World, FName Tag)
+	{
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->Tags.Contains(Tag))
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+
+	/** The IA_Move value that walks along WorldDirection with the camera at CameraYaw. */
+	static FVector2D MoveTowards(const FVector& WorldDirection, float CameraYaw)
+	{
+		const float Angle = FMath::DegreesToRadians(WorldDirection.Rotation().Yaw - CameraYaw);
+		return FVector2D(FMath::Sin(Angle), FMath::Cos(Angle));
+	}
+
+	/**
+	 * Stands Kate Back cm in front of a test block's near face (the block's local -Y side, its depth
+	 * axis), facing it, with the camera Side degrees round from behind her.
+	 */
+	static bool FaceTestBlock(UWorld* World, ACastleCharacter* Kate, APlayerController* PC, FName Tag, float Back,
+		float Side, FVector& OutDirection)
+	{
+		const AActor* Block = FindTagged(World, Tag);
+		FVector Ground;
+		if (!Block)
+		{
+			return false;
+		}
+		const FVector Axis = Block->GetActorRightVector().GetSafeNormal2D();
+		const FVector Near = Block->GetActorLocation() + Block->GetActorForwardVector() * Block->GetActorScale3D().X * 50.f;
+		const FVector Stand = Near - Axis * Back;
+		if (!FindGround(World, Stand, Near.Z + 500.f, Kate, Ground))
+		{
+			return false;
+		}
+		OutDirection = Axis;
+		PlaceKate(Kate, PC, Ground, Axis.Rotation().Yaw, -10.f);
+		PC->SetControlRotation(FRotator(-10.f, Axis.Rotation().Yaw + Side, 0.f));
+		return true;
+	}
+
+	/** A tenement face out from the street spot, with the top of its parapet. */
+	static bool FindTenementLedge(UWorld* World, const ACastleCharacter* Kate, FVector& OutFace, FVector& OutNormal,
+		float& OutTopZ)
+	{
+		FVector Spot, Away, Street;
+		if (!FindStreetSpot(World, Spot, Away) || !FindGround(World, Spot, 3000.f, Kate, Street))
+		{
+			return false;
+		}
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(KateShotLedge), false, Kate);
+		FHitResult Hit;
+		const FVector Chest = Street + FVector(0.f, 0.f, 120.f);
+		if (!World->LineTraceSingleByChannel(Hit, Chest, Chest + Away * 5000.f, ECC_Visibility, Params)
+			|| !Hit.GetActor() || !Hit.GetActor()->Tags.Contains(BuildingTag))
+		{
+			return false;
+		}
+		OutFace = Hit.ImpactPoint;
+		OutNormal = Hit.ImpactNormal.GetSafeNormal2D();
+		FHitResult Top;
+		const FVector Inside = OutFace - OutNormal * 10.f;
+		if (!World->LineTraceSingleByChannel(Top, Inside + FVector(0.f, 0.f, 6000.f), Inside, ECC_Visibility, Params))
+		{
+			return false;
+		}
+		OutTopZ = Top.ImpactPoint.Z;
+		return true;
+	}
+
+	/** An anchor on a facade seen from the street at StandBack cm out, and where to stand. */
+	static bool FindLookupSpot(UWorld* World, const ACastleCharacter* Kate, FVector& OutStand, FVector& OutTarget)
+	{
+		static constexpr float StandBack = 1300.f;
+		FVector Spot, Away, Street;
+		if (!FindStreetSpot(World, Spot, Away) || !FindGround(World, Spot, 3000.f, Kate, Street))
+		{
+			return false;
+		}
+		float Best = BIG_NUMBER;
+		for (TActorIterator<AGrappleAnchor> It(World); It; ++It)
+		{
+			const FVector Marker = It->GetMarkerLocation();
+			const float Height = Marker.Z - Street.Z;
+			const float Distance = FVector::Dist2D(Marker, Spot);
+			if (Height < 1500.f || Height > 2200.f || Distance > 12000.f || Distance > Best)
+			{
+				continue;
+			}
+			const FVector StandXY = Marker - It->GetActorForwardVector().GetSafeNormal2D() * StandBack;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(KateShotLookup), false, Kate);
+			FHitResult Ground;
+			if (!World->LineTraceSingleByChannel(Ground, FVector(StandXY.X, StandXY.Y, Street.Z + 300.f),
+					FVector(StandXY.X, StandXY.Y, Street.Z - 300.f), ECC_Visibility, Params)
+				|| !Ground.GetActor() || Ground.GetActor()->Tags.Contains(BuildingTag))
+			{
+				continue;
+			}
+			Best = Distance;
+			OutStand = Ground.ImpactPoint;
+			OutTarget = Marker;
+		}
+		return Best < BIG_NUMBER;
+	}
+
+	/** Kate's projected screen box, in viewport pixels; false when she is off screen. */
+	static bool KateScreenBox(APlayerController* PC, const ACastleCharacter* Kate, FBox2D& OutBox)
+	{
+		const float Radius = Kate->GetCapsuleComponent()->GetScaledCapsuleRadius();
+		const float Half = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		OutBox = FBox2D(ForceInit);
+		for (int32 Corner = 0; Corner < 8; ++Corner)
+		{
+			const FVector Offset((Corner & 1) ? Radius : -Radius, (Corner & 2) ? Radius : -Radius, (Corner & 4) ? Half : -Half);
+			FVector2D Pixel;
+			if (PC->ProjectWorldLocationToScreen(Kate->GetActorLocation() + Offset, Pixel, false))
+			{
+				OutBox += Pixel;
+			}
+		}
+		return OutBox.bIsValid;
+	}
+}
+
+/** Sets up one parkour or look-up shot. */
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FCastleKateParkourShot, FAutomationTestBase*, Test, uint8, Shot);
+
+bool FCastleKateParkourShot::Update()
+{
+	using namespace CastleKateShots;
+	UWorld* World = FindWorld();
+	APlayerController* PC = nullptr;
+	ACastleCharacter* Kate = FindKate(PC);
+	if (!Kate || !World)
+	{
+		Test->AddError(TEXT("No Kate for the parkour shots."));
+		return true;
+	}
+	FVector Direction;
+	switch (static_cast<EParkourShot>(Shot))
+	{
+	case EParkourShot::Lookup:
+	{
+		FVector Stand, Target;
+		if (!FindLookupSpot(World, Kate, Stand, Target))
+		{
+			Test->AddWarning(TEXT("No rooftop anchor with a street spot 13 m out; kate_lookup.png shows the street."));
+			break;
+		}
+		const FVector Pivot = Stand + FVector(0.f, 0.f, Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+		const FRotator Look = (Target - Pivot).Rotation();
+		PlaceKate(Kate, PC, Stand, Look.Yaw, 0.f);
+		PC->SetControlRotation(FRotator(Kate->ClampCameraPitch(Look.Pitch), Look.Yaw, 0.f));
+		Test->AddInfo(FString::Printf(TEXT("Lookup: anchor %.0f cm up, %.0f cm out, pitch %.1f deg"),
+			Target.Z - Stand.Z, FVector::Dist2D(Target, Stand), Look.Pitch));
+		break;
+	}
+	case EParkourShot::VaultRun:
+		if (FaceTestBlock(World, Kate, PC, TEXT("CityTestVault"), 600.f, -70.f, Direction))
+		{
+			HoldSprint(PC, true);
+			HoldMove(PC, MoveTowards(Direction, PC->GetControlRotation().Yaw), true);
+		}
+		else
+		{
+			Test->AddWarning(TEXT("No City_Test_Vault block."));
+		}
+		break;
+	case EParkourShot::MantleStand:
+		if (!FaceTestBlock(World, Kate, PC, TEXT("CityTestMantle"), 70.f, -75.f, Direction))
+		{
+			Test->AddWarning(TEXT("No City_Test_Mantle block."));
+		}
+		break;
+	case EParkourShot::MantleJump:
+		Kate->Jump();
+		break;
+	case EParkourShot::LedgeFall:
+	{
+		FVector Face, Normal;
+		float TopZ = 0.f;
+		if (!FindTenementLedge(World, Kate, Face, Normal, TopZ))
+		{
+			Test->AddWarning(TEXT("No tenement face across the street for the ledge shot."));
+			break;
+		}
+		// In the air against the wall, feet 230 cm under the parapet top (a fire escape landing's
+		// height): falling, she should catch the edge.
+		const float Half = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const FVector Air(Face.X + Normal.X * 45.f, Face.Y + Normal.Y * 45.f, TopZ - 230.f + Half);
+		Kate->StopAim();
+		Kate->TeleportTo(Air, FRotator(0.f, (-Normal).Rotation().Yaw, 0.f), false, true);
+		Kate->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+		Kate->GetCharacterMovement()->Velocity = FVector(0.f, 0.f, -10.f);
+		PC->SetControlRotation(FRotator(12.f, (-Normal).Rotation().Yaw + 35.f, 0.f));
+		Test->AddInfo(FString::Printf(TEXT("Ledge: parapet top %.0f cm, Kate's feet at %.0f, face at %s"),
+			TopZ, Air.Z - Half, *Face.ToCompactString()));
+		break;
+	}
+	case EParkourShot::Climb:
+		Kate->Jump();
+		break;
+	case EParkourShot::EndInput:
+		HoldSprint(PC, false);
+		HoldMove(PC, FVector2D::ZeroVector, false);
+		break;
+	}
+	return true;
+}
+
+/** Waits (up to TimeoutSeconds) for a traversal move to start, or with bHang for a hang. */
+class FCastleKateWaitTraversal : public IAutomationLatentCommand
+{
+public:
+	FCastleKateWaitTraversal(FAutomationTestBase* InTest, float InTimeoutSeconds, bool bInHang)
+		: Test(InTest), TimeoutSeconds(InTimeoutSeconds), bHang(bInHang)
+	{
+	}
+
+	virtual bool Update() override
+	{
+		APlayerController* PC = nullptr;
+		ACastleCharacter* Kate = CastleKateShots::FindKate(PC);
+		const UParkourComponent* Parkour = Kate ? Kate->GetParkourComponent() : nullptr;
+		UWorld* World = CastleKateShots::FindWorld();
+		if (!Parkour || !World)
+		{
+			return true;
+		}
+		if (StartTime < 0.0)
+		{
+			StartTime = World->GetTimeSeconds();
+		}
+		const bool bReady = bHang ? Parkour->IsHanging() : Kate->IsTraversing();
+		if (bReady)
+		{
+			const FCastleParkourObstacle Obstacle = Parkour->GetLastObstacle();
+			Test->AddInfo(FString::Printf(
+				TEXT("Traversal after %.2f s: %s by %s; obstacle %.0f cm high, %.0f cm away, depth %.0f, on %s"),
+				World->GetTimeSeconds() - StartTime, *UEnum::GetValueAsString(Parkour->GetLastMove()),
+				*UEnum::GetValueAsString(Parkour->GetLastRoute()), Obstacle.Height, Obstacle.Distance, Obstacle.Depth,
+				*GetNameSafe(Obstacle.Actor)));
+			return true;
+		}
+		if (World->GetTimeSeconds() - StartTime > TimeoutSeconds)
+		{
+			Test->AddWarning(FString::Printf(TEXT("No %s within %.1f s; Kate at %s, %s"), bHang ? TEXT("hang") : TEXT("traversal"),
+				TimeoutSeconds, *Kate->GetActorLocation().ToCompactString(), *Kate->GetMovementDebugText()));
+			return true;
+		}
+		return false;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float TimeoutSeconds;
+	bool bHang;
+	double StartTime = -1.0;
+};
+
+/** Where the hands and capsule are against the obstacle, and whether the capsule is inside anything. */
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FCastleKateReportParkour, FAutomationTestBase*, Test, FString, Label);
+
+bool FCastleKateReportParkour::Update()
+{
+	UWorld* World = CastleKateShots::FindWorld();
+	APlayerController* PC = nullptr;
+	ACastleCharacter* Kate = CastleKateShots::FindKate(PC);
+	const UParkourComponent* Parkour = Kate ? Kate->GetParkourComponent() : nullptr;
+	if (!Parkour || !World)
+	{
+		return true;
+	}
+	const FCastleParkourObstacle Obstacle = Parkour->GetLastObstacle();
+	const USkeletalMeshComponent* Body = Kate->GetMesh();
+	const FVector HandL = Body ? Body->GetSocketLocation(TEXT("hand_l")) : FVector::ZeroVector;
+	const FVector HandR = Body ? Body->GetSocketLocation(TEXT("hand_r")) : FVector::ZeroVector;
+	const UCapsuleComponent* Capsule = Kate->GetCapsuleComponent();
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(KateShotClip), false, Kate);
+	const bool bClipping = World->OverlapBlockingTestByChannel(Kate->GetActorLocation(), FQuat::Identity, ECC_Pawn,
+		FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius() - 4.f, Capsule->GetScaledCapsuleHalfHeight() - 4.f),
+		Params);
+	const float Feet = Kate->GetActorLocation().Z - Capsule->GetScaledCapsuleHalfHeight();
+	Test->AddInfo(FString::Printf(
+		TEXT("%s: move %s (%s) hanging=%d sample=%d; feet %.0f cm vs ledge top %.0f; hands %.0f / %.0f cm above the top, "
+			 "%.0f / %.0f cm out from the face; capsule %.0f cm out; in geometry=%d"),
+		*Label, *UEnum::GetValueAsString(Parkour->GetActiveMove()), *UEnum::GetValueAsString(Parkour->GetLastRoute()),
+		Parkour->IsHanging() ? 1 : 0, Parkour->IsSampleTraversalActive() ? 1 : 0, Feet, Obstacle.LedgePoint.Z,
+		HandL.Z - Obstacle.LedgePoint.Z, HandR.Z - Obstacle.LedgePoint.Z,
+		FVector::DotProduct(HandL - Obstacle.WallPoint, Obstacle.WallNormal),
+		FVector::DotProduct(HandR - Obstacle.WallPoint, Obstacle.WallNormal),
+		FVector::DotProduct(Kate->GetActorLocation() - Obstacle.WallPoint, Obstacle.WallNormal), bClipping ? 1 : 0));
+	if (bClipping)
+	{
+		Test->AddWarning(FString::Printf(TEXT("%s: Kate's capsule is inside geometry."), *Label));
+	}
+	return true;
+}
+
+/** Where the look-up camera ended up: lens height over the ground, arm, and whether Kate covers the centre. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FCastleKateReportLookup, FAutomationTestBase*, Test);
+
+bool FCastleKateReportLookup::Update()
+{
+	UWorld* World = CastleKateShots::FindWorld();
+	APlayerController* PC = nullptr;
+	ACastleCharacter* Kate = CastleKateShots::FindKate(PC);
+	if (!Kate || !World || !PC)
+	{
+		return true;
+	}
+	const FVector Lens = Kate->GetFollowCamera()->GetComponentLocation();
+	FVector Ground;
+	const bool bGround = CastleKateShots::FindGround(World, Lens + FVector(0.f, 0.f, 50.f), Lens.Z + 50.f, Kate, Ground);
+	int32 SizeX = 0;
+	int32 SizeY = 0;
+	PC->GetViewportSize(SizeX, SizeY);
+	FBox2D Box;
+	const bool bOnScreen = CastleKateShots::KateScreenBox(PC, Kate, Box);
+	const FVector2D Centre(SizeX * 0.5f, SizeY * 0.5f);
+	const bool bCoversCentre = bOnScreen && Box.IsInside(Centre);
+	const float Coverage = bOnScreen && SizeX > 0 && SizeY > 0
+		? (FMath::Min<float>(Box.Max.X, SizeX) - FMath::Max<float>(Box.Min.X, 0.f))
+			* (FMath::Min<float>(Box.Max.Y, SizeY) - FMath::Max<float>(Box.Min.Y, 0.f)) / (SizeX * SizeY)
+		: 0.f;
+	Test->AddInfo(FString::Printf(
+		TEXT("kate_lookup: pitch %.1f, arm %.0f, socket Z %.0f, lens %.0f cm above the ground, %.0f cm from the pivot; "
+			 "Kate's box (%.0f,%.0f)-(%.0f,%.0f) of %dx%d, covers centre=%d, %.0f%% of the frame"),
+		FRotator::NormalizeAxis(PC->GetControlRotation().Pitch), Kate->GetCameraBoom()->TargetArmLength,
+		Kate->GetCameraBoom()->SocketOffset.Z, bGround ? Lens.Z - Ground.Z : -1.f,
+		FVector::Dist(Lens, Kate->GetCameraBoom()->GetComponentLocation()), Box.Min.X, Box.Min.Y, Box.Max.X, Box.Max.Y,
+		SizeX, SizeY, bCoversCentre ? 1 : 0, Coverage * 100.f));
+	if (bCoversCentre)
+	{
+		Test->AddWarning(TEXT("kate_lookup: Kate covers the centre of the frame."));
+	}
+	if (bGround && Lens.Z - Ground.Z < 20.f)
+	{
+		Test->AddWarning(TEXT("kate_lookup: the lens is down on the pavement."));
+	}
+	return true;
+}
+
 bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 {
 	using namespace CastleKateShots;
@@ -854,6 +1248,48 @@ bool FCastleScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("grapple_roof.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateFrameTime(this, TEXT("roof"), 60));
+
+	// Looking steeply up from the street, then the parkour moves.
+	using EParkour = CastleKateShots::EParkourShot;
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateParkourShot(this, static_cast<uint8>(EParkour::Lookup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportLookup(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportCamera(this, TEXT("kate_lookup.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("kate_lookup.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateParkourShot(this, static_cast<uint8>(EParkour::VaultRun)));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitTraversal(this, 4.f, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.4f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportParkour(this, TEXT("vault_mid.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("vault_mid.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateParkourShot(this, static_cast<uint8>(EParkour::EndInput)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateParkourShot(this, static_cast<uint8>(EParkour::MantleStand)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateParkourShot(this, static_cast<uint8>(EParkour::MantleJump)));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitTraversal(this, 2.f, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.45f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportParkour(this, TEXT("mantle_mid.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("mantle_mid.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateParkourShot(this, static_cast<uint8>(EParkour::LedgeFall)));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateWaitTraversal(this, 3.f, true));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.8f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportParkour(this, TEXT("ledge_hang.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("ledge_hang.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateParkourShot(this, static_cast<uint8>(EParkour::Climb)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.4f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateLookAcrossRoof());
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportParkour(this, TEXT("climb_top.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateReportCamera(this, TEXT("climb_top.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FCastleKateTakeShot(this, TEXT("climb_top.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("castle.DebugMovement 0")));
 	return true;
