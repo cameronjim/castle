@@ -1,0 +1,4181 @@
+{
+ "_meta": {
+  "district": "east_village",
+  "title": "East Village, Tompkins Square Park",
+  "source": "east_village.json",
+  "fetched_utc": "2026-09-26T05:18:06Z",
+  "download_bbox": {
+   "south": 40.7231,
+   "west": -73.9866,
+   "north": 40.7297,
+   "east": -73.9767
+  },
+  "licence": "ODbL 1.0, (c) OpenStreetMap contributors",
+  "parsed_utc": "2026-09-26T05:20:30Z",
+  "origin": {
+   "lat": 40.72643978,
+   "lon": -73.9816394
+  },
+  "bounds_streets": {
+   "west": "1st Avenue",
+   "east": "Avenue C",
+   "south": "East 6th Street",
+   "north": "East 11th Street"
+  },
+  "district_corners_latlon": [
+   [
+    40.726409378160504,
+    -73.986177181144
+   ],
+   [
+    40.72349176070832,
+    -73.97925470112092
+   ],
+   [
+    40.726469486980584,
+    -73.97709995294052
+   ],
+   [
+    40.72938710443277,
+    -73.9840224329636
+   ]
+  ],
+  "ground_corners_latlon": [
+   [
+    40.72633137148176,
+    -73.98653153399455
+   ],
+   [
+    40.72322132541162,
+    -73.97915248854248
+   ],
+   [
+    40.726547493659325,
+    -73.97674560008998
+   ],
+   [
+    40.729657539729466,
+    -73.98412464554204
+   ]
+  ],
+  "grid_bearing_deg": 118.91,
+  "size_m": [
+   667.1,
+   376.0
+  ],
+  "rules": {
+   "height": "height tag, else building:levels * 3.2 + 1.5, else 15 m (5 m for garages/sheds)",
+   "road_width": "width tag, else 25 m for avenues and 12 m for streets"
+  }
+ },
+ "roads": [
+  {
+   "id": "W1007837780",
+   "name": "Avenue C",
+   "highway": "secondary",
+   "lanes": "3",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7258818,
+      -73.9775411
+     ],
+     [
+      40.7259409,
+      -73.9774887
+     ],
+     [
+      40.7259797,
+      -73.9774548
+     ],
+     [
+      40.7260062,
+      -73.9774352
+     ],
+     [
+      40.7261955,
+      -73.9772986
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1021949718",
+   "name": "East 11th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.729373,
+      -73.9839987
+     ],
+     [
+      40.7294356,
+      -73.984149
+     ],
+     [
+      40.72947990443559,
+      -73.98425318634507
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1021949720",
+   "name": "East 10th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.72888354280708,
+      -73.98468472672737
+     ],
+     [
+      40.7288698,
+      -73.9846521
+     ],
+     [
+      40.7288408,
+      -73.9845838
+     ],
+     [
+      40.728779,
+      -73.9844432
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1052627487",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.726409,
+      -73.986176
+     ],
+     [
+      40.7264645,
+      -73.9861355
+     ],
+     [
+      40.7267291,
+      -73.9859422
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1059551869",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.727599,
+      -73.985307
+     ],
+     [
+      40.7276536,
+      -73.9852674
+     ],
+     [
+      40.7279586,
+      -73.9850459
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1068266120",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.728779,
+      -73.9844432
+     ],
+     [
+      40.7288338,
+      -73.9844014
+     ],
+     [
+      40.7291097,
+      -73.9841953
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1080319439",
+   "name": "Avenue C",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7252889,
+      -73.9779731
+     ],
+     [
+      40.725334,
+      -73.9779403
+     ],
+     [
+      40.7256425,
+      -73.9777249
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1159053287",
+   "name": "East 8th Street",
+   "highway": "residential",
+   "lanes": null,
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.7246931,
+      -73.9784069
+     ],
+     [
+      40.7246568,
+      -73.978321
+     ],
+     [
+      40.72458974489066,
+      -73.97816227012989
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1159053669",
+   "name": "Avenue C",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7233263535676,
+      -73.97940168341587
+     ],
+     [
+      40.723449,
+      -73.9793124
+     ],
+     [
+      40.7235008,
+      -73.9792747
+     ],
+     [
+      40.7235606,
+      -73.9792312
+     ],
+     [
+      40.724026,
+      -73.9788924
+     ],
+     [
+      40.7240792,
+      -73.9788537
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1238156663",
+   "name": "Avenue C",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7261955,
+      -73.9772986
+     ],
+     [
+      40.7264045,
+      -73.9771293
+     ],
+     [
+      40.726465,
+      -73.9770845
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1238156664",
+   "name": "Avenue C",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.726465,
+      -73.9770845
+     ],
+     [
+      40.7265185,
+      -73.9770468
+     ],
+     [
+      40.72663869485839,
+      -73.97696198845786
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1274636982",
+   "name": "Avenue B",
+   "highway": "tertiary",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.725073,
+      -73.981211
+     ],
+     [
+      40.7251388,
+      -73.9811633
+     ],
+     [
+      40.7256382,
+      -73.980802
+     ],
+     [
+      40.725685,
+      -73.980768
+     ],
+     [
+      40.7257401,
+      -73.9807274
+     ],
+     [
+      40.7262314,
+      -73.9803693
+     ],
+     [
+      40.726281,
+      -73.980333
+     ],
+     [
+      40.7263302,
+      -73.9802965
+     ],
+     [
+      40.7263372,
+      -73.9802913
+     ],
+     [
+      40.7267778,
+      -73.9799768
+     ],
+     [
+      40.7268214,
+      -73.9799456
+     ],
+     [
+      40.7268652,
+      -73.9799131
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1278214314",
+   "name": "East 7th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.725073,
+      -73.981211
+     ],
+     [
+      40.7251064,
+      -73.9812889
+     ],
+     [
+      40.7255646,
+      -73.9823587
+     ],
+     [
+      40.7260063,
+      -73.9834252
+     ],
+     [
+      40.7260512,
+      -73.9835308
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1313585880",
+   "name": "Avenue C",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7240792,
+      -73.9788537
+     ],
+     [
+      40.7241339,
+      -73.9788139
+     ],
+     [
+      40.7243228,
+      -73.9786764
+     ],
+     [
+      40.7244199,
+      -73.9786057
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1354945707",
+   "name": "Avenue A",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.72529793782257,
+      -73.98407955940289
+     ],
+     [
+      40.725416,
+      -73.9839936
+     ],
+     [
+      40.7254711,
+      -73.9839534
+     ],
+     [
+      40.7255303,
+      -73.9839103
+     ],
+     [
+      40.7259908,
+      -73.9835749
+     ],
+     [
+      40.7260512,
+      -73.9835308
+     ],
+     [
+      40.7261212,
+      -73.9834799
+     ],
+     [
+      40.7266111,
+      -73.9831299
+     ],
+     [
+      40.726666,
+      -73.98309
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1409854660",
+   "name": "Avenue C",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7256425,
+      -73.9777249
+     ],
+     [
+      40.7257809,
+      -73.9776283
+     ],
+     [
+      40.7257965,
+      -73.9776173
+     ],
+     [
+      40.7258239,
+      -73.9775922
+     ],
+     [
+      40.7258818,
+      -73.9775411
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W1537046829",
+   "name": "East 10th Street",
+   "highway": "residential",
+   "lanes": "2",
+   "oneway": null,
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.7268652,
+      -73.9799131
+     ],
+     [
+      40.7268306,
+      -73.9798303
+     ],
+     [
+      40.7268157,
+      -73.9797949
+     ],
+     [
+      40.7259385,
+      -73.9777147
+     ],
+     [
+      40.7259174,
+      -73.9776515
+     ],
+     [
+      40.7258818,
+      -73.9775411
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W194923763",
+   "name": "East 10th Street",
+   "highway": "tertiary",
+   "lanes": "2",
+   "oneway": null,
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7258818,
+      -73.9775411
+     ],
+     [
+      40.7258425,
+      -73.9774318
+     ],
+     [
+      40.7258263,
+      -73.9773818
+     ],
+     [
+      40.725812,
+      -73.9773483
+     ],
+     [
+      40.72578924424708,
+      -73.97729428603084
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W25166891",
+   "name": "East 10th Street",
+   "highway": "residential",
+   "lanes": "2",
+   "oneway": null,
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.7278454,
+      -73.982238
+     ],
+     [
+      40.7277955,
+      -73.9821213
+     ],
+     [
+      40.7277836,
+      -73.9820932
+     ],
+     [
+      40.7277717,
+      -73.9820652
+     ],
+     [
+      40.7269208,
+      -73.9800455
+     ],
+     [
+      40.7268981,
+      -73.9799912
+     ],
+     [
+      40.7268652,
+      -73.9799131
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W46582968",
+   "name": "East 7th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.72397532284091,
+      -73.97860687942996
+     ],
+     [
+      40.7240411,
+      -73.978763
+     ],
+     [
+      40.7240792,
+      -73.9788537
+     ],
+     [
+      40.7241219,
+      -73.9789548
+     ],
+     [
+      40.7250374,
+      -73.9811265
+     ],
+     [
+      40.725073,
+      -73.981211
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W46608205",
+   "name": "East 6th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.726409,
+      -73.986176
+     ],
+     [
+      40.7263513,
+      -73.9860393
+     ],
+     [
+      40.7262906,
+      -73.9858955
+     ],
+     [
+      40.7259462,
+      -73.9850815
+     ],
+     [
+      40.7257039,
+      -73.9845051
+     ],
+     [
+      40.7255195,
+      -73.9840682
+     ],
+     [
+      40.7254711,
+      -73.9839534
+     ],
+     [
+      40.7254292,
+      -73.9838542
+     ],
+     [
+      40.7245301,
+      -73.9817225
+     ],
+     [
+      40.724494,
+      -73.981637
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W479642035",
+   "name": "East 11th Street",
+   "highway": "residential",
+   "lanes": null,
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.726465,
+      -73.9770845
+     ],
+     [
+      40.7265181,
+      -73.9772113
+     ],
+     [
+      40.727437,
+      -73.9793951
+     ],
+     [
+      40.727468,
+      -73.979469
+     ],
+     [
+      40.7275027,
+      -73.9795513
+     ],
+     [
+      40.7284037,
+      -73.9816895
+     ],
+     [
+      40.728446,
+      -73.98179
+     ],
+     [
+      40.7284874,
+      -73.9818887
+     ],
+     [
+      40.7288794,
+      -73.9828227
+     ],
+     [
+      40.7290659,
+      -73.9832671
+     ],
+     [
+      40.7293229,
+      -73.9838793
+     ],
+     [
+      40.729373,
+      -73.9839987
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W479642036",
+   "name": "East 10th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.728779,
+      -73.9844432
+     ],
+     [
+      40.7287233,
+      -73.9843179
+     ],
+     [
+      40.7279132,
+      -73.9823984
+     ],
+     [
+      40.7278894,
+      -73.9823425
+     ],
+     [
+      40.7278454,
+      -73.982238
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W479642037",
+   "name": "East 9th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.7272732,
+      -73.9826536
+     ],
+     [
+      40.7273186,
+      -73.9827605
+     ],
+     [
+      40.7281182,
+      -73.9846587
+     ],
+     [
+      40.7281334,
+      -73.9846929
+     ],
+     [
+      40.7281485,
+      -73.9847301
+     ],
+     [
+      40.7282048,
+      -73.9848673
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W479642038",
+   "name": "Saint Marks Place",
+   "highway": "residential",
+   "lanes": null,
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.727599,
+      -73.985307
+     ],
+     [
+      40.7275436,
+      -73.9851754
+     ],
+     [
+      40.7267115,
+      -73.9831983
+     ],
+     [
+      40.726666,
+      -73.98309
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W479642039",
+   "name": "East 7th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.726988,
+      -73.985753
+     ],
+     [
+      40.727031,
+      -73.9858541
+     ],
+     [
+      40.7270468,
+      -73.9858913
+     ],
+     [
+      40.72708634239649,
+      -73.98598522044655
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W479642040",
+   "name": "East 6th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.72650605156541,
+      -73.98640513164659
+     ],
+     [
+      40.7264657,
+      -73.9863098
+     ],
+     [
+      40.726454,
+      -73.9862822
+     ],
+     [
+      40.726409,
+      -73.986176
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W5671659",
+   "name": "East 9th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.7282048,
+      -73.9848673
+     ],
+     [
+      40.7282578,
+      -73.985002
+     ],
+     [
+      40.72830175281856,
+      -73.98510572275067
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W5671661",
+   "name": "East 9th Street",
+   "highway": "residential",
+   "lanes": null,
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.72518619385245,
+      -73.97773066655131
+     ],
+     [
+      40.7252552,
+      -73.9778936
+     ],
+     [
+      40.7252889,
+      -73.9779731
+     ],
+     [
+      40.725333,
+      -73.9780781
+     ],
+     [
+      40.7254666,
+      -73.9783959
+     ],
+     [
+      40.725507,
+      -73.978492
+     ],
+     [
+      40.726246,
+      -73.98025
+     ],
+     [
+      40.726281,
+      -73.980333
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W5672646",
+   "name": "Avenue C",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7244199,
+      -73.9786057
+     ],
+     [
+      40.7246416,
+      -73.9784443
+     ],
+     [
+      40.7246931,
+      -73.9784069
+     ],
+     [
+      40.7247451,
+      -73.978369
+     ],
+     [
+      40.7252367,
+      -73.9780112
+     ],
+     [
+      40.7252889,
+      -73.9779731
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W5673085",
+   "name": "East 8th Street",
+   "highway": "residential",
+   "lanes": null,
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.725685,
+      -73.980768
+     ],
+     [
+      40.7256459,
+      -73.9806751
+     ],
+     [
+      40.7252773,
+      -73.9797977
+     ],
+     [
+      40.7250644,
+      -73.9792908
+     ],
+     [
+      40.7247382,
+      -73.9785144
+     ],
+     [
+      40.7246931,
+      -73.9784069
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W584971530",
+   "name": "Avenue A",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7272732,
+      -73.9826536
+     ],
+     [
+      40.727328,
+      -73.9826146
+     ],
+     [
+      40.727363,
+      -73.9825892
+     ],
+     [
+      40.727759,
+      -73.9823007
+     ],
+     [
+      40.7277962,
+      -73.9822742
+     ],
+     [
+      40.7278454,
+      -73.982238
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W584971531",
+   "name": "Avenue A",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7278454,
+      -73.982238
+     ],
+     [
+      40.7279141,
+      -73.9821863
+     ],
+     [
+      40.7279416,
+      -73.9821671
+     ],
+     [
+      40.7279706,
+      -73.9821468
+     ],
+     [
+      40.728084,
+      -73.9820623
+     ],
+     [
+      40.7284001,
+      -73.9818235
+     ],
+     [
+      40.728446,
+      -73.98179
+     ],
+     [
+      40.7284973,
+      -73.9817527
+     ],
+     [
+      40.728620198989034,
+      -73.98166340082082
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W584971532",
+   "name": "Avenue A",
+   "highway": "secondary",
+   "lanes": "2",
+   "oneway": "no",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.726666,
+      -73.98309
+     ],
+     [
+      40.7267267,
+      -73.9830458
+     ],
+     [
+      40.7271568,
+      -73.9827386
+     ],
+     [
+      40.7271822,
+      -73.9827202
+     ],
+     [
+      40.7272087,
+      -73.982701
+     ],
+     [
+      40.7272732,
+      -73.9826536
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W654560917",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.726235059109655,
+      -73.98630301861074
+     ],
+     [
+      40.726355,
+      -73.9862154
+     ],
+     [
+      40.726409,
+      -73.986176
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W813956617",
+   "name": "Avenue B",
+   "highway": "tertiary",
+   "lanes": "2",
+   "oneway": null,
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7268652,
+      -73.9799131
+     ],
+     [
+      40.7269223,
+      -73.9798737
+     ],
+     [
+      40.7269682,
+      -73.9798396
+     ],
+     [
+      40.7271705,
+      -73.9796892
+     ],
+     [
+      40.7274157,
+      -73.979507
+     ],
+     [
+      40.727468,
+      -73.979469
+     ],
+     [
+      40.7275208,
+      -73.9794301
+     ],
+     [
+      40.727641396309906,
+      -73.9793410463299
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W813956618",
+   "name": "East 6th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.724494,
+      -73.981637
+     ],
+     [
+      40.7244592,
+      -73.9815542
+     ],
+     [
+      40.7240299,
+      -73.9805329
+     ],
+     [
+      40.7235449,
+      -73.9793792
+     ],
+     [
+      40.7235008,
+      -73.9792747
+     ],
+     [
+      40.7234648,
+      -73.9791873
+     ],
+     [
+      40.72339664973745,
+      -73.97902562000674
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W845781908",
+   "name": "Avenue B",
+   "highway": "tertiary",
+   "lanes": "2",
+   "oneway": null,
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.72432146921978,
+      -73.98176274285419
+     ],
+     [
+      40.7244453,
+      -73.9816725
+     ],
+     [
+      40.724494,
+      -73.981637
+     ],
+     [
+      40.7245562,
+      -73.9815913
+     ],
+     [
+      40.725018,
+      -73.9812514
+     ],
+     [
+      40.725073,
+      -73.981211
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W847945638",
+   "name": "East 7th Street",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.7260512,
+      -73.9835308
+     ],
+     [
+      40.7260961,
+      -73.983637
+     ],
+     [
+      40.7265799,
+      -73.9847847
+     ],
+     [
+      40.7269325,
+      -73.9856211
+     ],
+     [
+      40.726988,
+      -73.985753
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W847950378",
+   "name": "Saint Marks Place",
+   "highway": "residential",
+   "lanes": "1",
+   "oneway": "yes",
+   "width_m": 12.0,
+   "width_source": "street default",
+   "pieces": [
+    [
+     [
+      40.72769908132292,
+      -73.98554182909152
+     ],
+     [
+      40.7276552,
+      -73.9854389
+     ],
+     [
+      40.727599,
+      -73.985307
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W955261513",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.729373,
+      -73.9839987
+     ],
+     [
+      40.7294328,
+      -73.9839558
+     ],
+     [
+      40.72955078375156,
+      -73.98387135115493
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W955261514",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7291097,
+      -73.9841953
+     ],
+     [
+      40.7293253,
+      -73.9840342
+     ],
+     [
+      40.729373,
+      -73.9839987
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W955261515",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7282048,
+      -73.9848673
+     ],
+     [
+      40.7282473,
+      -73.9848355
+     ],
+     [
+      40.7286887,
+      -73.984509
+     ],
+     [
+      40.7287315,
+      -73.9844774
+     ],
+     [
+      40.728779,
+      -73.9844432
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W955261516",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7279586,
+      -73.9850459
+     ],
+     [
+      40.7281021,
+      -73.9849417
+     ],
+     [
+      40.7281381,
+      -73.9849156
+     ],
+     [
+      40.7282048,
+      -73.9848673
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W955261517",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.726988,
+      -73.985753
+     ],
+     [
+      40.727041,
+      -73.9857143
+     ],
+     [
+      40.7275473,
+      -73.9853446
+     ],
+     [
+      40.727599,
+      -73.985307
+     ]
+    ]
+   ]
+  },
+  {
+   "id": "W955261518",
+   "name": "1st Avenue",
+   "highway": "primary",
+   "lanes": "4",
+   "oneway": "yes",
+   "width_m": 25.0,
+   "width_source": "avenue default",
+   "pieces": [
+    [
+     [
+      40.7267291,
+      -73.9859422
+     ],
+     [
+      40.7269332,
+      -73.985793
+     ],
+     [
+      40.726988,
+      -73.985753
+     ]
+    ]
+   ]
+  }
+ ],
+ "parks": [
+  {
+   "id": "W25162896",
+   "name": "Tompkins Square Park",
+   "outer": [
+    [
+     40.7260638,
+     -73.9833122
+    ],
+    [
+     40.7261526,
+     -73.9832956
+    ],
+    [
+     40.7266021,
+     -73.9829681
+    ],
+    [
+     40.7266342,
+     -73.9829447
+    ],
+    [
+     40.7271888,
+     -73.9825407
+    ],
+    [
+     40.7272394,
+     -73.9825038
+    ],
+    [
+     40.7277129,
+     -73.9821588
+    ],
+    [
+     40.7275862,
+     -73.9818574
+    ],
+    [
+     40.7275725,
+     -73.9818246
+    ],
+    [
+     40.7269837,
+     -73.9804229
+    ],
+    [
+     40.7269611,
+     -73.9803691
+    ],
+    [
+     40.7268322,
+     -73.9800621
+    ],
+    [
+     40.7263694,
+     -73.9804008
+    ],
+    [
+     40.7262962,
+     -73.9804545
+    ],
+    [
+     40.7257537,
+     -73.9808539
+    ],
+    [
+     40.7257142,
+     -73.980883
+    ],
+    [
+     40.7252653,
+     -73.9812
+    ],
+    [
+     40.7252597,
+     -73.9812078
+    ],
+    [
+     40.7252559,
+     -73.9812167
+    ],
+    [
+     40.7252342,
+     -73.9813059
+    ],
+    [
+     40.7252319,
+     -73.9813186
+    ],
+    [
+     40.7252346,
+     -73.981333
+    ],
+    [
+     40.7256296,
+     -73.9822746
+    ],
+    [
+     40.7256504,
+     -73.9823241
+    ]
+   ]
+  }
+ ],
+ "pois": [
+  {
+   "id": "N357610843",
+   "lat": 40.7277027,
+   "lon": -73.9802859,
+   "amenity": "place_of_worship",
+   "shop": null,
+   "name": "People's Home Church"
+  },
+  {
+   "id": "N419359881",
+   "lat": 40.7270558,
+   "lon": -73.9838329,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419359910",
+   "lat": 40.7263111,
+   "lon": -73.978764,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419360100",
+   "lat": 40.7283675,
+   "lon": -73.9819492,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419360619",
+   "lat": 40.728999,
+   "lon": -73.9832985,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419360644",
+   "lat": 40.7271327,
+   "lon": -73.9840133,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419361032",
+   "lat": 40.7244287,
+   "lon": -73.9812973,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419361053",
+   "lat": 40.7274347,
+   "lon": -73.9847348,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419361262",
+   "lat": 40.7253836,
+   "lon": -73.9798611,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419361518",
+   "lat": 40.726204,
+   "lon": -73.9785079,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419361564",
+   "lat": 40.7247936,
+   "lon": -73.9803592,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419362904",
+   "lat": 40.7254331,
+   "lon": -73.9803554,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419362947",
+   "lat": 40.7262446,
+   "lon": -73.9773618,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419363068",
+   "lat": 40.729139,
+   "lon": -73.983634,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419363276",
+   "lat": 40.7273186,
+   "lon": -73.9793049,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419363329",
+   "lat": 40.7263424,
+   "lon": -73.9858427,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419363422",
+   "lat": 40.7273378,
+   "lon": -73.9793518,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419363567",
+   "lat": 40.7243789,
+   "lon": -73.979378,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419363699",
+   "lat": 40.7272801,
+   "lon": -73.9792147,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419363948",
+   "lat": 40.7267785,
+   "lon": -73.9835444,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419364064",
+   "lat": 40.724176,
+   "lon": -73.9789505,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419364100",
+   "lat": 40.726097,
+   "lon": -73.9782482,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419364525",
+   "lat": 40.7275884,
+   "lon": -73.9850956,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419364538",
+   "lat": 40.726245,
+   "lon": -73.9773606,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419364563",
+   "lat": 40.7272035,
+   "lon": -73.9805208,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419364573",
+   "lat": 40.7254166,
+   "lon": -73.9799405,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419364688",
+   "lat": 40.7261714,
+   "lon": -73.9802614,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419364783",
+   "lat": 40.7253824,
+   "lon": -73.9798625,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419365712",
+   "lat": 40.7279446,
+   "lon": -73.980784,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419365837",
+   "lat": 40.7262891,
+   "lon": -73.9783347,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419366475",
+   "lat": 40.7283181,
+   "lon": -73.981675,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419366682",
+   "lat": 40.7275127,
+   "lon": -73.9849323,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419366708",
+   "lat": 40.727887,
+   "lon": -73.9806505,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419366804",
+   "lat": 40.7245162,
+   "lon": -73.9797062,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419366886",
+   "lat": 40.7268663,
+   "lon": -73.983382,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367019",
+   "lat": 40.7283565,
+   "lon": -73.9817652,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367093",
+   "lat": 40.7258151,
+   "lon": -73.9831586,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367145",
+   "lat": 40.7245849,
+   "lon": -73.9798686,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367254",
+   "lat": 40.7254495,
+   "lon": -73.9800198,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367292",
+   "lat": 40.7262922,
+   "lon": -73.9801747,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367305",
+   "lat": 40.7262345,
+   "lon": -73.9800376,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367376",
+   "lat": 40.7243432,
+   "lon": -73.979295,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367405",
+   "lat": 40.728008,
+   "lon": -73.9824292,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367462",
+   "lat": 40.7262534,
+   "lon": -73.9782481,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367635",
+   "lat": 40.7284608,
+   "lon": -73.9818807,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367655",
+   "lat": 40.7264182,
+   "lon": -73.9790202,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367783",
+   "lat": 40.7257409,
+   "lon": -73.9829854,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N419367818",
+   "lat": 40.7264138,
+   "lon": -73.9860122,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N1109836197",
+   "lat": 40.7269048,
+   "lon": -73.9853207,
+   "amenity": "ice_cream",
+   "shop": null,
+   "name": "Baonanas"
+  },
+  {
+   "id": "N1251856987",
+   "lat": 40.726887,
+   "lon": -73.9816096,
+   "amenity": "toilets",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N1504408011",
+   "lat": 40.7264574,
+   "lon": -73.9808463,
+   "amenity": "drinking_water",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N1504408020",
+   "lat": 40.7269702,
+   "lon": -73.9820893,
+   "amenity": "drinking_water",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N2287620130",
+   "lat": 40.7271582,
+   "lon": -73.9839133,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Mokyo"
+  },
+  {
+   "id": "N2324423000",
+   "lat": 40.7267434,
+   "lon": -73.9812642,
+   "amenity": "toilets",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N2337585114",
+   "lat": 40.7274079,
+   "lon": -73.9814201,
+   "amenity": "bicycle_rental",
+   "shop": null,
+   "name": "Citi Bike - E 10 St & Ave A"
+  },
+  {
+   "id": "N2337592483",
+   "lat": 40.7262179,
+   "lon": -73.9837986,
+   "amenity": "bicycle_rental",
+   "shop": null,
+   "name": "Citi Bike - E 7 St & Ave A"
+  },
+  {
+   "id": "N2454126844",
+   "lat": 40.7250128,
+   "lon": -73.9813915,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Vazacs Horseshoe Bar"
+  },
+  {
+   "id": "N2549926579",
+   "lat": 40.7264227,
+   "lon": -73.985941,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Dunkin'"
+  },
+  {
+   "id": "N2549926661",
+   "lat": 40.7246357,
+   "lon": -73.9816786,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Sunny & Annieâs Deli"
+  },
+  {
+   "id": "N2549926664",
+   "lat": 40.7256184,
+   "lon": -73.9840332,
+   "amenity": "bar",
+   "shop": "alcohol",
+   "name": "Amor y Amargo General Store"
+  },
+  {
+   "id": "N2549926891",
+   "lat": 40.725928,
+   "lon": -73.9834617,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Niagara"
+  },
+  {
+   "id": "N2549928447",
+   "lat": 40.7269949,
+   "lon": -73.98552,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "East 7 Deli & Cafe"
+  },
+  {
+   "id": "N2549928453",
+   "lat": 40.7268801,
+   "lon": -73.9831148,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Tabetomo"
+  },
+  {
+   "id": "N2549928461",
+   "lat": 40.7272283,
+   "lon": -73.982885,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Doc Hollidays"
+  },
+  {
+   "id": "N2549928762",
+   "lat": 40.7270198,
+   "lon": -73.9855018,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Hen House NYC"
+  },
+  {
+   "id": "N2549928858",
+   "lat": 40.7271904,
+   "lon": -73.9853771,
+   "amenity": null,
+   "shop": "greengrocer",
+   "name": "East Village Organic"
+  },
+  {
+   "id": "N2549928994",
+   "lat": 40.7273871,
+   "lon": -73.9852333,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Utshob Restaurant"
+  },
+  {
+   "id": "N2549930015",
+   "lat": 40.7274216,
+   "lon": -73.9827315,
+   "amenity": "ice_cream",
+   "shop": null,
+   "name": "Ralph's Famous"
+  },
+  {
+   "id": "N2567527615",
+   "lat": 40.7260342,
+   "lon": -73.9776413,
+   "amenity": "veterinary",
+   "shop": null,
+   "name": "Urban Vets Animal Hospital"
+  },
+  {
+   "id": "N2567528714",
+   "lat": 40.7266906,
+   "lon": -73.9798946,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Soda Club"
+  },
+  {
+   "id": "N2567528717",
+   "lat": 40.725843,
+   "lon": -73.9777868,
+   "amenity": null,
+   "shop": "alcohol",
+   "name": "World of Wines"
+  },
+  {
+   "id": "N2567531818",
+   "lat": 40.7248465,
+   "lon": -73.9784801,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Two Perrys"
+  },
+  {
+   "id": "N2567533490",
+   "lat": 40.7239793,
+   "lon": -73.9791157,
+   "amenity": null,
+   "shop": "shoe_repair",
+   "name": "Alex Shoe Repair Watch Repair"
+  },
+  {
+   "id": "N2567534009",
+   "lat": 40.723652,
+   "lon": -73.9793543,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "Alphabet"
+  },
+  {
+   "id": "N2572411300",
+   "lat": 40.7273742,
+   "lon": -73.9826843,
+   "amenity": "post_box",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N2963586033",
+   "lat": 40.7262821,
+   "lon": -73.9835462,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "Ray's Candy Store"
+  },
+  {
+   "id": "N3046334738",
+   "lat": 40.7252275,
+   "lon": -73.9831134,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Buenos Aires"
+  },
+  {
+   "id": "N3574719396",
+   "lat": 40.727887,
+   "lon": -73.982007,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Horus CafÃ©"
+  },
+  {
+   "id": "N3583551893",
+   "lat": 40.7280284,
+   "lon": -73.9847603,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "Lime Tree Market"
+  },
+  {
+   "id": "N4006284842",
+   "lat": 40.7260148,
+   "lon": -73.9837501,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Miss Lilyâs"
+  },
+  {
+   "id": "N4006285140",
+   "lat": 40.7250606,
+   "lon": -73.98079,
+   "amenity": "school",
+   "shop": null,
+   "name": "St. Brigid School"
+  },
+  {
+   "id": "N4006285144",
+   "lat": 40.7240563,
+   "lon": -73.9790595,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "Your Desire In Food"
+  },
+  {
+   "id": "N4146358991",
+   "lat": 40.7288511,
+   "lon": -73.9841239,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Ferns"
+  },
+  {
+   "id": "N4146358992",
+   "lat": 40.7271211,
+   "lon": -73.983769,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Please Don't Tell"
+  },
+  {
+   "id": "N4146369289",
+   "lat": 40.7271537,
+   "lon": -73.9801374,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Blind Barber"
+  },
+  {
+   "id": "N4146369290",
+   "lat": 40.7259358,
+   "lon": -73.9846566,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Death & Company"
+  },
+  {
+   "id": "N4221091789",
+   "lat": 40.7284125,
+   "lon": -73.9820074,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Westville East"
+  },
+  {
+   "id": "N4284763280",
+   "lat": 40.7274755,
+   "lon": -73.9834679,
+   "amenity": "animal_shelter",
+   "shop": null,
+   "name": "Ollieâs Place"
+  },
+  {
+   "id": "N4300438090",
+   "lat": 40.7281762,
+   "lon": -73.9821791,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Tompkins Square Bagels"
+  },
+  {
+   "id": "N4317133391",
+   "lat": 40.7263027,
+   "lon": -73.9857058,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Caravan of Dreams"
+  },
+  {
+   "id": "N4407036591",
+   "lat": 40.7246361,
+   "lon": -73.9786539,
+   "amenity": null,
+   "shop": "supermarket",
+   "name": "Associated Supermarket"
+  },
+  {
+   "id": "N4470157393",
+   "lat": 40.7257903,
+   "lon": -73.9844558,
+   "amenity": null,
+   "shop": "music",
+   "name": "A-1 Record Shop"
+  },
+  {
+   "id": "N4551150920",
+   "lat": 40.7257543,
+   "lon": -73.9843812,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Cherry Tavern"
+  },
+  {
+   "id": "N4551157295",
+   "lat": 40.7273469,
+   "lon": -73.984402,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Cafe Mogador"
+  },
+  {
+   "id": "N4551160604",
+   "lat": 40.7272963,
+   "lon": -73.9848696,
+   "amenity": null,
+   "shop": "tea",
+   "name": "Physical Graffitea"
+  },
+  {
+   "id": "N4555818591",
+   "lat": 40.7245384,
+   "lon": -73.9802202,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Satsko"
+  },
+  {
+   "id": "N4711117992",
+   "lat": 40.7262151,
+   "lon": -73.9835939,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Yuca Bar & Restaurant"
+  },
+  {
+   "id": "N4711118291",
+   "lat": 40.7266479,
+   "lon": -73.9832781,
+   "amenity": "bar",
+   "shop": null,
+   "name": "EmpellÃ³n Al pastor"
+  },
+  {
+   "id": "N4811903022",
+   "lat": 40.7265987,
+   "lon": -73.9843126,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Los Tacos NYC"
+  },
+  {
+   "id": "N5057321124",
+   "lat": 40.7276771,
+   "lon": -73.9825645,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "The East Village Mini Market"
+  },
+  {
+   "id": "N5193382596",
+   "lat": 40.7269632,
+   "lon": -73.9835719,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Hanoi House"
+  },
+  {
+   "id": "N5208082921",
+   "lat": 40.7281228,
+   "lon": -73.9843931,
+   "amenity": "theatre",
+   "shop": null,
+   "name": "Performance Space 122"
+  },
+  {
+   "id": "N5215491822",
+   "lat": 40.7273626,
+   "lon": -73.9831865,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Tacos Morelos"
+  },
+  {
+   "id": "N5248792786",
+   "lat": 40.7243323,
+   "lon": -73.9788618,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "San Loco"
+  },
+  {
+   "id": "N5248792880",
+   "lat": 40.7245431,
+   "lon": -73.9814615,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Horus"
+  },
+  {
+   "id": "N5248793287",
+   "lat": 40.7265826,
+   "lon": -73.9805789,
+   "amenity": "drinking_water",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N5272733725",
+   "lat": 40.7277981,
+   "lon": -73.9849322,
+   "amenity": null,
+   "shop": "alcohol",
+   "name": "East Village Wines"
+  },
+  {
+   "id": "N5383045522",
+   "lat": 40.7251418,
+   "lon": -73.98162,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "C&B"
+  },
+  {
+   "id": "N5415412258",
+   "lat": 40.7278739,
+   "lon": -73.9844099,
+   "amenity": null,
+   "shop": "herbalist",
+   "name": "Flower Power"
+  },
+  {
+   "id": "N5415434959",
+   "lat": 40.7284736,
+   "lon": -73.9834305,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Kavasutra Kava Bar"
+  },
+  {
+   "id": "N5456903223",
+   "lat": 40.728191,
+   "lon": -73.9827585,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N5585955221",
+   "lat": 40.7284546,
+   "lon": -73.9833854,
+   "amenity": null,
+   "shop": "chemist",
+   "name": "Live Live and Organic"
+  },
+  {
+   "id": "N5603550886",
+   "lat": 40.7258995,
+   "lon": -73.9834824,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Tompkins Square Bar"
+  },
+  {
+   "id": "N5603563258",
+   "lat": 40.7268161,
+   "lon": -73.9831737,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Starbucks"
+  },
+  {
+   "id": "N5603575358",
+   "lat": 40.7269086,
+   "lon": -73.9834027,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Pizza Studio Tamaki"
+  },
+  {
+   "id": "N5700167965",
+   "lat": 40.7276075,
+   "lon": -73.983771,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Thursday"
+  },
+  {
+   "id": "N5798781131",
+   "lat": 40.7257108,
+   "lon": -73.9815551,
+   "amenity": "drinking_water",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N5798783514",
+   "lat": 40.726143,
+   "lon": -73.9825733,
+   "amenity": "drinking_water",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N5849787600",
+   "lat": 40.7291067,
+   "lon": -73.9839653,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Black Seed Bagels"
+  },
+  {
+   "id": "N5889547501",
+   "lat": 40.7270509,
+   "lon": -73.9801128,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Ninth Street Espresso"
+  },
+  {
+   "id": "N5932619925",
+   "lat": 40.7257034,
+   "lon": -73.9842602,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Amor y Amargo"
+  },
+  {
+   "id": "N6109290986",
+   "lat": 40.7267171,
+   "lon": -73.9856982,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Hunan Slurp"
+  },
+  {
+   "id": "N6109307685",
+   "lat": 40.7270696,
+   "lon": -73.9854654,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Unique Omakase"
+  },
+  {
+   "id": "N6109352286",
+   "lat": 40.7266682,
+   "lon": -73.9857438,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Twilight Lounge"
+  },
+  {
+   "id": "N6230652174",
+   "lat": 40.725706,
+   "lon": -73.9839104,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N6230652175",
+   "lat": 40.7259527,
+   "lon": -73.9837876,
+   "amenity": "nightclub",
+   "shop": null,
+   "name": "Kazuza"
+  },
+  {
+   "id": "N6230656984",
+   "lat": 40.725505,
+   "lon": -73.9837463,
+   "amenity": "pub",
+   "shop": null,
+   "name": "Corner Bistro East"
+  },
+  {
+   "id": "N6230659107",
+   "lat": 40.7255895,
+   "lon": -73.9837404,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N6230659108",
+   "lat": 40.7256917,
+   "lon": -73.983675,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N6230659163",
+   "lat": 40.7257365,
+   "lon": -73.9839473,
+   "amenity": null,
+   "shop": "dry_cleaning",
+   "name": "Best Cleaners on A"
+  },
+  {
+   "id": "N6230659166",
+   "lat": 40.7259416,
+   "lon": -73.9837617,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N6230660105",
+   "lat": 40.725681,
+   "lon": -73.9839877,
+   "amenity": null,
+   "shop": "laundry",
+   "name": "Gentle Wash Laundromat"
+  },
+  {
+   "id": "N6230661936",
+   "lat": 40.7259712,
+   "lon": -73.9837306,
+   "amenity": "post_box",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N6230663655",
+   "lat": 40.726314,
+   "lon": -73.9835195,
+   "amenity": null,
+   "shop": "hairdresser",
+   "name": "Bonefade Barbers"
+  },
+  {
+   "id": "N6234563392",
+   "lat": 40.7272575,
+   "lon": -73.9847924,
+   "amenity": "theatre",
+   "shop": null,
+   "name": "Under St. Mark's Theater"
+  },
+  {
+   "id": "N6278128485",
+   "lat": 40.7264466,
+   "lon": -73.9834307,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Superiority Burger"
+  },
+  {
+   "id": "N6281164644",
+   "lat": 40.7273195,
+   "lon": -73.9830755,
+   "amenity": null,
+   "shop": "bakery",
+   "name": "Confectionery!"
+  },
+  {
+   "id": "N6347727677",
+   "lat": 40.7272707,
+   "lon": -73.9793594,
+   "amenity": "community_centre",
+   "shop": null,
+   "name": "Good Old Lower East Side"
+  },
+  {
+   "id": "N6347727724",
+   "lat": 40.7271766,
+   "lon": -73.9794436,
+   "amenity": "community_centre",
+   "shop": null,
+   "name": "Good Old Lower East Side"
+  },
+  {
+   "id": "N6347727787",
+   "lat": 40.7272198,
+   "lon": -73.9794026,
+   "amenity": "community_centre",
+   "shop": null,
+   "name": "Good Old Lower East Side"
+  },
+  {
+   "id": "N6458026085",
+   "lat": 40.7256438,
+   "lon": -73.9840147,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Avant Garden"
+  },
+  {
+   "id": "N6558563123",
+   "lat": 40.7263237,
+   "lon": -73.9838601,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "787 Coffee Co."
+  },
+  {
+   "id": "N6565329289",
+   "lat": 40.7257262,
+   "lon": -73.9843145,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Banh Mi Zon"
+  },
+  {
+   "id": "N6568734704",
+   "lat": 40.7271837,
+   "lon": -73.9847349,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Dumpling Man"
+  },
+  {
+   "id": "N6583001086",
+   "lat": 40.7264166,
+   "lon": -73.9847126,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Ho Foods"
+  },
+  {
+   "id": "N6699570658",
+   "lat": 40.7271258,
+   "lon": -73.9798605,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Dream Baby Dream"
+  },
+  {
+   "id": "N6786950485",
+   "lat": 40.7285675,
+   "lon": -73.9825034,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N6910728948",
+   "lat": 40.7282376,
+   "lon": -73.9821344,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Mama Fina's House of Filipino Sisig"
+  },
+  {
+   "id": "N6910728949",
+   "lat": 40.7285241,
+   "lon": -73.9822331,
+   "amenity": null,
+   "shop": "hairdresser",
+   "name": "Organic Lounge"
+  },
+  {
+   "id": "N6910758316",
+   "lat": 40.7283736,
+   "lon": -73.9831928,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N6910758317",
+   "lat": 40.7282079,
+   "lon": -73.9827988,
+   "amenity": null,
+   "shop": "hairdresser",
+   "name": "Fox & Jane"
+  },
+  {
+   "id": "N6910758318",
+   "lat": 40.7284229,
+   "lon": -73.9833099,
+   "amenity": null,
+   "shop": "stationery",
+   "name": "Niconeco Zakkaya"
+  },
+  {
+   "id": "N6910758319",
+   "lat": 40.7282742,
+   "lon": -73.9829565,
+   "amenity": null,
+   "shop": "tattoo",
+   "name": "Clash City Tattoo"
+  },
+  {
+   "id": "N6910758320",
+   "lat": 40.7281731,
+   "lon": -73.9827161,
+   "amenity": null,
+   "shop": "hairdresser",
+   "name": "Crops for Girls"
+  },
+  {
+   "id": "N6910758321",
+   "lat": 40.7283918,
+   "lon": -73.983236,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Ahimsa"
+  },
+  {
+   "id": "N6910758322",
+   "lat": 40.7282572,
+   "lon": -73.9829159,
+   "amenity": null,
+   "shop": "beauty",
+   "name": "Oh My Nails"
+  },
+  {
+   "id": "N6910758323",
+   "lat": 40.7284391,
+   "lon": -73.9833486,
+   "amenity": "cafe",
+   "shop": "pastry",
+   "name": "From Lucie"
+  },
+  {
+   "id": "N6910758324",
+   "lat": 40.728156,
+   "lon": -73.9826753,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N6991451741",
+   "lat": 40.7280803,
+   "lon": -73.9812286,
+   "amenity": "pub",
+   "shop": null,
+   "name": "11th Street Bar"
+  },
+  {
+   "id": "N7078716887",
+   "lat": 40.7280462,
+   "lon": -73.9848282,
+   "amenity": "waste_basket",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N7112935815",
+   "lat": 40.7273201,
+   "lon": -73.9849167,
+   "amenity": null,
+   "shop": "tattoo",
+   "name": "Fun City Tattoo"
+  },
+  {
+   "id": "N7112935818",
+   "lat": 40.7273333,
+   "lon": -73.9849566,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N7112935819",
+   "lat": 40.7267778,
+   "lon": -73.985659,
+   "amenity": null,
+   "shop": "hardware",
+   "name": "Saifee Hardware"
+  },
+  {
+   "id": "N7124962483",
+   "lat": 40.7256117,
+   "lon": -73.9779248,
+   "amenity": "theatre",
+   "shop": null,
+   "name": "Studio 151"
+  },
+  {
+   "id": "N7139740737",
+   "lat": 40.726378,
+   "lon": -73.9774027,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Happy Wok"
+  },
+  {
+   "id": "N7254235917",
+   "lat": 40.72713,
+   "lon": -73.9854213,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "MaLa Project"
+  },
+  {
+   "id": "N7258410330",
+   "lat": 40.7264773,
+   "lon": -73.9806626,
+   "amenity": "social_facility",
+   "shop": null,
+   "name": "Chilis on Wheels"
+  },
+  {
+   "id": "N7366099843",
+   "lat": 40.7254543,
+   "lon": -73.9780492,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Bobby's Night Out"
+  },
+  {
+   "id": "N7366099845",
+   "lat": 40.7260778,
+   "lon": -73.9776105,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N7366099846",
+   "lat": 40.7261037,
+   "lon": -73.9775918,
+   "amenity": null,
+   "shop": "mobile_phone",
+   "name": "Metro by T-Mobile"
+  },
+  {
+   "id": "N7366099847",
+   "lat": 40.7261322,
+   "lon": -73.9775683,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N7366099849",
+   "lat": 40.7261637,
+   "lon": -73.9775475,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N7366099850",
+   "lat": 40.7261937,
+   "lon": -73.9775254,
+   "amenity": null,
+   "shop": "dry_cleaning",
+   "name": "Michelle Cleaners"
+  },
+  {
+   "id": "N7366099851",
+   "lat": 40.7262221,
+   "lon": -73.9775059,
+   "amenity": null,
+   "shop": "car_repair",
+   "name": "Lower East Side 24h Car Service"
+  },
+  {
+   "id": "N7366099852",
+   "lat": 40.7264416,
+   "lon": -73.9773591,
+   "amenity": "dojo",
+   "shop": null,
+   "name": "Little Tigers Martial Arts"
+  },
+  {
+   "id": "N7366142877",
+   "lat": 40.7276795,
+   "lon": -73.9833592,
+   "amenity": null,
+   "shop": "vacant",
+   "name": null
+  },
+  {
+   "id": "N7366142878",
+   "lat": 40.7276307,
+   "lon": -73.9832512,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Prosciutto"
+  },
+  {
+   "id": "N7366142879",
+   "lat": 40.7275967,
+   "lon": -73.9831688,
+   "amenity": null,
+   "shop": "clothes",
+   "name": "Throwback Vintage Sportswear"
+  },
+  {
+   "id": "N7366142880",
+   "lat": 40.7275779,
+   "lon": -73.9831252,
+   "amenity": null,
+   "shop": "hairdresser",
+   "name": "Neighborhood Barbers"
+  },
+  {
+   "id": "N7366142881",
+   "lat": 40.7275621,
+   "lon": -73.9830883,
+   "amenity": null,
+   "shop": "interior_decoration",
+   "name": "Pink Olive"
+  },
+  {
+   "id": "N7366142882",
+   "lat": 40.7273802,
+   "lon": -73.9832311,
+   "amenity": null,
+   "shop": "beauty",
+   "name": "Nice Brow"
+  },
+  {
+   "id": "N7366142883",
+   "lat": 40.7275413,
+   "lon": -73.9830427,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Poke N' Roll"
+  },
+  {
+   "id": "N7794379162",
+   "lat": 40.7273102,
+   "lon": -73.9852896,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "noreetuh"
+  },
+  {
+   "id": "N8530330756",
+   "lat": 40.7277913,
+   "lon": -73.9849994,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N8530330765",
+   "lat": 40.72721,
+   "lon": -73.9854258,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N8530330766",
+   "lat": 40.7273878,
+   "lon": -73.9846379,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N8530354084",
+   "lat": 40.7258191,
+   "lon": -73.9845273,
+   "amenity": null,
+   "shop": "bicycle",
+   "name": "Busy Bee Bikes"
+  },
+  {
+   "id": "N8530354087",
+   "lat": 40.7258766,
+   "lon": -73.9847472,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N8530354089",
+   "lat": 40.7257078,
+   "lon": -73.9843811,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N8530366063",
+   "lat": 40.7251529,
+   "lon": -73.9830105,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N8530366064",
+   "lat": 40.7252393,
+   "lon": -73.9832345,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N8986962109",
+   "lat": 40.7249939,
+   "lon": -73.9783775,
+   "amenity": "bar",
+   "shop": null,
+   "name": "The Summit"
+  },
+  {
+   "id": "N9036181630",
+   "lat": 40.728427,
+   "lon": -73.9844713,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Rakka"
+  },
+  {
+   "id": "N9147146733",
+   "lat": 40.7253473,
+   "lon": -73.9834179,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Club Cumming"
+  },
+  {
+   "id": "N9155410770",
+   "lat": 40.7270975,
+   "lon": -73.9802206,
+   "amenity": null,
+   "shop": "hairdresser",
+   "name": "Blind Barber"
+  },
+  {
+   "id": "N9155415177",
+   "lat": 40.727057,
+   "lon": -73.9837711,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Crif Dogs"
+  },
+  {
+   "id": "N9161604572",
+   "lat": 40.7266424,
+   "lon": -73.9852878,
+   "amenity": null,
+   "shop": "clothes",
+   "name": "Trash and Vaudville"
+  },
+  {
+   "id": "N9289282803",
+   "lat": 40.7270326,
+   "lon": -73.9836776,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Augers Well"
+  },
+  {
+   "id": "N9322331907",
+   "lat": 40.7287171,
+   "lon": -73.9840335,
+   "amenity": null,
+   "shop": "new_age",
+   "name": "Crystals Gardens NYC"
+  },
+  {
+   "id": "N9322331908",
+   "lat": 40.7286946,
+   "lon": -73.9839645,
+   "amenity": null,
+   "shop": "new_age",
+   "name": "Evflorist Corp"
+  },
+  {
+   "id": "N9330247867",
+   "lat": 40.7272486,
+   "lon": -73.9853346,
+   "amenity": "pub",
+   "shop": null,
+   "name": "The Grafton"
+  },
+  {
+   "id": "N9373941165",
+   "lat": 40.7275037,
+   "lon": -73.9826761,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Village Square Pizza"
+  },
+  {
+   "id": "N9581876699",
+   "lat": 40.7285575,
+   "lon": -73.984364,
+   "amenity": null,
+   "shop": "sewing",
+   "name": "Gizmo Notion Corp"
+  },
+  {
+   "id": "N9581876700",
+   "lat": 40.7287959,
+   "lon": -73.9841615,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Beron Beron"
+  },
+  {
+   "id": "N9581876701",
+   "lat": 40.7285297,
+   "lon": -73.9843806,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Sabor A Mexico"
+  },
+  {
+   "id": "N9581876702",
+   "lat": 40.7289087,
+   "lon": -73.9840953,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Joe & Pat's"
+  },
+  {
+   "id": "N9640463599",
+   "lat": 40.7288081,
+   "lon": -73.982879,
+   "amenity": "public_bookcase",
+   "shop": null,
+   "name": "11th Street Community Library"
+  },
+  {
+   "id": "N9708208979",
+   "lat": 40.7269257,
+   "lon": -73.9853696,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "7th Street burger"
+  },
+  {
+   "id": "N9890284354",
+   "lat": 40.7251289,
+   "lon": -73.9815915,
+   "amenity": null,
+   "shop": "dry_cleaning",
+   "name": "C&C Dry Cleaning & Alteration"
+  },
+  {
+   "id": "N9890284356",
+   "lat": 40.7252496,
+   "lon": -73.9814958,
+   "amenity": "bicycle_rental",
+   "shop": null,
+   "name": "Citi Bike - E 7 St & Ave B"
+  },
+  {
+   "id": "N10090555737",
+   "lat": 40.7261637,
+   "lon": -73.9840813,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Pylos Restaurant"
+  },
+  {
+   "id": "N10090555738",
+   "lat": 40.7261935,
+   "lon": -73.9841587,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Giano"
+  },
+  {
+   "id": "N10270363604",
+   "lat": 40.727892,
+   "lon": -73.9848622,
+   "amenity": null,
+   "shop": "laundry",
+   "name": "Cosmo's Launderama"
+  },
+  {
+   "id": "N10270363605",
+   "lat": 40.7276083,
+   "lon": -73.9850691,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Goodnight Sunny"
+  },
+  {
+   "id": "N10270502711",
+   "lat": 40.727754,
+   "lon": -73.9849656,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "Village Craft Beer & Smoke"
+  },
+  {
+   "id": "N10270502715",
+   "lat": 40.7279419,
+   "lon": -73.9848277,
+   "amenity": null,
+   "shop": "dry_cleaning",
+   "name": "Cosmo's Dry Cleaning"
+  },
+  {
+   "id": "N10270502717",
+   "lat": 40.7278406,
+   "lon": -73.9848961,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Area Bar"
+  },
+  {
+   "id": "N10692993581",
+   "lat": 40.7271351,
+   "lon": -73.9795427,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Hekate CafÃ© & Elixir Lounge"
+  },
+  {
+   "id": "N10791185413",
+   "lat": 40.7272139,
+   "lon": -73.9797955,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Lucky"
+  },
+  {
+   "id": "N10791224469",
+   "lat": 40.7272434,
+   "lon": -73.979771,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Taqueria Emilio 4"
+  },
+  {
+   "id": "N10830817799",
+   "lat": 40.7267376,
+   "lon": -73.9835516,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Sushi Mumi"
+  },
+  {
+   "id": "N11067172705",
+   "lat": 40.7258267,
+   "lon": -73.9832403,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Lovers of Today"
+  },
+  {
+   "id": "N11074226306",
+   "lat": 40.727419,
+   "lon": -73.9796782,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Eleven B"
+  },
+  {
+   "id": "N11098842088",
+   "lat": 40.7273122,
+   "lon": -73.9842529,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Änjelly"
+  },
+  {
+   "id": "N11189423585",
+   "lat": 40.7270608,
+   "lon": -73.9830229,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Lucy's Bar"
+  },
+  {
+   "id": "N11270580267",
+   "lat": 40.7265692,
+   "lon": -73.9845399,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Ladybird"
+  },
+  {
+   "id": "N11270580268",
+   "lat": 40.726539,
+   "lon": -73.9844756,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Cadence"
+  },
+  {
+   "id": "N11300452754",
+   "lat": 40.7238589,
+   "lon": -73.9792034,
+   "amenity": "music_school",
+   "shop": null,
+   "name": "Groove Garden"
+  },
+  {
+   "id": "N11557848429",
+   "lat": 40.7283553,
+   "lon": -73.9843561,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N11557848430",
+   "lat": 40.7283715,
+   "lon": -73.9843937,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N11714928281",
+   "lat": 40.7283393,
+   "lon": -73.9820432,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Fishmarket"
+  },
+  {
+   "id": "N11715036337",
+   "lat": 40.7291209,
+   "lon": -73.9836233,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Madina Halal Deli"
+  },
+  {
+   "id": "N11715036338",
+   "lat": 40.7291538,
+   "lon": -73.9837049,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "Madina Halal Meat & Grocery"
+  },
+  {
+   "id": "N11748179933",
+   "lat": 40.7274292,
+   "lon": -73.9852033,
+   "amenity": "bar",
+   "shop": null,
+   "name": "The Lions"
+  },
+  {
+   "id": "N11761691198",
+   "lat": 40.7264231,
+   "lon": -73.9859405,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Dunkin'"
+  },
+  {
+   "id": "N11761845566",
+   "lat": 40.7286293,
+   "lon": -73.9843349,
+   "amenity": null,
+   "shop": "convenience",
+   "name": "Go Green"
+  },
+  {
+   "id": "N11789217686",
+   "lat": 40.7258282,
+   "lon": -73.9839841,
+   "amenity": "theatre",
+   "shop": null,
+   "name": "Knitting Factory"
+  },
+  {
+   "id": "N11789217687",
+   "lat": 40.7257942,
+   "lon": -73.9839054,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Baker Falls"
+  },
+  {
+   "id": "N11822433532",
+   "lat": 40.7268012,
+   "lon": -73.9816101,
+   "amenity": "toilets",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N11897453324",
+   "lat": 40.7239804,
+   "lon": -73.9801699,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Tokuyamatcha Onigirazubar"
+  },
+  {
+   "id": "N12084131484",
+   "lat": 40.7242306,
+   "lon": -73.9789217,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Ayat"
+  },
+  {
+   "id": "N12084131486",
+   "lat": 40.7244254,
+   "lon": -73.9787948,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Kosmic Community Anti Bar"
+  },
+  {
+   "id": "N12247152956",
+   "lat": 40.727499,
+   "lon": -73.9829136,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Hello, Yam!"
+  },
+  {
+   "id": "N12327465356",
+   "lat": 40.7274504,
+   "lon": -73.9845978,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Cecilia"
+  },
+  {
+   "id": "N12327472114",
+   "lat": 40.7273887,
+   "lon": -73.9845283,
+   "amenity": null,
+   "shop": "books",
+   "name": "East Village Books"
+  },
+  {
+   "id": "N12327498679",
+   "lat": 40.7263843,
+   "lon": -73.9834728,
+   "amenity": "bar",
+   "shop": null,
+   "name": "St. Dymphnaâs"
+  },
+  {
+   "id": "N12327505161",
+   "lat": 40.7269261,
+   "lon": -73.9830877,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "No Fork"
+  },
+  {
+   "id": "N12327528096",
+   "lat": 40.7275652,
+   "lon": -73.9826272,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Blank Street Coffee"
+  },
+  {
+   "id": "N12327529700",
+   "lat": 40.7270984,
+   "lon": -73.9829757,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Rosella"
+  },
+  {
+   "id": "N12327530510",
+   "lat": 40.7269826,
+   "lon": -73.9830456,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "$1.50 Fresh Pizza & Hot Dog"
+  },
+  {
+   "id": "N12327532499",
+   "lat": 40.7275374,
+   "lon": -73.9826498,
+   "amenity": null,
+   "shop": "gift",
+   "name": "Babs Home and Pantry"
+  },
+  {
+   "id": "N12327555834",
+   "lat": 40.7274717,
+   "lon": -73.9826938,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Korean Street Foods"
+  },
+  {
+   "id": "N12368232318",
+   "lat": 40.7264673,
+   "lon": -73.9858887,
+   "amenity": "bar",
+   "shop": null,
+   "name": "International Bar"
+  },
+  {
+   "id": "N12368232423",
+   "lat": 40.7268816,
+   "lon": -73.9852583,
+   "amenity": null,
+   "shop": "bakery",
+   "name": "Mary Oâs Irish Soda Bread Shop"
+  },
+  {
+   "id": "N12368245466",
+   "lat": 40.7265478,
+   "lon": -73.9858376,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "McDonald's"
+  },
+  {
+   "id": "N12542895729",
+   "lat": 40.7266154,
+   "lon": -73.9857745,
+   "amenity": null,
+   "shop": "shipping",
+   "name": "The UPS Store"
+  },
+  {
+   "id": "N12542895737",
+   "lat": 40.7273568,
+   "lon": -73.9852536,
+   "amenity": "fast_food",
+   "shop": null,
+   "name": "Kolachi"
+  },
+  {
+   "id": "N12636761757",
+   "lat": 40.7275304,
+   "lon": -73.9797258,
+   "amenity": "bicycle_rental",
+   "shop": null,
+   "name": "Citi Bike - E 11 St & Ave B"
+  },
+  {
+   "id": "N12636761759",
+   "lat": 40.7241909,
+   "lon": -73.9792122,
+   "amenity": "bicycle_rental",
+   "shop": null,
+   "name": "Citi Bike - E 7 St & Ave C"
+  },
+  {
+   "id": "N12720658654",
+   "lat": 40.7269668,
+   "lon": -73.9840529,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Romeos"
+  },
+  {
+   "id": "N12720671571",
+   "lat": 40.7276608,
+   "lon": -73.9825681,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Danny & Coopâs Cheesesteaks"
+  },
+  {
+   "id": "N12720704231",
+   "lat": 40.7269897,
+   "lon": -73.9841119,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Craft + Carry Saint Marks"
+  },
+  {
+   "id": "N12788204500",
+   "lat": 40.7268167,
+   "lon": -73.9814711,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N12788228601",
+   "lat": 40.7267998,
+   "lon": -73.9814287,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N12788228603",
+   "lat": 40.726821,
+   "lon": -73.9814804,
+   "amenity": "waste_basket",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N12806889291",
+   "lat": 40.7279874,
+   "lon": -73.9808871,
+   "amenity": null,
+   "shop": "clothes",
+   "name": "Project Vintage"
+  },
+  {
+   "id": "N12980265002",
+   "lat": 40.7265495,
+   "lon": -73.9850368,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Maza Mexican Restaurant"
+  },
+  {
+   "id": "N12983487801",
+   "lat": 40.728184,
+   "lon": -73.9846484,
+   "amenity": null,
+   "shop": "clothes",
+   "name": "Anarchy 99"
+  },
+  {
+   "id": "N12994866301",
+   "lat": 40.7261363,
+   "lon": -73.984021,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Titiâs Empanadas"
+  },
+  {
+   "id": "N13003067601",
+   "lat": 40.727471,
+   "lon": -73.982871,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "Village CrÃªperie"
+  },
+  {
+   "id": "N13003072801",
+   "lat": 40.727843,
+   "lon": -73.9843074,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Whitmans"
+  },
+  {
+   "id": "N13075288501",
+   "lat": 40.7262318,
+   "lon": -73.9842408,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Jones St. Wine Bar & Room"
+  },
+  {
+   "id": "N13076297102",
+   "lat": 40.7279099,
+   "lon": -73.9808174,
+   "amenity": null,
+   "shop": "clothes",
+   "name": "Wait a Second"
+  },
+  {
+   "id": "N13162330401",
+   "lat": 40.7285237,
+   "lon": -73.9832612,
+   "amenity": "cafe",
+   "shop": null,
+   "name": "From Lucie"
+  },
+  {
+   "id": "N13286404301",
+   "lat": 40.7262812,
+   "lon": -73.9774787,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Madelineâs Martini"
+  },
+  {
+   "id": "N13320069201",
+   "lat": 40.7284217,
+   "lon": -73.9831304,
+   "amenity": null,
+   "shop": "hairdresser",
+   "name": "1-900-Bleach Me"
+  },
+  {
+   "id": "N13357755804",
+   "lat": 40.7272019,
+   "lon": -73.984626,
+   "amenity": null,
+   "shop": "pastry",
+   "name": "Cakes by Klein"
+  },
+  {
+   "id": "N13408740002",
+   "lat": 40.7271198,
+   "lon": -73.9802734,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Gnocco"
+  },
+  {
+   "id": "N13550914365",
+   "lat": 40.7249446,
+   "lon": -73.9784115,
+   "amenity": "bar",
+   "shop": null,
+   "name": "B-Side"
+  },
+  {
+   "id": "N13550914366",
+   "lat": 40.7248938,
+   "lon": -73.9784462,
+   "amenity": null,
+   "shop": "cannabis",
+   "name": "Sky High Club"
+  },
+  {
+   "id": "N13550914367",
+   "lat": 40.7254995,
+   "lon": -73.9782351,
+   "amenity": "bar",
+   "shop": null,
+   "name": "The Cabinet"
+  },
+  {
+   "id": "N13550914368",
+   "lat": 40.7247409,
+   "lon": -73.9786525,
+   "amenity": "bicycle_parking",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N13680449615",
+   "lat": 40.7283033,
+   "lon": -73.9821252,
+   "amenity": "bar",
+   "shop": null,
+   "name": "Lucinda's"
+  },
+  {
+   "id": "N13708105001",
+   "lat": 40.7265074,
+   "lon": -73.9833982,
+   "amenity": null,
+   "shop": "photo",
+   "name": "Luster Photo & Digital"
+  },
+  {
+   "id": "N13806657901",
+   "lat": 40.7275145,
+   "lon": -73.9830036,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Pasta Rullo"
+  },
+  {
+   "id": "N13809236569",
+   "lat": 40.7271894,
+   "lon": -73.9845884,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Kyuubi Omakase"
+  },
+  {
+   "id": "N14049465301",
+   "lat": 40.7252196,
+   "lon": -73.9813118,
+   "amenity": "social_facility",
+   "shop": null,
+   "name": "Tompkins Distro"
+  },
+  {
+   "id": "N14049612203",
+   "lat": 40.7260658,
+   "lon": -73.9828554,
+   "amenity": "waste_basket",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14049612204",
+   "lat": 40.7261201,
+   "lon": -73.9829494,
+   "amenity": "waste_basket",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14049612205",
+   "lat": 40.726087,
+   "lon": -73.9830959,
+   "amenity": "waste_basket",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14049612206",
+   "lat": 40.7261385,
+   "lon": -73.9831246,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14049612207",
+   "lat": 40.7261385,
+   "lon": -73.9831594,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14049612208",
+   "lat": 40.7261369,
+   "lon": -73.9831941,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14049612209",
+   "lat": 40.7261047,
+   "lon": -73.9833889,
+   "amenity": "waste_basket",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14069063371",
+   "lat": 40.7254678,
+   "lon": -73.9785984,
+   "amenity": "public_bookcase",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14079070103",
+   "lat": 40.7273582,
+   "lon": -73.9797043,
+   "amenity": "restaurant",
+   "shop": null,
+   "name": "Desi Galli"
+  },
+  {
+   "id": "N14079099501",
+   "lat": 40.7272764,
+   "lon": -73.9797468,
+   "amenity": null,
+   "shop": "wine",
+   "name": "Brix Wine Shop"
+  },
+  {
+   "id": "N14079120001",
+   "lat": 40.7273078,
+   "lon": -73.9797184,
+   "amenity": null,
+   "shop": "cheese",
+   "name": "Barnyard Cheese Shop"
+  },
+  {
+   "id": "N14079570293",
+   "lat": 40.7267152,
+   "lon": -73.9825487,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14079570294",
+   "lat": 40.726807,
+   "lon": -73.9824714,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14079570295",
+   "lat": 40.7269084,
+   "lon": -73.9824158,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14079570296",
+   "lat": 40.726788,
+   "lon": -73.982608,
+   "amenity": "bench",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14091436138",
+   "lat": 40.7282644,
+   "lon": -73.9817227,
+   "amenity": null,
+   "shop": "books",
+   "name": "The Rabbit Books and Bar"
+  },
+  {
+   "id": "N14111460973",
+   "lat": 40.7259767,
+   "lon": -73.9776006,
+   "amenity": "waste_basket",
+   "shop": null,
+   "name": null
+  },
+  {
+   "id": "N14112392747",
+   "lat": 40.7270851,
+   "lon": -73.9795836,
+   "amenity": null,
+   "shop": "esoteric",
+   "name": "Enchantments"
+  }
+ ]
+}

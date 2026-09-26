@@ -1,0 +1,13 @@
+{
+    "name":  "east_village",
+    "bbox":  {
+                 "south":  40.7231,
+                 "west":  -73.9866,
+                 "north":  40.7297,
+                 "east":  -73.9767
+             },
+    "endpoint":  "https://overpass-api.de/api/interpreter",
+    "fetched_utc":  "2026-09-26T05:18:06Z",
+    "licence":  "ODbL 1.0, (c) OpenStreetMap contributors",
+    "query":  "[out:json][timeout:90];\n(\n  way[\"building\"](40.7231,-73.9866,40.7297,-73.9767);\n  relation[\"building\"](40.7231,-73.9866,40.7297,-73.9767);\n  way[\"highway\"](40.7231,-73.9866,40.7297,-73.9767);\n  way[\"leisure\"=\"park\"](40.7231,-73.9866,40.7297,-73.9767);\n  relation[\"leisure\"=\"park\"](40.7231,-73.9866,40.7297,-73.9767);\n  node[\"amenity\"](40.7231,-73.9866,40.7297,-73.9767);\n  node[\"shop\"](40.7231,-73.9866,40.7297,-73.9767);\n);\nout body geom;"
+}
