@@ -13,6 +13,8 @@ Two passes, both idempotent, both run by create_all.py:
         /Game/Blueprints/World/BP_Pickup_Pistol
         /Game/Materials/M_FrankArms                the first-person arms' fatigues
         /Game/Materials/M_FrankGloves
+        /Game/Materials/M_Pistol                   the pistol's material and the UE template
+        /Game/Weapons/Pistol, /Game/Weapons/Rifle  pistol art it was copied with; nothing uses them
       then fixes up every redirector left under /Game.
 
 The C++ side of the rename is covered by [CoreRedirects] in Config/DefaultEngine.ini; this is
@@ -41,8 +43,17 @@ RENAMES = [
     ("/Game/Blueprints/AI/BP_Guard", "/Game/Blueprints/AI/BP_Thug"),
 ]
 
-# Folders the renames empty out.
-EMPTIED_DIRECTORIES = ["/Game/Characters/Guard"]
+# Folders the renames and deletions empty out, deepest first.
+EMPTIED_DIRECTORIES = [
+    "/Game/Characters/Guard",
+    "/Game/Weapons/Pistol/Materials",
+    "/Game/Weapons/Pistol/Meshes",
+    "/Game/Weapons/Pistol/Textures",
+    "/Game/Weapons/Pistol",
+    "/Game/Weapons/Rifle/Materials",
+    "/Game/Weapons/Rifle",
+    "/Game/Weapons",
+]
 
 # Deleted together, so a reference from one of these to another does not block the set.
 RETIRED = [
@@ -51,6 +62,14 @@ RETIRED = [
     "/Game/Blueprints/Weapons/DA_Weapon_Rifle",
     "/Game/Materials/M_FrankArms",
     "/Game/Materials/M_FrankGloves",
+    "/Game/Materials/M_Pistol",
+    "/Game/Weapons/Pistol/Meshes/SM_Pistol",
+    "/Game/Weapons/Pistol/Materials/MI_Weapon_Pistol",
+    "/Game/Weapons/Rifle/Materials/M_Weapon",
+    "/Game/Weapons/Pistol/Textures/T_Pistol_AORM",
+    "/Game/Weapons/Pistol/Textures/T_Pistol_D",
+    "/Game/Weapons/Pistol/Textures/T_Pistol_Masks",
+    "/Game/Weapons/Pistol/Textures/T_Pistol_N",
 ]
 
 
@@ -185,7 +204,7 @@ def remove_empty_directories():
             if unreal.EditorAssetLibrary.list_assets(directory, True, False):
                 continue
             unreal.EditorAssetLibrary.delete_directory(directory)
-            c.log("deleted", directory, "empty after the rename")
+            c.log("deleted", directory, "empty after the pivot cleanup")
         except Exception as exc:  # noqa: BLE001
             c.log_error("delete_directory " + directory, exc)
 
@@ -276,6 +295,7 @@ def delete_retired():
 def run_deletions():
     delete_retired()
     fix_up_redirectors()
+    remove_empty_directories()
 
 
 def run():

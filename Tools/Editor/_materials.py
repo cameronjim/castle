@@ -51,7 +51,6 @@ MI_KEYCARD_STRIPE = MATERIALS_PATH + "/MI_KeycardStripe"
 MI_MONITOR = MATERIALS_PATH + "/MI_Monitor"
 
 # Props
-M_PISTOL = MATERIALS_PATH + "/M_Pistol"
 M_KEYCARD_BODY = MATERIALS_PATH + "/M_KeycardBody"
 
 EMISSIVE_COLOR_PARAM = "Color"
@@ -694,21 +693,13 @@ def ensure_light_materials(intensity_factor=None):
 
 
 def ensure_prop_materials():
-    """Materials the pickup Blueprints want: a near-black pistol and white keycard plastic.
+    """Materials the pickup Blueprints want: white keycard plastic and its stripe.
 
     Returned as a dict so create_world_blueprints.py can pick them up without importing
-    the room-art pass: {'pistol': M_Pistol, 'keycard': M_KeycardBody, 'stripe': MI_KeycardStripe}.
+    the room-art pass: {'keycard': M_KeycardBody, 'stripe': MI_KeycardStripe}. M_Pistol went
+    with the pistol; pivot_cleanup.py deletes it.
     """
     out = {}
-    try:
-        # nanite because SM_Pistol is a Nanite mesh, and without the flag the gun in Frank's
-        # hand rendered as the grey engine default the moment he picked it up. Skeletal too:
-        # it costs one shader permutation and saves the same bug the day the pistol grows bones.
-        out["pistol"] = ensure_material(
-            M_PISTOL, _build_flat((0.02, 0.02, 0.02), 0.35, 0.9), skeletal=True, nanite=True)
-    except Exception as exc:  # noqa: BLE001
-        c.log_error("ensure_prop_materials " + M_PISTOL, exc)
-        out["pistol"] = None
     try:
         out["keycard"] = ensure_material(
             M_KEYCARD_BODY, _build_flat((0.85, 0.85, 0.85), 0.4))
