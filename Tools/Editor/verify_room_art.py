@@ -107,8 +107,8 @@ GAMEPLAY_LABELS = (
     "PlayerStart",
     "OBJ_leave_cell",
     "OBJ_reach_stairwell",
-    "Guard_Corr1_A",
-    "Guard_Corr1_B",
+    "Thug_Corr1_A",
+    "Thug_Corr1_B",
     "Door_Security",
     "NavMeshBounds",
 )

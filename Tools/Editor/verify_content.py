@@ -21,8 +21,7 @@ UI_PATH = "/Game/Blueprints/UI"
 WORLD_PATH = "/Game/Blueprints/World"
 AI_PATH = "/Game/Blueprints/AI"
 IMAGE_PATH = "/Game/Flashbacks/Images"
-PISTOL_PATH = "/Game/Weapons/Pistol"
-GUARD_MATERIAL_PATH = "/Game/Characters/Guard"
+THUG_MATERIAL_PATH = "/Game/Characters/Thug"
 WEAPON_PATH = "/Game/Blueprints/Weapons"
 
 IA_NAMES = [
@@ -59,30 +58,36 @@ EXPECTED = (
         c.asset_path(UI_PATH, "WBP_EndCard"),
         c.asset_path(UI_PATH, "WBP_Hotbar"),
         c.asset_path(UI_PATH, "WBP_Inventory"),
-        c.asset_path(WORLD_PATH, "BP_Pickup_Pistol"),
         c.asset_path(WORLD_PATH, "BP_Pickup_Keycard"),
         c.asset_path(WORLD_PATH, "BP_Door_Keycard"),
-        c.asset_path(AI_PATH, "BP_Guard"),
+        c.asset_path(AI_PATH, "BP_Thug"),
     ]
     + [c.asset_path(IMAGE_PATH, "T_FB01_0{0}".format(i)) for i in range(1, 7)]
     + [
-        # First-person weapon art, copied out of the engine's template resources.
-        c.asset_path(PISTOL_PATH + "/Meshes", "SM_Pistol"),
-        c.asset_path(PISTOL_PATH + "/Materials", "MI_Weapon_Pistol"),
-        "/Game/Weapons/Rifle/Materials/M_Weapon",
-        c.asset_path(GUARD_MATERIAL_PATH, "M_GuardBody"),
-        c.asset_path(GUARD_MATERIAL_PATH, "M_GuardVisor"),
+        c.asset_path(THUG_MATERIAL_PATH, "M_ThugBody"),
+        c.asset_path(THUG_MATERIAL_PATH, "M_ThugVisor"),
     ]
     + [
         WEAPON_PATH + "/DA_Weapon_Hands",
-        WEAPON_PATH + "/DA_Weapon_Pistol",
-        WEAPON_PATH + "/DA_Weapon_Rifle",
         "/Game/Missions/DA_M01_CellBlockD",
         "/Game/Flashbacks/Definitions/DA_FB01_Sunday",
         "/Game/Maps/L_Sandbox",
         "/Game/Maps/L_M01_CellBlockD",
     ]
 )
+
+# Retired in the stage 2 pivot (Tools/Editor/pivot_cleanup.py). Any of these still on disk,
+# or any redirector left under /Game, means the cleanup did not finish.
+RETIRED = [
+    "/Game/Blueprints/AI/BP_Guard",
+    "/Game/Characters/Guard/M_GuardBody",
+    "/Game/Characters/Guard/M_GuardVisor",
+    WORLD_PATH + "/BP_Pickup_Pistol",
+    WEAPON_PATH + "/DA_Weapon_Pistol",
+    WEAPON_PATH + "/DA_Weapon_Rifle",
+    "/Game/Materials/M_FrankArms",
+    "/Game/Materials/M_FrankGloves",
+]
 
 PROBLEMS = []
 
@@ -118,6 +123,23 @@ def check_existence():
     for p in missing:
         fail(p)
     say("{0}/{1} expected assets present".format(len(EXPECTED) - len(missing), len(EXPECTED)))
+
+    say("---- retired in the pivot ----")
+    lingering = [p for p in RETIRED if c.exists(p)]
+    for p in lingering:
+        fail(p + " still exists; run Tools/Editor/pivot_cleanup.py")
+    say("{0}/{1} retired assets gone".format(len(RETIRED) - len(lingering), len(RETIRED)))
+
+    registry = unreal.AssetRegistryHelpers.get_asset_registry()
+    filt = unreal.ARFilter(
+        class_paths=[unreal.TopLevelAssetPath("/Script/CoreUObject", "ObjectRedirector")],
+        package_paths=["/Game"],
+        recursive_paths=True,
+    )
+    redirectors = [str(d.package_name) for d in (registry.get_assets(filt) or [])]
+    say("  redirectors under /Game: {0}".format(len(redirectors)))
+    for redirector in redirectors:
+        fail(redirector + " is a redirector; fix up redirectors")
 
 
 def check_input():
@@ -193,7 +215,6 @@ def check_world_blueprints():
     say("---- world blueprints ----")
 
     for name, expected in (
-        ("BP_Pickup_Pistol", [("pickup_type", "WEAPON"), ("magazine_amount", 12), ("ammo_amount", 24)]),
         ("BP_Pickup_Keycard", [("pickup_type", "KEYCARD"), ("keycard_id", "cellblock")]),
     ):
         cls = c.load_generated_class(WORLD_PATH, name)
@@ -235,16 +256,20 @@ def check_world_blueprints():
             if material is None or "M_SteelPainted" not in name_of(material):
                 fail("BP_Door_Keycard.{0} has no M_SteelPainted material".format(component_name))
 
-    guard_class = c.load_generated_class(AI_PATH, "BP_Guard")
-    if guard_class is None:
-        fail("BP_Guard_C")
+    thug_class = c.load_generated_class(AI_PATH, "BP_Thug")
+    if thug_class is None:
+        fail("BP_Thug_C")
     else:
-        cdo = unreal.get_default_object(guard_class)
+        cdo = unreal.get_default_object(thug_class)
         controller = prop(cdo, "ai_controller_class")
-        say("  BP_Guard.ai_controller_class      = {0}".format(name_of(controller)))
-        if controller is None or "GuardAIController" not in c.class_name(controller):
-            fail("BP_Guard.ai_controller_class is not AGuardAIController")
-        say("  BP_Guard.auto_possess_ai          = {0}".format(prop(cdo, "auto_possess_ai")))
+        say("  BP_Thug.ai_controller_class      = {0}".format(name_of(controller)))
+        if controller is None or "ThugAIController" not in c.class_name(controller):
+            fail("BP_Thug.ai_controller_class is not AThugAIController")
+        say("  BP_Thug.auto_possess_ai          = {0}".format(prop(cdo, "auto_possess_ai")))
+        tags = [str(t) for t in (prop(cdo, "tags") or [])]
+        say("  BP_Thug.tags                     = {0}".format(tags))
+        if "Thug" not in tags:
+            fail("BP_Thug is not tagged Thug; takedowns cannot find it")
 
     for name in ("WBP_Hud", "WBP_Pause", "WBP_Settings", "WBP_EndCard",
                  "WBP_Hotbar", "WBP_Inventory"):
@@ -255,10 +280,10 @@ def check_world_blueprints():
 
 
 def check_pickup_parts():
-    """Both pickups are built from Part components with real materials, not one grey cube."""
+    """The keycard pickup is built from Part components with real materials, not one grey cube."""
     say("---- pickup parts ----")
 
-    for name, minimum in (("BP_Pickup_Pistol", 4), ("BP_Pickup_Keycard", 2)):
+    for name, minimum in (("BP_Pickup_Keycard", 2),):
         cls = c.load_generated_class(WORLD_PATH, name)
         if cls is None:
             fail(name + "_C")
@@ -288,58 +313,48 @@ def check_pickup_parts():
                 name, shaped, minimum))
 
 
-def check_guard_presentation():
-    """Riot-cop materials, a flashlight and the two locomotion sequences."""
-    say("---- guard look ----")
+def check_thug_presentation():
+    """The thug look (kept from the guards for now), a flashlight and the locomotion sequences."""
+    say("---- thug look ----")
 
-    cls = c.load_generated_class(AI_PATH, "BP_Guard")
+    cls = c.load_generated_class(AI_PATH, "BP_Thug")
     if cls is None:
-        fail("BP_Guard_C")
+        fail("BP_Thug_C")
         return
 
     cdo = unreal.get_default_object(cls)
 
     for field in ("idle_anim", "walk_anim"):
         value = prop(cdo, field)
-        say("  BP_Guard.{0:<10} = {1}".format(field, name_of(value)))
+        say("  BP_Thug.{0:<10} = {1}".format(field, name_of(value)))
         if value is None:
-            fail("BP_Guard." + field + " is unset; the guard would T-pose")
+            fail("BP_Thug." + field + " is unset; the thug would T-pose")
 
     flashlight = prop(cdo, "flashlight")
-    say("  BP_Guard.flashlight  = {0}".format(name_of(flashlight)))
+    say("  BP_Thug.flashlight  = {0}".format(name_of(flashlight)))
     if flashlight is None:
-        fail("BP_Guard has no flashlight component")
+        fail("BP_Thug has no flashlight component")
 
     component = prop(cdo, "mesh")
     if component is None:
-        fail("BP_Guard has no mesh component")
+        fail("BP_Thug has no mesh component")
         return
 
-    say("  BP_Guard.Mesh.animation_mode = {0}".format(prop(component, "animation_mode")))
-    for slot in (0, 1):
+    say("  BP_Thug.Mesh.animation_mode = {0}".format(prop(component, "animation_mode")))
+    for slot, wanted in ((0, "M_ThugBody"), (1, "M_ThugVisor")):
         material = None
         try:
             material = component.get_material(slot)
         except Exception:  # noqa: BLE001
             material = None
-        say("  BP_Guard.Mesh slot {0} = {1}".format(slot, name_of(material)))
-        if material is None:
-            fail("BP_Guard.Mesh slot {0} has no material".format(slot))
+        say("  BP_Thug.Mesh slot {0} = {1}".format(slot, name_of(material)))
+        if material is None or name_of(material) != wanted:
+            fail("BP_Thug.Mesh slot {0} is {1}, expected {2}".format(slot, name_of(material), wanted))
 
 
-def skinned_asset(component):
-    """The mesh on a poseable/skinned component. Its property is private; the getter is not."""
-    if component is None:
-        return None
-    try:
-        return component.get_skinned_asset()
-    except Exception:  # noqa: BLE001
-        return prop(component, "skinned_asset")
-
-
-def check_view_model():
-    """Frank's view model: a real body, poseable hands in front of it, and the pistol."""
-    say("---- first-person view model ----")
+def check_third_person():
+    """The placeholder third-person player: a visible mannequin under a spring arm, no viewmodel."""
+    say("---- third-person player ----")
 
     cls = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
     if cls is None:
@@ -348,47 +363,48 @@ def check_view_model():
 
     cdo = unreal.get_default_object(cls)
 
-    weapon = prop(cdo, "weapon_mesh")
-    weapon_asset = prop(weapon, "static_mesh") if weapon is not None else None
-    say("  WeaponMesh.static_mesh       = {0}".format(name_of(weapon_asset)))
-    if weapon_asset is None:
-        fail("BP_CastleCharacter.WeaponMesh has no pistol mesh")
-
-    say("  ArmsHipOffset                = {0}".format(prop(cdo, "arms_hip_offset")))
-    say("  ArmsAimOffset                = {0}".format(prop(cdo, "arms_aim_offset")))
-
-    # True first person: SK_Mannequin twice. Once as Frank's body, once as the poseable hands.
     body = prop(cdo, "mesh")
     body_asset = prop(body, "skeletal_mesh_asset") if body is not None else None
     say("  Mesh.skeletal_mesh_asset     = {0}".format(name_of(body_asset)))
     if body_asset is None:
         fail("BP_CastleCharacter.Mesh has no body mesh; run create_blueprints.py")
+    if body is not None and prop(body, "owner_no_see"):
+        fail("BP_CastleCharacter.Mesh is hidden from its owner; the player would be invisible")
 
     for field in ("idle_anim", "walk_anim"):
         value = prop(cdo, field)
         say("  BP_CastleCharacter.{0:<9} = {1}".format(field, name_of(value)))
         if value is None:
-            fail("BP_CastleCharacter." + field + " is unset; Frank's body stands in a T-pose")
+            fail("BP_CastleCharacter." + field + " is unset; the body stands in a T-pose")
 
-    if not prop(cdo, "use_arms_mesh"):
-        say("  bUseArmsMesh                 = off (pistol-on-camera fallback)")
-    arms = prop(cdo, "arms_mesh")
-    arms_asset = skinned_asset(arms)
-    say("  ArmsMesh.skinned_asset       = {0}".format(name_of(arms_asset)))
-    if prop(cdo, "use_arms_mesh") and arms_asset is None:
-        fail("BP_CastleCharacter.ArmsMesh has no mesh; run create_blueprints.py")
+    boom = prop(cdo, "camera_boom")
+    camera = prop(cdo, "follow_camera")
+    say("  CameraBoom.target_arm_length = {0}".format(prop(boom, "target_arm_length") if boom else None))
+    say("  CameraBoom.socket_offset     = {0}".format(prop(boom, "socket_offset") if boom else None))
+    say("  FollowCamera                 = {0}".format(name_of(camera)))
+    if boom is None:
+        fail("BP_CastleCharacter has no CameraBoom")
+    elif not prop(boom, "use_pawn_control_rotation"):
+        fail("BP_CastleCharacter.CameraBoom does not follow the control rotation")
+    if camera is None:
+        fail("BP_CastleCharacter has no FollowCamera")
+
+    for retired in ("arms_mesh", "weapon_mesh", "fatigues_material", "use_arms_mesh"):
+        if prop(cdo, retired) is not None:
+            fail("BP_CastleCharacter still has {0}; the viewmodel code is back".format(retired))
+
+    movement = prop(cdo, "character_movement")
+    say("  orient_rotation_to_movement  = {0}".format(prop(movement, "orient_rotation_to_movement")))
+    if movement is not None and not prop(movement, "orient_rotation_to_movement"):
+        fail("BP_CastleCharacter does not turn to face where it moves")
 
 
 def check_weapon_data():
-    """The three weapon definitions, and the two places they have to be wired into."""
+    """DA_Weapon_Hands, and the one place it has to be wired into."""
     say("---- weapon data ----")
 
     expected = {
         "DA_Weapon_Hands": [("is_melee", True), ("damage", 15.0), ("melee_range", 120.0)],
-        "DA_Weapon_Pistol": [("is_melee", False), ("damage", 34.0), ("magazine_size", 12),
-                             ("default_reserve", 24), ("headshot_multiplier", 3.0)],
-        "DA_Weapon_Rifle": [("is_melee", False), ("damage", 24.0), ("magazine_size", 30),
-                            ("default_reserve", 90)],
     }
 
     for name, fields in expected.items():
@@ -396,36 +412,12 @@ def check_weapon_data():
         if asset is None:
             fail(name)
             continue
-        say("  {0}: slot={1} pose={2}".format(name, prop(asset, "slot"), prop(asset, "arms_pose_name")))
+        say("  {0}: slot={1}".format(name, prop(asset, "slot")))
         for field, want in fields:
             got = prop(asset, field)
             say("    {0:<22} = {1}".format(field, got))
             if value_text(got) != str(want):
                 fail("{0}.{1} is {2}, expected {3}".format(name, field, got, want))
-
-    pistol = c.load_or_none(c.asset_path(WEAPON_PATH, "DA_Weapon_Pistol"))
-    pistol_mesh = prop(pistol, "view_model_mesh")
-    say("  DA_Weapon_Pistol.view_model_mesh = {0}".format(pistol_mesh))
-    if not str(pistol_mesh or ""):
-        fail("DA_Weapon_Pistol has no ViewModelMesh")
-
-    # SM_Pistol is modelled barrel-along-+Y, so the grip needs a -90 yaw and nothing else.
-    # unreal.Rotator is (roll, pitch, yaw), and writing the C++ (pitch, yaw, roll) order here
-    # once put -90 on the pitch instead: the gun pointed through the palm and left the frame.
-    hand_rotation = prop(pistol, "hand_rotation")
-    say("  DA_Weapon_Pistol.hand_rotation   = {0}".format(hand_rotation))
-    if hand_rotation is not None and not isinstance(hand_rotation, str):
-        if abs(hand_rotation.yaw + 90.0) > 0.5 or abs(hand_rotation.pitch) > 0.5 \
-                or abs(hand_rotation.roll) > 0.5:
-            fail("DA_Weapon_Pistol.hand_rotation is {0}, expected yaw -90 and nothing else "
-                 "(unreal.Rotator takes roll, pitch, yaw)".format(hand_rotation))
-
-    pickup_class = c.load_generated_class(WORLD_PATH, "BP_Pickup_Pistol")
-    if pickup_class is not None:
-        weapon = prop(unreal.get_default_object(pickup_class), "weapon")
-        say("  BP_Pickup_Pistol.weapon           = {0}".format(weapon))
-        if "DA_Weapon_Pistol" not in str(weapon or ""):
-            fail("BP_Pickup_Pistol.weapon is not DA_Weapon_Pistol")
 
     char_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
     if char_class is not None:
@@ -459,8 +451,11 @@ def check_data_assets():
                     str(prop(obj, "objective_id")), prop(obj, "title")
                 )
             )
-        if len(objectives) != 4:
-            fail("DA_M01_CellBlockD has {0} objectives, expected 4".format(len(objectives)))
+        ids = [str(prop(obj, "objective_id")) for obj in objectives]
+        if len(objectives) != 3:
+            fail("DA_M01_CellBlockD has {0} objectives, expected 3".format(len(objectives)))
+        if "find_weapon" in ids:
+            fail("DA_M01_CellBlockD still has find_weapon; nothing can complete it after the pivot")
         say("  DA_M01_CellBlockD.flashback_to_play = {0}".format(prop(mission, "flashback_to_play")))
         end_card_line = prop(mission, "end_card_line")
         say("  DA_M01_CellBlockD.end_card_line     = '{0}'".format(end_card_line))
@@ -580,40 +575,56 @@ def label_of(actor):
 
 
 def check_m01_gameplay(actors):
-    """Mission 1 needs guards with patrol points, a door, the pickups and a nav volume."""
-    guards = [a for a in actors if "BP_Guard" in c.class_name(type(a)) or "GuardCharacter" in c.class_name(type(a))]
+    """The test map needs thugs with patrol points, a door, the keycard and a nav volume."""
+    thugs = [a for a in actors if "BP_Thug" in c.class_name(type(a)) or "ThugCharacter" in c.class_name(type(a))]
+    guards = [a for a in actors if "Guard" in c.class_name(type(a)) or label_of(a).startswith("Guard_")]
     doors = [a for a in actors if "Door" in c.class_name(type(a)) and "Frame" not in c.class_name(type(a))]
     pickups = [a for a in actors if "Pickup" in c.class_name(type(a))]
+    pistols = [a for a in pickups if "Pistol" in c.class_name(type(a)) or "Pistol" in label_of(a)]
     points = [a for a in actors if isinstance(a, unreal.TargetPoint)]
     nav = [a for a in actors if isinstance(a, unreal.NavMeshBoundsVolume)]
 
-    say("    guards: {0}, patrol points: {1}, pickups: {2}, doors: {3}, nav volumes: {4}".format(
-        len(guards), len(points), len(pickups), len(doors), len(nav)))
+    say("    thugs: {0}, patrol points: {1}, pickups: {2}, doors: {3}, nav volumes: {4}".format(
+        len(thugs), len(points), len(pickups), len(doors), len(nav)))
 
-    total_patrol = 0
-    for guard in guards:
-        assigned = list(prop(guard, "patrol_points") or [])
-        loot = list(prop(guard, "drop_on_death") or [])
-        total_patrol += len(assigned)
+    for thug in thugs:
+        assigned = list(prop(thug, "patrol_points") or [])
+        loot = list(prop(thug, "drop_on_death") or [])
         say("      {0:<16} patrol={1} drops={2}".format(
-            label_of(guard), len(assigned), ", ".join(c.class_name(x) for x in loot) or "-"))
+            label_of(thug), len(assigned), ", ".join(c.class_name(x) for x in loot) or "-"))
         if len(assigned) < 2:
-            fail("{0} has {1} patrol point(s), expected 2".format(label_of(guard), len(assigned)))
+            fail("{0} has {1} patrol point(s), expected 2".format(label_of(thug), len(assigned)))
+        if not label_of(thug).startswith("Thug_"):
+            fail("{0} is not labelled Thug_*".format(label_of(thug)))
+        for item in loot:
+            if item is None or "Keycard" not in c.class_name(item):
+                fail("{0} drops {1}; only the keycard is left after the pivot".format(
+                    label_of(thug), c.class_name(item)))
 
-    if len(guards) != 5:
-        fail("L_M01_CellBlockD has {0} guards, expected 5".format(len(guards)))
+    if len(thugs) != 5:
+        fail("L_M01_CellBlockD has {0} thugs, expected 5".format(len(thugs)))
+    if guards:
+        fail("L_M01_CellBlockD still has guards: " + ", ".join(label_of(g) for g in guards))
     if len(points) < 10:
         fail("L_M01_CellBlockD has {0} ATargetPoints, expected at least 10".format(len(points)))
     if not doors:
         fail("L_M01_CellBlockD has no BP_Door_Keycard")
-    if len(pickups) < 2:
-        fail("L_M01_CellBlockD has {0} pickups, expected at least 2".format(len(pickups)))
+    if not pickups:
+        fail("L_M01_CellBlockD has no keycard pickup")
+    if pistols:
+        fail("L_M01_CellBlockD still has a pistol pickup: " + ", ".join(label_of(p) for p in pistols))
     if not nav:
-        fail("L_M01_CellBlockD has no NavMeshBoundsVolume; guards cannot move")
+        fail("L_M01_CellBlockD has no NavMeshBoundsVolume; thugs cannot move")
 
-    looters = [g for g in guards if list(prop(g, "drop_on_death") or [])]
+    looters = [t for t in thugs if list(prop(t, "drop_on_death") or [])]
     if len(looters) != 1:
-        fail("{0} guard(s) carry loot, expected exactly 1".format(len(looters)))
+        fail("{0} thug(s) carry loot, expected exactly 1".format(len(looters)))
+
+
+SKELETAL_MESH_COMPONENTS = (
+    (AI_PATH, "BP_Thug", ("mesh",)),
+    (PLAYER_PATH, "BP_CastleCharacter", ("mesh",)),
+)
 
 
 def base_material(material):
@@ -626,12 +637,6 @@ def base_material(material):
             return None
         seen += 1
     return material if isinstance(material, unreal.Material) else None
-
-
-SKELETAL_MESH_COMPONENTS = (
-    (AI_PATH, "BP_Guard", ("mesh",)),
-    (PLAYER_PATH, "BP_CastleCharacter", ("mesh", "arms_mesh")),
-)
 
 
 def check_skeletal_material_usage():
@@ -680,8 +685,8 @@ def main():
     check_blueprints()
     check_world_blueprints()
     check_pickup_parts()
-    check_guard_presentation()
-    check_view_model()
+    check_thug_presentation()
+    check_third_person()
     check_skeletal_material_usage()
     check_weapon_data()
     check_data_assets()

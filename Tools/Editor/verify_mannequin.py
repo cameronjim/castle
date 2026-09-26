@@ -22,11 +22,11 @@ SKELETON_PATH = MANNEQUIN_PATH + "/Character/Mesh/SK_Mannequin_Skeleton"
 PHYSICS_PATH = MANNEQUIN_PATH + "/Character/Mesh/SK_Mannequin_PhysicsAsset"
 ANIM_BP_PATH = MANNEQUIN_PATH + "/Animations/ThirdPerson_AnimBP"
 
-GUARD_PATH = "/Game/Blueprints/AI"
+THUG_PATH = "/Game/Blueprints/AI"
 PLAYER_PATH = "/Game/Blueprints/Player"
 
-# Locomotion for everyone who walks: the guards, and Frank's own true-first-person body.
-ARMS_ANIM_PATHS = [
+# Locomotion for everyone who walks: the thugs and the player's third-person body.
+LOCOMOTION_ANIM_PATHS = [
     MANNEQUIN_PATH + "/Animations/ThirdPersonIdle",
     MANNEQUIN_PATH + "/Animations/ThirdPersonWalk",
 ]
@@ -82,7 +82,7 @@ def check_mesh():
     if skeleton is None:
         fail("SK_Mannequin has no skeleton; the reference did not survive the copy")
     if physics is None:
-        fail("SK_Mannequin has no physics asset; guards cannot ragdoll")
+        fail("SK_Mannequin has no physics asset; thugs cannot ragdoll")
 
     materials = list(prop(mesh, "materials") or [])
     say("  SK_Mannequin materials     = {0}".format(len(materials)))
@@ -94,16 +94,16 @@ def check_mesh():
 
 def check_locomotion_anims():
     say("---- locomotion sequences ----")
-    for path in ARMS_ANIM_PATHS:
+    for path in LOCOMOTION_ANIM_PATHS:
         if c.exists(path):
             say("  {0} loads".format(path))
         else:
-            fail(path + " is missing; guards and arms would have nothing to play")
+            fail(path + " is missing; thugs and the player would have nothing to play")
 
 
-def check_view_model():
-    # True first person: SK_Mannequin is Frank's body, and again his poseable hands.
-    say("---- first-person view model ----")
+def check_player_body():
+    # Third person: SK_Mannequin is the player's whole, visible body. No arms, no held pistol.
+    say("---- third-person player body ----")
     player_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
     if player_class is None:
         fail("BP_CastleCharacter_C would not load")
@@ -118,55 +118,49 @@ def check_view_model():
         assigned = prop(body, "skeletal_mesh_asset")
         say("  Mesh.skeletal_mesh_asset     = {0}".format(name_of(assigned)))
         say("  Mesh.relative_location       = {0}".format(prop(body, "relative_location")))
+        say("  Mesh.relative_rotation       = {0}".format(prop(body, "relative_rotation")))
         if assigned is None:
             fail("BP_CastleCharacter.Mesh has no body mesh; run create_blueprints.py")
-
-    arms = prop(cdo, "arms_mesh")
-    if arms is None:
-        fail("BP_CastleCharacter has no ArmsMesh component")
-    else:
-        try:
-            assigned = arms.get_skinned_asset()
-        except Exception:  # noqa: BLE001
-            assigned = prop(arms, "skinned_asset")
-        say("  ArmsMesh.skinned_asset       = {0}".format(name_of(assigned)))
-        if assigned is None and prop(cdo, "use_arms_mesh"):
-            fail("BP_CastleCharacter.ArmsMesh has no mesh; run create_blueprints.py")
+        for slot in range(2):
+            try:
+                material = body.get_material(slot)
+            except Exception:  # noqa: BLE001
+                material = None
+            say("  Mesh slot {0}                  = {1}".format(slot, name_of(material)))
+            if material is not None and name_of(material).startswith("M_Frank"):
+                fail("BP_CastleCharacter.Mesh still wears {0}".format(name_of(material)))
 
     for field in ("idle_anim", "walk_anim"):
         if prop(cdo, field) is None:
-            fail("BP_CastleCharacter." + field + " is unset; Frank's body stands in a T-pose")
+            fail("BP_CastleCharacter." + field + " is unset; the body stands in a T-pose")
 
-    weapon = prop(cdo, "weapon_mesh")
-    if weapon is None:
-        fail("BP_CastleCharacter has no WeaponMesh component")
-    else:
-        assigned = prop(weapon, "static_mesh")
-        say("  WeaponMesh.static_mesh       = {0}".format(name_of(assigned)))
-        if assigned is None:
-            fail("BP_CastleCharacter.WeaponMesh has no pistol; run create_blueprints.py")
+    boom = prop(cdo, "camera_boom")
+    say("  CameraBoom                   = {0}".format(name_of(boom)))
+    if boom is None:
+        fail("BP_CastleCharacter has no CameraBoom; the camera is not third person")
 
-    say("  hidden body bones            = {0}".format(list(prop(cdo, "hidden_view_model_bones") or [])))
-    say("  bUseArmsMesh                 = {0}".format(prop(cdo, "use_arms_mesh")))
+    for retired in ("arms_mesh", "weapon_mesh"):
+        if prop(cdo, retired) is not None:
+            fail("BP_CastleCharacter still has a {0} component".format(retired))
 
 
-def check_guard_look():
-    say("---- guard look ----")
-    guard_class = c.load_generated_class(GUARD_PATH, "BP_Guard")
-    if guard_class is None:
+def check_thug_look():
+    say("---- thug look ----")
+    thug_class = c.load_generated_class(THUG_PATH, "BP_Thug")
+    if thug_class is None:
         return
 
-    cdo = unreal.get_default_object(guard_class)
+    cdo = unreal.get_default_object(thug_class)
     for field in ("idle_anim", "walk_anim"):
         value = prop(cdo, field)
-        say("  BP_Guard.{0:<10} = {1}".format(field, name_of(value)))
+        say("  BP_Thug.{0:<10} = {1}".format(field, name_of(value)))
         if value is None:
-            fail("BP_Guard." + field + " is unset; the guard stands in a T-pose")
+            fail("BP_Thug." + field + " is unset; the thug stands in a T-pose")
 
     if prop(cdo, "flashlight") is None:
-        fail("BP_Guard has no flashlight component")
+        fail("BP_Thug has no flashlight component")
     else:
-        say("  BP_Guard.flashlight  = present")
+        say("  BP_Thug.flashlight  = present")
 
     component = prop(cdo, "mesh")
     for slot in (0, 1):
@@ -175,9 +169,9 @@ def check_guard_look():
             material = component.get_material(slot) if component is not None else None
         except Exception:  # noqa: BLE001
             material = None
-        say("  BP_Guard.Mesh slot {0} = {1}".format(slot, name_of(material)))
+        say("  BP_Thug.Mesh slot {0} = {1}".format(slot, name_of(material)))
         if material is None:
-            fail("BP_Guard.Mesh slot {0} has no material".format(slot))
+            fail("BP_Thug.Mesh slot {0} has no material".format(slot))
 
 
 def check_anim_bp():
@@ -188,33 +182,33 @@ def check_anim_bp():
         anim_class = None
 
     if anim_class is None:
-        say("  ThirdPerson_AnimBP_C did not load; unused, guards drive sequences directly")
+        say("  ThirdPerson_AnimBP_C did not load; unused, thugs and the player drive sequences directly")
         return
 
     say("  ThirdPerson_AnimBP_C loads ({0})".format(c.class_name(anim_class)))
 
 
-def check_guard():
-    say("---- BP_Guard ----")
-    guard_class = c.load_generated_class(GUARD_PATH, "BP_Guard")
-    if guard_class is None:
-        fail("BP_Guard_C would not load")
+def check_thug():
+    say("---- BP_Thug ----")
+    thug_class = c.load_generated_class(THUG_PATH, "BP_Thug")
+    if thug_class is None:
+        fail("BP_Thug_C would not load")
         return
 
-    cdo = unreal.get_default_object(guard_class)
+    cdo = unreal.get_default_object(thug_class)
     component = prop(cdo, "mesh")
     if component is None:
-        fail("BP_Guard has no mesh component")
+        fail("BP_Thug has no mesh component")
         return
 
     assigned = prop(component, "skeletal_mesh_asset")
-    say("  BP_Guard.Mesh.skeletal_mesh_asset = {0}".format(name_of(assigned)))
-    say("  BP_Guard.Mesh.relative_location   = {0}".format(prop(component, "relative_location")))
-    say("  BP_Guard.Mesh.relative_rotation   = {0}".format(prop(component, "relative_rotation")))
-    say("  BP_Guard.Mesh.anim_class          = {0}".format(c.class_name(prop(component, "anim_class"))))
+    say("  BP_Thug.Mesh.skeletal_mesh_asset = {0}".format(name_of(assigned)))
+    say("  BP_Thug.Mesh.relative_location   = {0}".format(prop(component, "relative_location")))
+    say("  BP_Thug.Mesh.relative_rotation   = {0}".format(prop(component, "relative_rotation")))
+    say("  BP_Thug.Mesh.anim_class          = {0}".format(c.class_name(prop(component, "anim_class"))))
 
     if assigned is None:
-        fail("BP_Guard.Mesh has no skeletal mesh; run create_world_blueprints.py")
+        fail("BP_Thug.Mesh has no skeletal mesh; run create_world_blueprints.py")
 
 
 def main():
@@ -222,9 +216,9 @@ def main():
     check_mesh()
     check_locomotion_anims()
     check_anim_bp()
-    check_guard()
-    check_guard_look()
-    check_view_model()
+    check_thug()
+    check_thug_look()
+    check_player_body()
     if PROBLEMS:
         unreal.log_error("[Mannequin] FAIL: {0} problem(s)".format(len(PROBLEMS)))
         for problem in PROBLEMS:
