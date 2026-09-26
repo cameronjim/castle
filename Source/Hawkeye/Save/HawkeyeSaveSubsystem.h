@@ -46,7 +46,7 @@ public:
 	virtual void Deinitialize() override;
 	//~ End USubsystem interface
 
-	/** Set by tests so the player's campaign is never touched. Empty in game. */
+	/** Set by tests so the player's campaign is never touched. Empty in game; automation runs use "HawkeyeCampaignAutomation". */
 	UPROPERTY(Transient)
 	FString SlotNameOverride;
 
