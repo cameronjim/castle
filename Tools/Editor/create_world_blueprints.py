@@ -1,6 +1,6 @@
 """Create the stage-2 world, AI and HUD Blueprints and wire their class defaults.
 
-    /Game/Blueprints/UI/WBP_Hud                parent UCastleHudWidget, HotbarWidgetClass
+    /Game/Blueprints/UI/WBP_Hud                parent UHawkeyeHudWidget, HotbarWidgetClass
     /Game/Blueprints/World/BP_Pickup_Keycard   parent APickupActor, Keycard "cellblock"
     /Game/Blueprints/World/BP_Door_Keycard     parent ADoorActor, locked on "cellblock"
     /Game/Blueprints/AI/BP_Thug                parent AThugCharacter, mannequin mesh in a red
@@ -12,7 +12,7 @@
 
 Then:
 
-    BP_CastlePlayerController.HudWidgetClass = WBP_Hud_C
+    BP_HawkeyePlayerController.HudWidgetClass = WBP_Hud_C
 
 Meshes are /Engine/BasicShapes/Cube scaled into shape, so nothing here needs art. Every step
 is idempotent: an existing Blueprint is loaded and only missing defaults are set.
@@ -56,7 +56,7 @@ M_THUG_VISOR = THUG_MATERIAL_PATH + "/M_ThugVisor"
 M_THUG_TRACKSUIT = THUG_MATERIAL_PATH + "/M_ThugTracksuit"
 M_THUG_TRIM = THUG_MATERIAL_PATH + "/M_ThugTrim"
 THUG_MATERIAL_VERSION = "tracksuit-4"     # bump to rebuild both graphs on the next run
-THUG_VERSION_TAG = "CastleVersion"
+THUG_VERSION_TAG = "CastleVersion"  # pre-rename key, kept: saved materials carry it
 TRACKSUIT_RED = (0.6, 0.05, 0.05)
 TRACKSUIT_STRIPE = (0.85, 0.85, 0.85)
 SKI_MASK = (0.012, 0.012, 0.012)
@@ -106,7 +106,7 @@ def set_component_mesh(bp, component_name, mesh_asset, scale, relative_location=
         pass
     if component is None:
         unreal.log_warning(
-            "[Castle] skipped   {0}.{1}: no such component".format(bp.get_name(), component_name)
+            "[Hawkeye] skipped   {0}.{1}: no such component".format(bp.get_name(), component_name)
         )
         return False
 
@@ -298,7 +298,7 @@ def _build_anchor_steel(material):
 def make_grapple_anchor():
     """BP_GrappleAnchor: AGrappleAnchor's 40 cm cube in dark steel. The C++ sets mesh and size;
     only the material is data. generate_city.py places it on the district's roofs."""
-    parent = c.find_class("GrappleAnchor", "/Script/Castle.GrappleAnchor")
+    parent = c.find_class("GrappleAnchor", "/Script/Hawkeye.GrappleAnchor")
     bp, created = cb.make_blueprint(ANCHOR_NAME, WORLD_PATH, parent, ("BlueprintFactory",))
     if bp is None:
         return None
@@ -366,7 +366,7 @@ def make_traversable_block():
 
 
 def make_hud():
-    widget_parent = c.find_class("CastleHudWidget", "/Script/Castle.CastleHudWidget")
+    widget_parent = c.find_class("HawkeyeHudWidget", "/Script/Hawkeye.HawkeyeHudWidget")
     bp, _ = cb.make_blueprint("WBP_Hud", UI_PATH, widget_parent, ("WidgetBlueprintFactory",))
     if bp is not None:
         c.compile_blueprint(bp)
@@ -459,7 +459,7 @@ def shape_keycard(bp, cube, materials):
 
 
 def make_pickup(name, values, shape_fn):
-    parent = c.find_class("PickupActor", "/Script/Castle.PickupActor")
+    parent = c.find_class("PickupActor", "/Script/Hawkeye.PickupActor")
     bp, _ = cb.make_blueprint(name, WORLD_PATH, parent, ("BlueprintFactory",))
     if bp is None:
         return None
@@ -478,7 +478,7 @@ def make_pickup(name, values, shape_fn):
 
 
 def make_door(door_material):
-    parent = c.find_class("DoorActor", "/Script/Castle.DoorActor")
+    parent = c.find_class("DoorActor", "/Script/Hawkeye.DoorActor")
     bp, _ = cb.make_blueprint("BP_Door_Keycard", WORLD_PATH, parent, ("BlueprintFactory",))
     if bp is None:
         return None
@@ -522,7 +522,7 @@ def make_door(door_material):
 
 
 def make_thug():
-    parent = c.find_class("ThugCharacter", "/Script/Castle.ThugCharacter")
+    parent = c.find_class("ThugCharacter", "/Script/Hawkeye.ThugCharacter")
     bp, _ = cb.make_blueprint("BP_Thug", AI_PATH, parent, ("BlueprintFactory",))
     if bp is None:
         return None
@@ -532,7 +532,7 @@ def make_thug():
 
     # apply_defaults compares with ==, which is false for two handles to the same UClass, so
     # the controller class would be re-set (and the asset re-saved) on every run. Compare names.
-    controller_class = c.find_class("ThugAIController", "/Script/Castle.ThugAIController")
+    controller_class = c.find_class("ThugAIController", "/Script/Hawkeye.ThugAIController")
     values = [("auto_possess_ai", unreal.AutoPossessAI.PLACED_IN_WORLD_OR_SPAWNED)]
     cdo = c.blueprint_cdo(bp)
     current = None
@@ -552,12 +552,12 @@ def make_thug():
             capsule = cdo.get_editor_property("capsule_component")
             capsule.set_capsule_size(34.0, 96.0)
         except Exception as exc:  # noqa: BLE001
-            unreal.log_warning("[Castle] skipped   BP_Thug capsule size ({0})".format(exc))
+            unreal.log_warning("[Hawkeye] skipped   BP_Thug capsule size ({0})".format(exc))
         try:
             movement = cdo.get_editor_property("character_movement")
             movement.set_editor_property("max_walk_speed", 300.0)
         except Exception as exc:  # noqa: BLE001
-            unreal.log_warning("[Castle] skipped   BP_Thug walk speed ({0})".format(exc))
+            unreal.log_warning("[Hawkeye] skipped   BP_Thug walk speed ({0})".format(exc))
 
     # Idle, walk and run as plain sequences: AThugCharacter swaps between them in Tick, because
     # the pack's AnimBP does not compile headless and left every thug in a T-pose. Run is the
@@ -755,13 +755,13 @@ def remove_thug_body(bp):
 
 
 def wire_hud_into_controller():
-    bp = c.load_or_none(c.asset_path(PLAYER_PATH, "BP_CastlePlayerController"))
+    bp = c.load_or_none(c.asset_path(PLAYER_PATH, "BP_HawkeyePlayerController"))
     if bp is None:
-        c.log("skipped", "BP_CastlePlayerController.hud_widget_class", "Blueprint not found")
+        c.log("skipped", "BP_HawkeyePlayerController.hud_widget_class", "Blueprint not found")
         return
     hud_class = c.load_generated_class(UI_PATH, "WBP_Hud")
     cb.apply_defaults(
-        bp, "BP_CastlePlayerController", PLAYER_PATH, [("hud_widget_class", hud_class)]
+        bp, "BP_HawkeyePlayerController", PLAYER_PATH, [("hud_widget_class", hud_class)]
     )
 
 

@@ -22,7 +22,7 @@ Rules this script obeys:
 
 Run headless (after the other content scripts):
 
-    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+    UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
         -script="Tools\\Editor\\create_room_art.py" -unattended -nullrhi -nosplash -nop4 -stdout
 """
 
@@ -236,12 +236,12 @@ EXIT_SIGN = ("Art_ExitSign_Station", (2290.0, 0.0, 330.0), (10.0, 60.0, 16.0))
 # a fixed exposure that would blow a fluorescent-lit interior out to white without a
 # stop-down. Two presets, one env var, one number to change to revert:
 #
-#   default (CASTLE_BRIGHT unset or "0")  -> ROOM_EXPOSURE_EV_NORMAL, dark but seeable,
+#   default (HAWKEYE_BRIGHT unset or "0")  -> ROOM_EXPOSURE_EV_NORMAL, dark but seeable,
 #                                             the shipped look
-#   CASTLE_BRIGHT=1                       -> ROOM_EXPOSURE_EV_TESTING, brighter, for
+#   HAWKEYE_BRIGHT=1                       -> ROOM_EXPOSURE_EV_TESTING, brighter, for
 #                                             playtesting layout and AI
 #
-# Tools/create-content.ps1 -Bright sets CASTLE_BRIGHT=1 for the content-script process.
+# Tools/create-content.ps1 -Bright sets HAWKEYE_BRIGHT=1 for the content-script process.
 # The numbers themselves live in _materials, because create_world_blueprints.py asks for the
 # same lamp instances and the two have to agree or each run undoes the other's tuning.
 ROOM_EXPOSURE_EV_NORMAL = m.ROOM_EXPOSURE_EV_NORMAL   # the shipped look: dark but seeable
@@ -329,7 +329,7 @@ def set_props_if_changed(obj, values, context=""):
             obj.set_editor_property(prop, value)
             applied.append(prop)
         except Exception as exc:  # noqa: BLE001
-            unreal.log_warning("[Castle] skipped   {0}.{1}  ({2}: {3})".format(
+            unreal.log_warning("[Hawkeye] skipped   {0}.{1}  ({2}: {3})".format(
                 context or c.safe_name(obj), prop, type(exc).__name__, exc))
     return applied
 
@@ -888,9 +888,9 @@ def run():
     c.log(
         "note",
         "exposure preset",
-        "{0} (CASTLE_BRIGHT={1}) EV {2:.1f}, emissive x{3:.3f}".format(
+        "{0} (HAWKEYE_BRIGHT={1}) EV {2:.1f}, emissive x{3:.3f}".format(
             "testing" if BRIGHT else "normal",
-            os.environ.get("CASTLE_BRIGHT", "0"),
+            os.environ.get("HAWKEYE_BRIGHT", "0"),
             ROOM_EXPOSURE_EV,
             EMISSIVE_INTENSITY_FACTOR,
         ),
@@ -898,7 +898,7 @@ def run():
     materials = m.run(EMISSIVE_INTENSITY_FACTOR)
     greybox = c.load_or_none(GREYBOX_PATH)
     if greybox is None:
-        unreal.log_warning("[Castle] M_Greybox missing; the spare ceilings stay untextured")
+        unreal.log_warning("[Hawkeye] M_Greybox missing; the spare ceilings stay untextured")
     materials["greybox"] = greybox
     _STATE["materials"] = materials
 
@@ -919,7 +919,7 @@ def run():
         len(_STATE["patrol"])))
 
     for title, fn in STEPS:
-        unreal.log("[Castle] ---- {0} ----".format(title))
+        unreal.log("[Hawkeye] ---- {0} ----".format(title))
         try:
             fn()
         except Exception as exc:  # noqa: BLE001

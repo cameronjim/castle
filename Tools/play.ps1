@@ -1,4 +1,4 @@
-# Launches the Castle game standalone (no editor UI) for fast iteration on feel.
+# Launches the Hawkeye game standalone (no editor UI) for fast iteration on feel.
 # Refuses to start if an editor instance is already running - this machine has 16 GB RAM
 # and editor + standalone game at once will thrash.
 # Usage: .\Tools\play.ps1 [-Map /Game/Maps/L_M01_CellBlockD] [-Fullscreen]
@@ -11,7 +11,7 @@ param(
 )
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$Proj = Join-Path $Root "Castle.uproject"
+$Proj = Join-Path $Root "Hawkeye.uproject"
 $Exe = Join-Path $Engine "Engine\Binaries\Win64\UnrealEditor.exe"
 
 if (-not (Test-Path $Exe)) { Write-Error "UnrealEditor.exe not found at $Exe"; exit 2 }
@@ -28,4 +28,4 @@ if ($Fullscreen) {
 }
 
 Start-Process -FilePath $Exe -ArgumentList $ArgList -WorkingDirectory $Root
-Write-Host "Launching Castle standalone on $Proj ($Map)"
+Write-Host "Launching Hawkeye standalone on $Proj ($Map)"

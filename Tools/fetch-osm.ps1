@@ -66,7 +66,7 @@ if ((Test-Path $RawFile) -and -not $Force) {
             # overpass-api.de answers 406 to the default PowerShell user agent.
             $headers = @{ "Accept" = "application/json" }
             $resp = Invoke-WebRequest -Uri $url -Method Post -Body $body -Headers $headers `
-                -UserAgent "castle-city-generator/1.0 (hobby game project; github.com/cameronjim/castle)" `
+                -UserAgent "hawkeye-city-generator/1.0 (hobby game project; github.com/cameronjim/hawkeye)" `
                 -ContentType "application/x-www-form-urlencoded" -UseBasicParsing -TimeoutSec 180
             if ($resp.StatusCode -ne 200) { throw "HTTP $($resp.StatusCode)" }
             $text = $resp.Content

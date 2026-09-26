@@ -6,7 +6,7 @@
     2b. import_gasp                the Game Animation Sample's sandbox character, AnimBP and
                                    UEFN mannequin, copied from the local GASP install (skipped
                                    when the sample is not installed; before BP_Kate derives from it)
-    3. create_blueprints           BP_Castle* and WBP_Flashback (before the maps that use them)
+    3. create_blueprints           BP_Hawkeye* and WBP_Flashback (before the maps that use them)
     3b. create_world_blueprints    WBP_Hud, BP_Pickup_Keycard, BP_Door_Keycard, BP_Thug
     3c. create_weapon_data         DA_Weapon_Hands
     4. create_mission_data         DA_M01_CellBlockD, DA_FB01_Sunday
@@ -21,7 +21,7 @@
 
 Run headless:
 
-    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+    UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
         -script="Tools\\Editor\\create_all.py" -unattended -nullrhi -nosplash -nop4 -stdout
 
 or via Tools\\create-content.ps1. Every step is idempotent, so re-running only fills gaps.
@@ -52,9 +52,9 @@ STEPS = [
     ("city", "generate_city"),
 ]
 
-# Module names to leave out of this run, comma separated, e.g. CASTLE_SKIP_STEPS=generate_city.
+# Module names to leave out of this run, comma separated, e.g. HAWKEYE_SKIP_STEPS=generate_city.
 SKIP_STEPS = set(
-    name.strip() for name in os.environ.get("CASTLE_SKIP_STEPS", "").split(",") if name.strip())
+    name.strip() for name in os.environ.get("HAWKEYE_SKIP_STEPS", "").split(",") if name.strip())
 
 # Steps that need downloaded data: skipped (not failed) until the file exists.
 STEP_REQUIRES = {
@@ -66,15 +66,15 @@ STEP_REQUIRES = {
 
 def main():
     c.reset_summary()
-    unreal.log("[Castle] ==== creating stage 1-2 starter content ====")
+    unreal.log("[Hawkeye] ==== creating stage 1-2 starter content ====")
 
     failures = []
     for step in STEPS:
         title, module_name = step[0], step[1]
         function_name = step[2] if len(step) > 2 else "run"
-        unreal.log("[Castle] ---- {0} ----".format(title))
+        unreal.log("[Hawkeye] ---- {0} ----".format(title))
         if module_name in SKIP_STEPS:
-            c.log("skipped", title, "CASTLE_SKIP_STEPS")
+            c.log("skipped", title, "HAWKEYE_SKIP_STEPS")
             continue
         required = STEP_REQUIRES.get(module_name)
         if required and not os.path.exists(required):
@@ -86,19 +86,19 @@ def main():
         except Exception as exc:  # noqa: BLE001 - one broken step must not stop the rest
             failures.append(title)
             unreal.log_error(
-                "[Castle] FAILED   step '{0}' ({1}: {2})".format(title, type(exc).__name__, exc)
+                "[Hawkeye] FAILED   step '{0}' ({1}: {2})".format(title, type(exc).__name__, exc)
             )
             unreal.log_error(traceback.format_exc())
 
-    unreal.log("[Castle] ==== summary ====")
+    unreal.log("[Hawkeye] ==== summary ====")
     for action, path, extra in c.summary():
-        unreal.log("[Castle] {0:<8} {1}{2}".format(action, path, "  (" + extra + ")" if extra else ""))
+        unreal.log("[Hawkeye] {0:<8} {1}{2}".format(action, path, "  (" + extra + ")" if extra else ""))
 
     counts = c.print_summary("content creation complete")
     if failures:
-        unreal.log_error("[Castle] steps that raised: " + ", ".join(failures))
+        unreal.log_error("[Hawkeye] steps that raised: " + ", ".join(failures))
     if counts.get("FAILED"):
-        unreal.log_error("[Castle] {0} asset(s) failed".format(counts["FAILED"]))
+        unreal.log_error("[Hawkeye] {0} asset(s) failed".format(counts["FAILED"]))
     return counts
 
 

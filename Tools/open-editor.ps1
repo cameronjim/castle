@@ -1,4 +1,4 @@
-# Opens the Castle project in Unreal Editor 5.8 directly, bypassing the .uproject file
+# Opens the Hawkeye project in Unreal Editor 5.8 directly, bypassing the .uproject file
 # association (which needs UnrealVersionSelector and a verb, and breaks easily on Windows 11).
 # Usage: .\Tools\open-editor.ps1 [-Map /Game/Maps/L_M01_CellBlockD] [-Game]
 #   -Map   open the editor on that map (or, with -Game, play it standalone)
@@ -10,7 +10,7 @@ param(
 )
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$Proj = Join-Path $Root "Castle.uproject"
+$Proj = Join-Path $Root "Hawkeye.uproject"
 $Exe = Join-Path $Engine "Engine\Binaries\Win64\UnrealEditor.exe"
 
 if (-not (Test-Path $Exe)) { Write-Error "UnrealEditor.exe not found at $Exe"; exit 2 }

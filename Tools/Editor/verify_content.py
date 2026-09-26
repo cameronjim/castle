@@ -3,7 +3,7 @@
 Read-only: nothing is created, changed or saved. Exits by printing a PASS/FAIL line so the
 output can be eyeballed or grepped after a content run.
 
-    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+    UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
         -script="Tools\\Editor\\verify_content.py" -unattended -nullrhi -nosplash -nop4 -stdout
 """
 
@@ -73,12 +73,12 @@ EXPECTED = (
     [c.asset_path(INPUT_PATH, n) for n in IA_NAMES]
     + [
         c.asset_path(INPUT_PATH, "IMC_Default"),
-        c.asset_path(PLAYER_PATH, "BP_CastleCharacter"),
+        c.asset_path(PLAYER_PATH, "BP_HawkeyeCharacter"),
         c.asset_path(PLAYER_PATH, "BP_Kate"),
         KATE_MATERIAL_PATH + "/M_KateSuit",
         KATE_MATERIAL_PATH + "/M_KateSuitDark",
-        c.asset_path(PLAYER_PATH, "BP_CastlePlayerController"),
-        c.asset_path(PLAYER_PATH, "BP_CastleGameMode"),
+        c.asset_path(PLAYER_PATH, "BP_HawkeyePlayerController"),
+        c.asset_path(PLAYER_PATH, "BP_HawkeyeGameMode"),
         c.asset_path(UI_PATH, "WBP_Flashback"),
         c.asset_path(UI_PATH, "WBP_Hud"),
         c.asset_path(UI_PATH, "WBP_Pause"),
@@ -228,37 +228,37 @@ def check_input():
 
 def check_blueprints():
     say("---- blueprints ----")
-    char_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    char_class = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeCharacter")
     if char_class is None:
-        fail("BP_CastleCharacter_C")
+        fail("BP_HawkeyeCharacter_C")
     else:
         cdo = unreal.get_default_object(char_class)
         for name in CHARACTER_INPUT_PROPS:
             value = prop(cdo, name)
-            say("  BP_CastleCharacter.{0:<24} = {1}".format(name, name_of(value)))
+            say("  BP_HawkeyeCharacter.{0:<24} = {1}".format(name, name_of(value)))
             if value is None:
-                fail("BP_CastleCharacter." + name + " is unset")
+                fail("BP_HawkeyeCharacter." + name + " is unset")
 
-    gm_class = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
+    gm_class = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeGameMode")
     if gm_class is None:
-        fail("BP_CastleGameMode_C")
+        fail("BP_HawkeyeGameMode_C")
     else:
         cdo = unreal.get_default_object(gm_class)
         for name in ("default_pawn_class", "player_controller_class", "starting_mission"):
-            say("  BP_CastleGameMode.{0:<24} = {1}".format(name, name_of(prop(cdo, name))))
+            say("  BP_HawkeyeGameMode.{0:<24} = {1}".format(name, name_of(prop(cdo, name))))
         if "BP_Kate" not in name_of(prop(cdo, "default_pawn_class")):
-            fail("BP_CastleGameMode.default_pawn_class is not BP_Kate; you would play the base Blueprint")
+            fail("BP_HawkeyeGameMode.default_pawn_class is not BP_Kate; you would play the base Blueprint")
 
-    pc_class = c.load_generated_class(PLAYER_PATH, "BP_CastlePlayerController")
+    pc_class = c.load_generated_class(PLAYER_PATH, "BP_HawkeyePlayerController")
     if pc_class is None:
-        fail("BP_CastlePlayerController_C")
+        fail("BP_HawkeyePlayerController_C")
     else:
         cdo = unreal.get_default_object(pc_class)
         for name in CONTROLLER_PROPS:
             value = prop(cdo, name)
-            say("  BP_CastlePlayerController.{0:<24} = {1}".format(name, name_of(value)))
+            say("  BP_HawkeyePlayerController.{0:<24} = {1}".format(name, name_of(value)))
             if value is None:
-                fail("BP_CastlePlayerController." + name + " is unset")
+                fail("BP_HawkeyePlayerController." + name + " is unset")
 
 
 def value_text(value):
@@ -420,9 +420,9 @@ def check_third_person():
     """The placeholder third-person player: a visible mannequin under a spring arm, no viewmodel."""
     say("---- third-person player ----")
 
-    cls = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    cls = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeCharacter")
     if cls is None:
-        fail("BP_CastleCharacter_C")
+        fail("BP_HawkeyeCharacter_C")
         return
 
     cdo = unreal.get_default_object(cls)
@@ -431,15 +431,15 @@ def check_third_person():
     body_asset = prop(body, "skeletal_mesh_asset") if body is not None else None
     say("  Mesh.skeletal_mesh_asset     = {0}".format(name_of(body_asset)))
     if body_asset is None:
-        fail("BP_CastleCharacter.Mesh has no body mesh; run create_blueprints.py")
+        fail("BP_HawkeyeCharacter.Mesh has no body mesh; run create_blueprints.py")
     if body is not None and prop(body, "owner_no_see"):
-        fail("BP_CastleCharacter.Mesh is hidden from its owner; the player would be invisible")
+        fail("BP_HawkeyeCharacter.Mesh is hidden from its owner; the player would be invisible")
 
     for field in ("idle_anim", "walk_anim", "run_anim", "fall_anim"):
         value = prop(cdo, field)
-        say("  BP_CastleCharacter.{0:<9} = {1}".format(field, name_of(value)))
+        say("  BP_HawkeyeCharacter.{0:<9} = {1}".format(field, name_of(value)))
         if value is None:
-            fail("BP_CastleCharacter." + field + " is unset; the body stands in a T-pose")
+            fail("BP_HawkeyeCharacter." + field + " is unset; the body stands in a T-pose")
 
     boom = prop(cdo, "camera_boom")
     camera = prop(cdo, "follow_camera")
@@ -447,27 +447,27 @@ def check_third_person():
     say("  CameraBoom.socket_offset     = {0}".format(prop(boom, "socket_offset") if boom else None))
     say("  FollowCamera                 = {0}".format(name_of(camera)))
     if boom is None:
-        fail("BP_CastleCharacter has no CameraBoom")
+        fail("BP_HawkeyeCharacter has no CameraBoom")
     elif not prop(boom, "use_pawn_control_rotation"):
-        fail("BP_CastleCharacter.CameraBoom does not follow the control rotation")
+        fail("BP_HawkeyeCharacter.CameraBoom does not follow the control rotation")
     if camera is None:
-        fail("BP_CastleCharacter has no FollowCamera")
+        fail("BP_HawkeyeCharacter has no FollowCamera")
 
     for retired in ("arms_mesh", "weapon_mesh", "fatigues_material", "use_arms_mesh"):
         if prop(cdo, retired) is not None:
-            fail("BP_CastleCharacter still has {0}; the viewmodel code is back".format(retired))
+            fail("BP_HawkeyeCharacter still has {0}; the viewmodel code is back".format(retired))
 
     movement = prop(cdo, "character_movement")
     say("  orient_rotation_to_movement  = {0}".format(prop(movement, "orient_rotation_to_movement")))
     if movement is not None and not prop(movement, "orient_rotation_to_movement"):
-        fail("BP_CastleCharacter does not turn to face where it moves")
+        fail("BP_HawkeyeCharacter does not turn to face where it moves")
 
 
 def check_kate():
-    """BP_Kate: a BP_CastleCharacter descendant, 170 cm capsule, mannequin in the purple suit.
+    """BP_Kate: a BP_HawkeyeCharacter descendant, 170 cm capsule, mannequin in the purple suit.
 
     With the Game Animation Sample imported her parent is SandboxCharacter_CMC (itself on
-    BP_CastleCharacter); verify_gasp.py checks that chain and the AnimBP in detail.
+    BP_HawkeyeCharacter); verify_gasp.py checks that chain and the AnimBP in detail.
     """
     say("---- BP_Kate ----")
 
@@ -485,8 +485,8 @@ def check_kate():
     except Exception:  # noqa: BLE001
         parent = None
     say("  parent_class                 = {0}".format(parent))
-    if not any(name in str(parent or "") for name in ("BP_CastleCharacter", "SandboxCharacter_CMC")):
-        fail("BP_Kate's parent is {0}, expected SandboxCharacter_CMC or BP_CastleCharacter".format(parent))
+    if not any(name in str(parent or "") for name in ("BP_HawkeyeCharacter", "SandboxCharacter_CMC")):
+        fail("BP_Kate's parent is {0}, expected SandboxCharacter_CMC or BP_HawkeyeCharacter".format(parent))
 
     cdo = unreal.get_default_object(cls)
     capsule = prop(cdo, "capsule_component")
@@ -520,7 +520,7 @@ def check_kate():
         value = prop(cdo, field)
         say("  BP_Kate.{0:<24} = {1}".format(field, name_of(value)))
         if value is None:
-            fail("BP_Kate." + field + " is unset; it should inherit from BP_CastleCharacter")
+            fail("BP_Kate." + field + " is unset; it should inherit from BP_HawkeyeCharacter")
 
     inventory = prop(cdo, "inventory_component")
     hands = prop(inventory, "hands_definition") if inventory is not None else None
@@ -569,19 +569,19 @@ def check_weapon_data():
         if projectile not in str(name_of(cls)):
             fail("{0}.projectile_class is {1}, expected {2}_C".format(arrow, name_of(cls), projectile))
 
-    char_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    char_class = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeCharacter")
     if char_class is not None:
         inventory = prop(unreal.get_default_object(char_class), "inventory_component")
         hands = prop(inventory, "hands_definition") if inventory is not None else None
-        say("  BP_CastleCharacter.Inventory.hands_definition = {0}".format(hands))
+        say("  BP_HawkeyeCharacter.Inventory.hands_definition = {0}".format(hands))
         if inventory is None:
-            fail("BP_CastleCharacter has no InventoryComponent")
+            fail("BP_HawkeyeCharacter has no InventoryComponent")
         elif "DA_Weapon_Hands" not in str(hands or ""):
-            fail("BP_CastleCharacter.InventoryComponent.hands_definition is not DA_Weapon_Hands")
+            fail("BP_HawkeyeCharacter.InventoryComponent.hands_definition is not DA_Weapon_Hands")
         standard = prop(inventory, "standard_arrow_definition") if inventory is not None else None
-        say("  BP_CastleCharacter.Inventory.standard_arrow_definition = {0}".format(standard))
+        say("  BP_HawkeyeCharacter.Inventory.standard_arrow_definition = {0}".format(standard))
         if "DA_Arrow_Standard" not in str(standard or ""):
-            fail("BP_CastleCharacter.InventoryComponent.standard_arrow_definition is not DA_Arrow_Standard")
+            fail("BP_HawkeyeCharacter.InventoryComponent.standard_arrow_definition is not DA_Arrow_Standard")
 
 
 def check_data_assets():
@@ -797,7 +797,7 @@ def check_m01_gameplay(actors):
 
 SKELETAL_MESH_COMPONENTS = (
     (AI_PATH, "BP_Thug", ("mesh",)),
-    (PLAYER_PATH, "BP_CastleCharacter", ("mesh",)),
+    (PLAYER_PATH, "BP_HawkeyeCharacter", ("mesh",)),
     (PLAYER_PATH, "BP_Kate", ("mesh",)),
 )
 

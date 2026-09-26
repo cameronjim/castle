@@ -2,7 +2,7 @@
 
     IA_Move, IA_Look                (Axis2D)
     IA_LookStick                    (Axis2D, gamepad right stick; kept apart from IA_Look so
-                                     ACastleCharacter's handler can scale it by delta time)
+                                     AHawkeyeCharacter's handler can scale it by delta time)
     IA_Jump  IA_Sprint  IA_Crouch  IA_Fire  IA_Aim  IA_Reload
     IA_Takedown  IA_Interact  IA_Pause  IA_Skip   (Digital / bool)
     IA_Slot1 .. IA_Slot6  IA_Inventory             (Digital / bool, keys 1..6: quiver slots)
@@ -106,12 +106,12 @@ MAPPINGS = [
     ("IA_SlotScroll", "MouseWheelAxis", []),
     ("IA_Inventory", "Tab", []),
     ("IA_Grapple", "Q", []),
-    # V: a bow strike. Tap for the light, hold 0.4 s for the heavy (ACastleCharacter decides).
+    # V: a bow strike. Tap for the light, hold 0.4 s for the heavy (AHawkeyeCharacter decides).
     ("IA_Melee", "V", []),
 
     # --- Gamepad (Xbox layout; a PlayStation pad reports the same Gamepad_* keys) --------------
     ("IA_Move", "Gamepad_Left2D", [STICK_MOVE_DEADZONE]),
-    # IA_Look stays mouse-only; the stick drives IA_LookStick instead so ACastleCharacter's
+    # IA_Look stays mouse-only; the stick drives IA_LookStick instead so AHawkeyeCharacter's
     # handler (which must scale by delta time and StickSensitivity) has an unambiguous source.
     ("IA_LookStick", "Gamepad_Right2D", [STICK_LOOK_DEADZONE, STICK_LOOK_SCALAR, NEGATE_Y]),
     ("IA_Jump", "Gamepad_FaceButton_Bottom", []),               # A
@@ -123,7 +123,7 @@ MAPPINGS = [
     ("IA_Aim", "Gamepad_LeftTrigger", []),                       # LT
     ("IA_Grapple", "Gamepad_RightShoulder", []),                # RB
     ("IA_Melee", "Gamepad_FaceButton_Left", []),                # X: strike
-    # Takedown and Interact share Y: ACastleCharacter binds Takedown first and has Interact back
+    # Takedown and Interact share Y: AHawkeyeCharacter binds Takedown first and has Interact back
     # off for that press when a takedown just landed (see Input_Takedown/Input_Interact).
     ("IA_Takedown", "Gamepad_FaceButton_Top", []),              # Y
     ("IA_Interact", "Gamepad_FaceButton_Top", []),              # Y
@@ -160,7 +160,7 @@ def create_actions():
     factory = c.new_factory("InputAction_Factory", "InputActionFactory")
     if factory is None:
         unreal.log_warning(
-            "[Castle] no UInputAction factory class exposed; falling back to factory=None"
+            "[Hawkeye] no UInputAction factory class exposed; falling back to factory=None"
         )
 
     created = {}
@@ -217,7 +217,7 @@ def _resolve_prop_value(value):
         resolved = resolve_enum_value(value[1], value[2])
         if resolved is None:
             unreal.log_warning(
-                "[Castle] enum {0}.{1} not exposed to Python".format(value[1], value[2])
+                "[Hawkeye] enum {0}.{1} not exposed to Python".format(value[1], value[2])
             )
         return resolved
     return value
@@ -227,7 +227,7 @@ def build_modifier(imc, spec):
     cls_name, props = spec
     cls = getattr(unreal, cls_name, None)
     if cls is None:
-        unreal.log_warning("[Castle] modifier class {0} not exposed to Python".format(cls_name))
+        unreal.log_warning("[Hawkeye] modifier class {0} not exposed to Python".format(cls_name))
         return None
     modifier = unreal.new_object(cls, outer=imc)
     if props:
@@ -286,7 +286,7 @@ def create_mapping_context(actions):
             action = actions.get(action_name)
             if action is None:
                 unreal.log_warning(
-                    "[Castle] skipped mapping {0} -> {1}: action asset missing".format(
+                    "[Hawkeye] skipped mapping {0} -> {1}: action asset missing".format(
                         key_name, action_name
                     )
                 )
@@ -301,7 +301,7 @@ def create_mapping_context(actions):
         container, mappings = read_mappings(imc)
         if len(mappings) != len(ordered_specs):
             unreal.log_warning(
-                "[Castle] IMC mapping count {0} != expected {1}; modifiers not applied".format(
+                "[Hawkeye] IMC mapping count {0} != expected {1}; modifiers not applied".format(
                     len(mappings), len(ordered_specs)
                 )
             )

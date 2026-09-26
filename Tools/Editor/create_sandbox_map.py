@@ -4,7 +4,7 @@
     /Game/Maps/L_M01_CellBlockD   rough greybox of Cell Block D per docs/plans/02-prototype.md
 
 Both get lighting, a PlayerStart and a World Settings GameMode override pointing at
-BP_CastleGameMode. The mission map also gets four objective trigger volumes
+BP_HawkeyeGameMode. The mission map also gets four objective trigger volumes
 (AObjectiveTriggerVolume when it is spawnable from Python, plain ATriggerBox otherwise).
 
 Geometry is cubes: /Engine/BasicShapes/Cube is 100 cm, so scale = size_cm / 100.
@@ -230,7 +230,7 @@ def add_lighting():
     if atmosphere is not None:
         c.spawn_actor(atmosphere, unreal.Vector(0.0, 0.0, 0.0), label="SkyAtmosphere")
     else:
-        unreal.log_warning("[Castle] neither SkyAtmosphere nor AtmosphericFog is available")
+        unreal.log_warning("[Hawkeye] neither SkyAtmosphere nor AtmosphericFog is available")
 
     pp = c.spawn_actor(unreal.PostProcessVolume, unreal.Vector(0.0, 0.0, 0.0), label="PP_Global")
     if pp is not None:
@@ -238,9 +238,9 @@ def add_lighting():
 
 
 def apply_game_mode(level_label):
-    game_mode = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
+    game_mode = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeGameMode")
     if game_mode is None:
-        c.log("skipped", level_label, "BP_CastleGameMode_C not found; GameMode override unset")
+        c.log("skipped", level_label, "BP_HawkeyeGameMode_C not found; GameMode override unset")
         return False
     return c.set_level_game_mode(game_mode, level_label)
 
@@ -348,9 +348,9 @@ def ensure_game_mode(package_path):
 
     changed = fix_existing_lights() + fix_missing_scene_actors() + fix_existing_materials()
 
-    game_mode = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
+    game_mode = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeGameMode")
     if game_mode is None:
-        c.log("exists", package_path, "BP_CastleGameMode_C not found; override left unset")
+        c.log("exists", package_path, "BP_HawkeyeGameMode_C not found; override left unset")
     else:
         settings = c.world_settings()
         already_set = False
@@ -361,7 +361,7 @@ def ensure_game_mode(package_path):
                 pass
         if not already_set and c.set_level_game_mode(game_mode, package_path):
             changed += 1
-            c.log("updated", package_path, "GameMode override = BP_CastleGameMode_C")
+            c.log("updated", package_path, "GameMode override = BP_HawkeyeGameMode_C")
 
     if changed:
         save_level()
@@ -417,7 +417,7 @@ def build_sandbox():
 
 
 def trigger_class():
-    cls = c.find_class("ObjectiveTriggerVolume", "/Script/Castle.ObjectiveTriggerVolume")
+    cls = c.find_class("ObjectiveTriggerVolume", "/Script/Hawkeye.ObjectiveTriggerVolume")
     if cls is not None:
         return cls, True
     return unreal.TriggerBox, False

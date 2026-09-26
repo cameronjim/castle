@@ -1,4 +1,4 @@
-"""Procedural material helpers for the Castle art passes.
+"""Procedural material helpers for the Hawkeye art passes.
 
 Everything here is built out of engine material expressions - no imported textures, no
 downloads. The room-art pass (``create_room_art.py``) is the only consumer so far.
@@ -26,11 +26,11 @@ MATERIALS_PATH = "/Game/Materials"
 # The factor lives here so both agree: when they disagreed, every run rewrote the four
 # MI_* assets to the other one's number and left them dirty in git forever.
 #
-#   default (CASTLE_BRIGHT unset or "0") -> ROOM_EXPOSURE_EV_NORMAL, the shipped look
-#   CASTLE_BRIGHT=1                      -> ROOM_EXPOSURE_EV_TESTING, for playtesting
+#   default (HAWKEYE_BRIGHT unset or "0") -> ROOM_EXPOSURE_EV_NORMAL, the shipped look
+#   HAWKEYE_BRIGHT=1                      -> ROOM_EXPOSURE_EV_TESTING, for playtesting
 ROOM_EXPOSURE_EV_NORMAL = -3.0
 ROOM_EXPOSURE_EV_TESTING = -1.5
-BRIGHT = os.environ.get("CASTLE_BRIGHT", "0") == "1"
+BRIGHT = os.environ.get("HAWKEYE_BRIGHT", "0") == "1"
 ROOM_EXPOSURE_EV = ROOM_EXPOSURE_EV_TESTING if BRIGHT else ROOM_EXPOSURE_EV_NORMAL
 
 # The lamp instances were eyeballed at the old fixed -4.5 EV bias, so a brighter preset
@@ -73,7 +73,7 @@ def expr(material, class_name, x=0, y=0, props=None, context=""):
     """
     cls = getattr(unreal, class_name, None)
     if cls is None:
-        unreal.log_warning("[Castle] skipped   {0}: {1} not scriptable".format(
+        unreal.log_warning("[Hawkeye] skipped   {0}: {1} not scriptable".format(
             context or material.get_name(), class_name))
         return None
     try:
@@ -544,7 +544,7 @@ def _build_concrete_floor(material):
     set_scalar_property(material, 0.95, unreal.MaterialProperty.MP_ROUGHNESS, 100, 300)
 
 
-STEEL_PAINTED_BUILD = "black-iron-1"   # metadata tag CastleBuild; a different value rebuilds the graph
+STEEL_PAINTED_BUILD = "black-iron-1"   # metadata tag CastleBuild (pre-rename key, kept); a different value rebuilds the graph
 
 
 def _build_steel_painted(material):

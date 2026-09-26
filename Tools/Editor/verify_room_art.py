@@ -4,7 +4,7 @@ Counterpart to create_room_art.py. It does not touch verify_content.py, which co
 gameplay content; this one only looks at the art: the procedural materials, the ``Art_``
 actors, the concrete on the cell and corridor-1 walls, and the dead daylight.
 
-    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+    UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
         -script="Tools\\Editor\\verify_room_art.py" -unattended -nullrhi -nosplash -nop4 -stdout
 """
 
@@ -297,8 +297,8 @@ def check_every_room_is_lit(actors):
 
 def check_exposure(actors):
     say("---- exposure preset ----")
-    say("  CASTLE_BRIGHT={0} -> ROOM_EXPOSURE_EV={1:.2f}".format(
-        os.environ.get("CASTLE_BRIGHT", "0"), art.ROOM_EXPOSURE_EV))
+    say("  HAWKEYE_BRIGHT={0} -> ROOM_EXPOSURE_EV={1:.2f}".format(
+        os.environ.get("HAWKEYE_BRIGHT", "0"), art.ROOM_EXPOSURE_EV))
     volumes = [a for a in actors if isinstance(a, unreal.PostProcessVolume)]
     if not volumes:
         fail("no PostProcessVolume in the level; cannot check exposure")

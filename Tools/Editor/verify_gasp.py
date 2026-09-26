@@ -3,19 +3,19 @@
 Read-only. Loads the sample's CharacterMovement character and AnimBP, the UEFN mannequin mesh,
 skeleton and physics asset, the pose-search chooser, IMC_Sandbox and BP_Kate, then checks:
 
-    BP_Kate -> SandboxCharacter_CMC -> BP_CastleCharacter          (the parent chain)
+    BP_Kate -> SandboxCharacter_CMC -> BP_HawkeyeCharacter          (the parent chain)
     BP_Kate.Mesh = SKM_UEFN_Mannequin, AnimBP SandboxCharacter_CMC_ABP, suit on slot 0
-    IMC_Sandbox has no mappings                                    (Castle input owns every key)
-    SandboxCharacter_CMC has CharacterInputState                   (what ACastleCharacter writes)
+    IMC_Sandbox has no mappings                                    (Hawkeye input owns every key)
+    SandboxCharacter_CMC has CharacterInputState                   (what AHawkeyeCharacter writes)
     AC_TraversalLogic, CHT_TraversalMontages_CMC, LevelBlock_Traversable and the parkour clips load
 
 Load warnings ("Failed to load", "Can't find file") go to the log, not to Python; read them
 from the log of this run:
 
-    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+    UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
         -script="Tools\\Editor\\verify_gasp.py" -unattended -nullrhi -nosplash -nop4 -stdout ^
-        -abslog=Saved\\Logs\\CastleVerifyGasp.log
-    Select-String Saved\\Logs\\CastleVerifyGasp.log -Pattern "Failed to load|Can't find file|\\[Gasp\\]"
+        -abslog=Saved\\Logs\\HawkeyeVerifyGasp.log
+    Select-String Saved\\Logs\\HawkeyeVerifyGasp.log -Pattern "Failed to load|Can't find file|\\[Gasp\\]"
 """
 
 import os
@@ -114,8 +114,8 @@ def check_kate():
     if sandbox is not None:
         sandbox_parent = unreal.BlueprintEditorLibrary.get_blueprint_parent_class(sandbox)
         say("  SandboxCharacter_CMC parent = {0}".format(name_of(sandbox_parent)))
-        if name_of(sandbox_parent) != "BP_CastleCharacter_C":
-            fail("SandboxCharacter_CMC's parent is {0}, expected BP_CastleCharacter_C".format(name_of(sandbox_parent)))
+        if name_of(sandbox_parent) != "BP_HawkeyeCharacter_C":
+            fail("SandboxCharacter_CMC's parent is {0}, expected BP_HawkeyeCharacter_C".format(name_of(sandbox_parent)))
 
     cdo = unreal.get_default_object(cls)
     body = cdo.get_editor_property("mesh")

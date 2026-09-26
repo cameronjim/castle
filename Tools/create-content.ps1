@@ -20,12 +20,12 @@ $ErrorActionPreference = "Stop"
 # $PSScriptRoot is empty inside a param() default when invoked via -File, so resolve here.
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Resolve-Path (Join-Path $ScriptDir "..")
-if (-not $Project) { $Project = Join-Path $ProjectRoot "Castle.uproject" }
+if (-not $Project) { $Project = Join-Path $ProjectRoot "Hawkeye.uproject" }
 $Project = (Resolve-Path $Project).Path
 $EditorCmd = Join-Path $Engine "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 $Script = Join-Path $ProjectRoot "Tools\Editor\create_all.py"
 $LogDir = Join-Path $ProjectRoot "Saved\Logs"
-$LogFile = Join-Path $LogDir "CastleContent.log"
+$LogFile = Join-Path $LogDir "HawkeyeContent.log"
 
 if (-not (Test-Path $EditorCmd)) { throw "Headless editor not found: $EditorCmd" }
 if (-not (Test-Path $Script))    { throw "Python entry point not found: $Script" }
@@ -33,9 +33,9 @@ if (-not (Test-Path $LogDir))    { New-Item -ItemType Directory -Path $LogDir | 
 if (Test-Path $LogFile)          { Remove-Item $LogFile -Force }
 
 Write-Host "Running $Script through $EditorCmd ..."
-if ($Bright) { Write-Host "Bright preset requested (CASTLE_BRIGHT=1)." -ForegroundColor Yellow }
+if ($Bright) { Write-Host "Bright preset requested (HAWKEYE_BRIGHT=1)." -ForegroundColor Yellow }
 
-if ($Bright) { $env:CASTLE_BRIGHT = "1" }
+if ($Bright) { $env:HAWKEYE_BRIGHT = "1" }
 try {
     & $EditorCmd $Project `
         -run=pythonscript `
@@ -51,7 +51,7 @@ try {
 
     $editorExit = $LASTEXITCODE
 } finally {
-    if ($Bright) { Remove-Item Env:\CASTLE_BRIGHT -ErrorAction SilentlyContinue }
+    if ($Bright) { Remove-Item Env:\HAWKEYE_BRIGHT -ErrorAction SilentlyContinue }
 }
 
 if (-not (Test-Path $LogFile)) {

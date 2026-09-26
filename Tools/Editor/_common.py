@@ -1,4 +1,4 @@
-"""Shared helpers for the Castle headless content-creation scripts.
+"""Shared helpers for the Hawkeye headless content-creation scripts.
 
 Every script that creates starter content imports this module. The rules all of them
 follow:
@@ -7,7 +7,7 @@ follow:
   * only save what was actually created or changed
   * print exactly one line per asset: ``created`` / ``exists`` / ``updated`` / ``FAILED``
 
-Run from ``UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript -script=...``.
+Run from ``UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript -script=...``.
 """
 
 import os
@@ -25,7 +25,7 @@ _SUMMARY = []
 
 def log(action, path, extra=""):
     """One line per asset. ``action`` is created/exists/updated/skipped/FAILED."""
-    line = "[Castle] {0:<8} {1}".format(action, path)
+    line = "[Hawkeye] {0:<8} {1}".format(action, path)
     if extra:
         line += "  ({0})".format(extra)
     # unreal.log goes to LogPython, which is what Tools/create-content.ps1 greps for.
@@ -35,7 +35,7 @@ def log(action, path, extra=""):
 
 
 def log_error(context, exc):
-    line = "[Castle] FAILED   {0}  ({1}: {2})".format(context, type(exc).__name__, exc)
+    line = "[Hawkeye] FAILED   {0}  ({1}: {2})".format(context, type(exc).__name__, exc)
     unreal.log_error(line)
     unreal.log_error(traceback.format_exc())
     _SUMMARY.append(("FAILED", context, str(exc)))
@@ -52,7 +52,7 @@ def print_summary(title):
     for action, _path, _extra in _SUMMARY:
         counts[action] = counts.get(action, 0) + 1
     parts = ", ".join("{0}={1}".format(k, counts[k]) for k in sorted(counts))
-    unreal.log("[Castle] ==== {0}: {1} ====".format(title, parts or "nothing to do"))
+    unreal.log("[Hawkeye] ==== {0}: {1} ====".format(title, parts or "nothing to do"))
     return counts
 
 
@@ -243,7 +243,7 @@ def set_props(obj, values, context=""):
             applied.append(prop)
         except Exception as exc:  # noqa: BLE001
             unreal.log_warning(
-                "[Castle] skipped   {0}.{1}  ({2}: {3})".format(
+                "[Hawkeye] skipped   {0}.{1}  ({2}: {3})".format(
                     context or safe_name(obj), prop, type(exc).__name__, exc
                 )
             )
@@ -420,7 +420,7 @@ def set_first_prop(obj, names, value, context=""):
         except Exception:  # noqa: BLE001 - try the next spelling
             continue
     unreal.log_warning(
-        "[Castle] skipped   {0}: none of {1} exist".format(
+        "[Hawkeye] skipped   {0}: none of {1} exist".format(
             context or safe_name(obj), ", ".join(names)
         )
     )

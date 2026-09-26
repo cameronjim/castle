@@ -1,6 +1,6 @@
 """Check L_District_EastVillage against the OSM records it was generated from. Read-only.
 
-Prints one line per check and a final ``[Castle] verify_city PASS`` or ``FAIL``:
+Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``:
 
 * one City_Bldg_<id> actor per building record, and no strays
 * every building actor has a static mesh with collision (complex as simple) and M_Greybox
@@ -28,7 +28,7 @@ Prints one line per check and a final ``[Castle] verify_city PASS`` or ``FAIL``:
   thug's feet on the navmesh (the navmesh is built in the editor world first, not saved)
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
-    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+    UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
         -script="Tools\\Editor\\verify_city.py" -unattended -nullrhi -nosplash -nop4 -stdout
 """
 
@@ -49,7 +49,7 @@ _failures = []
 
 
 def check(ok, what, detail=""):
-    line = "[Castle] {0}  {1}{2}".format("PASS" if ok else "FAIL", what, "  (" + detail + ")" if detail else "")
+    line = "[Hawkeye] {0}  {1}{2}".format("PASS" if ok else "FAIL", what, "  (" + detail + ")" if detail else "")
     if ok:
         unreal.log(line)
     else:
@@ -166,7 +166,7 @@ def check_anchors(district, actors):
           "{0} of {1} off a roof{2}".format(len(off_roof), len(anchors),
                                             ": " + ", ".join(off_roof[:5]) if off_roof else ""))
     if heights:
-        unreal.log("[Castle] info  anchors sit {0:.0f} to {1:.0f} cm above their landing points".format(
+        unreal.log("[Hawkeye] info  anchors sit {0:.0f} to {1:.0f} cm above their landing points".format(
             min(heights), max(heights)))
 
 
@@ -271,7 +271,7 @@ def check_spawner(district, actors):
              or (label.startswith(gen.ANCHOR_PREFIX) and label[len(gen.ANCHOR_PREFIX):].isdigit())]
     check(not saved, "no ledge or anchor actors saved in the map", "{0} saved".format(len(saved)))
     spawned = spawner.spawn_all()
-    unreal.log("[Castle] info  SpawnAll: {0} actors, ledges {1:.0f} ms, anchors {2:.0f} ms (editor world)".format(
+    unreal.log("[Hawkeye] info  SpawnAll: {0} actors, ledges {1:.0f} ms, anchors {2:.0f} ms (editor world)".format(
         spawned, spawner.get_load_ledge_spawn_seconds() * 1000.0, spawner.get_anchor_spawn_seconds() * 1000.0))
     check(spawner.get_spawned_ledge_count() == len(ledges) and spawner.get_spawned_anchor_count() == len(anchors)
           and spawner.get_spawned_fire_escape_count() == len(escapes),
@@ -305,7 +305,7 @@ def check_fire_escapes(district, actors, spawner):
               + ", ".join(sorted(want_labels - labels)[:3]) if labels != want_labels else ""))
     eligible = sum(1 for r in district.buildings
                    if gen.FIRE_ESCAPE_MIN_HEIGHT_M <= r["height_m"] <= gen.FIRE_ESCAPE_MAX_HEIGHT_M)
-    unreal.log("[Castle] info  fire escapes on {0} of {1} buildings 10 to 30 m tall; {2} parts drawn".format(
+    unreal.log("[Hawkeye] info  fire escapes on {0} of {1} buildings 10 to 30 m tall; {2} parts drawn".format(
         len({e[0] for e in expected}), eligible, spawner.get_fire_escape_instance_count() if spawner else 0))
 
     rings = {r["id"]: geo.clean_ring(district.ring_cm(r["outer"]), min_edge=5.0, collinear_tol=2.0)
@@ -410,10 +410,10 @@ NAV_QUERY_EXTENT = unreal.Vector(50.0, 50.0, 150.0)   # cm; how far off a foot m
 
 def build_navigation():
     """Builds the district's navmesh in this editor world (blocking), as the game mode does at
-    BeginPlay, through UCastleNavigationLibrary (the editor's async-load lock would refuse a
+    BeginPlay, through UHawkeyeNavigationLibrary (the editor's async-load lock would refuse a
     plain RebuildNavigation here). Returns (world, built). Nothing is saved."""
     world = c.editor_world()
-    lib = getattr(unreal, "CastleNavigationLibrary", None)
+    lib = getattr(unreal, "HawkeyeNavigationLibrary", None)
     if world is None or lib is None:
         return world, False
     return world, bool(lib.build_navigation_now(world))
@@ -451,7 +451,7 @@ def check_thugs(district, actors, records):
         detail.append("{0} {1} {2} ({3:.0f}, {4:.0f}, {5:.0f}){6}".format(
             label, weapon.lower(), "/".join(t for t in tags if t.endswith("Pair")), loc.x, loc.y, loc.z,
             " patrol " + ">".join(patrol) if patrol else ""))
-    unreal.log("[Castle] info  thugs: " + "; ".join(detail))
+    unreal.log("[Hawkeye] info  thugs: " + "; ".join(detail))
     untagged = [l for l, a in thugs.items() if "Thug" not in [str(t) for t in a.get_editor_property("tags")]]
     check(not untagged, "every thug keeps the Thug tag (takedowns and friendly swings use it)", ", ".join(untagged))
     check(weapons.get("PISTOL", 0) == 1 and weapons.get("BAT", 0) == 2 and weapons.get("FISTS", 0) == 1,
@@ -470,13 +470,13 @@ def check_thugs(district, actors, records):
           gen.THUG_GROUP_LABEL + " completes clear_roof for the RoofPair")
 
     world, built = build_navigation()
-    check(built, "navmesh builds in the editor world (UCastleNavigationLibrary)")
+    check(built, "navmesh builds in the editor world (UHawkeyeNavigationLibrary)")
     if not built:
         return
     off = []
     for label, actor in sorted(thugs.items()):
         feet = actor.get_actor_location() - unreal.Vector(0.0, 0.0, gen.THUG_HALF_HEIGHT)
-        result = unreal.CastleNavigationLibrary.project_to_navigation(world, feet, NAV_QUERY_EXTENT)
+        result = unreal.HawkeyeNavigationLibrary.project_to_navigation(world, feet, NAV_QUERY_EXTENT)
         # Python hands a bool-returning function with an out parameter back either as
         # (ok, point) or as the point itself / None; take both.
         if isinstance(result, tuple):
@@ -486,7 +486,7 @@ def check_thugs(district, actors, records):
         if not ok:
             off.append(label)
         else:
-            unreal.log("[Castle] info  {0} feet {1:.0f} -> navmesh ({2:.0f}, {3:.0f}, {4:.0f})".format(
+            unreal.log("[Hawkeye] info  {0} feet {1:.0f} -> navmesh ({2:.0f}, {3:.0f}, {4:.0f})".format(
                 label, feet.z, point.x, point.y, point.z))
     check(not off, "every thug starts on the navmesh", ", ".join(off))
 
@@ -592,7 +592,7 @@ def run():
           c.safe_name(starting) if starting is not None else "None")
 
     # Chapter 1 objective volumes: one per objective id, each above a roof.
-    volume_class = c.find_class("ObjectiveTriggerVolume", "/Script/Castle.ObjectiveTriggerVolume")
+    volume_class = c.find_class("ObjectiveTriggerVolume", "/Script/Hawkeye.ObjectiveTriggerVolume")
     volumes = [a for a in all_actors if volume_class is not None and isinstance(a, volume_class)]
     by_id = {}
     for v in volumes:
@@ -645,7 +645,7 @@ def run():
         wp = ws.get_world_partition() if ws and hasattr(ws, "get_world_partition") else None
     except Exception:  # noqa: BLE001
         wp = None
-    unreal.log("[Castle] info  World Partition: {0}".format("ON" if wp else "off"))
+    unreal.log("[Hawkeye] info  World Partition: {0}".format("ON" if wp else "off"))
 
     # Handedness: mean X of each avenue and mean Y of the two boundary streets, in Unreal cm.
     def mean_xy(name):
@@ -667,15 +667,15 @@ def run():
         check(False, "handedness streets found")
 
     rows.sort()
-    unreal.log("[Castle] info  tallest: " + "; ".join(
+    unreal.log("[Hawkeye] info  tallest: " + "; ".join(
         "{0} {1:.1f} m ({2})".format(r[1], r[0], (r[3] + " " + r[2]).strip() if r[2] != "?" else "no address") for r in reversed(rows[-5:])))
-    unreal.log("[Castle] info  shortest: " + "; ".join(
+    unreal.log("[Hawkeye] info  shortest: " + "; ".join(
         "{0} {1:.1f} m ({2})".format(r[1], r[0], (r[3] + " " + r[2]).strip() if r[2] != "?" else "no address") for r in rows[:5]))
 
     if _failures:
-        unreal.log_error("[Castle] verify_city FAIL ({0} check(s): {1})".format(len(_failures), "; ".join(_failures)))
+        unreal.log_error("[Hawkeye] verify_city FAIL ({0} check(s): {1})".format(len(_failures), "; ".join(_failures)))
         return False
-    unreal.log("[Castle] verify_city PASS")
+    unreal.log("[Hawkeye] verify_city PASS")
     return True
 
 

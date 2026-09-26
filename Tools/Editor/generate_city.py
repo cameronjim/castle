@@ -52,7 +52,7 @@ generator version); a mesh is rebuilt only when that hash changes. Actors are fo
 and compared before anything is set. The level is saved only when something changed. City
 actors whose record disappeared are deleted.
 
-    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+    UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
         -script="Tools\\Editor\\generate_city.py" -unattended -nullrhi -nosplash -nop4 -stdout
 
 or Tools\\generate-city.ps1.
@@ -835,12 +835,12 @@ PRISON_CLASS_WORDS = ("Thug", "Guard", "Keycard", "Pickup", "Door")
 
 
 def ensure_district_game_mode():
-    """BP_GameMode_EastVillage (child of BP_CastleGameMode) starting DA_CH01_Rooftops.
+    """BP_GameMode_EastVillage (child of BP_HawkeyeGameMode) starting DA_CH01_Rooftops.
 
     Returns (generated class or None, number of changes)."""
-    parent = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
+    parent = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeGameMode")
     if parent is None:
-        c.log("skipped", DISTRICT_GAME_MODE, "BP_CastleGameMode_C not found; run create_blueprints.py")
+        c.log("skipped", DISTRICT_GAME_MODE, "BP_HawkeyeGameMode_C not found; run create_blueprints.py")
         return None, 0
     full = c.asset_path(PLAYER_PATH, DISTRICT_GAME_MODE)
     changes = 0
@@ -854,7 +854,7 @@ def ensure_district_game_mode():
         bp, _created = c.create_asset(DISTRICT_GAME_MODE, PLAYER_PATH, unreal.Blueprint, factory, quiet=True)
         if bp is None:
             return None, 0
-        c.log("created", full, "parent BP_CastleGameMode_C")
+        c.log("created", full, "parent BP_HawkeyeGameMode_C")
         changes += 1
 
     mission = c.load_or_none(MISSION_ASSET)
@@ -874,12 +874,12 @@ def ensure_district_game_mode():
 
 
 def ensure_game_mode():
-    """The map's GameMode override: BP_GameMode_EastVillage, or BP_CastleGameMode as a fallback."""
+    """The map's GameMode override: BP_GameMode_EastVillage, or BP_HawkeyeGameMode as a fallback."""
     game_mode, _changes = ensure_district_game_mode()
     name = DISTRICT_GAME_MODE + "_C"
     if game_mode is None:
-        game_mode = c.load_generated_class(PLAYER_PATH, "BP_CastleGameMode")
-        name = "BP_CastleGameMode_C"
+        game_mode = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeGameMode")
+        name = "BP_HawkeyeGameMode_C"
     if game_mode is None:
         c.log("skipped", MAP_PATH, "no game mode class found; GameMode override unset")
         return 0
@@ -1011,7 +1011,7 @@ def objective_roofs(district):
 
 
 def ensure_objective_volumes(district, existing):
-    volume_class = c.find_class("ObjectiveTriggerVolume", "/Script/Castle.ObjectiveTriggerVolume")
+    volume_class = c.find_class("ObjectiveTriggerVolume", "/Script/Hawkeye.ObjectiveTriggerVolume")
     if volume_class is None:
         c.log("skipped", OBJECTIVE_PREFIX + "*", "AObjectiveTriggerVolume not exposed; build the module")
         return 0
@@ -1253,7 +1253,7 @@ def _ensure_thug_props(actor, weapon, patrol_actors):
 def ensure_thugs(district, existing):
     """City_Thug_<n>, City_Patrol_<n> and City_ThugGroup_clear_roof. Idempotent by label."""
     thug_cls = c.load_generated_class(THUG_BP_PATH, THUG_BP_NAME)
-    group_cls = c.find_class("ThugGroupObjective", "/Script/Castle.ThugGroupObjective")
+    group_cls = c.find_class("ThugGroupObjective", "/Script/Hawkeye.ThugGroupObjective")
     if thug_cls is None or group_cls is None or not hasattr(unreal, "ThugWeapon"):
         c.log("FAILED", THUG_PREFIX + "*", "BP_Thug or AThugGroupObjective missing; build and run create_world_blueprints.py")
         return 0
@@ -1644,7 +1644,7 @@ def anchor_class():
     cls = c.load_generated_class(ANCHOR_BP_PATH, ANCHOR_BP_NAME)
     if cls is None:
         c.log("skipped", ANCHOR_BP_NAME, "not found; falling back to AGrappleAnchor (run create_world_blueprints.py)")
-        cls = c.find_class("GrappleAnchor", "/Script/Castle.GrappleAnchor")
+        cls = c.find_class("GrappleAnchor", "/Script/Hawkeye.GrappleAnchor")
     return cls
 
 
@@ -1829,7 +1829,7 @@ def fire_escape_spots(district):
 
 def fire_escape_class():
     """AFireEscapeLanding's UClass (the spawner's property wants the class object, not the Python type)."""
-    return c.find_class("/Script/Castle.FireEscapeLanding")
+    return c.find_class("/Script/Hawkeye.FireEscapeLanding")
 
 
 # The ledges, the anchors and the fire escapes are not saved in the map: generate_city writes
@@ -2111,7 +2111,7 @@ def ensure_ledge_spawner(district, existing):
             removed += 1
     changes += removed
 
-    spawner_cls = c.find_class("CityLedgeSpawner", "/Script/Castle.CityLedgeSpawner")
+    spawner_cls = c.find_class("CityLedgeSpawner", "/Script/Hawkeye.CityLedgeSpawner")
     if spawner_cls is None or asset is None:
         c.log("FAILED", SPAWNER_LABEL, "no ACityLedgeSpawner class or no props asset")
         return changes

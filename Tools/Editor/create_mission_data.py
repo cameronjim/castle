@@ -9,11 +9,11 @@ generate_city.py makes; its objectives are completed by the City_Obj_* trigger v
 script places on three roofs. It grants DA_Bow_Kate with 30 standard and 6 grapple arrows at the
 start, for now (create_weapon_data.py makes those, and runs first).
 
-Property names come from Source/Castle/Mission/MissionDefinition.h,
-Source/Castle/Mission/MissionObjective.h and Source/Castle/Flashback/FlashbackDefinition.h.
+Property names come from Source/Hawkeye/Mission/MissionDefinition.h,
+Source/Hawkeye/Mission/MissionObjective.h and Source/Hawkeye/Flashback/FlashbackDefinition.h.
 Note the objective id property is ``ObjectiveTag``, not ObjectiveId.
 
-As a convenience the mission is also assigned to BP_CastleGameMode.StartingMission, which
+As a convenience the mission is also assigned to BP_HawkeyeGameMode.StartingMission, which
 is what actually starts the mission when a level loads.
 """
 
@@ -75,7 +75,7 @@ def data_asset_factory(data_asset_class):
 
 def create_flashback():
     full = c.asset_path(FLASHBACK_PATH, FLASHBACK_NAME)
-    cls = c.find_class("FlashbackDefinition", "/Script/Castle.FlashbackDefinition")
+    cls = c.find_class("FlashbackDefinition", "/Script/Hawkeye.FlashbackDefinition")
     if cls is None:
         c.log("FAILED", full, "UFlashbackDefinition not exposed to Python")
         return None
@@ -98,7 +98,7 @@ def create_flashback():
             texture = c.load_or_none(c.asset_path(IMAGE_PATH, texture_name))
             if texture is None:
                 unreal.log_warning(
-                    "[Castle] flashback slide texture missing: {0}".format(texture_name)
+                    "[Hawkeye] flashback slide texture missing: {0}".format(texture_name)
                 )
             slide = slide_struct()
             c.set_props(
@@ -125,7 +125,7 @@ def create_flashback():
 
 def create_mission(flashback):
     full = c.asset_path(MISSION_PATH, MISSION_NAME)
-    cls = c.find_class("MissionDefinition", "/Script/Castle.MissionDefinition")
+    cls = c.find_class("MissionDefinition", "/Script/Hawkeye.MissionDefinition")
     if cls is None:
         c.log("FAILED", full, "UMissionDefinition not exposed to Python")
         return None
@@ -152,7 +152,7 @@ def create_mission(flashback):
         MISSION_NAME,
     )
 
-    objective_cls = c.find_class("MissionObjective", "/Script/Castle.MissionObjective")
+    objective_cls = c.find_class("MissionObjective", "/Script/Hawkeye.MissionObjective")
     if objective_cls is None:
         c.log("skipped", full, "UMissionObjective not exposed; objectives left empty")
     else:
@@ -238,10 +238,10 @@ def update_end_card_line(asset, full):
 
 
 def assign_to_game_mode(mission):
-    """Point BP_CastleGameMode.StartingMission at the mission so levels actually start it."""
+    """Point BP_HawkeyeGameMode.StartingMission at the mission so levels actually start it."""
     if mission is None:
         return
-    full = c.asset_path(PLAYER_PATH, "BP_CastleGameMode")
+    full = c.asset_path(PLAYER_PATH, "BP_HawkeyeGameMode")
     bp = c.load_or_none(full)
     if bp is None:
         c.log("skipped", full, "run create_blueprints.py first")
@@ -256,7 +256,7 @@ def assign_to_game_mode(mission):
             return
     except Exception:  # noqa: BLE001 - property may not exist yet
         pass
-    if c.set_props(cdo, [("starting_mission", mission)], "BP_CastleGameMode"):
+    if c.set_props(cdo, [("starting_mission", mission)], "BP_HawkeyeGameMode"):
         c.compile_blueprint(bp)
         c.save(bp)
         c.log("updated", full, "starting_mission = " + MISSION_NAME)
@@ -338,7 +338,7 @@ def _apply_quiver(asset):
         return False
     grants = []
     for arrow, count in arrows:
-        grant = unreal.CastleArrowGrant()
+        grant = unreal.HawkeyeArrowGrant()
         grant.set_editor_property("arrow", arrow)
         grant.set_editor_property("count", count)
         grants.append(grant)
@@ -382,8 +382,8 @@ def _build_objectives(asset, objective_cls):
 def create_chapter_one():
     """DA_CH01_Rooftops. Creates it, or corrects whichever fields differ. No flashback yet."""
     full = c.asset_path(MISSION_PATH, CH01_NAME)
-    cls = c.find_class("MissionDefinition", "/Script/Castle.MissionDefinition")
-    objective_cls = c.find_class("MissionObjective", "/Script/Castle.MissionObjective")
+    cls = c.find_class("MissionDefinition", "/Script/Hawkeye.MissionDefinition")
+    objective_cls = c.find_class("MissionObjective", "/Script/Hawkeye.MissionObjective")
     if cls is None or objective_cls is None:
         c.log("FAILED", full, "UMissionDefinition / UMissionObjective not exposed to Python")
         return None

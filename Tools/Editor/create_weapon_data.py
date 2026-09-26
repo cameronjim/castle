@@ -15,10 +15,10 @@
 
 Then:
 
-    BP_CastleCharacter.InventoryComponent.HandsDefinition         = DA_Weapon_Hands
-    BP_CastleCharacter.InventoryComponent.StandardArrowDefinition = DA_Arrow_Standard
+    BP_HawkeyeCharacter.InventoryComponent.HandsDefinition         = DA_Weapon_Hands
+    BP_HawkeyeCharacter.InventoryComponent.StandardArrowDefinition = DA_Arrow_Standard
 
-Property names come from Source/Castle/Combat/{Weapon,Bow,Arrow}Definition.h. Idempotent: an
+Property names come from Source/Hawkeye/Combat/{Weapon,Bow,Arrow}Definition.h. Idempotent: an
 existing asset keeps its values and is only re-saved when a field is actually different; the
 mesh is built once and only its material is checked afterwards.
 """
@@ -141,7 +141,7 @@ def same_value(current, wanted):
 def create_data_asset(name, class_name, values):
     """Create or correct one data asset from (property, value) pairs. None values are skipped."""
     full = c.asset_path(WEAPON_PATH, name)
-    cls = c.find_class(class_name, "/Script/Castle." + class_name)
+    cls = c.find_class(class_name, "/Script/Hawkeye." + class_name)
     if cls is None:
         c.log("FAILED", full, "U{0} not exposed to Python".format(class_name))
         return None
@@ -240,8 +240,8 @@ def ensure_projectile_blueprints():
     import create_blueprints as bps  # noqa: WPS433 - same folder; make_blueprint is shared
 
     parents = {
-        "BP_Arrow_Standard": c.find_class("ArrowProjectile", "/Script/Castle.ArrowProjectile"),
-        "BP_Arrow_Grapple": c.find_class("GrappleArrowProjectile", "/Script/Castle.GrappleArrowProjectile"),
+        "BP_Arrow_Standard": c.find_class("ArrowProjectile", "/Script/Hawkeye.ArrowProjectile"),
+        "BP_Arrow_Grapple": c.find_class("GrappleArrowProjectile", "/Script/Hawkeye.GrappleArrowProjectile"),
     }
     classes = {}
     for name, parent in parents.items():
@@ -310,11 +310,11 @@ def run():
     # Without these the inventory falls back to transient stand-ins, which work but are not the
     # assets a designer can tune.
     set_component_property(
-        PLAYER_PATH, "BP_CastleCharacter", "inventory_component", "hands_definition", hands,
-        "BP_CastleCharacter.InventoryComponent.hands_definition")
+        PLAYER_PATH, "BP_HawkeyeCharacter", "inventory_component", "hands_definition", hands,
+        "BP_HawkeyeCharacter.InventoryComponent.hands_definition")
     set_component_property(
-        PLAYER_PATH, "BP_CastleCharacter", "inventory_component", "standard_arrow_definition",
-        arrows.get("DA_Arrow_Standard"), "BP_CastleCharacter.InventoryComponent.standard_arrow_definition")
+        PLAYER_PATH, "BP_HawkeyeCharacter", "inventory_component", "standard_arrow_definition",
+        arrows.get("DA_Arrow_Standard"), "BP_HawkeyeCharacter.InventoryComponent.standard_arrow_definition")
 
     return {"hands": hands, "bows": bows, "arrows": arrows, "mesh": mesh}
 

@@ -1,35 +1,35 @@
 """Create the player-framework Blueprints and wire their class defaults.
 
-    /Game/Blueprints/Player/BP_CastleCharacter        parent ACastleCharacter
-    /Game/Blueprints/SandboxCharacter_CMC             reparented onto BP_CastleCharacter (the
+    /Game/Blueprints/Player/BP_HawkeyeCharacter        parent AHawkeyeCharacter
+    /Game/Blueprints/SandboxCharacter_CMC             reparented onto BP_HawkeyeCharacter (the
                                                       Game Animation Sample's character; see
                                                       import_gasp.py)
     /Game/Blueprints/Player/BP_Kate                   parent SandboxCharacter_CMC (170 cm, purple
                                                       suit, UEFN mannequin, motion-matched ABP);
-                                                      BP_CastleCharacter when the sample is absent
+                                                      BP_HawkeyeCharacter when the sample is absent
     /Game/Characters/Kate/M_KateSuit, M_KateSuitDark  her stand-in materials
-    /Game/Blueprints/Player/BP_CastlePlayerController parent ACastlePlayerController
-    /Game/Blueprints/Player/BP_CastleGameMode         parent ACastleGameMode
+    /Game/Blueprints/Player/BP_HawkeyePlayerController parent AHawkeyePlayerController
+    /Game/Blueprints/Player/BP_HawkeyeGameMode         parent AHawkeyeGameMode
     /Game/Blueprints/UI/WBP_Flashback                 parent UFlashbackWidget
-    /Game/Blueprints/UI/WBP_Pause                     parent UCastlePauseWidget
-    /Game/Blueprints/UI/WBP_Settings                  parent UCastleSettingsWidget
+    /Game/Blueprints/UI/WBP_Pause                     parent UHawkeyePauseWidget
+    /Game/Blueprints/UI/WBP_Settings                  parent UHawkeyeSettingsWidget
     /Game/Blueprints/UI/WBP_EndCard                   parent UMissionEndCardWidget
-    /Game/Blueprints/UI/WBP_Hotbar                    parent UCastleHotbarWidget
-    /Game/Blueprints/UI/WBP_Inventory                 parent UCastleInventoryWidget
+    /Game/Blueprints/UI/WBP_Hotbar                    parent UHawkeyeHotbarWidget
+    /Game/Blueprints/UI/WBP_Inventory                 parent UHawkeyeInventoryWidget
 
 Then, on the class default objects:
 
-    BP_CastleCharacter       DefaultMappingContext = IMC_Default, every IA_* property
-                             that exists on ACastleCharacter
-    BP_CastleGameMode        DefaultPawnClass = BP_Kate_C, PlayerControllerClass
-    BP_CastlePlayerController FlashbackWidgetClass = WBP_Flashback_C,
+    BP_HawkeyeCharacter       DefaultMappingContext = IMC_Default, every IA_* property
+                             that exists on AHawkeyeCharacter
+    BP_HawkeyeGameMode        DefaultPawnClass = BP_Kate_C, PlayerControllerClass
+    BP_HawkeyePlayerController FlashbackWidgetClass = WBP_Flashback_C,
                              PauseWidgetClass = WBP_Pause_C,
                              SettingsWidgetClass = WBP_Settings_C, PauseAction = IA_Pause,
                              PauseMappingContext = IMC_Default,
                              EndCardWidgetClass = WBP_EndCard_C
 
-Property names come from Source/Castle/Player/CastleCharacter.h and
-Source/Castle/CastlePlayerController.h. Anything not found on the class is reported and
+Property names come from Source/Hawkeye/Player/HawkeyeCharacter.h and
+Source/Hawkeye/HawkeyePlayerController.h. Anything not found on the class is reported and
 skipped rather than aborting.
 """
 
@@ -46,14 +46,14 @@ UI_PATH = "/Game/Blueprints/UI"
 INPUT_PATH = "/Game/Input"
 
 # Third person: SK_Mannequin is the player's body on ACharacter's own Mesh, fully visible and
-# animated by the idle/walk sequences. See ACastleCharacter.
+# animated by the idle/walk sequences. See AHawkeyeCharacter.
 MANNEQUIN_MESH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
 MANNEQUIN_IDLE = "/Game/Mannequin/Animations/ThirdPersonIdle"
 MANNEQUIN_WALK = "/Game/Mannequin/Animations/ThirdPersonWalk"
 MANNEQUIN_RUN = "/Game/Mannequin/Animations/ThirdPersonRun"
 MANNEQUIN_FALL = "/Game/Mannequin/Animations/ThirdPersonJump_Loop"
 
-# BP_Kate: the playable stand-in until a real Kate mesh exists. A child of BP_CastleCharacter,
+# BP_Kate: the playable stand-in until a real Kate mesh exists. A child of BP_HawkeyeCharacter,
 # so the input wiring and Hands stay in one place. 170 cm: the mannequin is about 183 cm, so it
 # is scaled to fit a capsule of that height with its feet on the capsule's bottom.
 KATE_NAME = "BP_Kate"
@@ -68,15 +68,15 @@ KATE_CAPSULE_HALF_HEIGHT = 85.0
 KATE_MESH_SCALE = 0.93
 
 # The Game Animation Sample's CharacterMovement character and its motion-matched AnimBP, copied
-# in by import_gasp.py. SandboxCharacter_CMC is reparented onto BP_CastleCharacter so our systems,
+# in by import_gasp.py. SandboxCharacter_CMC is reparented onto BP_HawkeyeCharacter so our systems,
 # input and camera sit under its graph; BP_Kate derives from it and wears its UEFN mannequin.
 GASP_CHARACTER_PATH = "/Game/Blueprints"
 GASP_CHARACTER = "SandboxCharacter_CMC"
 GASP_ANIM_BP = "SandboxCharacter_CMC_ABP"
 GASP_MESH = "/Game/Characters/UEFN_Mannequin/Meshes/SKM_UEFN_Mannequin"
 
-# ACastleCharacter input property name -> IA asset name.
-# Pause lives on ACastlePlayerController, not the pawn, so that Escape still works when the
+# AHawkeyeCharacter input property name -> IA asset name.
+# Pause lives on AHawkeyePlayerController, not the pawn, so that Escape still works when the
 # pawn is locked out or dead; IA_Skip is consumed by the flashback widget's key handler and
 # has no property to bind to. Both are reported as skipped here, which is expected.
 CHARACTER_INPUT_PROPERTIES = [
@@ -235,7 +235,7 @@ def set_component_asset(bp, component_name, setter_name, prop_name, asset, conte
         return False
 
 
-# Packages a pre-pivot BP_CastleCharacter still pulls in through the first-person components
+# Packages a pre-pivot BP_HawkeyeCharacter still pulls in through the first-person components
 # and materials it was saved with. Any of these in its dependencies means it has not been
 # resaved since the viewmodel code was removed.
 RETIRED_CHARACTER_DEPENDENCIES = (
@@ -280,7 +280,7 @@ def clear_retired_materials(component, context):
 
 
 def configure_body(bp):
-    """Give BP_CastleCharacter its body: SK_Mannequin on ACharacter's Mesh, nothing else.
+    """Give BP_HawkeyeCharacter its body: SK_Mannequin on ACharacter's Mesh, nothing else.
 
     Third person: the whole mannequin is visible and animated by IdleAnim/WalkAnim. The
     first-person arms, the camera-held pistol and Frank's fatigues are gone; a save made before
@@ -292,7 +292,7 @@ def configure_body(bp):
     mannequin = c.load_or_none(MANNEQUIN_MESH)
     changed = set_component_asset(
         bp, "mesh", "set_skeletal_mesh_asset", "skeletal_mesh_asset", mannequin,
-        "BP_CastleCharacter.Mesh")
+        "BP_HawkeyeCharacter.Mesh")
 
     cdo = c.blueprint_cdo(bp)
     body = None
@@ -301,9 +301,9 @@ def configure_body(bp):
             body = cdo.get_editor_property("mesh")
         except Exception:  # noqa: BLE001
             body = None
-    changed = clear_retired_materials(body, "BP_CastleCharacter.Mesh") or changed
+    changed = clear_retired_materials(body, "BP_HawkeyeCharacter.Mesh") or changed
 
-    package = c.asset_path(PLAYER_PATH, "BP_CastleCharacter")
+    package = c.asset_path(PLAYER_PATH, "BP_HawkeyeCharacter")
     stale = [dep for dep in package_dependencies(package) if dep in RETIRED_CHARACTER_DEPENDENCIES]
     if stale:
         c.log("updated", package, "resaved past the first-person build ({0})".format(", ".join(stale)))
@@ -376,7 +376,7 @@ def set_material_slot(component, slot, material, context):
 
 
 def parent_class_name(bp):
-    """Name of a Blueprint's parent class (e.g. BP_CastleCharacter_C), or ''."""
+    """Name of a Blueprint's parent class (e.g. BP_HawkeyeCharacter_C), or ''."""
     try:
         parent = unreal.BlueprintEditorLibrary.get_blueprint_parent_class(bp)
         return parent.get_name() if parent is not None else ""
@@ -405,18 +405,18 @@ def ensure_parent(bp, context, parent_class):
 
 
 def gasp_character():
-    """SandboxCharacter_CMC reparented onto BP_CastleCharacter, or None without the sample."""
+    """SandboxCharacter_CMC reparented onto BP_HawkeyeCharacter, or None without the sample."""
     full = c.asset_path(GASP_CHARACTER_PATH, GASP_CHARACTER)
     if not c.exists(full):
         c.log("skipped", full, "Game Animation Sample not imported; BP_Kate keeps the clip switch")
         return None
     bp = c.load_or_none(full)
-    base = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    base = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeCharacter")
     if bp is None or base is None:
-        c.log("FAILED", full, "could not load it or BP_CastleCharacter_C")
+        c.log("FAILED", full, "could not load it or BP_HawkeyeCharacter_C")
         return None
     if not ensure_parent(bp, full, base):
-        c.log("exists", full, "parent already BP_CastleCharacter_C")
+        c.log("exists", full, "parent already BP_HawkeyeCharacter_C")
     return bp
 
 
@@ -490,22 +490,22 @@ def run():
     c.ensure_directory(PLAYER_PATH)
     c.ensure_directory(UI_PATH)
 
-    character_parent = c.find_class("CastleCharacter", "/Script/Castle.CastleCharacter")
+    character_parent = c.find_class("HawkeyeCharacter", "/Script/Hawkeye.HawkeyeCharacter")
     controller_parent = c.find_class(
-        "CastlePlayerController", "/Script/Castle.CastlePlayerController"
+        "HawkeyePlayerController", "/Script/Hawkeye.HawkeyePlayerController"
     )
-    game_mode_parent = c.find_class("CastleGameMode", "/Script/Castle.CastleGameMode")
-    widget_parent = c.find_class("FlashbackWidget", "/Script/Castle.FlashbackWidget")
+    game_mode_parent = c.find_class("HawkeyeGameMode", "/Script/Hawkeye.HawkeyeGameMode")
+    widget_parent = c.find_class("FlashbackWidget", "/Script/Hawkeye.FlashbackWidget")
 
     bp_factories = ("BlueprintFactory",)
     wbp_factories = ("WidgetBlueprintFactory",)
 
-    pause_parent = c.find_class("CastlePauseWidget", "/Script/Castle.CastlePauseWidget")
+    pause_parent = c.find_class("HawkeyePauseWidget", "/Script/Hawkeye.HawkeyePauseWidget")
     settings_parent = c.find_class(
-        "CastleSettingsWidget", "/Script/Castle.CastleSettingsWidget"
+        "HawkeyeSettingsWidget", "/Script/Hawkeye.HawkeyeSettingsWidget"
     )
     end_card_parent = c.find_class(
-        "MissionEndCardWidget", "/Script/Castle.MissionEndCardWidget"
+        "MissionEndCardWidget", "/Script/Hawkeye.MissionEndCardWidget"
     )
 
     wbp_flashback, _ = make_blueprint("WBP_Flashback", UI_PATH, widget_parent, wbp_factories)
@@ -513,18 +513,18 @@ def run():
     wbp_settings, _ = make_blueprint("WBP_Settings", UI_PATH, settings_parent, wbp_factories)
     wbp_end_card, _ = make_blueprint("WBP_EndCard", UI_PATH, end_card_parent, wbp_factories)
 
-    hotbar_parent = c.find_class("CastleHotbarWidget", "/Script/Castle.CastleHotbarWidget")
-    inventory_parent = c.find_class("CastleInventoryWidget", "/Script/Castle.CastleInventoryWidget")
+    hotbar_parent = c.find_class("HawkeyeHotbarWidget", "/Script/Hawkeye.HawkeyeHotbarWidget")
+    inventory_parent = c.find_class("HawkeyeInventoryWidget", "/Script/Hawkeye.HawkeyeInventoryWidget")
     wbp_hotbar, _ = make_blueprint("WBP_Hotbar", UI_PATH, hotbar_parent, wbp_factories)
     wbp_inventory, _ = make_blueprint("WBP_Inventory", UI_PATH, inventory_parent, wbp_factories)
     bp_character, _ = make_blueprint(
-        "BP_CastleCharacter", PLAYER_PATH, character_parent, bp_factories
+        "BP_HawkeyeCharacter", PLAYER_PATH, character_parent, bp_factories
     )
     bp_controller, _ = make_blueprint(
-        "BP_CastlePlayerController", PLAYER_PATH, controller_parent, bp_factories
+        "BP_HawkeyePlayerController", PLAYER_PATH, controller_parent, bp_factories
     )
     bp_game_mode, _ = make_blueprint(
-        "BP_CastleGameMode", PLAYER_PATH, game_mode_parent, bp_factories
+        "BP_HawkeyeGameMode", PLAYER_PATH, game_mode_parent, bp_factories
     )
 
     # Newly created Blueprints need to exist on disk before load_class can find the _C.
@@ -536,7 +536,7 @@ def run():
             c.compile_blueprint(bp)
             c.save(bp, only_if_dirty=True)
 
-    # --- BP_CastleCharacter -------------------------------------------------------------
+    # --- BP_HawkeyeCharacter -------------------------------------------------------------
     if bp_character is not None:
         values = [("default_mapping_context", c.load_or_none(c.asset_path(INPUT_PATH, "IMC_Default")))]
         for prop, asset_name in CHARACTER_INPUT_PROPERTIES:
@@ -546,20 +546,20 @@ def run():
         values.append(("walk_anim", c.load_or_none(MANNEQUIN_WALK)))
         values.append(("run_anim", c.load_or_none(MANNEQUIN_RUN)))
         values.append(("fall_anim", c.load_or_none(MANNEQUIN_FALL)))
-        apply_defaults(bp_character, "BP_CastleCharacter", PLAYER_PATH, values)
+        apply_defaults(bp_character, "BP_HawkeyeCharacter", PLAYER_PATH, values)
         configure_body(bp_character)
 
     # --- BP_Kate --------------------------------------------------------------------------
     # After the base is compiled and saved, so its generated class exists to derive from.
     # With the Game Animation Sample imported, Kate derives from its sandbox character (itself
-    # reparented onto BP_CastleCharacter): BP_Kate -> SandboxCharacter_CMC -> BP_CastleCharacter.
+    # reparented onto BP_HawkeyeCharacter): BP_Kate -> SandboxCharacter_CMC -> BP_HawkeyeCharacter.
     bp_kate = None
     if bp_character is not None:
         gasp = gasp_character()
         if gasp is not None:
             kate_parent = c.load_generated_class(GASP_CHARACTER_PATH, GASP_CHARACTER)
         else:
-            kate_parent = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+            kate_parent = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeCharacter")
         bp_kate, kate_created = make_blueprint(KATE_NAME, PLAYER_PATH, kate_parent, bp_factories)
         if bp_kate is not None and kate_created:
             c.compile_blueprint(bp_kate)
@@ -567,11 +567,11 @@ def run():
         ensure_parent(bp_kate, c.asset_path(PLAYER_PATH, KATE_NAME), kate_parent)
         configure_kate(bp_kate, gasp)
 
-    # --- BP_CastlePlayerController ------------------------------------------------------
+    # --- BP_HawkeyePlayerController ------------------------------------------------------
     if bp_controller is not None:
         apply_defaults(
             bp_controller,
-            "BP_CastlePlayerController",
+            "BP_HawkeyePlayerController",
             PLAYER_PATH,
             [
                 ("flashback_widget_class", c.load_generated_class(UI_PATH, "WBP_Flashback")),
@@ -587,18 +587,18 @@ def run():
             ],
         )
 
-    # --- BP_CastleGameMode --------------------------------------------------------------
+    # --- BP_HawkeyeGameMode --------------------------------------------------------------
     if bp_game_mode is not None:
         apply_defaults(
             bp_game_mode,
-            "BP_CastleGameMode",
+            "BP_HawkeyeGameMode",
             PLAYER_PATH,
             [
-                # Kate is who you play; BP_CastleCharacter stays the base she derives from.
+                # Kate is who you play; BP_HawkeyeCharacter stays the base she derives from.
                 ("default_pawn_class", c.load_generated_class(PLAYER_PATH, KATE_NAME)),
                 (
                     "player_controller_class",
-                    c.load_generated_class(PLAYER_PATH, "BP_CastlePlayerController"),
+                    c.load_generated_class(PLAYER_PATH, "BP_HawkeyePlayerController"),
                 ),
             ],
         )

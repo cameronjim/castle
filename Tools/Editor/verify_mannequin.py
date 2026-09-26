@@ -4,7 +4,7 @@ Read-only. Answers the one question that matters after copying .uasset files in 
 did every internal reference survive the move? The feature pack's assets hard-reference
 /Game/Mannequin/..., so Content/Mannequin is where they have to live.
 
-    UnrealEditor-Cmd.exe Castle.uproject -run=pythonscript ^
+    UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
         -script="Tools\\Editor\\verify_mannequin.py" -unattended -nullrhi -nosplash -nop4 -stdout
 """
 
@@ -104,23 +104,23 @@ def check_locomotion_anims():
 def check_player_body():
     # Third person: SK_Mannequin is the player's whole, visible body. No arms, no held pistol.
     say("---- third-person player body ----")
-    player_class = c.load_generated_class(PLAYER_PATH, "BP_CastleCharacter")
+    player_class = c.load_generated_class(PLAYER_PATH, "BP_HawkeyeCharacter")
     if player_class is None:
-        fail("BP_CastleCharacter_C would not load")
+        fail("BP_HawkeyeCharacter_C would not load")
         return
 
     cdo = unreal.get_default_object(player_class)
 
     body = prop(cdo, "mesh")
     if body is None:
-        fail("BP_CastleCharacter has no body Mesh component")
+        fail("BP_HawkeyeCharacter has no body Mesh component")
     else:
         assigned = prop(body, "skeletal_mesh_asset")
         say("  Mesh.skeletal_mesh_asset     = {0}".format(name_of(assigned)))
         say("  Mesh.relative_location       = {0}".format(prop(body, "relative_location")))
         say("  Mesh.relative_rotation       = {0}".format(prop(body, "relative_rotation")))
         if assigned is None:
-            fail("BP_CastleCharacter.Mesh has no body mesh; run create_blueprints.py")
+            fail("BP_HawkeyeCharacter.Mesh has no body mesh; run create_blueprints.py")
         for slot in range(2):
             try:
                 material = body.get_material(slot)
@@ -128,20 +128,20 @@ def check_player_body():
                 material = None
             say("  Mesh slot {0}                  = {1}".format(slot, name_of(material)))
             if material is not None and name_of(material).startswith("M_Frank"):
-                fail("BP_CastleCharacter.Mesh still wears {0}".format(name_of(material)))
+                fail("BP_HawkeyeCharacter.Mesh still wears {0}".format(name_of(material)))
 
     for field in ("idle_anim", "walk_anim"):
         if prop(cdo, field) is None:
-            fail("BP_CastleCharacter." + field + " is unset; the body stands in a T-pose")
+            fail("BP_HawkeyeCharacter." + field + " is unset; the body stands in a T-pose")
 
     boom = prop(cdo, "camera_boom")
     say("  CameraBoom                   = {0}".format(name_of(boom)))
     if boom is None:
-        fail("BP_CastleCharacter has no CameraBoom; the camera is not third person")
+        fail("BP_HawkeyeCharacter has no CameraBoom; the camera is not third person")
 
     for retired in ("arms_mesh", "weapon_mesh"):
         if prop(cdo, retired) is not None:
-            fail("BP_CastleCharacter still has a {0} component".format(retired))
+            fail("BP_HawkeyeCharacter still has a {0} component".format(retired))
 
 
 def check_thug_look():

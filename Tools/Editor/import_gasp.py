@@ -1,6 +1,6 @@
 """Copy Epic's Game Animation Sample (GASP) sandbox character into Content/, at the same paths.
 
-    source   C:\\Users\\camer\\code\\GASP\\Content   (override with CASTLE_GASP_CONTENT)
+    source   C:\\Users\\camer\\code\\GASP\\Content   (override with HAWKEYE_GASP_CONTENT)
     roots    /Game/Blueprints/SandboxCharacter_CMC       the CharacterMovement sandbox character
              /Game/Blueprints/SandboxCharacter_CMC_ABP   its motion-matching AnimBP
              /Game/Input/IMC_Sandbox                     the mapping context its graph adds
@@ -13,8 +13,8 @@ skipped rather than copied.
 
 Never overwrites. The sample's IA_Move, IA_Look, IA_Jump, IA_Sprint, IA_Crouch, IA_Aim,
 IA_Interact and IA_Takedown sit at the same /Game/Input paths as ours; ours stay, so the sandbox
-graph's input events resolve to our actions. ACastleCharacter drops those Blueprint bindings at
-possession (see ACastleCharacter::PawnClientRestart), and this step empties IMC_Sandbox so the
+graph's input events resolve to our actions. AHawkeyeCharacter drops those Blueprint bindings at
+possession (see AHawkeyeCharacter::PawnClientRestart), and this step empties IMC_Sandbox so the
 mapping context the graph pushes maps no keys. Copied assets that a later step changes
 (SandboxCharacter_CMC after its reparent, IMC_Sandbox once emptied) are never copied over again.
 
@@ -41,7 +41,7 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-GASP_CONTENT = os.environ.get("CASTLE_GASP_CONTENT", r"C:\Users\camer\code\GASP\Content")
+GASP_CONTENT = os.environ.get("HAWKEYE_GASP_CONTENT", r"C:\Users\camer\code\GASP\Content")
 
 ROOTS = (
     "/Game/Blueprints/SandboxCharacter_CMC",
@@ -260,7 +260,7 @@ def neutralise_imc_sandbox():
     if overrides:
         imc.set_editor_property("mapping_profile_overrides", {})
     c.save(imc)
-    c.log("updated", IMC_SANDBOX, "emptied {0} mapping(s); Castle input owns every key".format(count))
+    c.log("updated", IMC_SANDBOX, "emptied {0} mapping(s); Hawkeye input owns every key".format(count))
     return True
 
 

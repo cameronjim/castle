@@ -20,7 +20,7 @@ $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
-$Project = Join-Path $ProjectRoot "Castle.uproject"
+$Project = Join-Path $ProjectRoot "Hawkeye.uproject"
 $EditorCmd = Join-Path $Engine "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 $Records = Join-Path $ScriptDir "Data\osm\east_village.buildings.json"
 $LogDir = Join-Path $ProjectRoot "Saved\Logs"
@@ -45,7 +45,7 @@ function Invoke-EditorPython([string]$ScriptName, [string]$LogName) {
     if (-not (Test-Path $log)) { throw "No log at $log" }
     $lines = Select-String -Path $log -Pattern "LogPython" | ForEach-Object { $_.Line }
     # One line per piece is too much to print for 600 buildings; show the summary lines.
-    $lines | Where-Object { $_ -notmatch "\[Castle\] (exists|created|updated)\s+/Game/City/" } |
+    $lines | Where-Object { $_ -notmatch "\[Hawkeye\] (exists|created|updated)\s+/Game/City/" } |
         ForEach-Object { Write-Host $_ }
     $bad = $lines | Where-Object { $_ -match "Error|Traceback|FAILED|\] FAIL " }
     if ($bad) {
@@ -59,11 +59,11 @@ function Invoke-EditorPython([string]$ScriptName, [string]$LogName) {
     return 0
 }
 
-$result = Invoke-EditorPython "generate_city.py" "CastleCity.log"
+$result = Invoke-EditorPython "generate_city.py" "HawkeyeCity.log"
 if ($result -ne 0) { exit $result }
 
 if ($Verify) {
-    $result = Invoke-EditorPython "verify_city.py" "CastleCityVerify.log"
+    $result = Invoke-EditorPython "verify_city.py" "HawkeyeCityVerify.log"
     if ($result -ne 0) { exit $result }
 }
 
