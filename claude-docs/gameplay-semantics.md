@@ -44,10 +44,21 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   same at any speed. A traversal move never locks input longer than its animation.
 - Landing above 400 cm triggers a roll if the player is moving, a stumble if not. Fall
   damage begins at 900 cm and never kills from a rooftop you can reach by grapple.
-- Grapple arrow: valid anchors within 2500 cm and within 30 degrees of the camera
-  forward show a marker; fire zips the character along a straight line at 1800 cm/s and
-  lands on the anchor's landing point. Chaining is allowed mid-zip once past 70% of the
-  line. Costs one grapple arrow; the arrow is recoverable at the anchor.
+- Grapple arrow (built 2026-09-26): valid anchors are within 2500 cm, farther than 300 cm
+  (so the anchor just landed beside doesn't stay lit), within 30 degrees of the camera
+  forward, and in line of sight from the camera; the closest by angle wins and shows a
+  marker with a Q hint for the first five uses. Fire spawns a straight, gravity-free
+  arrow at 6000 cm/s; on arrival the character zips in Flying mode along a straight line
+  to the anchor's landing point at 1800 cm/s, input locked except the camera, and lands
+  in Walking with no fall damage. Chaining is allowed once past 70% of the line, when
+  the marker returns. A zip is cancelled by static geometry on the path except within
+  150 cm of the anchor (corner anchors share walls with neighbours). Costs one grapple
+  arrow; the arrow stays in the anchor and is recovered within 200 cm of it.
+- Anchors sit on the parapet centre (15 cm in from the roof edge) at every roof corner
+  and at mid-edge on edges over 25 m, on buildings over 8 m, none within 4 m of another.
+  Landing points are 60 cm further inboard so the capsule clears the parapet. The
+  generator places them; verify asserts every landing point is above a building roof.
+  Anchor lookup uses a 25 m spatial grid.
 
 ## PLANNED: bow and arrows
 - Draw is a hold: 0 to `FullDrawSeconds` (0.8 Kate, 1.0 Clint). Release below 25% draw
