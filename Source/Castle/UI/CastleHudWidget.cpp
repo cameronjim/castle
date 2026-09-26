@@ -5,6 +5,7 @@
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateColorBrush.h"
 #include "Castle.h"
+#include "CastlePlayerController.h"
 #include "Combat/BowComponent.h"
 #include "Combat/TakedownComponent.h"
 #include "Combat/WeaponComponent.h"
@@ -352,7 +353,7 @@ void UCastleHudWidget::UpdateGrappleMarker()
 	{
 		HintSlot->SetPosition(Position + FVector2D(0.f, GrappleMarkerSizePixels * 0.5f + 4.f));
 	}
-	GrappleHint->SetText(GrappleHintText);
+	GrappleHint->SetText(ApplyGamepadHint(GrappleHintText));
 	GrappleHint->SetVisibility(
 		IsGrappleHintVisible() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 }
@@ -604,11 +605,32 @@ void UCastleHudWidget::RefreshAmmo()
 
 void UCastleHudWidget::SetPrompt(FText Prompt)
 {
-	CurrentPrompt = Prompt;
+	CurrentPrompt = ApplyGamepadHint(Prompt);
 	if (PromptText)
 	{
 		PromptText->SetText(CurrentPrompt);
 	}
+}
+
+FText UCastleHudWidget::ApplyGamepadHint(FText KeyboardHint) const
+{
+	const ACastlePlayerController* PC = Cast<ACastlePlayerController>(GetOwningPlayer());
+	if (!PC || !PC->IsUsingGamepad() || KeyboardHint.IsEmpty())
+	{
+		return KeyboardHint;
+	}
+
+	FString Text = KeyboardHint.ToString();
+	if (Text.Equals(TEXT("Q")))
+	{
+		// The grapple marker's bare "Q" hint; RB fires IA_Grapple on a gamepad.
+		return NSLOCTEXT("Castle", "GrappleHintGamepad", "RB");
+	}
+
+	// Takedown and interact share the Y face button; both prompts read the same on a pad.
+	Text.ReplaceInline(TEXT("[F]"), TEXT("[Y]"));
+	Text.ReplaceInline(TEXT("[E]"), TEXT("[Y]"));
+	return FText::FromString(Text);
 }
 
 void UCastleHudWidget::ClearPrompt()

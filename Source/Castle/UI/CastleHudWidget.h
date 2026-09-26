@@ -51,6 +51,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD")
 	void ClearPrompt();
 
+	/**
+	 * Swaps a keyboard-flavoured hint ("[F] Take down") for its gamepad reading ("[Y] Take down")
+	 * when the owning controller last saw a Gamepad_* key. Public so other widgets building their
+	 * own hint strings (not routed through SetPrompt) can reuse it.
+	 */
+	UFUNCTION(BlueprintPure, Category = "HUD")
+	FText ApplyGamepadHint(FText KeyboardHint) const;
+
 	UFUNCTION(BlueprintPure, Category = "HUD")
 	FText GetPrompt() const { return CurrentPrompt; }
 
