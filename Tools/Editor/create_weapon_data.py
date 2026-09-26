@@ -14,6 +14,16 @@
     /Game/Blueprints/Weapons/DA_Bow_Clint         UBowDefinition, 1.0 s draw (unused until Clint)
     /Game/Blueprints/Weapons/DA_Arrow_Standard    UArrowDefinition, slot 1, 40 damage, cap 30
     /Game/Blueprints/Weapons/DA_Arrow_Grapple     UArrowDefinition, slot 2, cap 6, OnHitEffect Grapple
+    /Game/Blueprints/Weapons/DA_Arrow_Putty       slot 3, 10 damage, cap 4, Putty (claude-docs/
+                                                  gameplay-semantics.md, "trick arrows")
+    /Game/Blueprints/Weapons/DA_Arrow_Bola        slot 4, 10 damage, cap 4, Bola, recoverable
+    /Game/Blueprints/Weapons/DA_Arrow_Smoke       slot 5, 0 damage, cap 3, Smoke
+    /Game/Blueprints/Weapons/DA_Arrow_EMP         slot 6, 0 damage, cap 3, EMP
+    /Game/Blueprints/Weapons/DA_Arrow_Explosive   slot 7, 80 damage (the blast's, falling off to 0 at
+                                                  400 cm), cap 2, Explosive
+    /Game/Blueprints/Weapons/M_ArrowFx            translucent Color/Opacity: the smoke cloud's puffs
+    /Game/Blueprints/Weapons/M_ArrowGlow          additive unlit Color x Intensity: the EMP ring and
+                                                  the explosive's fireball
 
 Then:
 
@@ -43,6 +53,9 @@ BOW_GLOW_RGB = (0.55, 0.15, 1.0)
 BOW_GLOW = 1.2                     # before _materials.EMISSIVE_INTENSITY_FACTOR
 NOCK_MATERIAL = "M_ArrowNock"
 NOCK_GLOW = 1.5                    # times the nock's Color, before the factor
+FX_MATERIAL = "M_ArrowFx"
+FX_SELF_LIGHT = 0.08               # smoke glows this much of its Color so it reads between lamps
+GLOW_MATERIAL = "M_ArrowGlow"
 BOW_MESH = "SM_Bow_Placeholder"
 
 # Palm of the left hand on the UEFN mannequin (a socket on hand_l, found by introspecting
@@ -100,7 +113,33 @@ def arrow_values(name, projectile_classes):
             ("recoverable", True),
             ("on_hit_effect", enum_value("ArrowHitEffect", "GRAPPLE")),
         ]
+    trick = TRICK_ARROWS.get(name)
+    if trick is not None:
+        display, short, slot, damage, cap, recoverable, effect = trick
+        return [
+            ("display_name", display),
+            ("short_name", short),
+            ("slot", slot),
+            ("projectile_class", projectile_classes.get("BP_Arrow_Standard")),
+            ("damage", damage),
+            ("cap", cap),
+            ("recoverable", recoverable),
+            ("on_hit_effect", enum_value("ArrowHitEffect", effect)),
+        ]
     return []
+
+
+# The trick arrows (claude-docs/gameplay-semantics.md, "trick arrows"), in quiver slot order. They
+# fly like a standard arrow; what they do on landing is the AArrowEffect their OnHitEffect names.
+# name: (display name, short name, slot, damage, cap, recoverable, EArrowHitEffect member)
+TRICK_ARROWS = {
+    "DA_Arrow_Putty": ("Putty arrow", "Putty", 3, 10.0, 4, False, "PUTTY"),
+    "DA_Arrow_Bola": ("Bola arrow", "Bola", 4, 10.0, 4, True, "BOLA"),
+    "DA_Arrow_Smoke": ("Smoke arrow", "Smoke", 5, 0.0, 3, False, "SMOKE"),
+    "DA_Arrow_EMP": ("EMP arrow", "EMP", 6, 0.0, 3, False, "EMP"),
+    "DA_Arrow_Explosive": ("Explosive arrow", "Explosive", 7, 80.0, 2, False, "EXPLOSIVE"),
+}
+ARROW_NAMES = ["DA_Arrow_Standard", "DA_Arrow_Grapple"] + list(TRICK_ARROWS)
 
 
 def weapon_values(name):
@@ -209,6 +248,35 @@ def _build_arrow_nock(material):
     m.connect_property(m.multiply(material, color, None, -400, 100, const_b=NOCK_GLOW * m.EMISSIVE_INTENSITY_FACTOR),
                        unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     m.set_scalar_property(material, 0.4, unreal.MaterialProperty.MP_ROUGHNESS, -400, 250)
+
+
+def _build_arrow_fx(material):
+    """Lit translucent Color at Opacity, with a little self light: the smoke's puffs."""
+    import _materials as m  # noqa: PLC0415
+
+    c.set_props(material, [("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT),
+                           ("two_sided", True)], FX_MATERIAL)
+    color = m.vector_param(material, "Color", (0.55, 0.56, 0.6), -700, -100)
+    opacity = m.scalar_param(material, "Opacity", 0.5, -700, 200)
+    m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
+    self_light = m.multiply(material, color, None, -400, 50, const_b=FX_SELF_LIGHT * m.EMISSIVE_INTENSITY_FACTOR)
+    m.connect_property(self_light, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    m.connect_property(opacity, unreal.MaterialProperty.MP_OPACITY)
+    m.set_scalar_property(material, 1.0, unreal.MaterialProperty.MP_ROUGHNESS, -400, 300)
+
+
+def _build_arrow_glow(material):
+    """Additive, unlit: Color times Intensity glowing. The EMP ring and the fireball."""
+    import _materials as m  # noqa: PLC0415
+
+    c.set_props(material, [("blend_mode", unreal.BlendMode.BLEND_ADDITIVE),
+                           ("shading_model", unreal.MaterialShadingModel.MSM_UNLIT),
+                           ("two_sided", True)], GLOW_MATERIAL)
+    color = m.vector_param(material, "Color", (0.25, 0.6, 1.0), -900, -100)
+    intensity = m.scalar_param(material, "Intensity", 1.0, -900, 150)
+    glow = m.multiply(material, m.multiply(material, color, intensity, -650, 0), None, -400, 0,
+                      const_b=m.EMISSIVE_INTENSITY_FACTOR)
+    m.connect_property(glow, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
 
 
 def build_bow_mesh():
@@ -334,13 +402,15 @@ def run():
 
     material = m.ensure_look_material(c.asset_path(WEAPON_PATH, BOW_MATERIAL), _build_bow)
     m.ensure_look_material(c.asset_path(WEAPON_PATH, NOCK_MATERIAL), _build_arrow_nock)
+    m.ensure_look_material(c.asset_path(WEAPON_PATH, FX_MATERIAL), _build_arrow_fx)
+    m.ensure_look_material(c.asset_path(WEAPON_PATH, GLOW_MATERIAL), _build_arrow_glow)
     mesh = ensure_bow_mesh(material)
     projectiles = ensure_projectile_blueprints()
 
     bows = {name: create_data_asset(name, "BowDefinition", bow_values(name, mesh))
             for name in ("DA_Bow_Kate", "DA_Bow_Clint")}
     arrows = {name: create_data_asset(name, "ArrowDefinition", arrow_values(name, projectiles))
-              for name in ("DA_Arrow_Standard", "DA_Arrow_Grapple")}
+              for name in ARROW_NAMES}
 
     # Without these the inventory falls back to transient stand-ins, which work but are not the
     # assets a designer can tune.
