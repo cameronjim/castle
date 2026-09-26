@@ -104,6 +104,19 @@ AActor* UInteractionComponent::TraceForInteractable() const
 		return Candidate;
 	}
 
+	// Standing in an interactable's zone counts as looking at it: in third person the camera trace
+	// starts metres behind the character and often ends before the thing she is standing at.
+	TArray<AActor*> Overlapping;
+	Owner->GetOverlappingActors(Overlapping);
+	for (AActor* Candidate : Overlapping)
+	{
+		if (IsValid(Candidate) && Candidate->GetClass()->ImplementsInterface(UInteractable::StaticClass())
+			&& IInteractable::Execute_CanInteract(Candidate, Owner))
+		{
+			return Candidate;
+		}
+	}
+
 	return nullptr;
 }
 
