@@ -32,6 +32,11 @@ float UCastleSettingsSubsystem::ClampLookSensitivity(float Value)
 	return FMath::Clamp(Value, MinLookSensitivity, MaxLookSensitivity);
 }
 
+float UCastleSettingsSubsystem::ClampStickSensitivity(float Value)
+{
+	return FMath::Clamp(Value, MinStickSensitivity, MaxStickSensitivity);
+}
+
 FString UCastleSettingsSubsystem::GetSlotName() const
 {
 	return SlotNameOverride.IsEmpty() ? FString(DefaultSlotName) : SlotNameOverride;
@@ -49,6 +54,20 @@ void UCastleSettingsSubsystem::SetLookSensitivity(float NewSensitivity)
 	}
 
 	Settings.LookSensitivity = Clamped;
+	Save();
+	OnSettingsChanged.Broadcast(Settings);
+}
+
+void UCastleSettingsSubsystem::SetStickSensitivity(float NewSensitivity)
+{
+	const float Clamped = ClampStickSensitivity(NewSensitivity);
+
+	if (FMath::IsNearlyEqual(Clamped, Settings.StickSensitivity, UE_KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+
+	Settings.StickSensitivity = Clamped;
 	Save();
 	OnSettingsChanged.Broadcast(Settings);
 }
@@ -82,6 +101,7 @@ void UCastleSettingsSubsystem::Load()
 
 	Settings = Loaded->Settings;
 	Settings.LookSensitivity = ClampLookSensitivity(Settings.LookSensitivity);
+	Settings.StickSensitivity = ClampStickSensitivity(Settings.StickSensitivity);
 }
 
 bool UCastleSettingsSubsystem::Save() const

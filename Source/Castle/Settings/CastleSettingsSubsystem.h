@@ -38,6 +38,10 @@ public:
 	static constexpr float MinLookSensitivity = 0.02f;
 	static constexpr float MaxLookSensitivity = 1.0f;
 
+	/** Slowest and fastest gamepad stick look the screen will offer. */
+	static constexpr float MinStickSensitivity = 0.2f;
+	static constexpr float MaxStickSensitivity = 3.0f;
+
 	/** The slot settings live in, unless SlotNameOverride is set. */
 	static const TCHAR* DefaultSlotName;
 
@@ -47,6 +51,13 @@ public:
 	/** Clamps, stores, saves and broadcasts. A value that changes nothing does nothing. */
 	UFUNCTION(BlueprintCallable, Category = "Settings")
 	void SetLookSensitivity(float NewSensitivity);
+
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	float GetStickSensitivity() const { return Settings.StickSensitivity; }
+
+	/** Clamps, stores, saves and broadcasts. A value that changes nothing does nothing. */
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void SetStickSensitivity(float NewSensitivity);
 
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	FCastleSettings GetSettings() const { return Settings; }
@@ -61,6 +72,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	static float ClampLookSensitivity(float Value);
+
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	static float ClampStickSensitivity(float Value);
 
 	/**
 	 * Set by tests so the real player's settings are never touched. Empty in game.

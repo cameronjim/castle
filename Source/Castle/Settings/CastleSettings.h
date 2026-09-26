@@ -19,10 +19,18 @@ struct CASTLE_API FCastleSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
 	float LookSensitivity = 0.2f;
 
+	/**
+	 * Multiplier on the gamepad look stick's degrees-per-second rate. Clamped to [0.2, 3.0] by
+	 * the subsystem. Unlike LookSensitivity this scales an already delta-time-scaled rate rather
+	 * than a raw per-frame pixel delta, so 1.0 reads as "the tuned default", not "off".
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	float StickSensitivity = 1.0f;
+
 	/** Bumped whenever the meaning of a field changes. A mismatch on load yields defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-	int32 Version = 1;
+	int32 Version = 2;
 
-	/** The version this build writes and accepts. */
-	static constexpr int32 CurrentVersion = 1;
+	/** The version this build writes and accepts. A save from an older version yields defaults. */
+	static constexpr int32 CurrentVersion = 2;
 };
