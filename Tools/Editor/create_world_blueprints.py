@@ -4,6 +4,7 @@
     /Game/Blueprints/World/BP_Pickup_Keycard   parent APickupActor, Keycard "cellblock"
     /Game/Blueprints/World/BP_Door_Keycard     parent ADoorActor, locked on "cellblock"
     /Game/Blueprints/AI/BP_Thug                parent AThugCharacter, mannequin mesh
+    /Game/Blueprints/World/BP_GrappleAnchor    parent AGrappleAnchor, 40 cm dark steel cube
 
 Then:
 
@@ -171,6 +172,48 @@ def set_thug_materials(bp, materials):
     changed = set_component_material(component, 0, materials.get("body"), "BP_Thug.Mesh")
     changed = set_component_material(component, 1, materials.get("visor"), "BP_Thug.Mesh") or changed
     return changed
+
+
+M_ANCHOR_STEEL = m.MATERIALS_PATH + "/M_AnchorSteel"
+ANCHOR_NAME = "BP_GrappleAnchor"
+
+
+def _build_anchor_steel(material):
+    """Dark, worn steel: reads as a fitting against the grey roofs without shouting."""
+    color = m.constant3(material, (0.035, 0.037, 0.04), -400, -200)
+    m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
+    m.set_scalar_property(material, 0.45, unreal.MaterialProperty.MP_ROUGHNESS, -400, 0)
+    m.set_scalar_property(material, 0.9, unreal.MaterialProperty.MP_METALLIC, -400, 150)
+
+
+def make_grapple_anchor():
+    """BP_GrappleAnchor: AGrappleAnchor's 40 cm cube in dark steel. The C++ sets mesh and size;
+    only the material is data. generate_city.py places it on the district's roofs."""
+    parent = c.find_class("GrappleAnchor", "/Script/Castle.GrappleAnchor")
+    bp, created = cb.make_blueprint(ANCHOR_NAME, WORLD_PATH, parent, ("BlueprintFactory",))
+    if bp is None:
+        return None
+    if created:
+        c.compile_blueprint(bp)
+        c.save(bp)
+
+    steel = m.ensure_material(M_ANCHOR_STEEL, _build_anchor_steel)
+    cdo = c.blueprint_cdo(bp)
+    component = None
+    if cdo is not None:
+        try:
+            component = cdo.get_editor_property("mesh")
+        except Exception:  # noqa: BLE001
+            component = None
+    if component is None:
+        c.log("skipped", ANCHOR_NAME + ".Mesh", "no mesh component")
+        return bp
+    if set_component_material(component, 0, steel, ANCHOR_NAME + ".Mesh"):
+        c.compile_blueprint(bp)
+        c.save(bp)
+    else:
+        c.log("exists", c.asset_path(WORLD_PATH, ANCHOR_NAME), "dark steel already set")
+    return bp
 
 
 def make_hud():
@@ -568,6 +611,7 @@ def run():
     make_door(surface_materials.get("steel"))
     set_mannequin_physics_asset()
     make_thug()
+    make_grapple_anchor()
     wire_hud_into_controller()
 
 
