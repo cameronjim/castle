@@ -73,3 +73,25 @@ How to work in this repo, whether you're Cameron, Claude, or a subagent.
 - Committed with a message that explains why.
 - Anything left undone or noticed along the way is written in the report or as a
   `// TODO(stageN)` in code.
+
+## Use what exists first
+Before writing a system from scratch, check for an engine plugin, an Epic sample, or an
+open-source library that does it well, and use it if it fits. Write from scratch when the
+options are poor or don't do what the game needs. Always say which route you took and why
+in the task report and in the relevant doc. Candidates to check first:
+
+| Need | Look at |
+|------|---------|
+| Saves and checkpoints | SPUD (open source), else the engine's SaveGame |
+| AI behaviour, partner logic | StateTree, Smart Objects, EQS, Behavior Trees |
+| Menus and HUD | Common UI, UMG |
+| Camera rigs | Gameplay Cameras plugin |
+| Locomotion, traversal | Game Animation Sample (in use), Motion Warping, Pose Search |
+| Placing props and clutter | Procedural Content Generation (PCG) |
+| Effects | Niagara and the engine's starter content |
+| Dialogue | DlgSystem or Mountea Dialogue (open source) |
+| City data | OpenStreetMap via Overpass (in use), NYC Open Data |
+| Real-world reference | Cesium for Unreal with Google 3D Tiles, reference only |
+
+Free Fab packs are fine when they carry a permissive licence; paid packs only if Cameron
+buys them. Epic's own samples are covered by the engine licence.
