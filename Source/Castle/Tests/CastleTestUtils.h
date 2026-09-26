@@ -226,6 +226,23 @@ public:
 
 	UFUNCTION()
 	void HandleGrappleCancelled(AGrappleAnchor* Anchor);
+
+	// --- Melee ----------------------------------------------------------------------------------
+	UPROPERTY() int32 MeleeWindupCount = 0;
+	UPROPERTY() FName LastMeleeWindupName;
+	UPROPERTY() int32 MeleeLandedCount = 0;
+	UPROPERTY() TObjectPtr<AActor> LastMeleeHitActor = nullptr;
+	UPROPERTY() float LastMeleeDamage = 0.f;
+
+	/** Set by the test: the health it reads when the wind-up fires, to prove no damage came first. */
+	UPROPERTY() TObjectPtr<UHealthComponent> WatchedMeleeVictim = nullptr;
+	UPROPERTY() float VictimHealthAtWindup = -1.f;
+
+	UFUNCTION()
+	void HandleMeleeWindup(FName AttackName, float WindupSeconds);
+
+	UFUNCTION()
+	void HandleMeleeLanded(AActor* HitActor, float DamageDealt, FName AttackName);
 };
 
 /**
@@ -252,6 +269,12 @@ public:
 
 	/** Stands in for Landed() after a fall of FallHeight. */
 	void TestApplyLanding(float FallHeight) { ApplyLanding(FallHeight); }
+
+	/** Stands in for one Tick of the dodge (its invulnerability and cooldown). */
+	void TestTickDodge(float DeltaSeconds) { UpdateDodge(DeltaSeconds); }
+
+	/** Stands in for Input_Move having set the gait: a sprint refuses the dodge. */
+	void TestSetSprintFlag(bool bSprint) { bIsSprinting = bSprint; }
 
 	float TestWalkSpeed() const { return WalkSpeed; }
 	float TestRunSpeed() const { return RunSpeed; }

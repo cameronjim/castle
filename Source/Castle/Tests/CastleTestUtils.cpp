@@ -246,6 +246,23 @@ void UCastleTestListener::HandleGrappleCancelled(AGrappleAnchor* Anchor)
 	LastGrappleAnchor = Anchor;
 }
 
+void UCastleTestListener::HandleMeleeWindup(FName AttackName, float /*WindupSeconds*/)
+{
+	++MeleeWindupCount;
+	LastMeleeWindupName = AttackName;
+	if (WatchedMeleeVictim)
+	{
+		VictimHealthAtWindup = WatchedMeleeVictim->GetCurrentHealth();
+	}
+}
+
+void UCastleTestListener::HandleMeleeLanded(AActor* HitActor, float DamageDealt, FName /*AttackName*/)
+{
+	++MeleeLandedCount;
+	LastMeleeHitActor = HitActor;
+	LastMeleeDamage = DamageDealt;
+}
+
 ACastleTestBlocker::ACastleTestBlocker()
 {
 	Box = CreateDefaultSubobject<UBoxComponent>(TEXT("Box"));

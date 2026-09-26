@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Combat/MeleeComponent.h"
 #include "GameFramework/Character.h"
 #include "Player/CastleMovementTypes.h"
 #include "Settings/CastleSettings.h"
@@ -82,6 +83,10 @@ public:
 	/** The grapple arrow: anchor targeting, firing and the zip. Always present on the player. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
 	UGrappleComponent* GetGrappleComponent() const { return GrappleComponent; }
+
+	/** Light and heavy strikes with the bow (V). Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Character")
+	UMeleeComponent* GetMeleeComponent() const { return MeleeComponent; }
 
 	/** Vault, mantle and ledge grab. Always present on the player. */
 	UFUNCTION(BlueprintPure, Category = "Castle|Character")
@@ -284,6 +289,56 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Castle|Animation")
 	int32 GetDroppedBlueprintInputBindings() const { return DroppedBlueprintInputBindings; }
 
+	// --- Melee, dodge, hit reactions -------------------------------------------------------------
+
+	/**
+	 * A tap of V: LightAttack (15, 0.1 s wind-up, 0.3 s in all). Turns her to the nearest thug in
+	 * front within SoftLockRange first. Refused mid-swing, mid-dodge, drawing, traversing or zipping.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Melee")
+	bool StartLightAttack();
+
+	/** V held HeavyHoldSeconds: HeavyAttack (35 after a 0.6 s wind-up, knocks a thug down). */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Melee")
+	bool StartHeavyAttack();
+
+	UFUNCTION(BlueprintPure, Category = "Castle|Melee")
+	bool IsMeleeAttacking() const;
+
+	/**
+	 * A dash of DodgeDistance over DodgeSeconds along WorldDirection (flattened), with the health
+	 * component invulnerable for the first DodgeInvulnerableSeconds. Refused while sprinting,
+	 * airborne, traversing, zipping, in a takedown, already dodging, or within DodgeCooldownSeconds
+	 * of the last one. Ctrl tapped while moving (not sprinting) calls it with the move direction.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Castle|Dodge")
+	bool TryDodge(FVector WorldDirection);
+
+	UFUNCTION(BlueprintPure, Category = "Castle|Dodge")
+	bool IsDodging() const { return DodgeRemaining > 0.f; }
+
+	/** True for the invulnerable part of a dodge. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Dodge")
+	bool IsDodgeInvulnerable() const { return DodgeInvulnerableRemaining > 0.f; }
+
+	UFUNCTION(BlueprintPure, Category = "Castle|Dodge")
+	float GetDodgeCooldownRemaining() const { return DodgeCooldownRemaining; }
+
+	/** True for PlayerStaggerSeconds after a staggering hit (a thug's punch or bat). */
+	UFUNCTION(BlueprintPure, Category = "Castle|Melee")
+	bool IsStaggered() const { return StaggerRemaining > 0.f; }
+
+	/**
+	 * 0 at or above LowHealthThreshold of max health, rising to 1 at zero: how much of the
+	 * low-health desaturation and vignette is on screen.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Castle|Health")
+	float ComputeLowHealthAlpha(float HealthPercent) const;
+
+	/** 1 the moment a hit lands on her, 0 once HitShakeSeconds have passed. */
+	UFUNCTION(BlueprintPure, Category = "Castle|Camera")
+	float GetHitShakeAlpha() const { return HitShakeSeconds > 0.f ? HitShakeRemaining / HitShakeSeconds : 0.f; }
+
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Castle|Character")
 	void OnInteractPressed();
@@ -328,6 +383,42 @@ protected:
 	void Input_SlotScroll(const FInputActionValue& Value);
 	void Input_Inventory(const FInputActionValue& Value);
 	void Input_Grapple(const FInputActionValue& Value);
+	void Input_CrouchReleased(const FInputActionValue& Value);
+	void Input_MeleePressed(const FInputActionValue& Value);
+	void Input_MeleeReleased(const FInputActionValue& Value);
+
+	/** Starts Attack after turning to the soft-lock target. Shared by the light and the heavy. */
+	bool StartMelee(const FCastleMeleeAttack& Attack);
+
+	/** The closest living thug within SoftLockRange and SoftLockAngleDegrees of the camera's forward. */
+	AActor* FindSoftLockTarget() const;
+
+	/** Counts the V hold; past HeavyHoldSeconds it becomes the heavy. */
+	void UpdateMeleeHold(float DeltaSeconds);
+
+	/** Counts a dodge, its invulnerability and its cooldown down. */
+	void UpdateDodge(float DeltaSeconds);
+
+	/** A Ctrl press while moving waits DodgeTapSeconds: released sooner it dodges, held it crouches. */
+	void UpdateCrouchTap(float DeltaSeconds);
+
+	/** Counts the stagger and the hit shake down. */
+	void UpdateHitReactions(float DeltaSeconds);
+
+	/** Writes the low-health desaturation and vignette onto the camera's post process. */
+	void UpdateLowHealthPostProcess();
+
+	UFUNCTION()
+	void HandleStaggered(UHealthComponent* Health, AActor* DamageInstigator);
+
+	UFUNCTION()
+	void HandleHealthChanged(UHealthComponent* Health, float NewHealth, float Delta, AActor* DamageInstigator);
+
+	UFUNCTION()
+	void HandleMeleeLanded(AActor* HitActor, float DamageDealt, FName AttackName);
+
+	/** Time back to normal after the hit stop. */
+	void EndHitStop();
 
 	/** Picks the gait and writes its speed to CharacterMovement (walking and crouched). */
 	void UpdateMaxWalkSpeed();
@@ -418,6 +509,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UGrappleComponent> GrappleComponent;
 
+	/** Light and heavy bow strikes. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
+	TObjectPtr<UMeleeComponent> MeleeComponent;
+
 	/** Vault, mantle, ledge grab; auto while sprinting, on the jump key at any speed. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Castle|Components")
 	TObjectPtr<UParkourComponent> ParkourComponent;
@@ -495,6 +590,88 @@ protected:
 	/** Q: fire a grapple arrow at the marked anchor (or chain, late in a zip), whatever slot is nocked. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> GrappleAction;
+
+	/** V: tap for a light bow strike, hold for the heavy. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
+	TObjectPtr<UInputAction> MeleeAction;
+
+	// --- Melee tuning ---------------------------------------------------------------------------
+
+	/** The tap: 15 damage, lands 0.1 s in, 0.3 s in all, staggers, 20 cm lunge. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee")
+	FCastleMeleeAttack LightAttack;
+
+	/** The hold: 35 damage after a 0.6 s wind-up, knocks a thug down, 40 cm lunge. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee")
+	FCastleMeleeAttack HeavyAttack;
+
+	/** V held this long becomes the heavy; let go sooner and it was a tap. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee", meta = (ClampMin = "0.0"))
+	float HeavyHoldSeconds = 0.4f;
+
+	/** A thug this close and this far off the camera's forward is who a swing turns to face. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee", meta = (ClampMin = "0.0"))
+	float SoftLockRange = 300.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float SoftLockAngleDegrees = 60.f;
+
+	/** Real seconds the world is slowed when one of her strikes lands. Two frames at 60. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee", meta = (ClampMin = "0.0"))
+	float HitStopSeconds = 0.033f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee", meta = (ClampMin = "0.01", ClampMax = "1.0"))
+	float HitStopTimeDilation = 0.1f;
+
+	// --- Dodge ----------------------------------------------------------------------------------
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Dodge", meta = (ClampMin = "0.0"))
+	float DodgeDistance = 300.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Dodge", meta = (ClampMin = "0.05"))
+	float DodgeSeconds = 0.4f;
+
+	/** The start of the dodge during which nothing can hurt her. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Dodge", meta = (ClampMin = "0.0"))
+	float DodgeInvulnerableSeconds = 0.25f;
+
+	/** From the start of one dodge to the earliest the next can start. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Dodge", meta = (ClampMin = "0.0"))
+	float DodgeCooldownSeconds = 0.8f;
+
+	/** A Ctrl press released within this is a dodge; held longer (or pressed standing) it crouches. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Dodge", meta = (ClampMin = "0.0"))
+	float DodgeTapSeconds = 0.2f;
+
+	// --- Hit reactions --------------------------------------------------------------------------
+
+	/** Seconds a staggering hit takes her movement and attacks away. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee", meta = (ClampMin = "0.0"))
+	float PlayerStaggerSeconds = 0.35f;
+
+	/** Speed she is shoved away from a staggering hit at, cm/s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Melee", meta = (ClampMin = "0.0"))
+	float PlayerStaggerShove = 250.f;
+
+	/** How long the camera shakes when a hit lands on her. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
+	float HitShakeSeconds = 0.2f;
+
+	/** How far the lens is thrown about by a hit, cm, at the start of the shake. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Camera", meta = (ClampMin = "0.0"))
+	float HitShakeAmplitude = 6.f;
+
+	/** Below this fraction of max health the picture starts to drain and close in. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Health", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LowHealthThreshold = 0.4f;
+
+	/** Colour saturation at zero health (1 is normal). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Health", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LowHealthSaturation = 0.2f;
+
+	/** Vignette intensity at zero health (the engine default is 0.4). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Castle|Health", meta = (ClampMin = "0.0"))
+	float LowHealthVignette = 1.2f;
 
 	// --- Movement tuning ------------------------------------------------------------------------
 
@@ -796,8 +973,44 @@ protected:
 	UPROPERTY(Transient)
 	float AimAlpha = 0.f;
 
+	// --- Combat state ---------------------------------------------------------------------------
+
+	UPROPERTY(Transient)
+	float DodgeRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	float DodgeInvulnerableRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	float DodgeCooldownRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	float StaggerRemaining = 0.f;
+
+	UPROPERTY(Transient)
+	float HitShakeRemaining = 0.f;
+
+	/** The world direction of the last move input, for the dodge. */
+	UPROPERTY(Transient)
+	FVector LastMoveWorldDirection = FVector::ZeroVector;
+
 private:
 	FTimerHandle NoiseTimerHandle;
+	FTimerHandle HitStopTimerHandle;
+
+	/** V is held and has not yet become a heavy. */
+	bool bMeleeHeld = false;
+	float MeleeHeldSeconds = 0.f;
+
+	/** A Ctrl press while moving, waiting to find out whether it is a tap (dodge) or a hold (crouch). */
+	bool bCrouchTapPending = false;
+	float CrouchTapHeldSeconds = 0.f;
+
+	/** The dodge turned invulnerability on, so the dodge is what turns it off. */
+	bool bDodgeOwnsInvulnerability = false;
+
+	/** The low-health alpha last written, so the post process is only touched on a change. */
+	float LastLowHealthAlpha = 0.f;
 
 	/** Action bindings SetupPlayerInputComponent made; anything after them came from a Blueprint. */
 	int32 NativeActionBindingCount = INDEX_NONE;

@@ -10,6 +10,7 @@
 #include "Combat/BowComponent.h"
 #include "CastlePlayerController.h"
 #include "Combat/HealthComponent.h"
+#include "Combat/MeleeComponent.h"
 #include "Combat/TakedownComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -18,7 +19,11 @@
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/RootMotionSource.h"
 #include "GameFramework/SpringArmComponent.h"
+#include "EngineUtils.h"
+#include "Kismet/GameplayStatics.h"
+#include "World/ThugCharacter.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
 #include "Player/GrappleComponent.h"
@@ -116,6 +121,26 @@ ACastleCharacter::ACastleCharacter()
 	WeaponComponent->bHasWeapon = false;
 	BowComponent = CreateDefaultSubobject<UBowComponent>(TEXT("BowComponent"));
 
+	// Bow strikes. Numbers from docs/plans/02-prototype.md step 7: a quick jab and a slow heavy
+	// that puts a thug on the floor. The lunge stands in for an attack animation (none yet).
+	MeleeComponent = CreateDefaultSubobject<UMeleeComponent>(TEXT("MeleeComponent"));
+	LightAttack.Name = FName(TEXT("light"));
+	LightAttack.Damage = 15.f;
+	LightAttack.WindupSeconds = 0.1f;
+	LightAttack.RecoverSeconds = 0.2f;
+	LightAttack.Range = 120.f;
+	LightAttack.Radius = 35.f;
+	LightAttack.bStagger = true;
+	LightAttack.LungeDistance = 20.f;
+	HeavyAttack = LightAttack;
+	HeavyAttack.Name = FName(TEXT("heavy"));
+	HeavyAttack.Damage = 35.f;
+	HeavyAttack.WindupSeconds = 0.6f;
+	HeavyAttack.RecoverSeconds = 0.3f;
+	HeavyAttack.bKnockdown = true;
+	HeavyAttack.LungeDistance = 40.f;
+	HeavyAttack.LungeSeconds = 0.15f;
+
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 	GrappleComponent = CreateDefaultSubobject<UGrappleComponent>(TEXT("GrappleComponent"));
 	ParkourComponent = CreateDefaultSubobject<UParkourComponent>(TEXT("ParkourComponent"));
@@ -168,6 +193,12 @@ void ACastleCharacter::BeginPlay()
 	if (HealthComponent)
 	{
 		HealthComponent->OnDeath.AddDynamic(this, &ACastleCharacter::HandleDeath);
+		HealthComponent->OnStaggered.AddDynamic(this, &ACastleCharacter::HandleStaggered);
+		HealthComponent->OnHealthChanged.AddDynamic(this, &ACastleCharacter::HandleHealthChanged);
+	}
+	if (MeleeComponent)
+	{
+		MeleeComponent->OnAttackLanded.AddDynamic(this, &ACastleCharacter::HandleMeleeLanded);
 	}
 
 	UpdateBodyLocomotion();
@@ -215,6 +246,11 @@ void ACastleCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(NoiseTimerHandle);
+		if (World->GetTimerManager().IsTimerActive(HitStopTimerHandle))
+		{
+			World->GetTimerManager().ClearTimer(HitStopTimerHandle);
+			EndHitStop();
+		}
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -385,6 +421,8 @@ void ACastleCharacter::SyncGaspInputState()
 	SetFlag(TEXT("WantsToStrafe"), bIsAiming);
 	SetFlag(TEXT("WantsToAim"), bIsAiming);
 	SetFlag(TEXT("WantsToCrouch"), bIsCrouched || bIsSliding);
+	// The sample has no attack input today; if a later version adds one, it is fed from here.
+	SetFlag(TEXT("WantsToAttack"), IsMeleeAttacking());
 
 	if (FBoolProperty* FullInput = FindFProperty<FBoolProperty>(GetClass(), CastleGasp::FullMovementInputName))
 	{
@@ -450,6 +488,7 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	if (CrouchAction)
 	{
 		EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_CrouchToggle);
+		EnhancedInput->BindAction(CrouchAction, ETriggerEvent::Completed, this, &ACastleCharacter::Input_CrouchReleased);
 	}
 	if (FireAction)
 	{
@@ -510,6 +549,12 @@ void ACastleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	if (GrappleAction)
 	{
 		EnhancedInput->BindAction(GrappleAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_Grapple);
+	}
+	if (MeleeAction)
+	{
+		// Tap for the light, hold for the heavy: the release decides which, or the hold running out.
+		EnhancedInput->BindAction(MeleeAction, ETriggerEvent::Started, this, &ACastleCharacter::Input_MeleePressed);
+		EnhancedInput->BindAction(MeleeAction, ETriggerEvent::Completed, this, &ACastleCharacter::Input_MeleeReleased);
 	}
 
 	// Everything bound after this point is a Blueprint's; see DropBlueprintInputBindings.
@@ -622,6 +667,18 @@ void ACastleCharacter::Input_Move(const FInputActionValue& Value)
 	const FVector2D MoveInput = Value.Get<FVector2D>();
 	const bool bParkourLock = ParkourComponent && ParkourComponent->IsLockingInput();
 	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping() || bParkourLock)
+	{
+		return;
+	}
+
+	// Remembered even when the move itself is locked out, so a dodge out of a swing goes where the
+	// stick points now.
+	const FRotator InputYaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
+	LastMoveWorldDirection = (FRotationMatrix(InputYaw).GetUnitAxis(EAxis::X) * MoveInput.Y
+		+ FRotationMatrix(InputYaw).GetUnitAxis(EAxis::Y) * MoveInput.X).GetSafeNormal2D();
+
+	// A swing, a dodge or a stagger owns the body for its length.
+	if (IsMeleeAttacking() || IsDodging() || IsStaggered())
 	{
 		return;
 	}
@@ -976,6 +1033,15 @@ void ACastleCharacter::UpdateCamera(float DeltaSeconds)
 		Blend.SocketOffset.Z -= LandingCameraDip * FMath::Sin(PI * Phase);
 	}
 
+	// A hit on her throws the lens about for a moment; decaying, two unrelated frequencies.
+	const float Shake = GetHitShakeAlpha();
+	if (Shake > 0.f)
+	{
+		const float Time = (HitShakeSeconds - HitShakeRemaining) * 60.f;
+		Blend.SocketOffset.Y += HitShakeAmplitude * Shake * FMath::Sin(Time * 1.7f);
+		Blend.SocketOffset.Z += HitShakeAmplitude * Shake * FMath::Cos(Time * 2.3f);
+	}
+
 	if (CameraBoom)
 	{
 		CameraBoom->TargetArmLength = Blend.ArmLength;
@@ -1007,6 +1073,11 @@ void ACastleCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	UpdateMoveInputTiming(DeltaSeconds);
+	UpdateCrouchTap(DeltaSeconds);
+	UpdateMeleeHold(DeltaSeconds);
+	UpdateDodge(DeltaSeconds);
+	UpdateHitReactions(DeltaSeconds);
+	UpdateLowHealthPostProcess();
 	UpdateSlide(DeltaSeconds);
 	UpdateFalling(DeltaSeconds);
 	UpdateMaxWalkSpeed();
@@ -1079,11 +1150,326 @@ void ACastleCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 	{
 		UnCrouch();
 	}
-	else if (!(bIsSprinting && StartSlide()))
+	else if (bIsSprinting)
+	{
+		if (!StartSlide())
+		{
+			Crouch();
+		}
+	}
+	else if (MoveInputMagnitude > 0.f)
+	{
+		// Moving, not sprinting: a tap dodges and a hold crouches, so wait for the release.
+		bCrouchTapPending = true;
+		CrouchTapHeldSeconds = 0.f;
+		return;
+	}
+	else
 	{
 		Crouch();
 	}
 	UpdateMaxWalkSpeed();
+}
+
+void ACastleCharacter::Input_CrouchReleased(const FInputActionValue& /*Value*/)
+{
+	if (!bCrouchTapPending)
+	{
+		return;
+	}
+	bCrouchTapPending = false;
+	TryDodge(LastMoveWorldDirection);
+}
+
+void ACastleCharacter::UpdateCrouchTap(float DeltaSeconds)
+{
+	if (!bCrouchTapPending)
+	{
+		return;
+	}
+	CrouchTapHeldSeconds += DeltaSeconds;
+	if (CrouchTapHeldSeconds < DodgeTapSeconds)
+	{
+		return;
+	}
+	bCrouchTapPending = false;
+	if (!bIsCrouched && !bIsSliding && !IsZipping() && !IsTraversing())
+	{
+		Crouch();
+		UpdateMaxWalkSpeed();
+	}
+}
+
+// --- Melee ------------------------------------------------------------------------------------
+
+bool ACastleCharacter::IsMeleeAttacking() const
+{
+	return MeleeComponent && MeleeComponent->IsAttacking();
+}
+
+void ACastleCharacter::Input_MeleePressed(const FInputActionValue& /*Value*/)
+{
+	bMeleeHeld = true;
+	MeleeHeldSeconds = 0.f;
+}
+
+void ACastleCharacter::Input_MeleeReleased(const FInputActionValue& /*Value*/)
+{
+	if (!bMeleeHeld)
+	{
+		return;
+	}
+	bMeleeHeld = false;
+	StartLightAttack();
+}
+
+void ACastleCharacter::UpdateMeleeHold(float DeltaSeconds)
+{
+	if (!bMeleeHeld)
+	{
+		return;
+	}
+	MeleeHeldSeconds += DeltaSeconds;
+	if (MeleeHeldSeconds >= HeavyHoldSeconds)
+	{
+		bMeleeHeld = false;
+		StartHeavyAttack();
+	}
+}
+
+bool ACastleCharacter::StartLightAttack()
+{
+	return StartMelee(LightAttack);
+}
+
+bool ACastleCharacter::StartHeavyAttack()
+{
+	return StartMelee(HeavyAttack);
+}
+
+bool ACastleCharacter::StartMelee(const FCastleMeleeAttack& Attack)
+{
+	if (!MeleeComponent || MeleeComponent->IsAttacking() || IsLockedOutByTakedown() || IsZipping()
+		|| IsTraversing() || IsDodging() || IsStaggered() || IsDrawingBow())
+	{
+		return false;
+	}
+
+	// Face the thug she means to hit; with nobody close, the way the camera looks.
+	FVector Facing = Controller ? FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f).Vector() : GetActorForwardVector();
+	if (const AActor* Target = FindSoftLockTarget())
+	{
+		Facing = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+	}
+	if (!Facing.IsNearlyZero())
+	{
+		SetActorRotation(FRotator(0.f, Facing.Rotation().Yaw, 0.f));
+	}
+
+	EndSlide();
+	return MeleeComponent->StartAttack(Attack);
+}
+
+AActor* ACastleCharacter::FindSoftLockTarget() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	const FVector Forward = Controller
+		? FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f).Vector() : GetActorForwardVector();
+	const float MinDot = FMath::Cos(FMath::DegreesToRadians(SoftLockAngleDegrees));
+	AActor* Best = nullptr;
+	float BestDistance = SoftLockRange;
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
+	{
+		const UHealthComponent* Health = It->GetHealthComponent();
+		if (!Health || !Health->IsAlive())
+		{
+			continue;
+		}
+		const FVector To = It->GetActorLocation() - GetActorLocation();
+		const float Distance = To.Size2D();
+		if (Distance < BestDistance && FVector::DotProduct(To.GetSafeNormal2D(), Forward) >= MinDot
+			&& FMath::Abs(To.Z) < 200.f)
+		{
+			Best = *It;
+			BestDistance = Distance;
+		}
+	}
+	return Best;
+}
+
+void ACastleCharacter::HandleMeleeLanded(AActor* /*HitActor*/, float /*DamageDealt*/, FName /*AttackName*/)
+{
+	// Hit stop: the world nearly stops for two frames so the contact reads. The timer runs in
+	// dilated time, hence the multiply.
+	UWorld* World = GetWorld();
+	if (!World || HitStopSeconds <= 0.f)
+	{
+		return;
+	}
+	UGameplayStatics::SetGlobalTimeDilation(World, HitStopTimeDilation);
+	World->GetTimerManager().SetTimer(HitStopTimerHandle, this, &ACastleCharacter::EndHitStop,
+		HitStopSeconds * HitStopTimeDilation, false);
+}
+
+void ACastleCharacter::EndHitStop()
+{
+	if (UWorld* World = GetWorld())
+	{
+		UGameplayStatics::SetGlobalTimeDilation(World, 1.f);
+	}
+}
+
+// --- Dodge ------------------------------------------------------------------------------------
+
+bool ACastleCharacter::TryDodge(FVector WorldDirection)
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const FVector Direction = WorldDirection.GetSafeNormal2D();
+	if (!Movement || Direction.IsNearlyZero() || bIsSprinting || IsDodging() || DodgeCooldownRemaining > 0.f
+		|| IsLockedOutByTakedown() || IsZipping() || IsTraversing() || IsStaggered())
+	{
+		return false;
+	}
+	// On the ground only; a test world's character has no floor, so falling is the one refusal.
+	if (Movement->IsFalling() || Movement->IsFlying())
+	{
+		return false;
+	}
+
+	if (MeleeComponent)
+	{
+		MeleeComponent->CancelAttack();
+	}
+	StopAim();
+	if (bIsCrouched)
+	{
+		UnCrouch();
+	}
+
+	DodgeRemaining = DodgeSeconds;
+	DodgeInvulnerableRemaining = DodgeInvulnerableSeconds;
+	DodgeCooldownRemaining = DodgeCooldownSeconds;
+	if (HealthComponent && !HealthComponent->IsInvulnerable() && DodgeInvulnerableSeconds > 0.f)
+	{
+		HealthComponent->SetInvulnerable(true);
+		bDodgeOwnsInvulnerability = true;
+	}
+
+	// A root motion force: it overrides the gait speed the sample's graph writes, so the dash
+	// covers exactly DodgeDistance, and it stops dead at the end instead of sliding on.
+	TSharedPtr<FRootMotionSource_ConstantForce> Dash = MakeShared<FRootMotionSource_ConstantForce>();
+	Dash->InstanceName = FName(TEXT("Dodge"));
+	Dash->AccumulateMode = ERootMotionAccumulateMode::Override;
+	Dash->Priority = 5;
+	Dash->Force = Direction * (DodgeDistance / DodgeSeconds);
+	Dash->Duration = DodgeSeconds;
+	Dash->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::ClampVelocity;
+	Dash->FinishVelocityParams.ClampVelocity = WalkSpeed;
+	Movement->ApplyRootMotionSource(Dash);
+
+	UE_LOG(LogCastle, Log, TEXT("%s: dodge %.0f cm toward %s, invulnerable %.2f s."), *GetNameSafe(this),
+		DodgeDistance, *Direction.ToCompactString(), DodgeInvulnerableSeconds);
+	return true;
+}
+
+void ACastleCharacter::UpdateDodge(float DeltaSeconds)
+{
+	DodgeCooldownRemaining = FMath::Max(0.f, DodgeCooldownRemaining - DeltaSeconds);
+	DodgeRemaining = FMath::Max(0.f, DodgeRemaining - DeltaSeconds);
+	if (DodgeInvulnerableRemaining <= 0.f)
+	{
+		return;
+	}
+	DodgeInvulnerableRemaining = FMath::Max(0.f, DodgeInvulnerableRemaining - DeltaSeconds);
+	if (DodgeInvulnerableRemaining <= 0.f && bDodgeOwnsInvulnerability)
+	{
+		bDodgeOwnsInvulnerability = false;
+		if (HealthComponent)
+		{
+			HealthComponent->SetInvulnerable(false);
+		}
+	}
+}
+
+// --- Hit reactions ----------------------------------------------------------------------------
+
+void ACastleCharacter::HandleStaggered(UHealthComponent* /*Health*/, AActor* DamageInstigator)
+{
+	if (!HealthComponent || !HealthComponent->IsAlive())
+	{
+		return;
+	}
+	StaggerRemaining = PlayerStaggerSeconds;
+	bMeleeHeld = false;
+	if (MeleeComponent)
+	{
+		MeleeComponent->CancelAttack();
+	}
+	if (IsDrawingBow())
+	{
+		BowComponent->CancelDraw();
+	}
+	FVector Away = DamageInstigator ? (GetActorLocation() - DamageInstigator->GetActorLocation()).GetSafeNormal2D()
+		: -GetActorForwardVector();
+	if (Away.IsNearlyZero())
+	{
+		Away = -GetActorForwardVector();
+	}
+	LaunchCharacter(Away * PlayerStaggerShove, true, false);
+	UE_LOG(LogCastle, Log, TEXT("%s: staggered by %s, health %.1f."), *GetNameSafe(this),
+		*GetNameSafe(DamageInstigator), HealthComponent->GetCurrentHealth());
+}
+
+void ACastleCharacter::HandleHealthChanged(UHealthComponent* /*Health*/, float /*NewHealth*/, float Delta, AActor* DamageInstigator)
+{
+	// Someone else hurting her shakes the camera; a fall does not (it has the landing dip).
+	if (Delta < 0.f && DamageInstigator && DamageInstigator != this)
+	{
+		HitShakeRemaining = HitShakeSeconds;
+	}
+}
+
+void ACastleCharacter::UpdateHitReactions(float DeltaSeconds)
+{
+	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
+	HitShakeRemaining = FMath::Max(0.f, HitShakeRemaining - DeltaSeconds);
+}
+
+float ACastleCharacter::ComputeLowHealthAlpha(float HealthPercent) const
+{
+	if (LowHealthThreshold <= 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Clamp((LowHealthThreshold - HealthPercent) / LowHealthThreshold, 0.f, 1.f);
+}
+
+void ACastleCharacter::UpdateLowHealthPostProcess()
+{
+	if (!FollowCamera || !HealthComponent)
+	{
+		return;
+	}
+	const float Alpha = HealthComponent->IsAlive() ? ComputeLowHealthAlpha(HealthComponent->GetHealthPercent()) : 1.f;
+	if (FMath::IsNearlyEqual(Alpha, LastLowHealthAlpha, 0.005f))
+	{
+		return;
+	}
+	LastLowHealthAlpha = Alpha;
+
+	// Only override while it shows, so at full health the level's own post process is untouched.
+	FPostProcessSettings& Settings = FollowCamera->PostProcessSettings;
+	const bool bOn = Alpha > 0.f;
+	const float Saturation = FMath::Lerp(1.f, LowHealthSaturation, Alpha);
+	Settings.bOverride_ColorSaturation = bOn;
+	Settings.ColorSaturation = FVector4(Saturation, Saturation, Saturation, 1.f);
+	Settings.bOverride_VignetteIntensity = bOn;
+	Settings.VignetteIntensity = FMath::Lerp(0.4f, LowHealthVignette, Alpha);
 }
 
 bool ACastleCharacter::StartSlide()
@@ -1312,7 +1698,7 @@ bool ACastleCharacter::IsLockedOutByTakedown() const
 
 void ACastleCharacter::Input_FirePressed(const FInputActionValue& /*Value*/)
 {
-	if (IsLockedOutByTakedown())
+	if (IsLockedOutByTakedown() || IsMeleeAttacking() || IsDodging() || IsStaggered())
 	{
 		return;
 	}
