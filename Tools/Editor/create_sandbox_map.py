@@ -41,7 +41,7 @@ _GREYBOX_MATERIALS = {}
 # --- L_M01_CellBlockD layout (all in cm, +X is "forward, towards the exit") ------------
 #   cell          x    0..300    y -150..150
 #   corridor 1    x  300..2300   y -150..150
-#   guard station x 2300..2900   y -300..300
+#   station room  x 2300..2900   y -300..300
 #   corridor 2    x 2900..4900   y -150..150
 #   exit room     x 4900..5500   y -300..300
 #
@@ -71,8 +71,8 @@ M01_WALLS = [
 ]
 
 # (label, ObjectiveId, x, y)
-# security_door is completed by BP_Door_Keycard itself and find_weapon by the pistol pickup, so
-# neither gets a trigger volume. leave_cell sits just outside the cell doorway at x = 300.
+# security_door is completed by BP_Door_Keycard itself, so it gets no trigger volume. leave_cell
+# sits just outside the cell doorway at x = 300.
 M01_TRIGGERS = [
     ("OBJ_leave_cell", "leave_cell", 400.0, 0.0),
     ("OBJ_reach_stairwell", "reach_stairwell", 5200.0, 0.0),
@@ -81,31 +81,34 @@ M01_TRIGGERS = [
 WORLD_BP_PATH = "/Game/Blueprints/World"
 AI_BP_PATH = "/Game/Blueprints/AI"
 
-# (label, spawn x, spawn y, [(patrol point label, x, y), ...], carries the pistol + keycard)
-M01_GUARDS = [
-    ("Guard_Corr1_A", 900.0, -60.0,
+# Stage 2 keeps this map as a test space: thugs instead of guards, no pistol, keycard kept.
+# (label, spawn x, spawn y, [(patrol point label, x, y), ...], carries the keycard)
+M01_THUGS = [
+    ("Thug_Corr1_A", 900.0, -60.0,
      [("PP_Corr1_A1", 600.0, -60.0), ("PP_Corr1_A2", 1500.0, -60.0)], True),
-    ("Guard_Corr1_B", 1900.0, 60.0,
+    ("Thug_Corr1_B", 1900.0, 60.0,
      [("PP_Corr1_B1", 2150.0, 60.0), ("PP_Corr1_B2", 1400.0, 60.0)], False),
-    ("Guard_Hall_A", 3300.0, -60.0,
+    ("Thug_Hall_A", 3300.0, -60.0,
      [("PP_Hall_A1", 3100.0, -60.0), ("PP_Hall_A2", 3900.0, -60.0)], False),
-    ("Guard_Hall_B", 4100.0, 60.0,
+    ("Thug_Hall_B", 4100.0, 60.0,
      [("PP_Hall_B1", 4400.0, 60.0), ("PP_Hall_B2", 3700.0, 60.0)], False),
-    ("Guard_Hall_C", 4700.0, 0.0,
+    ("Thug_Hall_C", 4700.0, 0.0,
      [("PP_Hall_C1", 4750.0, -80.0), ("PP_Hall_C2", 4750.0, 80.0)], False),
 ]
 
-# A spare pistol and keycard in the guard station, so the level stays finishable even if the
-# first guard's body lands somewhere silly.
+# A spare keycard in the station room, so the level stays finishable even if the first thug's
+# body lands somewhere silly.
 M01_PICKUPS = [
-    ("Pickup_Pistol", "BP_Pickup_Pistol", 2700.0, -200.0, 40.0),
     ("Pickup_Keycard", "BP_Pickup_Keycard", 2700.0, 200.0, 40.0),
 ]
+
+# Gameplay actors the first-person build placed that the pivot retired. Removed on sight.
+M01_RETIRED_LABELS = ["Pickup_Pistol"]
 
 # Fills the 100-wide gap in the wall at x = 2900 between the station and corridor 2.
 M01_DOOR = ("Door_Security", 2900.0, 0.0)
 
-# Covers the whole playable slab with headroom. Guards cannot move without it.
+# Covers the whole playable slab with headroom. Thugs cannot move without it.
 NAV_VOLUME = ("NavMeshBounds", 2800.0, 0.0, 200.0, 6200.0, 1000.0, 1200.0)
 
 
@@ -566,12 +569,12 @@ def add_door():
         except Exception as exc:  # noqa: BLE001
             c.log_error("destroy OBJ_security_door", exc)
 
-    # find_weapon is completed by the pistol pickup for the same reason.
+    # find_weapon was completed by the pistol pickup; both are gone since the pivot.
     stale_weapon = find_actor_by_label("OBJ_find_weapon")
     if stale_weapon is not None:
         try:
             stale_weapon.destroy_actor()
-            c.log("updated", "OBJ_find_weapon", "removed; the pistol pickup completes it now")
+            c.log("updated", "OBJ_find_weapon", "removed; find_weapon was retired with the pistol")
         except Exception as exc:  # noqa: BLE001
             c.log_error("destroy OBJ_find_weapon", exc)
 
@@ -589,42 +592,89 @@ def add_pickups():
     return created
 
 
-def add_guards():
-    guard_class = c.load_generated_class(AI_BP_PATH, "BP_Guard")
-    pistol_class = c.load_generated_class(WORLD_BP_PATH, "BP_Pickup_Pistol")
+def remove_retired_actors():
+    """Delete the gameplay actors the pivot retired (the pistol pickup). Returns how many."""
+    removed = 0
+    for label in M01_RETIRED_LABELS:
+        actor = find_actor_by_label(label)
+        if actor is None:
+            continue
+        try:
+            actor.destroy_actor()
+            removed += 1
+            c.log("updated", label, "removed; the pistol is not a player weapon after the pivot")
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("destroy " + label, exc)
+    return removed
+
+
+def relabel_thugs():
+    """Guard_* actors placed before the pivot become Thug_*. Returns how many were renamed."""
+    renamed = 0
+    for label, _x, _y, _patrol, _loot in M01_THUGS:
+        old_label = "Guard_" + label[len("Thug_"):]
+        actor = find_actor_by_label(old_label)
+        if actor is None or find_actor_by_label(label) is not None:
+            continue
+        try:
+            actor.set_actor_label(label)
+            renamed += 1
+            c.log("updated", old_label, "relabelled " + label)
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("relabel " + old_label, exc)
+    return renamed
+
+
+def class_names(classes):
+    return sorted(c.class_name(cls) for cls in classes if cls is not None)
+
+
+def retarget_loot(thug, label, carries_loot, keycard_class):
+    """The carrier drops only the keycard now; everyone else drops nothing. Returns 1 if changed."""
+    wanted = [keycard_class] if (carries_loot and keycard_class is not None) else []
+    try:
+        current = [cls for cls in (thug.get_editor_property("drop_on_death") or [])]
+    except Exception:  # noqa: BLE001
+        current = []
+    # A deleted BP_Pickup_Pistol reads back as None; it still has to go.
+    if len(current) == len(wanted) and class_names(current) == class_names(wanted) \
+            and all(cls is not None for cls in current):
+        return 0
+    if c.set_props(thug, [("drop_on_death", wanted)], label):
+        c.log("updated", label, "drops " + (", ".join(class_names(wanted)) or "nothing"))
+        return 1
+    return 0
+
+
+def add_thugs():
+    thug_class = c.load_generated_class(AI_BP_PATH, "BP_Thug")
     keycard_class = c.load_generated_class(WORLD_BP_PATH, "BP_Pickup_Keycard")
     target_point_class = c.find_class("TargetPoint", "/Script/Engine.TargetPoint")
 
-    created = 0
-    for label, gx, gy, patrol, carries_loot in M01_GUARDS:
+    changed = relabel_thugs()
+    for label, tx, ty, patrol, carries_loot in M01_THUGS:
         points = []
         for point_label, ppx, ppy in patrol:
             point, point_created = ensure_actor(
                 target_point_class, point_label, unreal.Vector(ppx, ppy, 20.0)
             )
             if point_created:
-                created += 1
+                changed += 1
             if point is not None:
                 points.append(point)
 
-        guard, was_created = ensure_actor(guard_class, label, unreal.Vector(gx, gy, 100.0))
-        if guard is None or not was_created:
+        thug, was_created = ensure_actor(thug_class, label, unreal.Vector(tx, ty, 100.0))
+        if thug is None:
             continue
 
-        created += 1
-        values = [("patrol_points", points)]
-        if carries_loot and pistol_class is not None and keycard_class is not None:
-            # Per instance, not on the class: only the first guard is worth killing quietly.
-            values.append(("drop_on_death", [pistol_class, keycard_class]))
-        c.set_props(guard, values, label)
-        c.log(
-            "created",
-            label,
-            "{0} patrol points{1}".format(
-                len(points), ", drops pistol + keycard" if carries_loot else ""
-            ),
-        )
-    return created
+        if was_created:
+            changed += 1
+            c.set_props(thug, [("patrol_points", points)], label)
+            c.log("created", label, "{0} patrol points".format(len(points)))
+
+        # Per instance, not on the class: only the first thug is worth taking down quietly.
+        changed += retarget_loot(thug, label, carries_loot, keycard_class)
+    return changed
 
 
 def ensure_m01_gameplay(package_path):
@@ -633,10 +683,11 @@ def ensure_m01_gameplay(package_path):
         c.log("skipped", package_path, "could not open the level to add gameplay actors")
         return False
 
-    created = add_nav_volume() + add_door() + add_pickups() + add_guards()
+    created = (remove_retired_actors() + add_nav_volume() + add_door() + add_pickups()
+               + add_thugs())
     if created:
         save_level()
-        c.log("updated", package_path, "{0} gameplay actor(s) added".format(created))
+        c.log("updated", package_path, "{0} gameplay change(s) applied".format(created))
     else:
         c.log("exists", package_path, "every gameplay actor already placed")
     return bool(created)

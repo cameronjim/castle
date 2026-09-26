@@ -33,10 +33,13 @@ OBJECTIVE_ID_PROPS = ["objective_id", "objective_tag"]
 # (ObjectiveId, Title, Description)
 OBJECTIVES = [
     ("leave_cell", "Get out of the cell", "The door is open. Nobody came to close it."),
-    ("find_weapon", "Find a weapon", "There is a pistol somewhere in the guard station."),
-    ("security_door", "Get through the security door", "It needs a keycard. Guards carry them."),
+    ("security_door", "Get through the security door", "It needs a keycard. Thugs carry them."),
     ("reach_stairwell", "Reach the stairwell", "Up is out. Keep moving."),
 ]
+
+# Objectives an existing mission is stripped of. find_weapon was completed by the pistol pickup,
+# which went with the first-person build; left in, the mission could never be finished.
+RETIRED_OBJECTIVES = ["find_weapon"]
 
 # (texture name, caption)
 SLIDES = [
@@ -129,6 +132,7 @@ def create_mission(flashback):
         # The asset predates EndCardLine, so fill that one field in on an existing mission
         # rather than leaving the end card blank. Everything else is left alone.
         update_end_card_line(asset, full)
+        retire_objectives(asset, full)
         return asset
 
     c.set_props(
@@ -165,7 +169,7 @@ def create_mission(flashback):
             c.log(
                 "skipped",
                 full,
-                "Objectives array not settable from Python; add the four objectives by hand",
+                "Objectives array not settable from Python; add the objectives by hand",
             )
 
     if flashback is not None:
@@ -174,6 +178,35 @@ def create_mission(flashback):
     c.log("created", full, "{0} objectives".format(len(OBJECTIVES)))
     c.save(asset)
     return asset
+
+
+def objective_id(objective):
+    for prop in OBJECTIVE_ID_PROPS:
+        try:
+            return str(objective.get_editor_property(prop))
+        except Exception:  # noqa: BLE001 - try the next spelling
+            continue
+    return ""
+
+
+def retire_objectives(asset, full):
+    """Drop RETIRED_OBJECTIVES from an existing mission. A no-op once they are gone."""
+    try:
+        objectives = list(asset.get_editor_property("objectives") or [])
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("read objectives " + full, exc)
+        return False
+
+    kept = [obj for obj in objectives if obj is None or objective_id(obj) not in RETIRED_OBJECTIVES]
+    if len(kept) == len(objectives):
+        c.log("exists", full + ".objectives", "{0} objectives, none retired".format(len(kept)))
+        return False
+
+    if c.set_props(asset, [("objectives", kept)], MISSION_NAME):
+        c.save(asset)
+        c.log("updated", full + ".objectives", "removed " + ", ".join(RETIRED_OBJECTIVES))
+        return True
+    return False
 
 
 def update_end_card_line(asset, full):

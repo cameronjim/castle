@@ -1,10 +1,9 @@
 """Create the stage-2 world, AI and HUD Blueprints and wire their class defaults.
 
     /Game/Blueprints/UI/WBP_Hud                parent UCastleHudWidget, HotbarWidgetClass
-    /Game/Blueprints/World/BP_Pickup_Pistol    parent APickupActor, Weapon
     /Game/Blueprints/World/BP_Pickup_Keycard   parent APickupActor, Keycard "cellblock"
     /Game/Blueprints/World/BP_Door_Keycard     parent ADoorActor, locked on "cellblock"
-    /Game/Blueprints/AI/BP_Guard               parent AGuardCharacter, mannequin mesh
+    /Game/Blueprints/AI/BP_Thug                parent AThugCharacter, mannequin mesh
 
 Then:
 
@@ -34,19 +33,19 @@ CUBE_PATH = "/Engine/BasicShapes/Cube.Cube"
 # The UE4 mannequin, copied out of the engine's Standard/Mannequin feature pack. Its assets
 # hard-reference /Game/Mannequin/..., so the folder keeps that name rather than moving under
 # Content/Characters. Only the sequences are used: the pack's AnimBP does not compile in a
-# headless editor, so guards drive ThirdPersonIdle / ThirdPersonWalk directly.
+# headless editor, so thugs drive ThirdPersonIdle / ThirdPersonWalk directly.
 MANNEQUIN_MESH_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin"
 MANNEQUIN_PHYSICS_ASSET_PATH = "/Game/Mannequin/Character/Mesh/SK_Mannequin_PhysicsAsset"
 MANNEQUIN_IDLE_PATH = "/Game/Mannequin/Animations/ThirdPersonIdle"
 MANNEQUIN_WALK_PATH = "/Game/Mannequin/Animations/ThirdPersonWalk"
 
-GUARD_MATERIAL_PATH = "/Game/Characters/Guard"
-M_GUARD_BODY = GUARD_MATERIAL_PATH + "/M_GuardBody"
-M_GUARD_VISOR = GUARD_MATERIAL_PATH + "/M_GuardVisor"
+THUG_MATERIAL_PATH = "/Game/Characters/Thug"
+M_THUG_BODY = THUG_MATERIAL_PATH + "/M_ThugBody"
+M_THUG_VISOR = THUG_MATERIAL_PATH + "/M_ThugVisor"
 
 # The template's own offsets: the mesh hangs from the capsule centre and faces +X.
-GUARD_MESH_LOCATION = unreal.Vector(0.0, 0.0, -96.0)
-GUARD_MESH_ROTATION = unreal.Rotator(0.0, 0.0, -90.0)
+THUG_MESH_LOCATION = unreal.Vector(0.0, 0.0, -96.0)
+THUG_MESH_ROTATION = unreal.Rotator(0.0, 0.0, -90.0)
 
 # Doors are 100 wide x 220 tall (claude-docs/asset-conventions.md); the cube is 100 cm. Only the
 # leaf has a mesh: the surround around this doorway is built by the room-art pass.
@@ -102,7 +101,7 @@ def set_component_mesh(bp, component_name, mesh_asset, scale, relative_location=
     return bool(changed)
 
 
-def _build_guard_body(material):
+def _build_thug_body(material):
     """Riot kit: near-black, half rough, a touch of metal so the light catches the shoulders."""
     color = m.constant3(material, (0.02, 0.02, 0.02), -400, -200)
     m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
@@ -110,8 +109,8 @@ def _build_guard_body(material):
     m.set_scalar_property(material, 0.2, unreal.MaterialProperty.MP_METALLIC, -400, 150)
 
 
-def _build_guard_visor(material):
-    """Black with a red glowing strip, so a guard's face reads as a visor line in the dark."""
+def _build_thug_visor(material):
+    """Black with a red glowing strip, so a thug's face reads as a visor line in the dark."""
     color = m.constant3(material, (0.01, 0.01, 0.01), -700, -200)
     m.connect_property(color, unreal.MaterialProperty.MP_BASE_COLOR)
     m.set_scalar_property(material, 0.25, unreal.MaterialProperty.MP_ROUGHNESS, -700, 0)
@@ -121,16 +120,16 @@ def _build_guard_visor(material):
     m.connect_property(bright, unreal.MaterialProperty.MP_EMISSIVE_COLOR)
 
 
-def ensure_guard_materials():
-    """M_GuardBody and M_GuardVisor at /Game/Characters/Guard. Idempotent.
+def ensure_thug_materials():
+    """M_ThugBody and M_ThugVisor at /Game/Characters/Thug. Idempotent.
 
-    Both go on SK_Mannequin, so both need bUsedWithSkeletalMesh; without it the guards wore the
+    Both go on SK_Mannequin, so both need bUsedWithSkeletalMesh; without it the thugs wore the
     grey engine default and the log filled with "missing usage flag SkeletalMesh!".
     """
-    c.ensure_directory(GUARD_MATERIAL_PATH)
+    c.ensure_directory(THUG_MATERIAL_PATH)
     return {
-        "body": m.ensure_material(M_GUARD_BODY, _build_guard_body, skeletal=True),
-        "visor": m.ensure_material(M_GUARD_VISOR, _build_guard_visor, skeletal=True),
+        "body": m.ensure_material(M_THUG_BODY, _build_thug_body, skeletal=True),
+        "visor": m.ensure_material(M_THUG_VISOR, _build_thug_visor, skeletal=True),
     }
 
 
@@ -152,7 +151,7 @@ def set_component_material(component, slot, material, context):
         return False
 
 
-def set_guard_materials(bp, materials):
+def set_thug_materials(bp, materials):
     """Body on slot 0, visor on slot 1.
 
     The UE4 mannequin has two slots and the head shares the body slot, so the emissive goes on
@@ -166,11 +165,11 @@ def set_guard_materials(bp, materials):
         except Exception:  # noqa: BLE001
             component = None
     if component is None:
-        c.log("skipped", "BP_Guard.Mesh materials", "no inherited mesh component")
+        c.log("skipped", "BP_Thug.Mesh materials", "no inherited mesh component")
         return False
 
-    changed = set_component_material(component, 0, materials.get("body"), "BP_Guard.Mesh")
-    changed = set_component_material(component, 1, materials.get("visor"), "BP_Guard.Mesh") or changed
+    changed = set_component_material(component, 0, materials.get("body"), "BP_Thug.Mesh")
+    changed = set_component_material(component, 1, materials.get("visor"), "BP_Thug.Mesh") or changed
     return changed
 
 
@@ -258,21 +257,6 @@ def set_pickup_part(bp, part_name, cube, size_cm, location, material, rotation=N
     return bool(changed)
 
 
-def shape_pistol(bp, cube, materials):
-    """Slide, frame, grip and trigger guard, all in gun-metal. Sizes are centimetres."""
-    pistol = materials.get("pistol")
-    parts = [
-        ("part1", (18.0, 3.0, 3.0), (0.0, 0.0, 4.0), None),
-        ("part2", (12.0, 3.0, 4.0), (-1.0, 0.0, 0.5), None),
-        ("part3", (3.0, 3.0, 9.0), (-5.0, 0.0, -4.0), (15.0, 0.0, 0.0)),
-        ("part4", (4.0, 2.5, 1.0), (-2.0, 0.0, -2.0), None),
-    ]
-    changed = False
-    for part_name, size, location, rotation in parts:
-        changed = set_pickup_part(bp, part_name, cube, size, location, pistol, rotation) or changed
-    return changed
-
-
 def shape_keycard(bp, cube, materials):
     """A white card with a coloured stripe along one edge."""
     changed = set_pickup_part(
@@ -345,9 +329,9 @@ def make_door(door_material):
     return bp
 
 
-def make_guard():
-    parent = c.find_class("GuardCharacter", "/Script/Castle.GuardCharacter")
-    bp, _ = cb.make_blueprint("BP_Guard", AI_PATH, parent, ("BlueprintFactory",))
+def make_thug():
+    parent = c.find_class("ThugCharacter", "/Script/Castle.ThugCharacter")
+    bp, _ = cb.make_blueprint("BP_Thug", AI_PATH, parent, ("BlueprintFactory",))
     if bp is None:
         return None
 
@@ -356,7 +340,7 @@ def make_guard():
 
     # apply_defaults compares with ==, which is false for two handles to the same UClass, so
     # the controller class would be re-set (and the asset re-saved) on every run. Compare names.
-    controller_class = c.find_class("GuardAIController", "/Script/Castle.GuardAIController")
+    controller_class = c.find_class("ThugAIController", "/Script/Castle.ThugAIController")
     values = [("auto_possess_ai", unreal.AutoPossessAI.PLACED_IN_WORLD_OR_SPAWNED)]
     cdo = c.blueprint_cdo(bp)
     current = None
@@ -368,7 +352,7 @@ def make_guard():
     if c.class_name(current) != c.class_name(controller_class):
         values.insert(0, ("ai_controller_class", controller_class))
 
-    changed = bool(cb.apply_defaults(bp, "BP_Guard", AI_PATH, values))
+    changed = bool(cb.apply_defaults(bp, "BP_Thug", AI_PATH, values))
 
     cdo = c.blueprint_cdo(bp)
     if cdo is not None:
@@ -376,25 +360,25 @@ def make_guard():
             capsule = cdo.get_editor_property("capsule_component")
             capsule.set_capsule_size(34.0, 96.0)
         except Exception as exc:  # noqa: BLE001
-            unreal.log_warning("[Castle] skipped   BP_Guard capsule size ({0})".format(exc))
+            unreal.log_warning("[Castle] skipped   BP_Thug capsule size ({0})".format(exc))
         try:
             movement = cdo.get_editor_property("character_movement")
             movement.set_editor_property("max_walk_speed", 300.0)
         except Exception as exc:  # noqa: BLE001
-            unreal.log_warning("[Castle] skipped   BP_Guard walk speed ({0})".format(exc))
+            unreal.log_warning("[Castle] skipped   BP_Thug walk speed ({0})".format(exc))
 
-    # Idle and walk as plain sequences: AGuardCharacter swaps between them in Tick, because
-    # the pack's AnimBP does not compile headless and left every guard in a T-pose.
+    # Idle and walk as plain sequences: AThugCharacter swaps between them in Tick, because
+    # the pack's AnimBP does not compile headless and left every thug in a T-pose.
     changed = bool(cb.apply_defaults(
-        bp, "BP_Guard", AI_PATH,
+        bp, "BP_Thug", AI_PATH,
         [
             ("idle_anim", c.load_or_none(MANNEQUIN_IDLE_PATH)),
             ("walk_anim", c.load_or_none(MANNEQUIN_WALK_PATH)),
         ])) or changed
 
-    changed = set_guard_mesh(bp) or changed
-    changed = set_guard_materials(bp, ensure_guard_materials()) or changed
-    changed = remove_guard_body(bp) or changed
+    changed = set_thug_mesh(bp) or changed
+    changed = set_thug_materials(bp, ensure_thug_materials()) or changed
+    changed = remove_thug_body(bp) or changed
     if changed:
         c.compile_blueprint(bp)
         c.save(bp)
@@ -436,7 +420,7 @@ def set_mannequin_physics_asset():
     """Re-point SK_Mannequin at its physics asset.
 
     The mesh's PhysicsAsset reference does not survive the file copy out of the feature pack,
-    and without it AGuardCharacter::GoLimp refuses to ragdoll and only logs a warning.
+    and without it AThugCharacter::GoLimp refuses to ragdoll and only logs a warning.
     """
     mesh_asset = c.load_or_none(MANNEQUIN_MESH_PATH)
     physics_asset = c.load_or_none(MANNEQUIN_PHYSICS_ASSET_PATH)
@@ -459,15 +443,15 @@ def set_mannequin_physics_asset():
     return True
 
 
-def set_guard_mesh(bp):
-    """Point BP_Guard's inherited SkeletalMeshComponent at the mannequin.
+def set_thug_mesh(bp):
+    """Point BP_Thug's inherited SkeletalMeshComponent at the mannequin.
 
-    Written on the Blueprint CDO's component template, which is what every spawned guard
+    Written on the Blueprint CDO's component template, which is what every spawned thug
     copies - the same thing a designer does in the Components panel.
     """
     mesh_asset = c.load_or_none(MANNEQUIN_MESH_PATH)
     if mesh_asset is None:
-        c.log("skipped", "BP_Guard.Mesh", MANNEQUIN_MESH_PATH + " not found")
+        c.log("skipped", "BP_Thug.Mesh", MANNEQUIN_MESH_PATH + " not found")
         return False
 
     cdo = c.blueprint_cdo(bp)
@@ -478,7 +462,7 @@ def set_guard_mesh(bp):
         except Exception:  # noqa: BLE001
             component = None
     if component is None:
-        c.log("skipped", "BP_Guard.Mesh", "no inherited mesh component")
+        c.log("skipped", "BP_Thug.Mesh", "no inherited mesh component")
         return False
 
     changed = []
@@ -488,44 +472,47 @@ def set_guard_mesh(bp):
             component.set_skeletal_mesh_asset(mesh_asset)
             changed.append("skeletal_mesh_asset")
     except Exception as exc:  # noqa: BLE001
-        c.log_error("BP_Guard.Mesh skeletal_mesh_asset", exc)
+        c.log_error("BP_Thug.Mesh skeletal_mesh_asset", exc)
 
     for prop, value in (
-        ("relative_location", GUARD_MESH_LOCATION),
-        ("relative_rotation", GUARD_MESH_ROTATION),
+        ("relative_location", THUG_MESH_LOCATION),
+        ("relative_rotation", THUG_MESH_ROTATION),
     ):
         try:
             if component.get_editor_property(prop) == value:
                 continue
         except Exception:  # noqa: BLE001 - set_props reports a missing property
             pass
-        if c.set_props(component, [(prop, value)], "BP_Guard.Mesh"):
+        if c.set_props(component, [(prop, value)], "BP_Thug.Mesh"):
             changed.append(prop)
 
     # No AnimBP: the mannequin pack's ThirdPerson_AnimBP does not compile in a headless editor,
-    # so every guard drove nothing and stood in a T-pose. AGuardCharacter plays IdleAnim and
+    # so every thug drove nothing and stood in a T-pose. AThugCharacter plays IdleAnim and
     # WalkAnim on the single-node slot instead, which needs this mode set on the template.
     try:
         if component.get_editor_property("animation_mode") != unreal.AnimationMode.ANIMATION_SINGLE_NODE:
             if c.set_props(
                 component,
                 [("animation_mode", unreal.AnimationMode.ANIMATION_SINGLE_NODE)],
-                "BP_Guard.Mesh",
+                "BP_Thug.Mesh",
             ):
                 changed.append("animation_mode")
     except Exception as exc:  # noqa: BLE001
-        c.log_error("BP_Guard.Mesh animation_mode", exc)
+        c.log_error("BP_Thug.Mesh animation_mode", exc)
 
     if changed:
-        c.log("updated", "BP_Guard.Mesh", ", ".join(changed))
+        c.log("updated", "BP_Thug.Mesh", ", ".join(changed))
         return True
 
-    c.log("exists", "BP_Guard.Mesh", "mannequin already assigned")
+    c.log("exists", "BP_Thug.Mesh", "mannequin already assigned")
     return False
 
 
-def remove_guard_body(bp):
-    """Delete the grey cylinder stand-in now that BP_Guard has a real skeletal mesh."""
+def remove_thug_body(bp):
+    """Delete the grey cylinder stand-in now that BP_Thug has a real skeletal mesh.
+
+    The component was called GuardBody before the pivot, and an old save may still carry it.
+    """
     getter = getattr(unreal, "get_engine_subsystem", None)
     if getter is None or not hasattr(unreal, "SubobjectDataSubsystem"):
         return False
@@ -537,10 +524,10 @@ def remove_guard_body(bp):
             return False
 
         sds.delete_subobject(handle, handle, bp)
-        c.log("updated", "BP_Guard.GuardBody", "removed; the mannequin replaces it")
+        c.log("updated", "BP_Thug.GuardBody", "removed; the mannequin replaces it")
         return True
     except Exception as exc:  # noqa: BLE001
-        c.log_error("BP_Guard.GuardBody removal", exc)
+        c.log_error("BP_Thug.ThugBody removal", exc)
         return False
 
 
@@ -570,17 +557,6 @@ def run():
     surface_materials = m.ensure_surface_materials()
 
     make_pickup(
-        "BP_Pickup_Pistol",
-        [
-            ("pickup_type", unreal.PickupType.WEAPON),
-            ("magazine_amount", 12),
-            ("ammo_amount", 24),
-            ("completes_objective_id", "find_weapon"),
-        ],
-        lambda bp: shape_pistol(bp, cube, prop_materials),
-    )
-
-    make_pickup(
         "BP_Pickup_Keycard",
         [
             ("pickup_type", unreal.PickupType.KEYCARD),
@@ -591,7 +567,7 @@ def run():
 
     make_door(surface_materials.get("steel"))
     set_mannequin_physics_asset()
-    make_guard()
+    make_thug()
     wire_hud_into_controller()
 
 
