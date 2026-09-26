@@ -5,6 +5,8 @@
     /Game/Blueprints/World/BP_Door_Keycard     parent ADoorActor, locked on "cellblock"
     /Game/Blueprints/AI/BP_Thug                parent AThugCharacter, mannequin mesh
     /Game/Blueprints/World/BP_GrappleAnchor    parent AGrappleAnchor, 40 cm dark steel cube
+    /Game/Blueprints/World/BP_TraversableBlock parent the Game Animation Sample's
+                                               LevelBlock_Traversable, level-style lookup off
 
 Then:
 
@@ -213,6 +215,46 @@ def make_grapple_anchor():
         c.save(bp)
     else:
         c.log("exists", c.asset_path(WORLD_PATH, ANCHOR_NAME), "dark steel already set")
+    return bp
+
+
+TRAVERSABLE_BLOCK_NAME = "BP_TraversableBlock"
+TRAVERSABLE_PARENT = "/Game/Levels/LevelPrototyping/LevelBlock_Traversable.LevelBlock_Traversable_C"
+# LevelBlock's construction script looks up the sample's LevelVisuals actor (sky, sun, fog and
+# post process for the sample's own map) for its grid colours unless UseLevelVisualsColor is off,
+# and renames the actor after its height unless AutoNameFromHeight is off. The district has no
+# LevelVisuals and its labels are generated, so both are off here.
+TRAVERSABLE_DEFAULTS = (("UseLevelVisualsColor", False), ("AutoNameFromHeight", False))
+
+
+def make_traversable_block():
+    """BP_TraversableBlock: the sample's traversable block for generate_city.py's roof-edge ledges
+    and parkour test blocks. Skipped when the sample is not imported."""
+    try:
+        parent = unreal.load_class(None, TRAVERSABLE_PARENT)
+    except Exception:  # noqa: BLE001 - the sample is optional
+        parent = None
+    if parent is None:
+        c.log("skipped", c.asset_path(WORLD_PATH, TRAVERSABLE_BLOCK_NAME), "LevelBlock_Traversable not imported")
+        return None
+    bp, created = cb.make_blueprint(TRAVERSABLE_BLOCK_NAME, WORLD_PATH, parent, ("BlueprintFactory",))
+    if bp is None:
+        return None
+    if created:
+        c.compile_blueprint(bp)
+    cdo = c.blueprint_cdo(bp)
+    changed = created
+    for prop, value in TRAVERSABLE_DEFAULTS:
+        try:
+            if cdo.get_editor_property(prop) != value:
+                cdo.set_editor_property(prop, value)
+                changed = True
+        except Exception as exc:  # noqa: BLE001
+            c.log_error(TRAVERSABLE_BLOCK_NAME + "." + prop, exc)
+    if changed:
+        c.compile_blueprint(bp)
+        c.save(bp)
+        c.log("updated", c.asset_path(WORLD_PATH, TRAVERSABLE_BLOCK_NAME), "level-style lookup and auto name off")
     return bp
 
 
@@ -612,6 +654,7 @@ def run():
     set_mannequin_physics_asset()
     make_thug()
     make_grapple_anchor()
+    make_traversable_block()
     wire_hud_into_controller()
 
 
