@@ -6,7 +6,8 @@
 
 DA_CH01_Rooftops is started on L_District_EastVillage by BP_GameMode_EastVillage, which
 generate_city.py makes; its objectives are completed by the City_Obj_* trigger volumes that
-script places on three roofs.
+script places on three roofs. It grants DA_Bow_Kate with 30 standard and 6 grapple arrows at the
+start, for now (create_weapon_data.py makes those, and runs first).
 
 Property names come from Source/Castle/Mission/MissionDefinition.h,
 Source/Castle/Mission/MissionObjective.h and Source/Castle/Flashback/FlashbackDefinition.h.
@@ -28,6 +29,7 @@ MISSION_PATH = "/Game/Missions"
 FLASHBACK_PATH = "/Game/Flashbacks/Definitions"
 IMAGE_PATH = "/Game/Flashbacks/Images"
 PLAYER_PATH = "/Game/Blueprints/Player"
+WEAPON_PATH = "/Game/Blueprints/Weapons"
 
 MISSION_NAME = "DA_M01_CellBlockD"
 FLASHBACK_NAME = "DA_FB01_Sunday"
@@ -286,6 +288,59 @@ CH01_OBJECTIVES = [
 ]
 
 
+# The chapter's starting quiver: the bow, then (arrow asset, count) per type.
+CH01_BOW = "DA_Bow_Kate"
+CH01_ARROWS = [("DA_Arrow_Standard", 30), ("DA_Arrow_Grapple", 6)]
+
+
+def _object_path(value):
+    """Package path of an object or a soft reference to one ("" for none), so both compare equal."""
+    if value is None:
+        return ""
+    for getter in ("get_path_name", "export_text"):
+        method = getattr(value, getter, None)
+        if method is not None:
+            try:
+                return str(method()).split(".")[0]
+            except Exception:  # noqa: BLE001
+                pass
+    return str(value).split(".")[0]
+
+
+def _quiver_matches(asset, bow, arrows):
+    try:
+        if _object_path(asset.get_editor_property("starting_bow")) != _object_path(bow):
+            return False
+        current = list(asset.get_editor_property("starting_arrows") or [])
+    except Exception:  # noqa: BLE001
+        return False
+    if len(current) != len(arrows):
+        return False
+    for grant, (arrow, count) in zip(current, arrows):
+        same_arrow = _object_path(grant.get_editor_property("arrow")) == _object_path(arrow)
+        if not same_arrow or int(grant.get_editor_property("count")) != count:
+            return False
+    return True
+
+
+def _apply_quiver(asset):
+    """StartingBow and StartingArrows from CH01_BOW / CH01_ARROWS. Returns True when it changed."""
+    bow = c.load_or_none(c.asset_path(WEAPON_PATH, CH01_BOW))
+    arrows = [(c.load_or_none(c.asset_path(WEAPON_PATH, name)), count) for name, count in CH01_ARROWS]
+    if bow is None or any(arrow is None for arrow, _count in arrows):
+        c.log("skipped", CH01_NAME + " quiver", "run create_weapon_data first")
+        return False
+    if _quiver_matches(asset, bow, arrows):
+        return False
+    grants = []
+    for arrow, count in arrows:
+        grant = unreal.CastleArrowGrant()
+        grant.set_editor_property("arrow", arrow)
+        grant.set_editor_property("count", count)
+        grants.append(grant)
+    return bool(c.set_props(asset, [("starting_bow", bow), ("starting_arrows", grants)], CH01_NAME))
+
+
 def _text_value(value):
     return str(value) if value is not None else ""
 
@@ -348,6 +403,9 @@ def create_chapter_one():
     if not _objectives_match(asset):
         if c.set_props(asset, [("objectives", _build_objectives(asset, objective_cls))], CH01_NAME):
             changed.append("objectives")
+
+    if _apply_quiver(asset):
+        changed.append("starting quiver")
 
     if created or changed:
         c.save(asset)
