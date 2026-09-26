@@ -34,6 +34,8 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   other on the cross_block roof (tag RoofPair, counted by ``City_ThugGroup_clear_roof``, which
   completes ``clear_roof``); a Bat thug and the gunner patrol the Avenue A sidewalk beside the
   park between ``City_Patrol_0`` and ``City_Patrol_1`` (ATargetPoints 40 m apart, tag StreetPair).
+* the partner: ``City_ClintStart`` (an ATargetPoint 5 m behind the PlayerStart, toward the park)
+  and ``City_Clint`` (BP_Clint) standing on it; BP_PartnerController possesses him at load.
 * grapple anchors (``City_Anchor_<n>``, BP_GrappleAnchor): on every building over 8 m, one on
   the parapet at each roof corner and one mid-edge on edges over 25 m, none within 4 m of
   another, each with its landing point on the roof clear of the parapet.
@@ -897,6 +899,54 @@ def ensure_player_start(district, existing):
         if abs(actor.get_actor_rotation().yaw - rot.yaw) > 0.1:
             actor.set_actor_rotation(rot, False)
             changes += 1
+    return changes
+
+
+# Clint (docs/DESIGN.md, "The partner"): BP_Clint placed CLINT_BEHIND_START behind the PlayerStart,
+# on the park side of East 7th Street, standing on whatever slab is under him. His AIController
+# (BP_PartnerController) possesses him at load and he follows whoever the player is playing.
+CLINT_START_LABEL = "City_ClintStart"
+CLINT_LABEL = "City_Clint"
+CLINT_BP_PATH = "/Game/Blueprints/Player"
+CLINT_BP_NAME = "BP_Clint"
+CLINT_BEHIND_START = 500.0         # cm
+CLINT_HALF_HEIGHT = 92.5           # cm; BP_Clint's capsule
+CLINT_MARKER_HEIGHT = 100.0        # cm above the pavement for the start point
+
+
+def clint_start_transform(district):
+    """(x, y, ground z, yaw): CLINT_BEHIND_START behind the PlayerStart, facing the way it faces."""
+    loc, rot = player_start_transform(district)
+    yaw = math.radians(rot.yaw)
+    x = loc.x - math.cos(yaw) * CLINT_BEHIND_START
+    y = loc.y - math.sin(yaw) * CLINT_BEHIND_START
+    width_m = next((rec["width_m"] for rec in district.roads if rec.get("name") == PLAYER_START_STREET), 12.0)
+    # A first guess only (ensure_clint traces the slab): the start stands 3 m off the centre line
+    # toward the park, and behind it is further that way.
+    off_road = 300.0 + CLINT_BEHIND_START > width_m * 50.0
+    return x, y, SIDEWALK_TOP if off_road else ROAD_TOP, rot.yaw
+
+
+def ensure_clint(district, existing):
+    """City_ClintStart (a TargetPoint) and City_Clint (BP_Clint) on it. Idempotent by label."""
+    clint_cls = c.load_generated_class(CLINT_BP_PATH, CLINT_BP_NAME)
+    if clint_cls is None:
+        c.log("FAILED", CLINT_LABEL, "BP_Clint missing; run create_partner.py")
+        return 0
+    x, y, guess, yaw = clint_start_transform(district)
+    # The kerb makes a guess 13 cm out; the slab under him says where the pavement really is.
+    ground = ground_z(x, y, guess, existing)
+    marker, changes = _ensure_located(existing, CLINT_START_LABEL, unreal.TargetPoint,
+                                      unreal.Vector(x, y, ground + CLINT_MARKER_HEIGHT), yaw)
+    if marker is not None:
+        changes += _ensure_tags(marker, ["City", "CityClintStart"])
+    clint, n = _ensure_located(existing, CLINT_LABEL, clint_cls,
+                               unreal.Vector(x, y, ground + CLINT_HALF_HEIGHT + 2.0), yaw)
+    if clint is not None:
+        n += _ensure_tags(clint, ["City", "CityPartner"])
+    changes += n
+    c.log("updated" if changes else "exists", CLINT_LABEL, "at ({0:.0f}, {1:.0f}, {2:.0f}) yaw {3:.0f}, {4:.0f} cm behind the start".format(
+        x, y, ground, yaw, CLINT_BEHIND_START))
     return changes
 
 
@@ -3140,6 +3190,7 @@ def run():
     changes += ensure_objective_volumes(district, existing)
     changes += ensure_objective_beacons(district, existing)
     changes += ensure_thugs(district, existing)
+    changes += ensure_clint(district, existing)
     changes += ensure_street_lamps(district, existing)
     changes += ensure_ledge_spawner(district, existing)
     changes += ensure_test_blocks(district, existing)
