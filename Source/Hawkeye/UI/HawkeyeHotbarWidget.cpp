@@ -161,7 +161,9 @@ bool UHawkeyeHotbarWidget::IsSlotEmpty(int32 QuiverSlot) const
 
 FText UHawkeyeHotbarWidget::GetSlotKeyText(int32 QuiverSlot)
 {
-	return FText::AsNumber(QuiverSlot);
+	// Past the number keys (explosive, slot 7) the way in is holding Tab for the wheel.
+	return QuiverSlot <= HawkeyeQuiverKeyedSlotCount ? FText::AsNumber(QuiverSlot)
+		: NSLOCTEXT("Hawkeye", "HotbarWheelKey", "Tab");
 }
 
 FText UHawkeyeHotbarWidget::GetSlotNameText(int32 QuiverSlot) const

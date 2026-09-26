@@ -26,6 +26,7 @@
 #include "Player/GrappleComponent.h"
 #include "UI/HawkeyeHotbarWidget.h"
 #include "UI/HawkeyeObjectiveWidget.h"
+#include "UI/HawkeyeQuiverWheelWidget.h"
 #include "World/GrappleAnchor.h"
 
 TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
@@ -84,9 +85,26 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 			HotbarSlot->SetVerticalAlignment(VAlign_Bottom);
 			HotbarSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 24.f));
 		}
+
+		// Last, so the wheel draws over everything else while it is open.
+		QuiverWheel = WidgetTree->ConstructWidget<UHawkeyeQuiverWheelWidget>(
+			UHawkeyeQuiverWheelWidget::StaticClass(), TEXT("QuiverWheel"));
+		if (UOverlaySlot* WheelSlot = Cast<UOverlaySlot>(Root->AddChild(QuiverWheel)))
+		{
+			WheelSlot->SetHorizontalAlignment(HAlign_Fill);
+			WheelSlot->SetVerticalAlignment(VAlign_Fill);
+		}
 	}
 
 	return Super::RebuildWidget();
+}
+
+void UHawkeyeHudWidget::SetQuiverWheelState(bool bOpen, int32 QuiverSlot)
+{
+	if (QuiverWheel)
+	{
+		QuiverWheel->SetWheelState(bOpen, QuiverSlot);
+	}
 }
 
 void UHawkeyeHudWidget::BuildReticle(UOverlay* Root)

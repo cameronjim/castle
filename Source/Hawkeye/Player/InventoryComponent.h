@@ -32,11 +32,11 @@ struct HAWKEYE_API FHawkeyeQuiverSlot
 /** Fired whenever the bow, an arrow count or the keycards change. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnInventoryChangedSignature);
 
-/** Fired when the active quiver slot changes. Slots are 1..6. */
+/** Fired when the active quiver slot changes. Slots are 1..7. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnActiveArrowSlotChangedSignature, int32, OldSlot, int32, NewSlot);
 
 /**
- * What Kate carries: a bow (or none), a six-slot quiver, and a keycard ring.
+ * What Kate carries: a bow (or none), a seven-slot quiver, and a keycard ring.
  *
  * Rules (claude-docs/gameplay-semantics.md, "bow and arrows"): standard arrows are always in
  * slot 1, present even at zero; counts never exceed an arrow's Cap; number keys pick a slot and
@@ -99,7 +99,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
 	bool ConsumeArrow(int32 Slot);
 
-	/** Makes Slot (1..6) active. Does nothing for an empty or out-of-range slot or the active one. */
+	/** Makes Slot (1..7) active. Does nothing for an empty or out-of-range slot or the active one. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
 	bool SelectArrowSlot(int32 Slot);
 
@@ -118,7 +118,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
 	UArrowDefinition* GetActiveArrow() const;
 
-	/** Slot's contents (1..6). Out of range returns an empty slot. */
+	/** Slot's contents (1..7). Out of range returns an empty slot. */
 	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
 	FHawkeyeQuiverSlot GetArrowSlot(int32 Slot) const;
 
@@ -186,7 +186,7 @@ protected:
 	/** The next filled slot Step away from the active one, or INDEX_NONE. Slots are 1-based. */
 	int32 FindAdjacentArrowSlot(int32 Step) const;
 
-	/** Slot 1..6 to an array index, or INDEX_NONE. */
+	/** Slot 1..7 to an array index, or INDEX_NONE. */
 	static int32 SlotToIndex(int32 Slot);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory|Bow")

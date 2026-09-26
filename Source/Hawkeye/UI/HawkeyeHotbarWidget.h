@@ -12,7 +12,7 @@ class UInventoryComponent;
 class UTextBlock;
 
 /**
- * The quiver along the bottom of the screen: six boxes, one per slot, each with its number key,
+ * The quiver along the bottom of the screen: seven boxes, one per slot, each with its number key,
  * the arrow's short name and its count ("30" for standard arrows, "6/6" for a trick arrow, which
  * shows its cap). The active slot is drawn bright, an empty slot is dimmed.
  *
@@ -20,7 +20,7 @@ class UTextBlock;
  * no designer layout. UHawkeyeHudWidget creates one and parents it into its own overlay.
  *
  * Every piece of state is a pure function of the bound inventory, so a test can bind one and
- * read the labels back without building Slate. Slots are 1..6.
+ * read the labels back without building Slate. Slots are 1..7.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API UHawkeyeHotbarWidget : public UUserWidget
@@ -53,7 +53,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Hotbar")
 	bool IsSlotEmpty(int32 QuiverSlot) const;
 
-	/** "1".."6": the key that selects the slot. */
+	/** "1".."6": the key that selects the slot; "Tab" for slot 7, reached through the wheel. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Hotbar")
 	static FText GetSlotKeyText(int32 QuiverSlot);
 
@@ -106,7 +106,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Hotbar")
 	FLinearColor FilledSlotColor = FLinearColor(0.f, 0.f, 0.f, 0.55f);
 
-	/** Width every slot box is at least, so the six of them line up. */
+	/** Width every slot box is at least, so the seven of them line up. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Hotbar", meta = (ClampMin = "1.0"))
 	float SlotWidthPixels = 76.f;
 

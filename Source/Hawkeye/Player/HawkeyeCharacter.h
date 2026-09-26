@@ -385,9 +385,60 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Health")
 	float ComputeLowHealthAlpha(float HealthPercent) const;
 
-	/** 1 the moment a hit lands on her, 0 once HitShakeSeconds have passed. */
+	/** 1 the moment a hit lands on her (or a blast shakes her), 0 once the shake has run out. */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
-	float GetHitShakeAlpha() const { return HitShakeSeconds > 0.f ? HitShakeRemaining / HitShakeSeconds : 0.f; }
+	float GetHitShakeAlpha() const { return ActiveShakeSeconds > 0.f ? HitShakeRemaining / ActiveShakeSeconds : 0.f; }
+
+	/** Shakes the camera for Seconds, the lens thrown Amplitude cm at the start. A blast nearby calls it. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Camera")
+	void PlayImpactShake(float Seconds, float Amplitude);
+
+	// --- Quiver wheel (claude-docs/gameplay-semantics.md, "trick arrows") -----------------------
+
+	/**
+	 * Opens the radial quiver: game time drops to QuiverWheelTimeDilation, look input steers the
+	 * highlight instead of the camera, and the HUD shows the wheel. Holding Tab opens it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Quiver")
+	void OpenQuiverWheel();
+
+	/** Closes the wheel and restores time; with bSelect, nocks the highlighted slot if it holds arrows. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Quiver")
+	void CloseQuiverWheel(bool bSelect);
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Quiver")
+	bool IsQuiverWheelOpen() const { return bQuiverWheelOpen; }
+
+	/**
+	 * Points the wheel's cursor: X right, Y up, in cursor units (QuiverWheelCursorRadius is the rim).
+	 * Mouse look adds to it; the right stick sets it outright.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Quiver")
+	void SetQuiverWheelCursor(FVector2D Cursor);
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Quiver")
+	FVector2D GetQuiverWheelCursor() const { return QuiverWheelCursor; }
+
+	/** The slot under the cursor, 1..HawkeyeQuiverSlotCount, or 0 while the cursor is in the dead zone. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Quiver")
+	int32 GetQuiverWheelHighlight() const;
+
+	/** Tab held this long (real time) opens the wheel; released sooner it was a tap, the inventory. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Quiver", meta = (ClampMin = "0.0"))
+	float QuiverWheelHoldSeconds = 0.25f;
+
+	/** Game speed while the wheel is open. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Quiver",
+		meta = (ClampMin = "0.01", ClampMax = "1.0"))
+	float QuiverWheelTimeDilation = 0.2f;
+
+	/** How far the cursor can go from the centre, in cursor units (about mouse pixels). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Quiver", meta = (ClampMin = "1.0"))
+	float QuiverWheelCursorRadius = 100.f;
+
+	/** Inside this the cursor highlights nothing, and a release keeps the slot already nocked. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Quiver", meta = (ClampMin = "0.0"))
+	float QuiverWheelDeadZone = 30.f;
 
 	/** Fired when the Interact action is pressed; implement in Blueprint to drive doors, levers, pickups. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "Hawkeye|Character")
@@ -432,6 +483,13 @@ protected:
 	void Input_Slot6(const FInputActionValue& Value);
 	void Input_SlotScroll(const FInputActionValue& Value);
 	void Input_Inventory(const FInputActionValue& Value);
+	void Input_InventoryReleased(const FInputActionValue& Value);
+
+	/** Opens the wheel once Tab has been held QuiverWheelHoldSeconds. */
+	void UpdateQuiverWheelHold();
+
+	/** Pushes the wheel's open state and highlight to the HUD. */
+	void RefreshQuiverWheelHud() const;
 	void Input_Grapple(const FInputActionValue& Value);
 	void Input_CrouchReleased(const FInputActionValue& Value);
 	void Input_MeleePressed(const FInputActionValue& Value);
@@ -574,7 +632,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
 	TObjectPtr<UInteractionComponent> InteractionComponent;
 
-	/** The bow, a six-slot quiver (standard arrows always in slot 1) and the keycard ring. */
+	/** The bow, a seven-slot quiver (standard arrows always in slot 1) and the keycard ring. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
 	TObjectPtr<UInventoryComponent> InventoryComponent;
 
@@ -664,7 +722,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> SlotScrollAction;
 
-	/** Tab: opens the read-only inventory screen, which pauses like the pause menu does. */
+	/** Tab: tap opens the read-only inventory screen (paused); hold opens the quiver wheel. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Input")
 	TObjectPtr<UInputAction> InventoryAction;
 
@@ -1161,6 +1219,19 @@ protected:
 
 	UPROPERTY(Transient)
 	float HitShakeRemaining = 0.f;
+
+	/** Length and throw of the shake now running: a hit's, or a blast's from PlayImpactShake. */
+	UPROPERTY(Transient)
+	float ActiveShakeSeconds = 0.2f;
+
+	UPROPERTY(Transient)
+	float ActiveShakeAmplitude = 6.f;
+
+	/** Tab is down and has not yet become the wheel. */
+	bool bInventoryKeyHeld = false;
+	double InventoryKeyDownRealSeconds = 0.0;
+	bool bQuiverWheelOpen = false;
+	FVector2D QuiverWheelCursor = FVector2D::ZeroVector;
 
 	/** The world direction of the last move input, for the dodge. */
 	UPROPERTY(Transient)

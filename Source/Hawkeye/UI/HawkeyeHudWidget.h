@@ -11,6 +11,7 @@ class UBowComponent;
 class UCanvasPanel;
 class UHawkeyeHotbarWidget;
 class UHawkeyeObjectiveWidget;
+class UHawkeyeQuiverWheelWidget;
 class UGrappleComponent;
 class UImage;
 class UInventoryComponent;
@@ -83,6 +84,16 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "HUD|Hotbar")
 	UHawkeyeHotbarWidget* GetHotbar() const { return Hotbar; }
+
+	// --- Quiver wheel ---------------------------------------------------------------------------
+
+	/** The radial quiver, built into the HUD's overlay and collapsed until the pawn opens it. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Quiver Wheel")
+	UHawkeyeQuiverWheelWidget* GetQuiverWheel() const { return QuiverWheel; }
+
+	/** Shows or hides the wheel with QuiverSlot highlighted (0 for none). AHawkeyeCharacter drives it. */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Quiver Wheel")
+	void SetQuiverWheelState(bool bOpen, int32 QuiverSlot);
 
 	// --- Objective marker and compass -----------------------------------------------------------
 
@@ -371,6 +382,9 @@ protected:
 	/** The hotbar along the bottom of the screen. Built into the HUD's own overlay. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hotbar")
 	TObjectPtr<UHawkeyeHotbarWidget> Hotbar = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Quiver Wheel")
+	TObjectPtr<UHawkeyeQuiverWheelWidget> QuiverWheel = nullptr;
 
 	bool bBound = false;
 };

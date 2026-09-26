@@ -9,7 +9,10 @@
 class AArrowProjectile;
 class UTexture2D;
 
-/** What an arrow does when it lands, beyond its damage. Only Grapple is built; the rest are data for later. */
+/**
+ * What an arrow does when it lands, beyond its damage (claude-docs/gameplay-semantics.md, "trick
+ * arrows"). Every value but None and Grapple spawns an AArrowEffect at the impact.
+ */
 UENUM(BlueprintType)
 enum class EArrowHitEffect : uint8
 {
@@ -23,8 +26,14 @@ enum class EArrowHitEffect : uint8
 	Explosive
 };
 
-/** Number of quiver slots. Number keys 1..6 select them. */
-static constexpr int32 HawkeyeQuiverSlotCount = 6;
+/**
+ * Number of quiver slots, in the fixed order standard, grapple, putty, bola, smoke, EMP, explosive.
+ * Number keys 1..6 select the first six; explosive (7) is reached by the wheel or the radial.
+ */
+static constexpr int32 HawkeyeQuiverSlotCount = 7;
+
+/** Slots with a number key of their own. */
+static constexpr int32 HawkeyeQuiverKeyedSlotCount = 6;
 
 /**
  * One arrow type (claude-docs/gameplay-semantics.md, "bow and arrows"): the projectile it fires,
@@ -46,8 +55,8 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")
 	FText ShortName;
 
-	/** Quiver slot, 1..6, which is also the number key. Standard arrows are always slot 1. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow", meta = (ClampMin = "1", ClampMax = "6"))
+	/** Quiver slot, 1..7; 1..6 are also the number keys. Standard arrows are always slot 1. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow", meta = (ClampMin = "1", ClampMax = "7"))
 	int32 Slot = 1;
 
 	/** What the bow spawns. BP_Arrow_Standard for most; BP_Arrow_Grapple flies straight at an anchor. */

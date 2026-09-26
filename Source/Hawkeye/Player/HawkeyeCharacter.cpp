@@ -37,6 +37,9 @@
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 #include "World/InteractionComponent.h"
+#include "Combat/ArrowDefinition.h"
+#include "UI/HawkeyeHudWidget.h"
+#include "UI/QuiverWheelMath.h"
 
 static TAutoConsoleVariable<int32> CVarHawkeyeDebugMovement(
 	TEXT("hawkeye.DebugMovement"),
@@ -242,6 +245,7 @@ void AHawkeyeCharacter::ApplyCameraPitchLimits()
 void AHawkeyeCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	UnbindFromSettingsSubsystem();
+	CloseQuiverWheel(/*bSelect=*/false);
 
 	if (UWorld* World = GetWorld())
 	{
@@ -548,7 +552,10 @@ void AHawkeyeCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	}
 	if (InventoryAction)
 	{
+		// Started starts the hold clock; Completed decides: a tap is the inventory, a hold the wheel.
 		EnhancedInput->BindAction(InventoryAction, ETriggerEvent::Started, this, &AHawkeyeCharacter::Input_Inventory);
+		EnhancedInput->BindAction(
+			InventoryAction, ETriggerEvent::Completed, this, &AHawkeyeCharacter::Input_InventoryReleased);
 	}
 	if (GrappleAction)
 	{
@@ -633,10 +640,116 @@ void AHawkeyeCharacter::Input_SlotScroll(const FInputActionValue& Value)
 
 void AHawkeyeCharacter::Input_Inventory(const FInputActionValue& /*Value*/)
 {
-	if (AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetController()))
+	AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetController());
+	if (PC && PC->IsInventoryOpen())
 	{
-		PC->ToggleInventory();
+		// Tab over the open inventory closes it straight away.
+		PC->SetInventoryOpen(false);
+		return;
 	}
+	const UWorld* World = GetWorld();
+	bInventoryKeyHeld = true;
+	InventoryKeyDownRealSeconds = World ? World->GetRealTimeSeconds() : 0.0;
+}
+
+void AHawkeyeCharacter::Input_InventoryReleased(const FInputActionValue& /*Value*/)
+{
+	const bool bWasTap = bInventoryKeyHeld && !bQuiverWheelOpen;
+	bInventoryKeyHeld = false;
+	if (bQuiverWheelOpen)
+	{
+		CloseQuiverWheel(/*bSelect=*/true);
+		return;
+	}
+	if (bWasTap)
+	{
+		if (AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetController()))
+		{
+			PC->ToggleInventory();
+		}
+	}
+}
+
+void AHawkeyeCharacter::UpdateQuiverWheelHold()
+{
+	const UWorld* World = GetWorld();
+	// Real time: the hold is the player's thumb, not game time, and the wheel itself slows the game.
+	if (bInventoryKeyHeld && !bQuiverWheelOpen && World
+		&& World->GetRealTimeSeconds() - InventoryKeyDownRealSeconds >= QuiverWheelHoldSeconds)
+	{
+		OpenQuiverWheel();
+	}
+}
+
+void AHawkeyeCharacter::OpenQuiverWheel()
+{
+	if (bQuiverWheelOpen || !InventoryComponent)
+	{
+		return;
+	}
+	bQuiverWheelOpen = true;
+	QuiverWheelCursor = FVector2D::ZeroVector;
+	if (UWorld* World = GetWorld())
+	{
+		UGameplayStatics::SetGlobalTimeDilation(World, QuiverWheelTimeDilation);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: quiver wheel open, time x%.2f."), *GetNameSafe(this), QuiverWheelTimeDilation);
+	RefreshQuiverWheelHud();
+}
+
+void AHawkeyeCharacter::CloseQuiverWheel(bool bSelect)
+{
+	if (!bQuiverWheelOpen)
+	{
+		return;
+	}
+	const int32 Slot = GetQuiverWheelHighlight();
+	bQuiverWheelOpen = false;
+	bInventoryKeyHeld = false;
+	if (UWorld* World = GetWorld())
+	{
+		UGameplayStatics::SetGlobalTimeDilation(World, 1.f);
+	}
+	const bool bPicked = bSelect && Slot > 0 && InventoryComponent && InventoryComponent->SelectArrowSlot(Slot);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: quiver wheel closed on slot %d%s; slot %d nocked."), *GetNameSafe(this), Slot,
+		bPicked ? TEXT("") : TEXT(" (kept)"), InventoryComponent ? InventoryComponent->GetActiveArrowSlot() : 0);
+	RefreshQuiverWheelHud();
+}
+
+void AHawkeyeCharacter::SetQuiverWheelCursor(FVector2D Cursor)
+{
+	QuiverWheelCursor = Cursor.GetClampedToMaxSize(QuiverWheelCursorRadius);
+	RefreshQuiverWheelHud();
+}
+
+int32 AHawkeyeCharacter::GetQuiverWheelHighlight() const
+{
+	return UQuiverWheelMath::ComputeWheelSegment(QuiverWheelCursor, HawkeyeQuiverSlotCount, QuiverWheelDeadZone);
+}
+
+void AHawkeyeCharacter::RefreshQuiverWheelHud() const
+{
+	const AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetController());
+	if (UHawkeyeHudWidget* Hud = PC ? PC->GetHawkeyeHud() : nullptr)
+	{
+		Hud->SetQuiverWheelState(bQuiverWheelOpen, GetQuiverWheelHighlight());
+	}
+}
+
+void AHawkeyeCharacter::PlayImpactShake(float Seconds, float Amplitude)
+{
+	if (Seconds <= 0.f)
+	{
+		return;
+	}
+	// A bigger shake wins over the tail of a smaller one; never cut a stronger one short.
+	if (HitShakeRemaining > 0.f && ActiveShakeAmplitude * GetHitShakeAlpha() > Amplitude)
+	{
+		return;
+	}
+	ActiveShakeSeconds = Seconds;
+	ActiveShakeAmplitude = Amplitude;
+	HitShakeRemaining = Seconds;
 }
 
 void AHawkeyeCharacter::Input_Grapple(const FInputActionValue& /*Value*/)
@@ -759,6 +872,13 @@ FVector2D AHawkeyeCharacter::ComputeLookDelta(FVector2D RawInput, bool bAiming) 
 
 void AHawkeyeCharacter::Input_Look(const FInputActionValue& Value)
 {
+	if (bQuiverWheelOpen)
+	{
+		// The mouse steers the wheel's cursor instead of the camera. IA_Look negates Y, so up is -Y.
+		const FVector2D Raw = Value.Get<FVector2D>();
+		SetQuiverWheelCursor(QuiverWheelCursor + FVector2D(Raw.X, -Raw.Y));
+		return;
+	}
 	const FVector2D LookInput = ComputeLookDelta(Value.Get<FVector2D>(), bIsAiming);
 
 	AddControllerYawInput(LookInput.X);
@@ -790,6 +910,15 @@ FVector2D AHawkeyeCharacter::ComputeStickLookDelta(FVector2D RawInput, float Del
 void AHawkeyeCharacter::Input_LookStick(const FInputActionValue& Value)
 {
 	const FVector2D RawInput = Value.Get<FVector2D>();
+	if (bQuiverWheelOpen)
+	{
+		// The stick points straight at a segment; let go and the cursor stays where it was aimed.
+		if (!RawInput.IsNearlyZero())
+		{
+			SetQuiverWheelCursor(FVector2D(RawInput.X, -RawInput.Y) * QuiverWheelCursorRadius);
+		}
+		return;
+	}
 	if (RawInput.IsNearlyZero())
 	{
 		return;
@@ -1088,9 +1217,9 @@ void AHawkeyeCharacter::UpdateCamera(float DeltaSeconds)
 	const float Shake = GetHitShakeAlpha();
 	if (Shake > 0.f)
 	{
-		const float Time = (HitShakeSeconds - HitShakeRemaining) * 60.f;
-		Blend.SocketOffset.Y += HitShakeAmplitude * Shake * FMath::Sin(Time * 1.7f);
-		Blend.SocketOffset.Z += HitShakeAmplitude * Shake * FMath::Cos(Time * 2.3f);
+		const float Time = (ActiveShakeSeconds - HitShakeRemaining) * 60.f;
+		Blend.SocketOffset.Y += ActiveShakeAmplitude * Shake * FMath::Sin(Time * 1.7f);
+		Blend.SocketOffset.Z += ActiveShakeAmplitude * Shake * FMath::Cos(Time * 2.3f);
 	}
 
 	if (CameraBoom)
@@ -1130,6 +1259,7 @@ void AHawkeyeCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	UpdateMoveInputTiming(DeltaSeconds);
+	UpdateQuiverWheelHold();
 	UpdateCrouchTap(DeltaSeconds);
 	UpdateMeleeHold(DeltaSeconds);
 	UpdateDodge(DeltaSeconds);
@@ -1397,7 +1527,8 @@ void AHawkeyeCharacter::EndHitStop()
 {
 	if (UWorld* World = GetWorld())
 	{
-		UGameplayStatics::SetGlobalTimeDilation(World, 1.f);
+		// Back to the wheel's slow motion if a strike landed while it was open.
+		UGameplayStatics::SetGlobalTimeDilation(World, bQuiverWheelOpen ? QuiverWheelTimeDilation : 1.f);
 	}
 }
 
@@ -1507,7 +1638,7 @@ void AHawkeyeCharacter::HandleHealthChanged(UHealthComponent* /*Health*/, float 
 	// Someone else hurting her shakes the camera; a fall does not (it has the landing dip).
 	if (Delta < 0.f && DamageInstigator && DamageInstigator != this)
 	{
-		HitShakeRemaining = HitShakeSeconds;
+		PlayImpactShake(HitShakeSeconds, HitShakeAmplitude);
 	}
 }
 
@@ -1989,7 +2120,7 @@ bool AHawkeyeCharacter::IsLockedOutByTakedown() const
 
 void AHawkeyeCharacter::Input_FirePressed(const FInputActionValue& /*Value*/)
 {
-	if (IsLockedOutByTakedown() || IsMeleeAttacking() || IsDodging() || IsStaggered())
+	if (bQuiverWheelOpen || IsLockedOutByTakedown() || IsMeleeAttacking() || IsDodging() || IsStaggered())
 	{
 		return;
 	}
