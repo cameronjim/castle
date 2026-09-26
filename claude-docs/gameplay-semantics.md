@@ -455,7 +455,30 @@ the last input came from a pad.
   animation stopped. Either way the flashlight turns off and the capsule stops colliding.
   Which path ran is logged once per guard at Warning.
 
-## Save data (stage 3)
+## Save data (built 2026-09-26 on SPUD)
+- SPUD (MIT, vendored at `Plugins/SPUD`, commit 12a30da) persists the world; it built on
+  5.8 unchanged. One slot, `HawkeyeCampaign`; automation runs use `HawkeyeCampaignAutomation`.
+- Saved: Kate and Clint (transform, controller rotation, health, bow, quiver slot by slot,
+  active slot; components are mirrored into save-tagged fields before a save and restored
+  after a load), thugs (position, dead flag; a dead thug goes down again on load without
+  dropping loot twice), campaign state (version, mission path, completed objectives,
+  safehouses found, play time, which character was controlled). Not saved: stuck arrows,
+  pickups, EMP lamp state, spawner-created actors, the partner's fight state.
+- Autosave on objective completion, safehouse entry, new game, and after 60 s of roaming
+  (the clock runs only while the player is alive, on the ground, and no thug is alerted; a
+  fight pauses it). Death with no revive, or Restart, fades to black and loads the last
+  save; with no save it reloads the level.
+- Continue reads the header first: version mismatch starts a new game with a warning; a
+  missing mission asset starts a new game with an error. A migration hook exists.
+- Safehouse: `City_Safehouse` on 140 East 7th Street (OSM W248142338) facing the park. E
+  heals to full, marks it found, autosaves, and opens Refill arrows, Save, Fast travel
+  (stub), Chapter select (stub), Leave.
+- Main menu overlays the paused district on first boot: Continue (when a save exists),
+  New Game, Settings, Quit. The pause menu has Quit to menu.
+- Interaction now also works when the player stands inside an interactable's zone (the
+  camera trace alone couldn't reach from 350 cm behind her).
+
+## Save data, original contract (stage 3)
 - One slot, `HawkeyeSave`, autosaved at mission complete and at checkpoints. Manual save
   is not exposed.
 - Contents: mission id, completed objective ids, player health, weapon magazine and
