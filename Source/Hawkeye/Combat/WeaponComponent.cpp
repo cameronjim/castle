@@ -3,6 +3,7 @@
 #include "Combat/WeaponComponent.h"
 
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "CollisionQueryParams.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/WeaponDefinition.h"
@@ -266,6 +267,10 @@ bool UWeaponComponent::Fire()
 	LastFireTimeSeconds = GetNowSeconds();
 	--CurrentAmmo;
 	OnAmmoChanged.Broadcast(CurrentAmmo, ReserveAmmo);
+	if (const AActor* Owner = GetOwner())
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, FireSound, Owner->GetActorLocation(), TEXT("gunshot"));
+	}
 
 	TraceAndApplyDamage();
 	return true;

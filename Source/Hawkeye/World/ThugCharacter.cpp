@@ -5,6 +5,7 @@
 #include "AIController.h"
 #include "Animation/AnimSequence.h"
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowComponent.h"
 #include "Combat/HealthComponent.h"
@@ -383,6 +384,7 @@ void AThugCharacter::HandleHealthChanged(UHealthComponent* Health, float /*NewHe
 	// Any hit breaks a gunner's burst or an archer's draw: hitting first is the counter.
 	if (Health && Health->IsAlive())
 	{
+		UHawkeyeAudioSubsystem::PlayAt(this, HurtSound, GetActorLocation(), TEXT("thug hurt"));
 		if (AThugAIController* Brain = Cast<AThugAIController>(GetController()))
 		{
 			Brain->NotifyDamaged(DamageInstigator);
@@ -404,6 +406,10 @@ void AThugCharacter::SetTelegraphGlint(bool bOn)
 	}
 	bGlintOn = bOn;
 	UpdateTelegraphGlint();
+	if (bOn)
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, TelegraphSound, GetGlintLocation(), TEXT("thug telegraph"));
+	}
 }
 
 FVector AThugCharacter::GetGlintLocation() const
@@ -537,6 +543,7 @@ void AThugCharacter::HitReaction(AActor* HitBy)
 	}
 
 	StaggerRemaining = StaggerSeconds;
+	UHawkeyeAudioSubsystem::PlayAt(this, StaggerSound, GetActorLocation(), TEXT("thug stagger"));
 
 	// A punch in the wind-up interrupts the swing: hitting first is the counter.
 	if (MeleeComponent)
@@ -848,6 +855,7 @@ void AThugCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 	// every playtest, and it has to be answerable from the default log.
 	UE_LOG(LogHawkeye, Log, TEXT("%s died (killed by %s, alert state %d)."),
 		*GetName(), *GetNameSafe(Killer), static_cast<int32>(AlertState));
+	UHawkeyeAudioSubsystem::PlayAt(this, DeathSound, GetActorLocation(), TEXT("thug death"));
 
 	GoLimp(Killer);
 	DropLoot();
@@ -1168,6 +1176,8 @@ bool AThugCharacter::TryBlock(AActor* Attacker, FVector FromDirection, const FSt
 	++BlockCount;
 	UE_LOG(LogHawkeye, Log, TEXT("%s: shield blocks %s from %s (%d blocked)."), *GetName(), *What, *GetNameSafe(Attacker),
 		BlockCount);
+	UHawkeyeAudioSubsystem::PlayAt(this, BlockSound,
+		ShieldComponent ? ShieldComponent->GetComponentLocation() : GetActorLocation(), TEXT("shield block"));
 	if (Cast<APawn>(Attacker))
 	{
 		AlertTo(Attacker);

@@ -16,6 +16,7 @@ class UBowComponent;
 class UEnvQuery;
 class UHealthComponent;
 class UPointLightComponent;
+class USoundBase;
 class UStateTree;
 class UMaterialInstanceDynamic;
 class UStaticMesh;
@@ -507,6 +508,28 @@ public:
 	virtual bool CanBeTakenDown_Implementation(AActor* Attacker) override;
 	virtual void OnTakedown_Implementation(AActor* Attacker) override;
 	//~ End ITakedownable interface
+
+	// --- Audio (no speech: grunts and tells only) -------------------------------------------------
+
+	/** The gunner's and archer's tell as the glint comes on (MS_Thug_Telegraph). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Audio")
+	TSoftObjectPtr<USoundBase> TelegraphSound;
+
+	/** Hit and still standing (MS_Thug_Hurt). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Audio")
+	TSoftObjectPtr<USoundBase> HurtSound;
+
+	/** Going down for good (MS_Thug_Death). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Audio")
+	TSoftObjectPtr<USoundBase> DeathSound;
+
+	/** The heavy's shield taking an arrow or a strike (MS_Melee_Block). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Audio")
+	TSoftObjectPtr<USoundBase> BlockSound;
+
+	/** A hit that staggers him (MS_Melee_Stagger). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Audio")
+	TSoftObjectPtr<USoundBase> StaggerSound;
 
 protected:
 	virtual void PostInitializeComponents() override;

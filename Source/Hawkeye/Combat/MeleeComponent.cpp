@@ -3,6 +3,7 @@
 #include "Combat/MeleeComponent.h"
 
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "Combat/HealthComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
@@ -34,6 +35,10 @@ bool UMeleeComponent::StartAttack(const FHawkeyeMeleeAttack& Attack)
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s swing winds up (%.2f s, %.0f damage)."),
 		*GetNameSafe(GetOwner()), *Attack.Name.ToString(), Attack.WindupSeconds, Attack.Damage);
+	if (Attack.WindupSeconds >= TelegraphMinWindup && GetOwner())
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, WindupSound, GetOwner()->GetActorLocation(), TEXT("melee telegraph"));
+	}
 
 	OnAttackWindup.Broadcast(Attack.Name, Attack.WindupSeconds);
 	ApplyLunge(Attack);
@@ -118,6 +123,10 @@ AActor* UMeleeComponent::FindTarget(const FHawkeyeMeleeAttack& Attack) const
 void UMeleeComponent::Strike()
 {
 	AActor* Owner = GetOwner();
+	if (Owner)
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, SwingSound, Owner->GetActorLocation(), TEXT("melee swing"));
+	}
 	AActor* Target = FindTarget(CurrentAttack);
 	UHealthComponent* Health = Target ? Target->FindComponentByClass<UHealthComponent>() : nullptr;
 	if (!Health)
@@ -153,6 +162,9 @@ void UMeleeComponent::Strike()
 		ApplyKnockback(Target, CurrentAttack);
 	}
 
+	const bool bHeavySound = CurrentAttack.bKnockdown && !HeavyHitSound.IsNull();
+	UHawkeyeAudioSubsystem::PlayAt(this, bHeavySound ? HeavyHitSound : HitSound, Target->GetActorLocation(),
+		bHeavySound ? TEXT("melee heavy hit") : TEXT("melee hit"));
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s swing hit %s for %.1f (health %.1f)."),
 		*GetNameSafe(Owner), *CurrentAttack.Name.ToString(), *GetNameSafe(Target), Dealt, Health->GetCurrentHealth());
 	OnAttackLanded.Broadcast(Target, Dealt, CurrentAttack.Name);

@@ -6,6 +6,8 @@
 #include "Components/ActorComponent.h"
 #include "MeleeComponent.generated.h"
 
+class USoundBase;
+
 /** One swing: how hard, how slow, how far. Kate's light and heavy and each thug weapon are one of these. */
 USTRUCT(BlueprintType)
 struct HAWKEYE_API FHawkeyeMeleeAttack
@@ -146,6 +148,29 @@ public:
 	/** Actors with this tag are never hit. Thugs set "Thug". */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee")
 	FName IgnoreTag;
+
+	/**
+	 * The telegraph: played as a wind-up of TelegraphMinWindup or longer starts (the thugs' swings and
+	 * the heavy's bash), so the tell is heard as well as seen (MS_Thug_Telegraph).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Audio")
+	TSoftObjectPtr<USoundBase> WindupSound;
+
+	/** Wind-ups shorter than this are not telegraphed (Kate's 0.1 s jab). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Audio", meta = (ClampMin = "0.0"))
+	float TelegraphMinWindup = 0.3f;
+
+	/** The swing through the air, hit or miss (MS_Thug_BatSwing on the thugs). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Audio")
+	TSoftObjectPtr<USoundBase> SwingSound;
+
+	/** A strike that lands (MS_Melee_Punch). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Audio")
+	TSoftObjectPtr<USoundBase> HitSound;
+
+	/** A knockdown strike that lands (Kate's heavy, MS_Melee_Heavy). Falls back to HitSound. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Audio")
+	TSoftObjectPtr<USoundBase> HeavyHitSound;
 
 	/** Fired as a swing starts: the telegraph. */
 	UPROPERTY(BlueprintAssignable, Category = "Melee")

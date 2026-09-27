@@ -9,6 +9,7 @@
 #include "WeaponComponent.generated.h"
 
 class UDamageType;
+class USoundBase;
 class UWeaponDefinition;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAmmoChangedSignature, int32, CurrentAmmo, int32, ReserveAmmo);
@@ -114,6 +115,10 @@ public:
 	/** Fired once per shot that lands on a damageable actor, after the damage is applied. */
 	UPROPERTY(BlueprintAssignable, Category = "Weapon")
 	FOnWeaponHitSignature OnHit;
+
+	/** Each shot fired, at the muzzle end of the owner (MS_Thug_Gunshot on the gunner). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Audio")
+	TSoftObjectPtr<USoundBase> FireSound;
 
 	/** Damage one punch does. Separate from Damage so holding fists never rewrites gun stats. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "0.0"))
