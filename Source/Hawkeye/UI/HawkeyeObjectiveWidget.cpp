@@ -164,6 +164,12 @@ void UHawkeyeObjectiveWidget::PushToast(FText Heading, FText Title, EHawkeyeUISo
 	}
 }
 
+void UHawkeyeObjectiveWidget::ClearToasts()
+{
+	ToastQueue.Reset();
+	ToastElapsed = 0.f;
+}
+
 void UHawkeyeObjectiveWidget::AdvanceToasts(float DeltaSeconds)
 {
 	if (ToastQueue.Num() == 0)

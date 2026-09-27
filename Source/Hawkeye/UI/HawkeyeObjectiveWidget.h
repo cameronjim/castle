@@ -33,6 +33,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
 	void PushToast(FText Heading, FText Title, EHawkeyeUISound Sound = EHawkeyeUISound::Toast);
 
+	/** Drops every queued toast, the showing one included (a chapter ending supersedes them). */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
+	void ClearToasts();
+
 	/** Counts the showing toast down and moves on to the next queued one. */
 	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
 	void AdvanceToasts(float DeltaSeconds);

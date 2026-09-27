@@ -1173,6 +1173,8 @@ void AHawkeyePlayerController::ReturnToRoaming()
 		? Mission->ChapterCompleteToast : NSLOCTEXT("Hawkeye", "ChapterCompleteToast", "[Chapter complete]");
 	if (UHawkeyeObjectiveWidget* Toasts = HudWidget ? HudWidget->GetObjectiveMarker() : nullptr)
 	{
+		// A load back from a scene queues a stale "New objective"; the chapter's end outranks it.
+		Toasts->ClearToasts();
 		Toasts->PushToast(Toast, Mission ? Mission->MissionName : FText::GetEmpty(), EHawkeyeUISound::ObjectiveComplete);
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: chapter complete; back to roaming."), *GetName());
