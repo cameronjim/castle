@@ -7,6 +7,7 @@
 #include "Challenge/ChallengeRules.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
+#include "InputCoreTypes.h"
 #include "UI/HawkeyeMenuLayout.h"
 
 namespace HawkeyeChallengeResults
@@ -77,6 +78,7 @@ void UChallengeResultsWidget::ApplyLines()
 void UChallengeResultsWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
+	SetIsFocusable(true);
 	ApplyLines();
 	if (bBound)
 	{
@@ -136,4 +138,25 @@ void UChallengeResultsWidget::HandleButtonHovered()
 void UChallengeResultsWidget::HandleButtonPressed()
 {
 	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
+}
+
+FReply UChallengeResultsWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	const FKey Key = InKeyEvent.GetKey();
+
+	// Enter (or the pad's A) repeats the default button: Retry.
+	if (Key == EKeys::Enter || Key == EKeys::Virtual_Accept || Key == EKeys::Gamepad_FaceButton_Bottom)
+	{
+		HandleRetryClicked();
+		return FReply::Handled();
+	}
+
+	// Escape (or the pad's B) leaves, same as clicking Leave.
+	if (Key == EKeys::Escape || Key == EKeys::Gamepad_FaceButton_Right)
+	{
+		HandleLeaveClicked();
+		return FReply::Handled();
+	}
+
+	return Super::NativeOnKeyDown(InGeometry, InKeyEvent);
 }
