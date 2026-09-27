@@ -39,13 +39,27 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge")
 	TSoftObjectPtr<UMaterialInterface> GlowMaterial;
 
-	/** The cap's emissive intensity. */
+	/**
+	 * The cap's emissive intensity. Bright, because the point light is only a pool at its foot: the top
+	 * and the icon are what read from the next roof.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float CapGlow = 1.5f;
+	float CapGlow = 4.f;
 
 	/** The icon's emissive intensity (a ring icon twice it). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float IconGlow = 1.2f;
+	float IconGlow = 2.5f;
+
+	/** The purple point light's brightness, lm: 135, 30% of the 450 that washed the whole roof. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
+	float GlowLumens = 135.f;
+
+	/** How far the purple light reaches, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
+	float GlowRadius = 400.f;
+
+	/** The purple point light, for tests and the look. */
+	UPointLightComponent* GetGlowLight() const { return Glow; }
 
 	/** Degrees a second the icon turns. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge")

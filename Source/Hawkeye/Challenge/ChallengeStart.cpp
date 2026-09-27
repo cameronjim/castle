@@ -114,8 +114,9 @@ AChallengeStart::AChallengeStart()
 	Glow->SetupAttachment(Root);
 	Glow->SetRelativeLocation(FVector(0.f, 0.f, IconHeight));
 	Glow->SetIntensityUnits(ELightUnits::Lumens);
-	Glow->SetIntensity(450.f);
-	Glow->SetAttenuationRadius(650.f);
+	// A pool round the pedestal, not a wash over the whole roof: the emissive top carries the read.
+	Glow->SetIntensity(GlowLumens);
+	Glow->SetAttenuationRadius(GlowRadius);
 	Glow->SetLightColor(Purple);
 	Glow->SetCastShadows(false);
 
