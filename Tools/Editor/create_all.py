@@ -14,6 +14,8 @@
                                   weapon data, for DA_Bow_Clint)
     4c. create_enemies            ST_Thug, EQS_CoverPoints (wired into BP_Thug) and BP_Archer (after
                                   the world blueprints and the weapon data)
+    4d. create_bow_ik             ABP_BowIK_Post(_Thug), the bow hands post-process AnimBPs, set on
+                                  BP_Kate, BP_Clint and BP_Archer (after the partner and the enemies)
     5. fixup_redirectors          resave past any redirector the GASP copy brought in, then
                                   delete it
     6. generate_city              L_District_EastVillage from OpenStreetMap, after everything
@@ -48,6 +50,7 @@ STEPS = [
     ("mission data", "create_mission_data"),
     ("partner", "create_partner"),
     ("enemies", "create_enemies"),
+    ("bow ik", "create_bow_ik"),
     ("fix up redirectors", "fixup_redirectors"),
     ("city", "generate_city"),
 ]
