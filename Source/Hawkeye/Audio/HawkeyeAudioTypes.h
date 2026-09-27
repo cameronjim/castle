@@ -37,7 +37,6 @@ enum class EHawkeyeFootstepSurface : uint8
 	Carpet,
 };
 
-
 /**
  * The gain each sound class gets from the settings sliders. Every value already includes the
  * master slider: classes are overridden one by one with the product, never relying on the class

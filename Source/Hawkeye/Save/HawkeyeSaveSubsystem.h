@@ -5,7 +5,9 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Save/HawkeyeAutosaveClock.h"
+#include "Player/InventoryComponent.h"
 #include "Save/HawkeyeCampaignState.h"
+
 #include "Save/HawkeyeSceneReturn.h"
 #include "HawkeyeSaveSubsystem.generated.h"
 
@@ -190,9 +192,15 @@ public:
 	void BeginInteriorWithoutEntry(const FString& District, FName ReturnPointLabel);
 
 	/** True once, on an interior's first playable frame: the screen should come back from black. */
-
 	bool ConsumeInteriorArrivalFade();
 
+	/**
+	 * The quiver goes with her through an interior's door, both ways: EnterInterior and ReturnFromInterior
+	 * copy the player's bow, arrows and active slot, and the next world's player gets them back (the
+	 * interior on its first playable frame, the district once its save has loaded). False, and nothing
+	 * changes, when nothing is being carried or there is no player.
+	 */
+	bool RestoreCarriedQuiver(UWorld* World);
 
 	const FHawkeyeSceneReturn& GetSceneReturn() const { return SceneReturn; }
 
@@ -244,8 +252,10 @@ private:
 	/** The second half of leaving a scene or interior: load the entry save, else open the district fresh. */
 	void TravelBackFromScene();
 
-	/** After a load: hand control to whoever was being played, and bring the picture back. */
+	/** Copies the player's quiver in World for RestoreCarriedQuiver. */
+	void CarryQuiver(UWorld* World);
 
+	/** After a load: hand control to whoever was being played, and bring the picture back. */
 	void FinishRestoredWorld(UWorld* World);
 
 	UPROPERTY(Transient)
@@ -256,6 +266,16 @@ private:
 
 	UPROPERTY(Transient)
 	FHawkeyeSceneReturn SceneReturn;
+
+	/** The quiver on its way through an interior's door (see RestoreCarriedQuiver). */
+	UPROPERTY(Transient)
+	TObjectPtr<UBowDefinition> CarriedBow;
+
+	UPROPERTY(Transient)
+	TArray<FHawkeyeQuiverSlot> CarriedArrows;
+
+	int32 CarriedActiveSlot = 0;
+	bool bCarryingQuiver = false;
 
 	FDelegateHandle PreLoadMapHandle;
 	bool bRestorePending = false;

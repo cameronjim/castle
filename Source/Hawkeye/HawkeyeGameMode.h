@@ -109,7 +109,6 @@ public:
 	/** Whether the game mode running World wants the indoor camera. No Hawkeye game mode: no. */
 	static bool WantsInteriorCamera(const UWorld* World);
 
-
 	/**
 	 * Uncooked builds only (-game from the editor binaries): index every loaded PoseSearch database
 	 * during the load instead of on the first frame. The motion-matching databases wait for their

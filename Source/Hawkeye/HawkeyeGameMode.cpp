@@ -114,8 +114,12 @@ void AHawkeyeGameMode::NotePlayable()
 	{
 		PC->PlayerCameraManager->StartCameraFade(1.f, 0.f, Save->FadeInSeconds, FLinearColor::Black, false, false);
 	}
+	// And she walked in with her quiver.
+	if (Save && Save->IsInInterior())
+	{
+		Save->RestoreCarriedQuiver(GetWorld());
+	}
 }
-
 
 void AHawkeyeGameMode::HandleScreenshotProcessed()
 {

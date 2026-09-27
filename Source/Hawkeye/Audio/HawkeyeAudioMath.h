@@ -48,5 +48,4 @@ namespace HawkeyeAudioMath
 
 	/** Wood or carpet by the floor actor's tags (carpet wins if both), snow for anything else or no floor. */
 	HAWKEYE_API EHawkeyeFootstepSurface ClassifyFootstepSurface(const TArray<FName>& FloorTags);
-
 }

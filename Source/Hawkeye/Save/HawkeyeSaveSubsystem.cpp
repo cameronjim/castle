@@ -6,6 +6,7 @@
 #include "HawkeyePlayerController.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Challenge/ChallengeSubsystem.h"
+#include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
 #include "Crime/CrimeSubsystem.h"
 #include "Engine/Engine.h"
@@ -20,6 +21,7 @@
 #include "Mission/MissionSubsystem.h"
 #include "Phone/PhoneSubsystem.h"
 #include "Player/HawkeyeCharacter.h"
+#include "Player/InventoryComponent.h"
 #include "SpudCustomSaveInfo.h"
 #include "SpudState.h"
 #include "SpudSubsystem.h"
@@ -491,6 +493,7 @@ bool UHawkeyeSaveSubsystem::EnterInterior(const TSoftObjectPtr<UWorld>& Interior
 		UE_LOG(LogHawkeye, Warning, TEXT("%s: the district could not be saved before %s; the way out opens it fresh."),
 			*GetName(), *Interior.ToString());
 	}
+	CarryQuiver(World);
 	SceneReturn.BeginInterior(District, ReturnPointLabel, bSaved);
 	UE_LOG(LogHawkeye, Log, TEXT("%s: entering interior %s (back to %s at %s)."), *GetName(), *Interior.ToString(),
 		*SceneReturn.ReturnMap, *SceneReturn.ReturnPointLabel.ToString());
@@ -505,7 +508,41 @@ bool UHawkeyeSaveSubsystem::ReturnFromInterior(FName ReturnPointOverride)
 		return false;
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: leaving the interior for %s."), *GetName(), *SceneReturn.ReturnPointLabel.ToString());
+	CarryQuiver(GetGameWorld());
 	TravelBackFromScene();
+	return true;
+}
+
+void UHawkeyeSaveSubsystem::CarryQuiver(UWorld* World)
+{
+	const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	const AHawkeyeCharacter* Player = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	const UInventoryComponent* Inventory = Player ? Player->GetInventoryComponent() : nullptr;
+	bCarryingQuiver = Inventory != nullptr;
+	if (!Inventory)
+	{
+		return;
+	}
+	CarriedBow = Inventory->GetBow();
+	CarriedArrows = Inventory->GetArrowSlots();
+	CarriedActiveSlot = Inventory->GetActiveArrowSlot();
+}
+
+bool UHawkeyeSaveSubsystem::RestoreCarriedQuiver(UWorld* World)
+{
+	const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	const AHawkeyeCharacter* Player = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	UInventoryComponent* Inventory = Player ? Player->GetInventoryComponent() : nullptr;
+	if (!bCarryingQuiver || !Inventory)
+	{
+		return false;
+	}
+	bCarryingQuiver = false;
+	Inventory->RestoreQuiver(CarriedBow, CarriedArrows, CarriedActiveSlot);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: carried the quiver through the door (%s, %d slot(s))."), *GetName(),
+		*GetNameSafe(CarriedBow), CarriedArrows.Num());
+	CarriedBow = nullptr;
+	CarriedArrows.Reset();
 	return true;
 }
 
@@ -532,7 +569,6 @@ void UHawkeyeSaveSubsystem::TravelBackFromScene()
 	const bool bExists = SceneReturn.bSavedOnEntry && HasSave() && ReadSaveHeader(SavedVersion, SavedMission);
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s over; back to %s."), *GetName(),
 		SceneReturn.bInterior ? TEXT("interior") : TEXT("playable scene"), *SceneReturn.ReturnMap);
-
 	if (bExists && DecideLoad(true, SavedVersion, SavedMission) == EHawkeyeLoadDecision::Load && LoadCampaign())
 	{
 		return;
@@ -567,15 +603,17 @@ void UHawkeyeSaveSubsystem::ApplyPendingSceneReturn(UWorld* World)
 		UE_LOG(LogHawkeye, Warning, TEXT("%s: no actor labelled or tagged %s to return to; keeping the saved position."),
 			*GetName(), *SceneReturn.ReturnPointLabel.ToString());
 	}
+	// Out of an interior: the quiver as it was inside, not as the entry save had it.
+	RestoreCarriedQuiver(World);
 	// A flashback's scene hands the chapter's end sequence back to the controller; an interior does not.
 	const bool bResume = SceneReturn.ShouldResumeMissionFlow();
+
 	SceneReturn.bInterior = false;
 	if (PC && bResume)
 	{
 		PC->HandleReturnedFromScene();
 	}
 }
-
 
 // --- Safehouses -------------------------------------------------------------------------------------
 

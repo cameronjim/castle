@@ -2634,7 +2634,6 @@ void AHawkeyeCharacter::PlayFootstep()
 		? TEXT("footstep wood") : TEXT("footstep carpet"), bIsSprinting ? 1.f : 0.8f);
 }
 
-
 void AHawkeyeCharacter::KickFootstepSnow()
 {
 	const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;

@@ -74,7 +74,6 @@ struct HAWKEYE_API FHawkeyeSceneReturn
 	/** Whether coming back resumes the chapter's end sequence (a flashback's scene) or not (an interior). */
 	bool ShouldResumeMissionFlow() const { return !bInterior; }
 
-
 	/**
 	 * Which candidate the player goes back to: the one labelled ReturnPointLabel, else the first
 	 * tagged with it. INDEX_NONE when the label is None or nothing matches (the saved position stands).

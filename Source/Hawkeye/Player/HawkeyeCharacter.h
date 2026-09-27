@@ -686,7 +686,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
 	bool IsIndoorCamera() const { return bIndoorCamera; }
 
-
 	/** A step every 70 cm walking, 55 cm sprinting, on the ground only. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
 	FHawkeyeFootstepTracker Footsteps;
@@ -1355,7 +1354,6 @@ protected:
 	/** Set at BeginPlay from the game mode (AHawkeyeGameMode::WantsInteriorCamera), or by SetIndoorCamera. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Camera")
 	bool bIndoorCamera = false;
-
 
 	/** Seconds the camera takes to travel the whole way between HipCamera and AimCamera. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
