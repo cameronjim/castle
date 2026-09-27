@@ -573,6 +573,17 @@ public:
 	virtual void SpudPostRestore_Implementation(const USpudState* State) override;
 	//~ End ISpudObjectCallback interface
 
+	/**
+	 * Spawned by a street crime (UCrimeSubsystem): left out of the save, since a crime is never saved
+	 * part way and a respawned stranger would have no crime to belong to.
+	 */
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Thug")
+	bool bSkipSave = false;
+
+	//~ Begin ISpudObject interface
+	virtual bool ShouldSkip_Implementation() const override { return bSkipSave; }
+	//~ End ISpudObject interface
+
 	//~ Begin ITakedownable interface
 	virtual bool CanBeTakenDown_Implementation(AActor* Attacker) override;
 	virtual void OnTakedown_Implementation(AActor* Attacker) override;
