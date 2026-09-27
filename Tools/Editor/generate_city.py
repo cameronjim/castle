@@ -3847,6 +3847,75 @@ def ensure_safehouse(district, existing):
     return changes
 
 
+# --------------------------------------------------------------------------------------
+# side challenges: a pedestal at each challenge's start
+# --------------------------------------------------------------------------------------
+
+# AChallengeStart (Source/Hawkeye/Challenge/ChallengeStart.h) at the StartLocation of every
+# UChallengeDefinition create_challenges.py wrote under /Game/Challenges: three on rooftops for the
+# archery ranges, three at street corners for the traversal routes. The pedestal stands on whatever
+# is under it (the roof, the sidewalk or the edge of an avenue's asphalt) and faces StartYaw.
+CHALLENGE_PREFIX = "City_Challenge_"
+CHALLENGE_PATH = "/Game/Challenges"
+CHALLENGE_ASSET_PREFIX = "DA_Challenge_"
+CHALLENGE_CLASS = "/Script/Hawkeye.ChallengeStart"
+
+
+def challenge_definitions():
+    """{id: UChallengeDefinition} for every DA_Challenge_ asset, by id."""
+    out = {}
+    if not unreal.EditorAssetLibrary.does_directory_exist(CHALLENGE_PATH):
+        return out
+    for path in sorted(unreal.EditorAssetLibrary.list_assets(CHALLENGE_PATH, recursive=False)):
+        package = path.split(".")[0]
+        if not package.split("/")[-1].startswith(CHALLENGE_ASSET_PREFIX):
+            continue
+        asset = c.load_or_none(package)
+        if asset is not None:
+            out[str(asset.get_editor_property("id"))] = asset
+    return out
+
+
+def ensure_challenge_starts(district, existing):
+    """City_Challenge_<id> (AChallengeStart) per challenge definition. Idempotent by label; a pedestal
+    whose challenge is gone is removed."""
+    cls = c.find_class("ChallengeStart", CHALLENGE_CLASS)
+    if cls is None:
+        c.log("skipped", CHALLENGE_PREFIX + "*", "AChallengeStart not exposed; build the module")
+        return 0
+    definitions = challenge_definitions()
+    if not definitions:
+        c.log("skipped", CHALLENGE_PREFIX + "*", "no challenge definitions; run create_challenges.py")
+    changes = 0
+    for label, actor in list(existing.items()):
+        if label.startswith(CHALLENGE_PREFIX) and label[len(CHALLENGE_PREFIX):] not in definitions:
+            actor.destroy_actor()
+            existing.pop(label, None)
+            c.log("updated", label, "removed; its challenge is gone")
+            changes += 1
+    for cid, definition in sorted(definitions.items()):
+        label = CHALLENGE_PREFIX + cid
+        start = definition.get_editor_property("start_location")
+        yaw = definition.get_editor_property("start_yaw")
+        # The feet on the slab under the start: a roof for archery, the street for traversal.
+        z = start.z
+        kind = definition.get_editor_property("type")
+        if str(getattr(kind, "name", kind)).upper().endswith("TRAVERSAL"):
+            z = ground_z(start.x, start.y, start.z, existing)
+        actor, moved = _ensure_located(existing, label, cls, unreal.Vector(start.x, start.y, z), yaw)
+        if actor is None:
+            continue
+        changed = moved
+        if actor.get_editor_property("definition") != definition:
+            actor.set_editor_property("definition", definition)
+            changed += 1
+        changed += _ensure_tags(actor, ["City", "CityChallenge", "challenge:" + cid])
+        c.log("updated" if changed else "exists", label, "{0} at ({1:.0f}, {2:.0f}, {3:.0f}) yaw {4:.0f}".format(
+            str(definition.get_editor_property("name")), start.x, start.y, z, yaw))
+        changes += changed
+    return changes
+
+
 def open_or_create_map():
     """(ok, created)."""
     subsystem = c.level_editor_subsystem()
@@ -3904,6 +3973,7 @@ def run():
     changes += ensure_objective_beacons(district, existing)
     changes += ensure_chapter_end(district, existing)
     changes += ensure_safehouse(district, existing)
+    changes += ensure_challenge_starts(district, existing)
     changes += ensure_thugs(district, existing)
     changes += ensure_archers(district, existing)
     changes += ensure_clint(district, existing)
