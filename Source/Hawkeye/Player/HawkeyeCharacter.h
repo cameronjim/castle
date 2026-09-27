@@ -182,6 +182,10 @@ public:
 	void PressCrouch();
 	void ReleaseCrouch();
 
+	/** Crouched, or asked to be and waiting for the movement component's next update. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	bool IsCrouchWanted() const;
+
 	/**
 	 * Takes every setting the character uses: sensitivities, inverts, hold or toggle for aim and crouch,
 	 * the shake and flash scales, and the difficulty's regen delay, fall damage, parry window and trick

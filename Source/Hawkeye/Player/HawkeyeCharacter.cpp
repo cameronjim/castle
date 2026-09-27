@@ -1641,7 +1641,7 @@ void AHawkeyeCharacter::PressCrouch()
 		return;
 	}
 
-	if (bIsCrouched)
+	if (IsCrouchWanted())
 	{
 		// Held crouch stands on the release, not on a second press.
 		if (bToggleCrouch)
@@ -1683,11 +1683,19 @@ void AHawkeyeCharacter::ReleaseCrouch()
 		TryDodge(LastMoveWorldDirection);
 		return;
 	}
-	if (!UHawkeyeAccessibility::ResolveRelease(bToggleCrouch, bIsCrouched) && bIsCrouched && !bIsSliding && !IsRolling())
+	const bool bWanted = IsCrouchWanted();
+	if (bWanted && !UHawkeyeAccessibility::ResolveRelease(bToggleCrouch, bWanted) && !bIsSliding && !IsRolling())
 	{
 		UnCrouch();
 		UpdateMaxWalkSpeed();
 	}
+}
+
+bool AHawkeyeCharacter::IsCrouchWanted() const
+{
+	// The movement component takes a crouch on its next update; until then only the wish is set.
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	return bIsCrouched || (Movement && Movement->bWantsToCrouch);
 }
 
 void AHawkeyeCharacter::UpdateCrouchTap(float DeltaSeconds)
