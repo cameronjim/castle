@@ -330,7 +330,9 @@ bool FHawkeyeMeleeFinisher::RunTest(const FString& Parameters)
 	TestFalse(TEXT("Standing and unhurt: no finisher"), UHawkeyeMeleeRules::IsFinisherTarget(Thug, Here, 200.f));
 	TestFalse(TEXT("So F does nothing"), Kate->TryFinisher());
 	Thug->StaggerFor(Kate, 1.f);
-	TestTrue(TEXT("Staggered at 150 cm: a target"), UHawkeyeMeleeRules::IsFinisherTarget(Thug, Here, 200.f));
+	TestFalse(TEXT("An ordinary stagger is not a finisher"), UHawkeyeMeleeRules::IsFinisherTarget(Thug, Here, 200.f));
+	Thug->Parried(Kate, 1.5f);
+	TestTrue(TEXT("Parry-staggered at 150 cm: a target"), UHawkeyeMeleeRules::IsFinisherTarget(Thug, Here, 200.f));
 	Thug->SetActorLocation(FVector(250.f, 0.f, 0.f));
 	TestFalse(TEXT("At 250 cm: out of reach"), UHawkeyeMeleeRules::IsFinisherTarget(Thug, Here, 200.f));
 	Thug->SetActorLocation(FVector(150.f, 0.f, 0.f));
@@ -379,6 +381,69 @@ bool FHawkeyeMeleeFinisher::RunTest(const FString& Parameters)
 	const FVector Sweep = UFinisherComponent::ComputeImpulse(FVector::ForwardVector, EHawkeyeFinisherStyle::Bow, 900.f, 450.f);
 	TestTrue(TEXT("A strike throws him on and up"), Strike.Equals(FVector(900.f, 0.f, 450.f), 0.01f));
 	TestTrue(TEXT("The bow sweep throws him to her right and up"), Sweep.Equals(FVector(0.f, 900.f, 450.f), 0.01f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeMeleeFinisherGate, "Hawkeye.Melee.FinisherGate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeMeleeFinisherGate::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeMeleeDepthTest;
+	FHawkeyeTestWorld TestWorld;
+	AHawkeyeCharacter* Kate = SpawnKate(TestWorld);
+	AThugCharacter* Thug = SpawnThug(TestWorld, FVector(100.f, 0.f, 0.f), 180.f, EThugWeapon::Fists);
+	if (!Kate || !Thug)
+	{
+		AddError(TEXT("Failed to spawn Kate and a thug."));
+		return false;
+	}
+	UMeleeComponent* Melee = Kate->GetMeleeComponent();
+	Thug->GetHealthComponent()->SetMaxHealth(500.f, true);
+	const FVector Here = Kate->GetActorLocation();
+	auto IsTarget = [&]() { return UHawkeyeMeleeRules::IsFinisherTarget(Thug, Here, 200.f); };
+
+	// The first and second lights stagger him but open nothing.
+	TestTrue(TEXT("First light"), Kate->StartLightAttack());
+	LandSwing(Melee);
+	TestTrue(TEXT("He is staggered by it"), Thug->IsStaggered());
+	TestFalse(TEXT("A first light opens no finisher"), IsTarget());
+	Melee->AdvanceAttack(0.2f);
+	Kate->AdvanceMeleeFlow(0.1f);
+	TestTrue(TEXT("Second light"), Kate->StartLightAttack());
+	LandSwing(Melee);
+	TestFalse(TEXT("Nor does the second"), IsTarget());
+	Melee->AdvanceAttack(0.2f);
+	Kate->AdvanceMeleeFlow(0.1f);
+
+	// The third, the ender, opens it for 1.0 s whether or not he is still staggered.
+	TestTrue(TEXT("Third light"), Kate->StartLightAttack());
+	LandSwing(Melee);
+	TestTrue(TEXT("The third light opens the finisher"), IsTarget());
+	TestEqual(TEXT("For 1.0 s"), Thug->GetFinisherWindowRemaining(), 1.f, 0.001f);
+	Thug->UpdateFinisherOpening(0.6f);
+	TestTrue(TEXT("Still open at 0.6 s"), IsTarget());
+	Thug->UpdateFinisherOpening(0.41f);
+	TestFalse(TEXT("Shut after 1.0 s"), IsTarget());
+
+	// A heavy is an ender too (and knocks him down, which is open on its own).
+	Melee->AdvanceAttack(0.5f);
+	Kate->AdvanceMeleeFlow(0.5f);
+	TestTrue(TEXT("A heavy"), Kate->StartHeavyAttack());
+	LandSwing(Melee);
+	TestTrue(TEXT("The heavy opens the window"), Thug->GetFinisherWindowRemaining() > 0.99f);
+	TestTrue(TEXT("And he is down"), Thug->IsKnockedDown());
+	Thug->UpdateFinisherOpening(2.f);
+	TestTrue(TEXT("Down past the window: still a target"), IsTarget());
+	Thug->UpdateKnockdown(5.f);
+	TestFalse(TEXT("Up again: not a target"), Thug->IsKnockedDown() || IsTarget());
+
+	// A parry stagger lasts as long as the stagger does.
+	AThugCharacter* Swinger = SpawnThug(TestWorld, FVector(-120.f, 0.f, 0.f), 0.f, EThugWeapon::Bat);
+	Swinger->Parried(Kate, 1.5f);
+	TestTrue(TEXT("Parried: a target"), UHawkeyeMeleeRules::IsFinisherTarget(Swinger, Here, 200.f));
+	Swinger->UpdateFinisherOpening(1.6f);
+	TestFalse(TEXT("Parry stagger over: not a target"), UHawkeyeMeleeRules::IsFinisherTarget(Swinger, Here, 200.f));
 	return true;
 }
 

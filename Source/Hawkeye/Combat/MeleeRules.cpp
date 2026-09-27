@@ -123,7 +123,7 @@ EHawkeyeParryKind UHawkeyeMeleeRules::ClassifyParry(const AThugCharacter* Thug)
 bool UHawkeyeMeleeRules::IsFinisherTarget(const AThugCharacter* Thug, const FVector& From, float Range)
 {
 	const UHealthComponent* Health = Thug ? Thug->GetHealthComponent() : nullptr;
-	if (!Health || !Health->IsAlive() || Thug->IsLimp() || !(Thug->IsStaggered() || Thug->IsKnockedDown()))
+	if (!Health || !Health->IsAlive() || Thug->IsLimp() || !Thug->IsFinisherOpen())
 	{
 		return false;
 	}

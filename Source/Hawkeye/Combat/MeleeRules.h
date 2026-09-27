@@ -72,7 +72,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
 	static EHawkeyeParryKind ClassifyParry(const AThugCharacter* Thug);
 
-	/** True when Thug is alive, staggered or knocked down, and within Range of From (flat, 200 cm up or down). */
+	/**
+	 * True when Thug is alive, open to a finisher (knocked down, parry-staggered, or within a second of a
+	 * combo ender landing: AThugCharacter::IsFinisherOpen), and within Range of From (flat, 200 cm up or down).
+	 */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
 	static bool IsFinisherTarget(const AThugCharacter* Thug, const FVector& From, float Range);
 

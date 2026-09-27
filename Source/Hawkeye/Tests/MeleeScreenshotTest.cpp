@@ -340,7 +340,7 @@ bool FHawkeyeMeleeShot::Update()
 			Test->AddWarning(TEXT("finisher_mid.png: could not stand a thug in front of her."));
 			break;
 		}
-		Foe->StaggerFor(Kate, 2.f);
+		Foe->Parried(Kate, 2.f);
 		OwnCamera(PC, Kate, 40.f);
 		break;
 

@@ -1876,8 +1876,14 @@ void AHawkeyeCharacter::UpdateArmPoses()
 	Hands->SetHitLean(HitLean.GetDirection(), HitLean.GetAlpha());
 }
 
-void AHawkeyeCharacter::HandleMeleeLanded(AActor* /*HitActor*/, float /*DamageDealt*/, FName /*AttackName*/)
+void AHawkeyeCharacter::HandleMeleeLanded(AActor* HitActor, float /*DamageDealt*/, FName /*AttackName*/)
 {
+	// The chain's last light or a heavy is what earns the finisher; a jab on its own does not.
+	const bool bComboEnder = !bSwingIsLight || SwingStep >= Combo.Settings.ChainLength - 1;
+	if (AThugCharacter* Thug = bComboEnder ? Cast<AThugCharacter>(HitActor) : nullptr)
+	{
+		Thug->OpenFinisherWindow(ComboEnderFinisherSeconds);
+	}
 	if (bSwingIsLight)
 	{
 		Combo.NotifyLightLanded(SwingStep);

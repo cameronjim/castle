@@ -992,6 +992,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
 	FHawkeyeComboTracker Combo;
 
+	/**
+	 * A combo ender (the chain's third light, or a heavy) landing on a thug opens a finisher on him for
+	 * this long, s. Ordinary hits never do; knockdowns and parry staggers are open on their own.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float ComboEnderFinisherSeconds = 1.f;
+
 	/** Seconds the soft lock takes to turn her to the target. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
 	float SoftTurnSeconds = 0.1f;

@@ -387,6 +387,32 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Thug")
 	void Parried(AActor* By, float Seconds);
 
+	/**
+	 * A combo ender (Kate's third light or a heavy) just landed on him: a finisher can take him for
+	 * Seconds (her ComboEnderFinisherSeconds, 1.0), whether or not he is still staggered.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void OpenFinisherWindow(float Seconds);
+
+	/**
+	 * True when a finisher can take him: knocked down, staggered by a parry, or inside a combo ender's
+	 * window. An ordinary hit's 0.5 s stagger does not count.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	bool IsFinisherOpen() const;
+
+	/** Seconds left of a combo ender's finisher window, 0 when none is open. */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	float GetFinisherWindowRemaining() const { return FinisherWindowRemaining; }
+
+	/** Staggered by a parry and not yet recovered from it. */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	bool IsParryStaggered() const { return ParryStaggerRemaining > 0.f && IsStaggered(); }
+
+	/** Counts the finisher window and the parry stagger down. Called from Tick; public for tests. */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void UpdateFinisherOpening(float DeltaSeconds);
+
 	/** Stretches a stagger he is already in to at least Seconds, quietly (a finisher closing in). */
 	UFUNCTION(BlueprintCallable, Category = "Thug")
 	void HoldStagger(float Seconds);
@@ -699,6 +725,10 @@ protected:
 private:
 	/** Seconds of stagger left. */
 	float StaggerRemaining = 0.f;
+
+	/** Seconds left of a combo ender's finisher window, and of the last parry's stagger. */
+	float FinisherWindowRemaining = 0.f;
+	float ParryStaggerRemaining = 0.f;
 
 	/** The lean from the last hit, and where that hit came from. */
 	FHawkeyeHitLeanClock HitLean;

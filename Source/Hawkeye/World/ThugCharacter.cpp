@@ -239,6 +239,7 @@ void AThugCharacter::Tick(float DeltaSeconds)
 	UpdateShieldPose();
 
 	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
+	UpdateFinisherOpening(DeltaSeconds);
 	UpdateHitLean(DeltaSeconds);
 	UpdateKnockdown(DeltaSeconds);
 	UpdateGetUp(DeltaSeconds);
@@ -699,9 +700,31 @@ void AThugCharacter::Parried(AActor* By, float Seconds)
 		MeleeComponent->CancelAttack();
 	}
 	StaggerFor(By, Seconds);
+	ParryStaggerRemaining = FMath::Max(Seconds, 0.f);
 	StartHitLean(By);
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s parried by %s, staggered %.1f s."), *GetName(), *Swing.ToString(), *GetNameSafe(By),
 		Seconds);
+}
+
+void AThugCharacter::OpenFinisherWindow(float Seconds)
+{
+	if (bLimp || !HealthComponent || !HealthComponent->IsAlive())
+	{
+		return;
+	}
+	FinisherWindowRemaining = FMath::Max(FinisherWindowRemaining, Seconds);
+}
+
+bool AThugCharacter::IsFinisherOpen() const
+{
+	return bKnockedDown || IsParryStaggered() || FinisherWindowRemaining > 0.f;
+}
+
+void AThugCharacter::UpdateFinisherOpening(float DeltaSeconds)
+{
+	const float Step = FMath::Max(DeltaSeconds, 0.f);
+	FinisherWindowRemaining = FMath::Max(0.f, FinisherWindowRemaining - Step);
+	ParryStaggerRemaining = FMath::Max(0.f, ParryStaggerRemaining - Step);
 }
 
 void AThugCharacter::HoldStagger(float Seconds)

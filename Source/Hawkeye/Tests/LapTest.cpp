@@ -86,7 +86,7 @@
  * with the time, hits taken, arrows used, dodges, the annoyance share and the untelegraphed hits.
  *
  * In both melee fights she plays the melee as a player who has learnt it: a tap of V into a wind-up she
- * can see in front of her (0.2 s after it starts, a reaction) parries it, F on anyone staggered or down
+ * can see in front of her (0.2 s after it starts, a reaction) parries it, F on anyone open to a finisher
  * within reach finishes him, and her lights chain. The JSON adds parries, finishers, perfect dodges and
  * the highest combo count.
  */
@@ -2309,7 +2309,7 @@ bool FHawkeyeRoofFightRunner::Update()
 		return false;
 	}
 
-	// Anyone staggered or down within reach: F finishes him.
+	// Anyone open to a finisher within reach (down, parried, or just hit by a combo ender): F finishes him.
 	if (CanFinish(Kate))
 	{
 		Move(PC, FVector2D::ZeroVector);
@@ -3534,7 +3534,7 @@ bool FHawkeyeStreetFightRunner::Update()
 	{
 		return false;
 	}
-	// Anyone staggered or down within reach: F finishes him.
+	// Anyone open to a finisher within reach (down, parried, or just hit by a combo ender): F finishes him.
 	if (CanFinish(Kate))
 	{
 		Move(PC, FVector2D::ZeroVector);
