@@ -3,6 +3,7 @@
 #include "Audio/HawkeyeAudioSubsystem.h"
 
 #include "Hawkeye.h"
+#include "World/HawkeyeResidentAssets.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Modules/ModuleManager.h"
@@ -83,6 +84,10 @@ void UHawkeyeAudioSubsystem::PreloadFolderAsync(const FString& Path)
 				if (USoundBase* Asset = Cast<USoundBase>(Object))
 				{
 					This->Resident.AddUnique(Asset);
+					if (UHawkeyeResidentAssets* Kept = UHawkeyeResidentAssets::Get(This))
+					{
+						Kept->Keep(Asset);
+					}
 				}
 			}
 			UE_LOG(LogHawkeye, Log, TEXT("%s: %d sound(s) under %s streamed in %.0f ms."), *This->GetName(), Loaded.Num(), *Path,

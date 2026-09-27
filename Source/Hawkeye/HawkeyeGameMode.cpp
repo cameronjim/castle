@@ -11,6 +11,7 @@
 #include "Audio/HawkeyeAudioSubsystem.h"
 #include "Misc/App.h"
 #include "Vfx/HawkeyeVfxSubsystem.h"
+#include "World/HawkeyeResidentAssets.h"
 #include "Mission/MissionSubsystem.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
@@ -39,6 +40,9 @@ namespace HawkeyeGameModeClock
 {
 	/** When the last level change began (the outgoing game mode's EndPlay), wall seconds; 0 before any. */
 	static double LevelChangeStartSeconds = 0.0;
+
+	/** -HawkeyeReloadAfterPlayable has reopened the level once this process. */
+	static bool bMeasuredReloadDone = false;
 }
 
 AHawkeyeGameMode::AHawkeyeGameMode()
@@ -123,8 +127,17 @@ void AHawkeyeGameMode::WatchFrame(double Now)
 			FrameWatch.bWorstWasScreenshot ? TEXT(" (a capture)") : TEXT(""), FrameWatch.WorstGameSeconds * 1000.0,
 			FrameWatch.WorstGameAtSeconds, FrameWatch.HitchFrames, HitchLogMs, FrameWatch.ScreenshotHitchFrames);
 	}
+	// The reload measurement: one OpenLevel of the same map, as a death with no save does.
+	if (ReloadAfterPlayableSeconds >= 0.f && !HawkeyeGameModeClock::bMeasuredReloadDone && Since >= ReloadAfterPlayableSeconds)
+	{
+		HawkeyeGameModeClock::bMeasuredReloadDone = true;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: -HawkeyeReloadAfterPlayable=%.1f: reopening the level."), *GetName(), ReloadAfterPlayableSeconds);
+		ReopenCurrentLevel();
+		return;
+	}
 	// Wall time, not a timer: the main menu pauses the world on a fresh boot.
-	if (QuitAfterPlayableSeconds >= 0.f && !bQuitRequested && Since >= QuitAfterPlayableSeconds)
+	if (QuitAfterPlayableSeconds >= 0.f && !bQuitRequested && Since >= QuitAfterPlayableSeconds
+		&& (ReloadAfterPlayableSeconds < 0.f || HawkeyeGameModeClock::bMeasuredReloadDone))
 	{
 		bQuitRequested = true;
 		UE_LOG(LogHawkeye, Log, TEXT("%s: -HawkeyeQuitAfterPlayable=%.1f: quitting."), *GetName(), QuitAfterPlayableSeconds);
@@ -137,8 +150,14 @@ void AHawkeyeGameMode::BeginPlay()
 	Super::BeginPlay();
 	BeginPlayWallSeconds = FPlatformTime::Seconds();
 	FParse::Value(FCommandLine::Get(), TEXT("HawkeyeQuitAfterPlayable="), QuitAfterPlayableSeconds);
+	FParse::Value(FCommandLine::Get(), TEXT("HawkeyeReloadAfterPlayable="), ReloadAfterPlayableSeconds);
 
 	IndexMotionMatchingDatabases();
+	// What this map loaded that the next one will want too stays loaded through the level change.
+	if (UHawkeyeResidentAssets* Resident = UHawkeyeResidentAssets::Get(this))
+	{
+		Resident->KeepWorldContent(GetWorld());
+	}
 	BuildNavigationIfEmpty();
 	// After the indexing, which needs nothing streaming: these land over the first seconds.
 	PreloadEffectsAndSounds();

@@ -189,6 +189,8 @@ private:
 	FDelegateHandle ScreenshotProcessedHandle;
 	/** -HawkeyeQuitAfterPlayable=<s>: the load measurement quits this long after the playable mark. */
 	float QuitAfterPlayableSeconds = -1.f;
+	/** -HawkeyeReloadAfterPlayable=<s>: the load measurement reopens the level once, this long after the mark. */
+	float ReloadAfterPlayableSeconds = -1.f;
 	bool bQuitRequested = false;
 
 	bool bRestartPending = false;

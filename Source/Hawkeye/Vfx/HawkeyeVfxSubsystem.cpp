@@ -3,6 +3,7 @@
 #include "Vfx/HawkeyeVfxSubsystem.h"
 
 #include "Hawkeye.h"
+#include "World/HawkeyeResidentAssets.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Modules/ModuleManager.h"
@@ -105,6 +106,10 @@ void UHawkeyeVfxSubsystem::PreloadFolderAsync(const FString& Path)
 				if (UNiagaraSystem* Asset = Cast<UNiagaraSystem>(Object))
 				{
 					This->Resident.AddUnique(Asset);
+					if (UHawkeyeResidentAssets* Kept = UHawkeyeResidentAssets::Get(This))
+					{
+						Kept->Keep(Asset);
+					}
 				}
 			}
 			UE_LOG(LogHawkeye, Log, TEXT("%s: %d effect(s) under %s streamed in %.0f ms."), *This->GetName(), Loaded.Num(), *Path,

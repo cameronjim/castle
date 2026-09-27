@@ -9,6 +9,7 @@
 #include "Tests/HawkeyeTestUtils.h"
 #include "Vfx/SnowfallComponent.h"
 #include "World/HawkeyeFrameWatch.h"
+#include "World/HawkeyeResidentAssets.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -190,6 +191,24 @@ bool FHawkeyeLoadFrameWatch::RunTest(const FString& Parameters)
 	TestEqual(TEXT("It was the third frame"), Watch.WorstFrame, 2);
 	TestEqual(TEXT("The worst of the game's own is 100 ms"), Watch.WorstGameSeconds, 0.1, 1e-6);
 	TestEqual(TEXT("At 0.116 s"), Watch.WorstGameAtSeconds, 0.116, 1e-6);
+	return true;
+}
+
+// --- What stays loaded across a level change -----------------------------------------------------
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLoadResidentAssets, "Hawkeye.Load.ResidentAssets", HawkeyeStabilityTest::Flags)
+
+bool FHawkeyeLoadResidentAssets::RunTest(const FString& Parameters)
+{
+	UHawkeyeResidentAssets* Resident = NewObject<UHawkeyeResidentAssets>();
+	UObject* Thing = NewObject<UHawkeyeTestListener>();
+	Resident->Keep(nullptr);
+	TestEqual(TEXT("Null is ignored"), Resident->GetKeptCount(), 0);
+	Resident->Keep(Thing);
+	Resident->Keep(Thing);
+	TestEqual(TEXT("An object is kept once"), Resident->GetKeptCount(), 1);
+	TestEqual(TEXT("A null world adds nothing"), Resident->KeepWorldContent(nullptr), 0);
+	TestNull(TEXT("A bare object has no game instance to keep things in"), UHawkeyeResidentAssets::Get(Thing));
 	return true;
 }
 
