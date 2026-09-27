@@ -35,10 +35,12 @@ public class Hawkeye : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
-		// UHawkeyePartnerTreeBuilder authors ST_Partner headless through the StateTree editor API.
+		// UHawkeyePartnerTreeBuilder authors ST_Partner headless through the StateTree editor API;
+		// UHawkeyeBowIKGraphBuilder authors the bow hands AnimBlueprints through the anim graph nodes.
 		if (Target.bBuildEditor)
 		{
-			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeEditorModule", "PropertyBindingUtils", "UnrealEd" });
+			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeEditorModule", "PropertyBindingUtils", "UnrealEd",
+				"AnimGraph", "AnimGraphRuntime", "BlueprintGraph" });
 		}
 	}
 }
