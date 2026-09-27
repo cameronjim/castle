@@ -31,8 +31,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeAudioSmoke, "Hawkeye.Audio.Smoke",
 
 namespace HawkeyeAudioSmoke
 {
-	/** create_audio.py builds 40; fewer means a recipe failed or the content step was skipped. */
-	static constexpr int32 ExpectedSounds = 40;
+	/** create_audio.py builds 42; fewer means a recipe failed or the content step was skipped. */
+	static constexpr int32 ExpectedSounds = 42;
 	static constexpr double StartCheckSeconds = 0.03;
 	static constexpr double MinOneShotSeconds = 0.05;
 	static constexpr double MaxOneShotSeconds = 6.0;

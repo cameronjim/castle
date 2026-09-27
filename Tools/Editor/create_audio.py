@@ -393,6 +393,23 @@ def foot_snow_04(g):
     _footstep(g, 2050.0, 0.10, 53)
 
 
+def footstep_wood(g):
+    # Indoors on boards and stair treads: a hollow knock under a short heel click.
+    g.pitch(0.12)
+    knock, done = g.tone(150.0, 0.07, drop=0.75)
+    body, _b = g.burst(420.0, 0.06, 2.5, out="Band Pass", kind=PINK)
+    click, _c = g.burst(3200.0, 0.018, 1.0, attack=0.001, curve=0.4)
+    g.finish(g.mix((knock, 0.32), (body, 0.28), (click, 0.1)), done)
+
+
+def footstep_carpet(g):
+    # Carpet: a soft, low, muffled pad with no click.
+    g.pitch(0.12)
+    pad, done = g.burst(380.0, 0.09, 0.5, out="Low Pass Filter", kind=PINK, attack=0.006, curve=0.8)
+    thud, _t = g.tone(85.0, 0.06, attack=0.004)
+    g.finish(g.mix((pad, 0.3), (thud, 0.12)), done)
+
+
 def land(g):
     # Scaled by Intensity (0..1, the fall height; UHawkeye sets it).
     i = g.input("Intensity", 0.5)
@@ -610,6 +627,8 @@ SOUNDS = [
     ("MS_Foot_Snow_02", SFX_PATH, foot_snow_02, True, "SCL_SFX", "ATT_World"),
     ("MS_Foot_Snow_03", SFX_PATH, foot_snow_03, True, "SCL_SFX", "ATT_World"),
     ("MS_Foot_Snow_04", SFX_PATH, foot_snow_04, True, "SCL_SFX", "ATT_World"),
+    ("MS_Footstep_Wood", SFX_PATH, footstep_wood, True, "SCL_SFX", "ATT_World"),
+    ("MS_Footstep_Carpet", SFX_PATH, footstep_carpet, True, "SCL_SFX", "ATT_World"),
     ("MS_Land", SFX_PATH, land, True, "SCL_SFX", "ATT_World"),
     ("MS_Vault_Grunt", SFX_PATH, vault_grunt, True, "SCL_SFX", "ATT_World"),
     ("MS_Roll_Thump", SFX_PATH, roll_thump, True, "SCL_SFX", "ATT_World"),

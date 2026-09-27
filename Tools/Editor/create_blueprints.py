@@ -687,6 +687,8 @@ _BOW_SOUNDS = [
 AUDIO_DEFAULTS = [
     (PLAYER_PATH, "BP_HawkeyeCharacter", None, [
         ("footstep_sounds", ["MS_Foot_Snow_01", "MS_Foot_Snow_02", "MS_Foot_Snow_03", "MS_Foot_Snow_04"]),
+        ("wood_footstep_sounds", ["MS_Footstep_Wood"]),
+        ("carpet_footstep_sounds", ["MS_Footstep_Carpet"]),
         ("land_sound", "MS_Land"),
         ("roll_sound", "MS_Roll_Thump"),
         ("stagger_sound", "MS_Melee_Stagger"),
