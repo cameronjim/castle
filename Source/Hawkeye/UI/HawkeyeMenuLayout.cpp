@@ -74,3 +74,17 @@ void HawkeyeMenuLayout::AddButton(UWidgetTree* WidgetTree, UVerticalBox* Stack, 
 		Entry->SetPadding(FMargin(0.f, 6.f));
 	}
 }
+
+FCheckBoxStyle HawkeyeMenuLayout::MakeCheckBoxStyle(const FCheckBoxStyle& Base, float BoxSize, float LabelGap)
+{
+	FCheckBoxStyle Style = Base;
+	const FVector2D Size(BoxSize, BoxSize);
+	for (FSlateBrush* Brush : { &Style.UncheckedImage, &Style.UncheckedHoveredImage, &Style.UncheckedPressedImage,
+			&Style.CheckedImage, &Style.CheckedHoveredImage, &Style.CheckedPressedImage,
+			&Style.UndeterminedImage, &Style.UndeterminedHoveredImage, &Style.UndeterminedPressedImage })
+	{
+		Brush->ImageSize = Size;
+	}
+	Style.Padding = FMargin(LabelGap, 0.f, 0.f, 0.f);
+	return Style;
+}

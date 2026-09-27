@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Styling/SlateTypes.h"
 
 class UButton;
 class UTextBlock;
@@ -22,6 +23,13 @@ namespace HawkeyeMenuLayout
 	/** Appends a centred text line of FontSize with BottomPadding under it. */
 	HAWKEYE_API UTextBlock* AddText(UWidgetTree* WidgetTree, UVerticalBox* Stack, const TCHAR* Name, const FText& Text,
 		int32 FontSize, float BottomPadding);
+
+	/**
+	 * Base with every check glyph (unchecked, checked, undetermined, each plain, hovered and pressed)
+	 * drawn BoxSize px square, and LabelGap px between the glyph and the checkbox's content. The
+	 * engine default is 16 px, which read as a speck at 1080p.
+	 */
+	HAWKEYE_API FCheckBoxStyle MakeCheckBoxStyle(const FCheckBoxStyle& Base, float BoxSize, float LabelGap);
 
 	/** Appends a full-width button labelled Label, creating it into Button when the layout had none. */
 	HAWKEYE_API void AddButton(UWidgetTree* WidgetTree, UVerticalBox* Stack, TObjectPtr<UButton>& Button, const TCHAR* Name,

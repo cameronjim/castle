@@ -8,6 +8,7 @@
 #include "Components/Button.h"
 #include "Components/ButtonSlot.h"
 #include "Components/CheckBox.h"
+#include "UI/HawkeyeMenuLayout.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Overlay.h"
@@ -30,6 +31,9 @@ namespace HawkeyeSettingsWidgetLayout
 	static constexpr float LabelWidth = 300.f;
 	static constexpr float ValueWidth = 90.f;
 	static constexpr float SliderHeight = 28.f;
+	/** The invert-Y boxes: 24 px, 12 px from their label. */
+	static constexpr float CheckBoxSize = 24.f;
+	static constexpr float CheckBoxLabelGap = 12.f;
 
 	/** Grows a text block's default font without needing a font asset of our own. */
 	static void SetFontSize(UTextBlock* Text, int32 Size)
@@ -312,24 +316,25 @@ TSharedRef<SWidget> UHawkeyeSettingsWidget::RebuildWidget()
 			OutLabelText->SetText(Label);
 			SetFontSize(OutLabelText, 20);
 
-			USizeBox* LabelBoxLocal =
-				WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *(FString(BaseName) + TEXT("LabelBox")));
-			LabelBoxLocal->SetWidthOverride(LabelWidth);
-			if (USizeBoxSlot* LabelInnerLocal = Cast<USizeBoxSlot>(LabelBoxLocal->AddChild(OutLabelText)))
-			{
-				LabelInnerLocal->SetHorizontalAlignment(HAlign_Left);
-				LabelInnerLocal->SetVerticalAlignment(VAlign_Center);
-			}
-			if (UHorizontalBoxSlot* LabelSlotLocal = Cast<UHorizontalBoxSlot>(RowLocal->AddChild(LabelBoxLocal)))
-			{
-				LabelSlotLocal->SetVerticalAlignment(VAlign_Center);
-			}
-
+			// The label is the checkbox's own content, so a click anywhere on the words toggles it, and
+			// the box is drawn at CheckBoxSize px beside them instead of the engine's 16.
 			if (!OutCheckBox)
 			{
 				OutCheckBox = WidgetTree->ConstructWidget<UCheckBox>(
 					UCheckBox::StaticClass(), *(FString(BaseName) + TEXT("CheckBox")));
 			}
+			OutCheckBox->SetWidgetStyle(HawkeyeMenuLayout::MakeCheckBoxStyle(OutCheckBox->GetWidgetStyle(), CheckBoxSize,
+				CheckBoxLabelGap));
+			USizeBox* LabelBoxLocal =
+				WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *(FString(BaseName) + TEXT("LabelBox")));
+			LabelBoxLocal->SetWidthOverride(LabelWidth);
+			LabelBoxLocal->SetMinDesiredHeight(CheckBoxSize);
+			if (USizeBoxSlot* LabelInnerLocal = Cast<USizeBoxSlot>(LabelBoxLocal->AddChild(OutLabelText)))
+			{
+				LabelInnerLocal->SetHorizontalAlignment(HAlign_Left);
+				LabelInnerLocal->SetVerticalAlignment(VAlign_Center);
+			}
+			OutCheckBox->SetContent(LabelBoxLocal);
 			if (UHorizontalBoxSlot* CheckSlotLocal = Cast<UHorizontalBoxSlot>(RowLocal->AddChild(OutCheckBox)))
 			{
 				CheckSlotLocal->SetVerticalAlignment(VAlign_Center);
