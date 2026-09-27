@@ -87,13 +87,6 @@ public:
 	bool bBuildNavigationAtStart = true;
 
 	/**
-	 * Build that navmesh on worker threads over the first frames instead of blocking BeginPlay on
-	 * it (half a second on the district). Thugs asked to move before it is done wait for it.
-	 */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Navigation")
-	bool bBuildNavigationAsync = true;
-
-	/**
 	 * Outdoor weather: snow falls round the camera only in a map whose game mode says so. An interior
 	 * (a flashback's playable scene) turns it off.
 	 */
@@ -145,8 +138,8 @@ protected:
 	/** Rebuilds navigation when the level shipped without any. See bBuildNavigationAtStart. */
 	void BuildNavigationIfEmpty();
 
-	/** Logs when the async navigation build started in BeginPlay has finished. */
-	void PollNavigationBuild();
+	/** Loads every effect and sound the district can play, so none loads mid-play. See PreloadEffectsAndSounds. */
+	void PreloadEffectsAndSounds();
 	virtual void BeginPlay() override;
 
 	UFUNCTION()
@@ -183,8 +176,7 @@ private:
 	void HandleScreenshotProcessed();
 
 	double BeginPlayWallSeconds = 0.0;
-	double NavBuildStartSeconds = 0.0;
-	bool bNavBuildPending = false;
+
 	double PlayableWallSeconds = 0.0;
 	double LastFrameWallSeconds = 0.0;
 	float PlayableSeconds = -1.f;

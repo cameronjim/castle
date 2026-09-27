@@ -50,6 +50,13 @@ public:
 	/** Loads Sound (synchronously) and keeps it for the level. Null when unset or missing. */
 	USoundBase* Resolve(const TSoftObjectPtr<USoundBase>& Sound);
 
+	/**
+	 * Streams every sound under Path (/Game/Audio) in the background and keeps each for the level
+	 * once it lands, so the first footstep, zip or thug bark does not load a MetaSound mid-play.
+	 * The game mode starts it at the end of its BeginPlay.
+	 */
+	void PreloadFolderAsync(const FString& Path);
+
 	/** How many sounds have been triggered in this world, for tests and the log. */
 	int32 GetTriggerCount() const { return TriggerCount; }
 
@@ -57,6 +64,9 @@ private:
 	static UHawkeyeAudioSubsystem* Find(const UObject* WorldContext);
 
 	void NoteTrigger(const TCHAR* Event, const USoundBase* Sound, const UObject* Context, const FVector& Location);
+
+	/** The background preload in flight, if any. */
+	TSharedPtr<struct FStreamableHandle> PreloadHandle;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<USoundBase>> Resident;

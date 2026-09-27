@@ -3,6 +3,12 @@
 #include "Audio/HawkeyeAudioSubsystem.h"
 
 #include "Hawkeye.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+#include "Modules/ModuleManager.h"
+#include "HAL/PlatformTime.h"
+#include "Engine/AssetManager.h"
+#include "Engine/StreamableManager.h"
 #include "HawkeyePlayerController.h"
 #include "Components/AudioComponent.h"
 #include "Components/SceneComponent.h"
@@ -38,6 +44,52 @@ USoundBase* UHawkeyeAudioSubsystem::Resolve(const TSoftObjectPtr<USoundBase>& So
 	}
 	Resident.AddUnique(Loaded);
 	return Loaded;
+}
+
+void UHawkeyeAudioSubsystem::PreloadFolderAsync(const FString& Path)
+{
+	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+	Registry.ScanPathsSynchronous({ Path }, /*bForceRescan=*/false);
+	FARFilter Filter;
+	Filter.PackagePaths.Add(FName(*Path));
+	Filter.bRecursivePaths = true;
+	Filter.ClassPaths.Add(USoundBase::StaticClass()->GetClassPathName());
+	Filter.bRecursiveClasses = true;
+	TArray<FAssetData> Assets;
+	Registry.GetAssets(Filter, Assets);
+	TArray<FSoftObjectPath> Paths;
+	for (const FAssetData& Asset : Assets)
+	{
+		Paths.Add(Asset.GetSoftObjectPath());
+	}
+	if (Paths.IsEmpty())
+	{
+		return;
+	}
+	const double Start = FPlatformTime::Seconds();
+	TWeakObjectPtr<UHawkeyeAudioSubsystem> WeakThis(this);
+	PreloadHandle = UAssetManager::GetStreamableManager().RequestAsyncLoad(MoveTemp(Paths),
+		FStreamableDelegateWithHandle::CreateLambda([WeakThis, Start, Path](TSharedPtr<FStreamableHandle> Handle)
+		{
+			UHawkeyeAudioSubsystem* This = WeakThis.Get();
+			if (!This || !Handle.IsValid())
+			{
+				return;
+			}
+			TArray<UObject*> Loaded;
+			Handle->GetLoadedAssets(Loaded);
+			for (UObject* Object : Loaded)
+			{
+				if (USoundBase* Asset = Cast<USoundBase>(Object))
+				{
+					This->Resident.AddUnique(Asset);
+				}
+			}
+			UE_LOG(LogHawkeye, Log, TEXT("%s: %d sound(s) under %s streamed in %.0f ms."), *This->GetName(), Loaded.Num(), *Path,
+				(FPlatformTime::Seconds() - Start) * 1000.0);
+			This->PreloadHandle.Reset();
+		}), FStreamableManager::DefaultAsyncLoadPriority, /*bManageActiveHandle=*/false, /*bStartStalled=*/false,
+		TEXT("HawkeyePreload"));
 }
 
 void UHawkeyeAudioSubsystem::NoteTrigger(

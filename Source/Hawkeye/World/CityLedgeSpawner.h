@@ -268,4 +268,6 @@ protected:
 	float AnchorSeconds = 0.f;
 	int32 BackgroundFrames = 0;
 	bool bChimneyWispsPending = false;
+	float ChimneyWaitSeconds = 0.f;
+	static constexpr float ChimneyWaitLimitSeconds = 10.f;
 };

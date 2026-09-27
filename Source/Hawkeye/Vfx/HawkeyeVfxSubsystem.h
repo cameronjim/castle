@@ -66,6 +66,13 @@ public:
 	/** Loads System (synchronously) and keeps it for the level. Null when unset or missing. */
 	UNiagaraSystem* Resolve(const TSoftObjectPtr<UNiagaraSystem>& System);
 
+	/**
+	 * Streams every Niagara system under Path (/Game/VFX) in the background and keeps each for the
+	 * level once it lands, so the first grapple or chimney does not load one mid-play (a 100 to
+	 * 300 ms frame in the standalone game). The game mode starts it at the end of its BeginPlay.
+	 */
+	void PreloadFolderAsync(const FString& Path);
+
 	/** Requests for Event in this world, whether or not anything was drawn. */
 	int32 GetRequestCount(FName Event) const { return RequestCounts.FindRef(Event); }
 
@@ -107,6 +114,9 @@ public:
 
 private:
 	void Note(FName Event, const UObject* Asset, const UObject* Context, const FVector& Location, bool bSpawned);
+
+	/** The background preload in flight, if any. */
+	TSharedPtr<struct FStreamableHandle> PreloadHandle;
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UObject>> Resident;

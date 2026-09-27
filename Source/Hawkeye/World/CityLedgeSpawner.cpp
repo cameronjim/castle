@@ -17,6 +17,7 @@
 #include "GameFramework/PlayerStart.h"
 #include "HAL/PlatformTime.h"
 #include "NiagaraComponent.h"
+#include "NiagaraSystem.h"
 #include "Player/GrappleComponent.h"
 #include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/CityLedgeData.h"
@@ -120,16 +121,26 @@ void ACityLedgeSpawner::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	if (bChimneyWispsPending)
 	{
-		bChimneyWispsPending = false;
-		const double WispStart = FPlatformTime::Seconds();
-		SpawnChimneyWisps();
-		UE_LOG(LogHawkeye, Log, TEXT("%s: chimney wisps after the first frame in %.1f ms."), *GetName(),
-			(FPlatformTime::Seconds() - WispStart) * 1000.0);
-		return;
+		// The game mode streams the effects in after the load; spawning before the system has landed
+		// (and compiled, uncooked) would load it on this frame. Past the wait it loads anyway.
+		ChimneyWaitSeconds += DeltaSeconds;
+		const UNiagaraSystem* System = ChimneyWispVfx.Get();
+		bool bReady = ChimneyWispVfx.IsNull() || System;
+#if WITH_EDITORONLY_DATA
+		bReady = bReady && !(System && System->HasOutstandingCompilationRequests());
+#endif
+		if (bReady || ChimneyWaitSeconds > ChimneyWaitLimitSeconds)
+		{
+			bChimneyWispsPending = false;
+			const double WispStart = FPlatformTime::Seconds();
+			SpawnChimneyWisps();
+			UE_LOG(LogHawkeye, Log, TEXT("%s: chimney wisps %.1f s after the first frame in %.1f ms."), *GetName(),
+				ChimneyWaitSeconds, (FPlatformTime::Seconds() - WispStart) * 1000.0);
+		}
 	}
 	if (!Data || !bLedgesQueued || LedgeQueueNext >= LedgeQueue.Num())
 	{
-		SetActorTickEnabled(false);
+		SetActorTickEnabled(bChimneyWispsPending);
 		return;
 	}
 	const double Start = FPlatformTime::Seconds();
@@ -138,7 +149,7 @@ void ACityLedgeSpawner::Tick(float DeltaSeconds)
 	++BackgroundFrames;
 	if (LedgeQueueNext >= LedgeQueue.Num())
 	{
-		SetActorTickEnabled(false);
+		SetActorTickEnabled(bChimneyWispsPending);
 		UE_LOG(LogHawkeye, Log, TEXT("%s: all %d ledges and %d fire-escape landings out; %.0f ms at load, %.0f ms in total over %d more frames"),
 			*GetName(), SpawnedLedges.Num(), SpawnedFireEscapes.Num(), LoadLedgeSeconds * 1000.f, TotalLedgeSeconds * 1000.f,
 			BackgroundFrames);
