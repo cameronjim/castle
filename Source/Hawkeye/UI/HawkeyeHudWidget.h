@@ -8,6 +8,7 @@
 
 class UBorder;
 class UBowComponent;
+class UChallengePanelWidget;
 class UCanvasPanel;
 class UHawkeyeHotbarWidget;
 class UHawkeyeObjectiveWidget;
@@ -102,6 +103,10 @@ public:
 	/** The objective marker, compass and toasts, built into the HUD's overlay. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
 	UHawkeyeObjectiveWidget* GetObjectiveMarker() const { return ObjectiveMarker; }
+
+	/** The side-challenge panel (timer, score or checkpoint, best), top right while a run is on. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Challenge")
+	UChallengePanelWidget* GetChallengePanel() const { return ChallengePanel; }
 
 	/** The thugs' "!" / "?" glyphs and health bars. */
 	UFUNCTION(BlueprintPure, Category = "HUD")
@@ -469,6 +474,9 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UHawkeyeThugOverheadWidget> ThugOverhead = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UChallengePanelWidget> ChallengePanel = nullptr;
 
 	/** The hotbar along the bottom of the screen. Built into the HUD's own overlay. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hotbar")

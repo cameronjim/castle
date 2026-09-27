@@ -24,6 +24,7 @@
 #include "Mission/MissionSubsystem.h"
 #include "Player/HawkeyeCharacter.h"
 #include "Player/GrappleComponent.h"
+#include "UI/ChallengePanelWidget.h"
 #include "UI/HawkeyeHotbarWidget.h"
 #include "UI/HawkeyeObjectiveWidget.h"
 #include "UI/HawkeyeThugOverheadWidget.h"
@@ -72,6 +73,16 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 		BuildPartnerWidgets(Root);
 		BuildPhoneBadge(Root);
 		BuildComboCounter(Root);
+
+		// Top right, clear of the objective line (top left) and the compass (top centre).
+		ChallengePanel = WidgetTree->ConstructWidget<UChallengePanelWidget>(UChallengePanelWidget::StaticClass(), TEXT("ChallengePanelHud"));
+		ChallengePanel->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UOverlaySlot* PanelSlot = Cast<UOverlaySlot>(Root->AddChild(ChallengePanel)))
+		{
+			PanelSlot->SetHorizontalAlignment(HAlign_Right);
+			PanelSlot->SetVerticalAlignment(VAlign_Top);
+			PanelSlot->SetPadding(FMargin(0.f, 48.f, 48.f, 0.f));
+		}
 
 		// Under the objective marker and the hotbar: the thugs' glyphs and health bars.
 		ThugOverhead = WidgetTree->ConstructWidget<UHawkeyeThugOverheadWidget>(
