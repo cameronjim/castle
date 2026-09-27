@@ -877,13 +877,12 @@ def _check_traversal(cc, world, cid, definition):
             problems.append("ring {0} outside the area".format(index + 1))
         if leg.endswith("GRAPPLE"):
             under = world.building_at((prev[0], prev[1]))
-            launch = (prev_feet[0], prev_feet[1], prev_feet[2] + cc.GRAPPLE_BOW_UP)
             found = None
             for ax, ay, az, lx, ly, lz, osm in world.anchors:
                 if math.hypot(lx - feet[0], ly - feet[1]) > 50.0 or abs(lz - feet[2]) > 5.0:
                     continue
                 reach = math.sqrt((ax - prev_feet[0]) ** 2 + (ay - prev_feet[1]) ** 2 + (az - prev_feet[2] - 90.0) ** 2)
-                if reach <= cc.GRAPPLE_RANGE and cc.zip_clear(world, launch, (lx, ly, lz), osm, under[0]["id"] if under else None):
+                if reach <= cc.GRAPPLE_RANGE and cc.zip_clear(world, prev_feet, (lx, ly, lz), osm, under[0]["id"] if under else None)                         and cc.camera_sees(world, prev_feet, (ax, ay, az), osm):
                     found = (osm, reach)
                     break
             if found is None:
