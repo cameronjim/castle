@@ -7,6 +7,7 @@
 #include "HawkeyeSettingsWidget.generated.h"
 
 class UButton;
+class UCheckBox;
 class UHorizontalBox;
 class USlider;
 class UTextBlock;
@@ -47,6 +48,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings")
 	FText BackLabel;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings")
+	FText InvertMouseYLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings")
+	FText InvertStickYLabel;
+
 	/** Pulls the slider and the number back in line with the subsystem. Called on construct. */
 	UFUNCTION(BlueprintCallable, Category = "Settings")
 	void RefreshFromSettings();
@@ -63,6 +70,12 @@ protected:
 
 	UFUNCTION()
 	void HandleStickSensitivityChanged(float Value);
+
+	UFUNCTION()
+	void HandleInvertMouseYChanged(bool bIsChecked);
+
+	UFUNCTION()
+	void HandleInvertStickYChanged(bool bIsChecked);
 
 	UFUNCTION()
 	void HandleBackClicked();
@@ -88,6 +101,20 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> StickSensitivityValueText = nullptr;
+
+	/** Checkbox under the sliders: "Invert mouse Y". */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UCheckBox> InvertMouseYCheckBox = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> InvertMouseYLabelText = nullptr;
+
+	/** Checkbox under the sliders: "Invert controller Y". */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UCheckBox> InvertStickYCheckBox = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> InvertStickYLabelText = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;

@@ -7,6 +7,7 @@
 #include "Components/Border.h"
 #include "Components/Button.h"
 #include "Components/ButtonSlot.h"
+#include "Components/CheckBox.h"
 #include "Components/HorizontalBox.h"
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/Overlay.h"
@@ -59,6 +60,14 @@ void UHawkeyeSettingsWidget::ApplyDefaultLabels()
 	if (BackLabel.IsEmpty())
 	{
 		BackLabel = NSLOCTEXT("Hawkeye", "SettingsBack", "Back");
+	}
+	if (InvertMouseYLabel.IsEmpty())
+	{
+		InvertMouseYLabel = NSLOCTEXT("Hawkeye", "SettingsInvertMouseY", "Invert mouse Y");
+	}
+	if (InvertStickYLabel.IsEmpty())
+	{
+		InvertStickYLabel = NSLOCTEXT("Hawkeye", "SettingsInvertStickY", "Invert controller Y");
 	}
 }
 
@@ -261,6 +270,62 @@ TSharedRef<SWidget> UHawkeyeSettingsWidget::RebuildWidget()
 			StickValueSlot->SetVerticalAlignment(VAlign_Center);
 		}
 
+		// --- Invert Y checkboxes, one row each, same label column as the sliders above -----------
+		auto BuildCheckboxRow = [&](const FText& Label, TObjectPtr<UCheckBox>& OutCheckBox,
+			TObjectPtr<UTextBlock>& OutLabelText, const TCHAR* BaseName)
+		{
+			USizeBox* RowBoxLocal = WidgetTree->ConstructWidget<USizeBox>(
+				USizeBox::StaticClass(), *(FString(BaseName) + TEXT("RowBox")));
+			RowBoxLocal->SetWidthOverride(RowWidth);
+			if (UVerticalBoxSlot* RowSlotLocal = Cast<UVerticalBoxSlot>(OptionStack->AddChild(RowBoxLocal)))
+			{
+				RowSlotLocal->SetHorizontalAlignment(HAlign_Center);
+				RowSlotLocal->SetPadding(FMargin(0.f, 0.f, 0.f, 40.f));
+			}
+
+			UHorizontalBox* RowLocal = WidgetTree->ConstructWidget<UHorizontalBox>(
+				UHorizontalBox::StaticClass(), *(FString(BaseName) + TEXT("Row")));
+			if (USizeBoxSlot* RowInnerLocal = Cast<USizeBoxSlot>(RowBoxLocal->AddChild(RowLocal)))
+			{
+				RowInnerLocal->SetHorizontalAlignment(HAlign_Fill);
+				RowInnerLocal->SetVerticalAlignment(VAlign_Center);
+			}
+
+			if (!OutLabelText)
+			{
+				OutLabelText = WidgetTree->ConstructWidget<UTextBlock>(
+					UTextBlock::StaticClass(), *(FString(BaseName) + TEXT("LabelText")));
+			}
+			OutLabelText->SetText(Label);
+			SetFontSize(OutLabelText, 20);
+
+			USizeBox* LabelBoxLocal =
+				WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *(FString(BaseName) + TEXT("LabelBox")));
+			LabelBoxLocal->SetWidthOverride(LabelWidth);
+			if (USizeBoxSlot* LabelInnerLocal = Cast<USizeBoxSlot>(LabelBoxLocal->AddChild(OutLabelText)))
+			{
+				LabelInnerLocal->SetHorizontalAlignment(HAlign_Left);
+				LabelInnerLocal->SetVerticalAlignment(VAlign_Center);
+			}
+			if (UHorizontalBoxSlot* LabelSlotLocal = Cast<UHorizontalBoxSlot>(RowLocal->AddChild(LabelBoxLocal)))
+			{
+				LabelSlotLocal->SetVerticalAlignment(VAlign_Center);
+			}
+
+			if (!OutCheckBox)
+			{
+				OutCheckBox = WidgetTree->ConstructWidget<UCheckBox>(
+					UCheckBox::StaticClass(), *(FString(BaseName) + TEXT("CheckBox")));
+			}
+			if (UHorizontalBoxSlot* CheckSlotLocal = Cast<UHorizontalBoxSlot>(RowLocal->AddChild(OutCheckBox)))
+			{
+				CheckSlotLocal->SetVerticalAlignment(VAlign_Center);
+			}
+		};
+
+		BuildCheckboxRow(InvertMouseYLabel, InvertMouseYCheckBox, InvertMouseYLabelText, TEXT("InvertMouseY"));
+		BuildCheckboxRow(InvertStickYLabel, InvertStickYCheckBox, InvertStickYLabelText, TEXT("InvertStickY"));
+
 		// --- Back -----------------------------------------------------------------------------
 		if (!BackButton)
 		{
@@ -316,6 +381,14 @@ void UHawkeyeSettingsWidget::NativeConstruct()
 		{
 			StickSensitivitySlider->OnValueChanged.AddDynamic(this, &UHawkeyeSettingsWidget::HandleStickSensitivityChanged);
 		}
+		if (InvertMouseYCheckBox)
+		{
+			InvertMouseYCheckBox->OnCheckStateChanged.AddDynamic(this, &UHawkeyeSettingsWidget::HandleInvertMouseYChanged);
+		}
+		if (InvertStickYCheckBox)
+		{
+			InvertStickYCheckBox->OnCheckStateChanged.AddDynamic(this, &UHawkeyeSettingsWidget::HandleInvertStickYChanged);
+		}
 		if (BackButton)
 		{
 			BackButton->OnClicked.AddDynamic(this, &UHawkeyeSettingsWidget::HandleBackClicked);
@@ -337,6 +410,14 @@ void UHawkeyeSettingsWidget::NativeDestruct()
 		if (StickSensitivitySlider)
 		{
 			StickSensitivitySlider->OnValueChanged.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleStickSensitivityChanged);
+		}
+		if (InvertMouseYCheckBox)
+		{
+			InvertMouseYCheckBox->OnCheckStateChanged.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleInvertMouseYChanged);
+		}
+		if (InvertStickYCheckBox)
+		{
+			InvertStickYCheckBox->OnCheckStateChanged.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleInvertStickYChanged);
 		}
 		if (BackButton)
 		{
@@ -370,6 +451,22 @@ void UHawkeyeSettingsWidget::RefreshFromSettings()
 		StickSensitivitySlider->SetValue(StickSensitivity);
 	}
 	UpdateStickValueText(StickSensitivity);
+
+	const bool bInvertMouseY = SettingsSubsystem
+		? SettingsSubsystem->GetInvertMouseY()
+		: FHawkeyeSettings().bInvertMouseY;
+	if (InvertMouseYCheckBox)
+	{
+		InvertMouseYCheckBox->SetIsChecked(bInvertMouseY);
+	}
+
+	const bool bInvertStickY = SettingsSubsystem
+		? SettingsSubsystem->GetInvertStickY()
+		: FHawkeyeSettings().bInvertStickY;
+	if (InvertStickYCheckBox)
+	{
+		InvertStickYCheckBox->SetIsChecked(bInvertStickY);
+	}
 }
 
 void UHawkeyeSettingsWidget::UpdateValueText(float Value)
@@ -410,6 +507,22 @@ void UHawkeyeSettingsWidget::HandleStickSensitivityChanged(float Value)
 	}
 
 	UpdateStickValueText(UHawkeyeSettingsSubsystem::ClampStickSensitivity(Value));
+}
+
+void UHawkeyeSettingsWidget::HandleInvertMouseYChanged(bool bIsChecked)
+{
+	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		SettingsSubsystem->SetInvertMouseY(bIsChecked);
+	}
+}
+
+void UHawkeyeSettingsWidget::HandleInvertStickYChanged(bool bIsChecked)
+{
+	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		SettingsSubsystem->SetInvertStickY(bIsChecked);
+	}
 }
 
 void UHawkeyeSettingsWidget::HandleBackClicked()
