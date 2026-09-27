@@ -3,6 +3,8 @@
 #include "Vfx/HawkeyeVfxBuilder.h"
 
 #include "Hawkeye.h"
+#include "NiagaraEmitter.h"
+#include "NiagaraEmitterHandle.h"
 #include "NiagaraSystem.h"
 
 #if WITH_EDITOR
@@ -11,8 +13,6 @@
 #include "Misc/StringOutputDevice.h"
 #include "NiagaraDataInterface.h"
 #include "NiagaraEditorUtilities.h"
-#include "NiagaraEmitter.h"
-#include "NiagaraEmitterHandle.h"
 #include "NiagaraGraph.h"
 #include "NiagaraNodeFunctionCall.h"
 #include "NiagaraNodeOutput.h"
