@@ -52,6 +52,7 @@
 #include "Tests/CrimeScreenshots.h"
 #include "Tests/EnemyScreenshots.h"
 #include "Tests/FastTravelScreenshots.h"
+#include "Tests/InteriorScreenshots.h"
 #include "Tests/MeleeScreenshots.h"
 #include "Tests/NarrativeScreenshots.h"
 #include "Tests/PartnerScreenshots.h"
@@ -137,6 +138,7 @@
  *   settings_full.png, difficulty_prompt.png, subtitles_large.png, palette_deuteranopia.png,
  *   pedestal_dimmer.png: the difficulty and accessibility pass (AccessibilityScreenshotTest.cpp)
  *   safehouse2_door.png, fasttravel_list.png, compass_safehouses.png: the fast-travel pass (FastTravelLapTest.cpp)
+ *   interior_entrance.png: the interior door on its district building (InteriorMapTest.cpp)
  *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass
  *                           (SaveRoundTripTest.cpp)
  *   phone_open.png, chapter_title.png, dialogue_subtitle.png, chapter_end_closeup.png,
@@ -1325,7 +1327,6 @@ bool FHawkeyeKateReportLookup::Update()
 	}
 	return true;
 }
-
 
 // --- The bow ------------------------------------------------------------------------------------
 
@@ -2864,6 +2865,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 
 	// The second safehouse's door, the fast-travel list from it, and both houses on the compass.
 	HawkeyeAddFastTravelShots(this);
+
+	// The "[Auction house]" door into L_Int_Sample on its building by the park.
+	HawkeyeAddInteriorShots(this);
 
 	// The safehouse, the main menu and a death that loads the last save. It reloads the map.
 	HawkeyeAddSaveShots(this);
