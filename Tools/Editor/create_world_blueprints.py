@@ -57,6 +57,8 @@ TRACKSUIT_RED = (0.6, 0.05, 0.05)
 TRACKSUIT_STRIPE = (0.85, 0.85, 0.85)
 SKI_MASK = (0.012, 0.012, 0.012)
 MASK_BOTTOM_CM = 152.0      # bind-pose height above the feet where the black ski mask starts
+VEST_BOTTOM_CM = 92.0       # bind-pose heights of the heavy's vest: the belt and the collar
+VEST_TOP_CM = 146.0
 STRIPE_FACING = 0.85        # how squarely a surface must face out sideways to be stripe
 STRIPE_MAX_SIDE_CM = 28.0   # further out than this is an arm (bind pose is a T), never stripe
 HIT_FLASH_COLOR = (1.0, 0.85, 0.7)
@@ -124,9 +126,11 @@ def _to_pixel(material, vertex_node, x, y):
     return node
 
 
-def tracksuit_builder(suit_rgb, stripe_rgb, mask_rgb):
-    """A build function for the tracksuit graph in these colours (the archer wears it in grey and purple)."""
-    return lambda material: _build_tracksuit(material, suit_rgb, stripe_rgb, mask_rgb)
+def tracksuit_builder(suit_rgb, stripe_rgb, mask_rgb, vest_rgb=None):
+    """A build function for the tracksuit graph in these colours (the archer wears it in grey and purple).
+
+    vest_rgb, when given, paints a vest over the torso (the heavy's black one), arms and stripes left bare."""
+    return lambda material: _build_tracksuit(material, suit_rgb, stripe_rgb, mask_rgb, vest_rgb)
 
 
 def _build_thug_tracksuit(material):
@@ -134,8 +138,9 @@ def _build_thug_tracksuit(material):
     _build_tracksuit(material, TRACKSUIT_RED, TRACKSUIT_STRIPE, SKI_MASK)
 
 
-def _build_tracksuit(material, suit_rgb, stripe_rgb, mask_rgb):
-    """Suit colour, stripes down the outside of the legs and body, a ski mask over the head."""
+def _build_tracksuit(material, suit_rgb, stripe_rgb, mask_rgb, vest_rgb=None):
+    """Suit colour, stripes down the outside of the legs and body, a ski mask over the head, and
+    optionally a vest over the torso."""
     # Pre-skinned position and normal exist only in the vertex shader; a vertex interpolator
     # carries them to the pixel shader so the mask and stripe edges stay crisp per pixel.
     pos = _to_pixel(material, m.expr(
@@ -158,6 +163,15 @@ def _build_tracksuit(material, suit_rgb, stripe_rgb, mask_rgb):
     white = m.constant3(material, stripe_rgb, -700, -350)
     mask = m.constant3(material, mask_rgb, -700, -200)
     suit = m.lerp(material, red, white, stripe, -500, -400)
+    if vest_rgb is not None:
+        # Torso between the belt and the collar, arms excluded (bind pose is a T, so the arms are
+        # everything further out than STRIPE_MAX_SIDE_CM).
+        above_belt = m.step(material, z, VEST_BOTTOM_CM, -1200, -700, sharpness=0.5)
+        below_collar = m.step(material, z, VEST_TOP_CM, -1200, -850, sharpness=0.5)
+        torso = m.lerp(material, above_belt, None, below_collar, -1000, -750, const_b=0.0)
+        vest_mask = m.lerp(material, torso, None, arm, -850, -750, const_b=0.0)
+        vest = m.constant3(material, vest_rgb, -700, -650)
+        suit = m.lerp(material, suit, vest, vest_mask, -500, -600)
     base = m.lerp(material, suit, mask, head, -300, -300)
     m.connect_property(base, unreal.MaterialProperty.MP_BASE_COLOR)
     m.set_scalar_property(material, 0.45, unreal.MaterialProperty.MP_ROUGHNESS, -300, 0)

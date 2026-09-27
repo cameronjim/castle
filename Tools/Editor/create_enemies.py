@@ -10,6 +10,9 @@
     /Game/Characters/Archer/M_ArcherTrim      the chest patch in purple
     /Game/Blueprints/Bosses/BP_Archer         child of BP_Thug: EThugWeapon::Bow, its BowComponent carrying
                                               DA_Bow_Archer and DA_Arrow_Trickshot, the grey suit
+    /Game/Characters/Thug/M_HeavyTracksuit    the red tracksuit graph with a black vest over the torso
+    /Game/Blueprints/AI/BP_Thug_Heavy         child of BP_Thug: EThugWeapon::Shield (riot shield, bash, slow
+                                              bat), 200 HP, walks at 300, the vest
 
 Then BP_Thug.ThugStateTree = ST_Thug and BP_Thug.CoverQuery = EQS_CoverPoints (BP_Archer inherits
 both).
@@ -48,15 +51,22 @@ ARCHER_SUIT = (0.045, 0.045, 0.05)      # dark grey
 ARCHER_STRIPE = (0.32, 0.06, 0.62)      # Barney's purple
 ARCHER_MASK = (0.012, 0.012, 0.012)
 
+HEAVY_NAME = "BP_Thug_Heavy"
+M_HEAVY_SUIT = "/Game/Characters/Thug/M_HeavyTracksuit"
+HEAVY_MATERIAL_VERSION = "heavy-1"
+HEAVY_VEST = (0.01, 0.01, 0.012)        # black
+HEAVY_HEALTH = 200.0
+HEAVY_WALK_SPEED = 300.0
 
-def _versioned_material(full_path, build_fn):
+
+def _versioned_material(full_path, build_fn, version=ARCHER_MATERIAL_VERSION):
     existing = c.load_or_none(full_path)
     current = unreal.EditorAssetLibrary.get_metadata_tag(existing, BUILD_TAG) if existing is not None else None
     import _materials as m  # noqa: PLC0415
-    material = m.ensure_material(full_path, build_fn, rebuild=existing is not None and current != ARCHER_MATERIAL_VERSION,
+    material = m.ensure_material(full_path, build_fn, rebuild=existing is not None and current != version,
                                  skeletal=True)
-    if material is not None and current != ARCHER_MATERIAL_VERSION:
-        unreal.EditorAssetLibrary.set_metadata_tag(material, BUILD_TAG, ARCHER_MATERIAL_VERSION)
+    if material is not None and current != version:
+        unreal.EditorAssetLibrary.set_metadata_tag(material, BUILD_TAG, version)
         c.save(material)
     return material
 
@@ -177,13 +187,57 @@ def ensure_archer():
     return bp
 
 
+def ensure_heavy():
+    """BP_Thug_Heavy: the shield weapon, 200 HP, 300 cm/s, the red tracksuit with a black vest."""
+    import create_world_blueprints as wb  # noqa: PLC0415
+
+    full = c.asset_path(AI_PATH, HEAVY_NAME)
+    parent = c.load_generated_class(AI_PATH, "BP_Thug")
+    if parent is None or not hasattr(unreal.ThugWeapon, "SHIELD"):
+        c.log("skipped", full, "run create_world_blueprints first, and build the module (EThugWeapon::Shield)")
+        return None
+    bp, created = cb.make_blueprint(HEAVY_NAME, AI_PATH, parent, ("BlueprintFactory",))
+    if bp is None:
+        return None
+    if created:
+        c.compile_blueprint(bp)
+        c.save(bp)
+    cb.ensure_parent(bp, full, parent)
+    suit = _versioned_material(M_HEAVY_SUIT, wb.tracksuit_builder(wb.TRACKSUIT_RED, wb.TRACKSUIT_STRIPE, wb.SKI_MASK,
+                                                                  HEAVY_VEST), HEAVY_MATERIAL_VERSION)
+
+    changed = []
+    cdo = c.blueprint_cdo(bp)
+    if cdo is not None and cdo.get_editor_property("weapon") != unreal.ThugWeapon.SHIELD:
+        c.set_props(cdo, [("weapon", unreal.ThugWeapon.SHIELD)], HEAVY_NAME)
+        changed.append("weapon Shield")
+    health = cb.cdo_component(bp, "health_component")
+    if health is not None:
+        changed += cb.set_if_different(health, [("max_health", HEAVY_HEALTH)],
+                                       HEAVY_NAME + ".HealthComponent")
+    movement = cb.cdo_component(bp, "character_movement")
+    if movement is not None:
+        changed += cb.set_if_different(movement, [("max_walk_speed", HEAVY_WALK_SPEED)], HEAVY_NAME + ".CharacterMovement")
+    body = cb.cdo_component(bp, "mesh")
+    if cb.set_material_slot(body, 0, suit, HEAVY_NAME + ".Mesh"):
+        changed.append("material 0")
+    if changed:
+        c.compile_blueprint(bp)
+        c.save(bp)
+        c.log("updated", full, ", ".join(changed))
+    else:
+        c.log("exists", full, "shield, 200 HP, 300 cm/s and the vest already set")
+    return bp
+
+
 def run():
     c.ensure_directory(AI_PATH)
     tree = ensure_state_tree()
     query = ensure_cover_query()
     wire_thug(tree, query)
     archer = ensure_archer()
-    return {"tree": tree, "query": query, "archer": archer}
+    heavy = ensure_heavy()
+    return {"tree": tree, "query": query, "archer": archer, "heavy": heavy}
 
 
 if __name__ == "__main__":

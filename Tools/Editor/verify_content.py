@@ -124,6 +124,8 @@ EXPECTED = (
         "/Game/Blueprints/Bosses/BP_Archer",
         "/Game/Characters/Archer/M_ArcherSuit",
         "/Game/Characters/Archer/M_ArcherTrim",
+        c.asset_path(AI_PATH, "BP_Thug_Heavy"),
+        "/Game/Characters/Thug/M_HeavyTracksuit",
     ]
 )
 
@@ -603,11 +605,39 @@ def check_enemies():
         fail("BP_Archer's BowComponent does not carry DA_Bow_Archer and DA_Arrow_Trickshot")
     if name_of(slot0) != "M_ArcherSuit":
         fail("BP_Archer wears {0}, expected M_ArcherSuit".format(name_of(slot0)))
+    check_heavy()
     arrow = c.load_or_none(WEAPON_PATH + "/DA_Arrow_Trickshot")
     say("  DA_Arrow_Trickshot: recover_as={0} toast='{1}' colours={2}".format(
         name_of(prop(arrow, "recover_as")), prop(arrow, "pickup_toast"), prop(arrow, "override_colors")))
     if name_of(prop(arrow, "recover_as")) != "DA_Arrow_Standard" or str(prop(arrow, "pickup_toast")) != "Trickshot's arrow":
         fail("DA_Arrow_Trickshot is not picked up as DA_Arrow_Standard with the Trickshot's arrow toast")
+
+
+def check_heavy():
+    """BP_Thug_Heavy: a BP_Thug child with the shield, 200 HP, 300 cm/s and the vest."""
+    parent = _parent_tag(AI_PATH, "BP_Thug_Heavy")
+    heavy = _default_object(AI_PATH, "BP_Thug_Heavy")
+    say("  BP_Thug_Heavy parent = {0}".format(parent))
+    if "BP_Thug" not in parent or heavy is None:
+        fail("BP_Thug_Heavy is not a child of BP_Thug")
+        return
+    weapon = str(prop(heavy, "weapon"))
+    health = prop(heavy, "health_component")
+    movement = prop(heavy, "character_movement")
+    body = prop(heavy, "mesh")
+    max_health = prop(health, "max_health") if health is not None else None
+    speed = prop(movement, "max_walk_speed") if movement is not None else None
+    slot0 = body.get_material(0) if body is not None else None
+    say("  BP_Thug_Heavy: weapon={0} max_health={1} walk={2} suit={3} tree={4}".format(
+        weapon, max_health, speed, name_of(slot0), name_of(prop(heavy, "thug_state_tree"))))
+    if "SHIELD" not in weapon.upper():
+        fail("BP_Thug_Heavy's weapon is {0}, expected Shield".format(weapon))
+    if max_health is None or abs(float(max_health) - 200.0) > 0.01:
+        fail("BP_Thug_Heavy has {0} max health, expected 200".format(max_health))
+    if speed is None or abs(float(speed) - 300.0) > 0.01:
+        fail("BP_Thug_Heavy walks at {0}, expected 300".format(speed))
+    if name_of(slot0) != "M_HeavyTracksuit":
+        fail("BP_Thug_Heavy wears {0}, expected M_HeavyTracksuit".format(name_of(slot0)))
 
 
 def check_weapon_data():
