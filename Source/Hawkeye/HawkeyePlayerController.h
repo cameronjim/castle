@@ -7,6 +7,7 @@
 #include "Audio/HawkeyeAudioTypes.h"
 #include "Mission/MissionFlowController.h"
 #include "Settings/HawkeyeSettings.h"
+#include "Player/HawkeyeTapHold.h"
 #include "HawkeyePlayerController.generated.h"
 
 class SWidget;
@@ -149,7 +150,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Phone")
 	TObjectPtr<UInputAction> PhoneAction;
 
-	/** How long D-pad down is held to open the phone (a tap is still quiver slot 2). */
+	/**
+	 * How long D-pad down is held to open the phone. A tap selects quiver slot 2 when the button comes
+	 * back up, so a hold never also changes the arrow; the pad's slot 2 is handled here, not by IA_Slot2.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Phone", meta = (ClampMin = "0.05"))
 	float PhoneHoldSeconds = 0.4f;
 
@@ -168,6 +172,11 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Phone")
 	UPhoneWidget* GetPhoneWidget() const { return PhoneWidget; }
+
+	/** The D-pad down press, release and hold as the controller sees them (real seconds). Tests drive these. */
+	void HandleDPadDownPressed(double NowSeconds);
+	void HandleDPadDownReleased(double NowSeconds);
+	void TickDPadDown(double NowSeconds);
 
 	/** True once a D-pad hold that started at PressedSeconds has lasted HoldSeconds by NowSeconds. */
 	static bool IsHoldComplete(double PressedSeconds, double NowSeconds, float HoldSeconds)
@@ -612,10 +621,8 @@ protected:
 	float CloseUpBlendSeconds = 0.5f;
 	FTimerHandle CloseUpTimer;
 
-	/** D-pad down: when it went down (real seconds) and whether this hold already opened the phone. */
-	double DPadDownPressedSeconds = 0.0;
-	bool bDPadDownHeld = false;
-	bool bPhoneHoldFired = false;
+	/** D-pad down: a hold of PhoneHoldSeconds opens the phone, a tap (on release) is quiver slot 2. */
+	FHawkeyeTapHold DPadDown;
 
 	/** Creates the end card (if needed) and plays it. bWaitForInput is the campaign-end card. */
 	UMissionEndCardWidget* ShowEndCard(UMissionDefinition* Mission, bool bWaitForInput);

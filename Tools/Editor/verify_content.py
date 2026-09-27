@@ -59,7 +59,6 @@ GAMEPAD_MAPPINGS = [
     ("IA_SlotScroll", "Gamepad_DPad_Left"),
     ("IA_SlotScroll", "Gamepad_DPad_Right"),
     ("IA_Slot1", "Gamepad_DPad_Up"),
-    ("IA_Slot2", "Gamepad_DPad_Down"),
     ("IA_SwitchCharacter", "Gamepad_LeftShoulder"),
 ]
 
@@ -247,6 +246,10 @@ def check_input():
         len(GAMEPAD_MAPPINGS) - len(missing_gamepad), len(GAMEPAD_MAPPINGS)))
     for entry in missing_gamepad:
         fail("IMC_Default missing gamepad mapping " + entry)
+    # D-pad down belongs to the controller (hold: phone, tap on release: slot 2); an IMC mapping
+    # would fire slot 2 on the press that starts every phone hold.
+    if ("IA_Slot2", "Gamepad_DPad_Down") in found_pairs:
+        fail("IMC_Default still maps Gamepad_DPad_Down to IA_Slot2")
 
 
 def check_blueprints():

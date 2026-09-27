@@ -173,14 +173,12 @@ bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
 		}
 		if (Params.Key == EKeys::Gamepad_DPad_Down)
 		{
-			DPadDownPressedSeconds = FPlatformTime::Seconds();
-			bDPadDownHeld = true;
-			bPhoneHoldFired = false;
+			HandleDPadDownPressed(FPlatformTime::Seconds());
 		}
 	}
 	else if (Params.Event == IE_Released && Params.Key == EKeys::Gamepad_DPad_Down)
 	{
-		bDPadDownHeld = false;
+		HandleDPadDownReleased(FPlatformTime::Seconds());
 	}
 
 	return Super::InputKey(Params);
@@ -191,10 +189,44 @@ void AHawkeyePlayerController::PlayerTick(float DeltaTime)
 	Super::PlayerTick(DeltaTime);
 
 	// Real time, like the quiver wheel: the hold is the thumb, not game time.
-	if (bDPadDownHeld && !bPhoneHoldFired && IsHoldComplete(DPadDownPressedSeconds, FPlatformTime::Seconds(), PhoneHoldSeconds))
+	TickDPadDown(FPlatformTime::Seconds());
+}
+
+void AHawkeyePlayerController::HandleDPadDownPressed(double NowSeconds)
+{
+	DPadDown.HoldSeconds = PhoneHoldSeconds;
+	DPadDown.Press(NowSeconds);
+}
+
+void AHawkeyePlayerController::TickDPadDown(double NowSeconds)
+{
+	if (DPadDown.Tick(NowSeconds) == EHawkeyeTapHold::Hold)
 	{
-		bPhoneHoldFired = true;
 		TogglePhone();
+	}
+}
+
+void AHawkeyePlayerController::HandleDPadDownReleased(double NowSeconds)
+{
+	switch (DPadDown.Release(NowSeconds))
+	{
+	case EHawkeyeTapHold::Hold:
+		TogglePhone();
+		break;
+	case EHawkeyeTapHold::Tap:
+	{
+		// Quiver slot 2 (grapple), as IA_Slot2 does from the keyboard; not under a menu or the phone.
+		const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bInventoryOpen
+			|| bPhoneOpen || bCloseUpActive;
+		const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(GetPawn());
+		if (!bScreenTaken && Hawkeye && Hawkeye->GetInventoryComponent())
+		{
+			Hawkeye->GetInventoryComponent()->SelectArrowSlot(2);
+		}
+		break;
+	}
+	default:
+		break;
 	}
 }
 

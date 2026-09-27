@@ -144,12 +144,12 @@ MAPPINGS = [
     ("IA_Interact", "Gamepad_FaceButton_Top", []),              # Y
     ("IA_Inventory", "Gamepad_Special_Left", []),               # View
     ("IA_Pause", "Gamepad_Special_Right", []),                  # Menu
-    # D-pad left/right cycles arrow slots; up/down jump straight to slot 1 (standard) and 2
-    # (grapple), the two slots CH01 always grants.
+    # D-pad left/right cycles arrow slots; up jumps straight to slot 1 (standard). Down is not
+    # mapped here: AHawkeyePlayerController reads it raw, a hold opens the phone and a tap selects
+    # slot 2 (grapple) on release, so starting the hold never also changes the arrow.
     ("IA_SlotScroll", "Gamepad_DPad_Left", [NEGATE_X]),
     ("IA_SlotScroll", "Gamepad_DPad_Right", []),
     ("IA_Slot1", "Gamepad_DPad_Up", []),
-    ("IA_Slot2", "Gamepad_DPad_Down", []),
     # LB swaps Kate and Clint. The mark has no pad button yet: the D-pad belongs to the quiver.
     ("IA_SwitchCharacter", "Gamepad_LeftShoulder", []),
 ]
