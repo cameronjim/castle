@@ -48,6 +48,7 @@
 #include "Tests/BowIKScreenshots.h"
 #include "Tests/CombatScreenshots.h"
 #include "Tests/EnemyScreenshots.h"
+#include "Tests/MeleeScreenshots.h"
 #include "Tests/NarrativeScreenshots.h"
 #include "Tests/PartnerScreenshots.h"
 #include "Tests/SaveScreenshots.h"
@@ -124,6 +125,8 @@
  *                           enemy pass (EnemyScreenshotTest.cpp)
  *   heavy_block.png, heavy_bash.png, archer_hold.png, thug_alert_glyph.png, aim_view_clear.png: the
  *                           fair-fight pass (CombatScreenshotTest.cpp)
+ *   combo_x3.png, parry_flash.png, finisher_mid.png, hit_lean.png, strike_pose.png: the melee pass
+ *                           (MeleeScreenshotTest.cpp)
  *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass
  *                           (SaveRoundTripTest.cpp)
  *   phone_open.png, chapter_title.png, dialogue_subtitle.png, chapter_end_closeup.png,
@@ -2830,6 +2833,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 
 	// Fair fights: the heavy's shield and bash, an archer's held draw, the alert glyphs, the aim view.
 	HawkeyeAddCombatShots(this);
+
+	// Melee: a combo counter at x3, a parry, a finisher in its slow motion, a hit lean, a punch's arm.
+	HawkeyeAddMeleeShots(this);
 
 	// Clint: following, shooting what she hit, a banter line, and the switch to him.
 	HawkeyeAddPartnerShots(this);
