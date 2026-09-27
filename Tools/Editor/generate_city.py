@@ -734,57 +734,73 @@ def _color(rgb):
 
 
 def ensure_lighting(existing):
+    """The night: ensure_lighting_core and the star sphere round the district."""
+    changes = ensure_lighting_core(existing, make_movable=False)
+    changes += ensure_night_sky(existing)
+    return changes + _all_lights_movable()
+
+
+def ensure_lighting_core(existing, make_movable=True, labels=None):
+    """The moon, sky light, atmosphere, fog and PP_Global, by those labels. generate_interior.py uses it too,
+    so an interior's windows show the district's night and the two grade alike. ``labels`` maps each of
+    those five names to the label to use (an interior prefixes its own)."""
+    labels = labels or {}
+    moon_label = labels.get(MOON_LABEL, MOON_LABEL)
+    sky_label = labels.get("SkyLight", "SkyLight")
+    fog_label = labels.get("HeightFog", "HeightFog")
+    pp_label = labels.get("PP_Global", "PP_Global")
     changes = 0
     old_sun = existing.pop(RETIRED_SUN_LABEL, None)
     if old_sun is not None:
         old_sun.destroy_actor()
         changes += 1
         c.log("updated", RETIRED_SUN_LABEL, "removed; the moon lights the night")
-    moon, created = ensure_labelled(existing, unreal.DirectionalLight, MOON_LABEL, unreal.Vector(0, 0, 3000),
+    moon, created = ensure_labelled(existing, unreal.DirectionalLight, moon_label, unreal.Vector(0, 0, 3000),
                                     MOON_ROTATION)
     changes += created
     if moon is not None:
         comp = moon.get_editor_property("directional_light_component")
-        changes += set_if_different(comp, "mobility", unreal.ComponentMobility.MOVABLE, MOON_LABEL)
-        changes += set_if_different(comp, "intensity", MOON_LUX, MOON_LABEL)
-        changes += set_if_different(comp, "atmosphere_sun_light", True, MOON_LABEL)
-        changes += set_if_different(comp, "use_temperature", False, MOON_LABEL)
+        changes += set_if_different(comp, "mobility", unreal.ComponentMobility.MOVABLE, moon_label)
+        changes += set_if_different(comp, "intensity", MOON_LUX, moon_label)
+        changes += set_if_different(comp, "atmosphere_sun_light", True, moon_label)
+        changes += set_if_different(comp, "use_temperature", False, moon_label)
         want = unreal.Color(r=int(MOON_COLOR[0] * 255), g=int(MOON_COLOR[1] * 255), b=int(MOON_COLOR[2] * 255), a=255)
         have = comp.get_editor_property("light_color")
         if (have.r, have.g, have.b) != (want.r, want.g, want.b):
             comp.set_editor_property("light_color", want)
             changes += 1
-        changes += set_if_different(comp, "atmosphere_sun_disk_color_scale", _color(MOON_DISK_SCALE), MOON_LABEL)
+        changes += set_if_different(comp, "atmosphere_sun_disk_color_scale", _color(MOON_DISK_SCALE), moon_label)
         rot = moon.get_actor_rotation()
         if abs(rot.pitch - MOON_ROTATION.pitch) > 0.01 or abs(rot.yaw - MOON_ROTATION.yaw) > 0.01:
             moon.set_actor_rotation(MOON_ROTATION, False)
             changes += 1
 
-    sky, created = ensure_labelled(existing, unreal.SkyLight, "SkyLight", unreal.Vector(0, 0, 2000))
+    sky, created = ensure_labelled(existing, unreal.SkyLight, sky_label, unreal.Vector(0, 0, 2000))
     changes += created
     if sky is not None:
         comp = sky.get_editor_property("light_component")
-        changes += set_if_different(comp, "mobility", unreal.ComponentMobility.MOVABLE, "SkyLight")
-        changes += set_if_different(comp, "real_time_capture", True, "SkyLight")
-        changes += set_if_different(comp, "source_type", unreal.SkyLightSourceType.SLS_CAPTURED_SCENE, "SkyLight")
-        changes += set_if_different(comp, "intensity", SKY_INTENSITY, "SkyLight")
+        changes += set_if_different(comp, "mobility", unreal.ComponentMobility.MOVABLE, sky_label)
+        changes += set_if_different(comp, "real_time_capture", True, sky_label)
+        changes += set_if_different(comp, "source_type", unreal.SkyLightSourceType.SLS_CAPTURED_SCENE, sky_label)
+        changes += set_if_different(comp, "intensity", SKY_INTENSITY, sky_label)
 
     atmosphere = c.find_class("SkyAtmosphere", "/Script/Engine.SkyAtmosphere")
-    _a, created = ensure_labelled(existing, atmosphere, "SkyAtmosphere", unreal.Vector(0, 0, 0))
+    atmosphere_label = labels.get("SkyAtmosphere", "SkyAtmosphere")
+    _a, created = ensure_labelled(existing, atmosphere, atmosphere_label, unreal.Vector(0, 0, 0))
     changes += created
 
-    fog, created = ensure_labelled(existing, unreal.ExponentialHeightFog, "HeightFog", unreal.Vector(0, 0, 0))
+    fog, created = ensure_labelled(existing, unreal.ExponentialHeightFog, fog_label, unreal.Vector(0, 0, 0))
     changes += created
     if fog is not None:
         comp = fog.get_editor_property("component")
-        changes += set_if_different(comp, "fog_density", FOG_DENSITY, "HeightFog", 1e-5)
-        changes += set_if_different(comp, "fog_inscattering_luminance", _color(FOG_INSCATTERING), "HeightFog", 1e-4)
-        changes += set_if_different(comp, "fog_cutoff_distance", FOG_CUTOFF, "HeightFog", 1.0)
+        changes += set_if_different(comp, "fog_density", FOG_DENSITY, fog_label, 1e-5)
+        changes += set_if_different(comp, "fog_inscattering_luminance", _color(FOG_INSCATTERING), fog_label, 1e-4)
+        changes += set_if_different(comp, "fog_cutoff_distance", FOG_CUTOFF, fog_label, 1.0)
 
-    pp, created = ensure_labelled(existing, unreal.PostProcessVolume, "PP_Global", unreal.Vector(0, 0, 0))
+    pp, created = ensure_labelled(existing, unreal.PostProcessVolume, pp_label, unreal.Vector(0, 0, 0))
     changes += created
     if pp is not None:
-        changes += set_if_different(pp, "unbound", True, "PP_Global")
+        changes += set_if_different(pp, "unbound", True, pp_label)
         settings = pp.get_editor_property("settings")
         dirty = False
         for prop, value in (("override_auto_exposure_min_brightness", True),
@@ -806,10 +822,12 @@ def ensure_lighting(existing):
         if dirty:
             pp.set_editor_property("settings", settings)
             changes += 1
+    return changes + (_all_lights_movable() if make_movable else 0)
 
-    changes += ensure_night_sky(existing)
 
-    # Nothing in this map may bake: every light is movable (Lumen, no lightmass).
+def _all_lights_movable():
+    """Nothing in these maps may bake: every light is movable (Lumen, no lightmass)."""
+    changes = 0
     for actor in c.all_level_actors():
         if isinstance(actor, (unreal.Light, unreal.SkyLight)):
             root = actor.get_editor_property("root_component")
@@ -3356,6 +3374,9 @@ def clutter_keepouts(district):
     door2 = safehouse2_keepout(district)
     if door2 is not None:
         points.append(("safehouse", door2, SAFEHOUSE_KEEPOUT))
+    door3 = interior_keepout(district)
+    if door3 is not None:
+        points.append(("interior", door3, INTERIOR_KEEPOUT))
     for label, _tag, origin, yaw, scale in test_block_spots(district):
         ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
         cx = origin[0] + ux * scale[0] * 50.0 - uy * scale[1] * 50.0
@@ -3386,6 +3407,8 @@ def clutter_plan(district):
     plan = {kind: [] for kind in CLUTTER_KINDS}
     # The archers' roofs and the roofs their lines cross stay bare, so nothing stands in the duel.
     objective_ids = {rec["id"] for rec in objective_roofs(district).values()} | archer_quiet_roofs(district)
+    # The interior's roof door comes out on its building's roof: nothing stands on it.
+    objective_ids |= interior_building_ids(district)
     anchors = anchor_spots(district)
     anchor_pts = []   # (x, y, z): every anchor and its landing point
     for x, y, z, yaw, forward, _drop, _osm in anchors:
@@ -3990,6 +4013,196 @@ def ensure_safehouse2(district, existing):
 
 
 # --------------------------------------------------------------------------------------
+# the interior entrance: a door on a three-storey building by the park into L_Int_Sample
+# --------------------------------------------------------------------------------------
+
+# AInteriorEntrance (Source/Hawkeye/World/InteriorEntrance.h) on the facade nearest the park of the
+# building picked here, on its street frontage (the facade nearest a road's centre line): three storeys
+# (INTERIOR_MIN_HEIGHT_M to INTERIOR_MAX_HEIGHT_M), within
+# INTERIOR_PARK_REACH of the park, not an objective roof, a safehouse or the chapter end's building, a facade
+# edge of SAFEHOUSE_EDGE_MIN or more, no fire-escape landing within INTERIOR_ESCAPE_CLEAR of the door, and
+# INTERIOR_SAFEHOUSE_CLEAR from both safehouse doors. Of those, the one nearest the park. Two return points:
+# City_InteriorReturn_Sample on the pavement INTERIOR_RETURN_OUT out from the door (the front exit comes
+# out there) and City_InteriorRoof_Sample on its roof (the roof door does). Each is tagged with its own
+# label too, since a packaged build has no labels. Roof clutter leaves that roof bare.
+INTERIOR_LABEL = "City_InteriorEntrance_Sample"
+INTERIOR_RETURN_LABEL = "City_InteriorReturn_Sample"
+INTERIOR_ROOF_LABEL = "City_InteriorRoof_Sample"
+INTERIOR_MAP = "/Game/Maps/L_Int_Sample"
+INTERIOR_NAME = "[Auction house]"
+INTERIOR_CLASS = "/Script/Hawkeye.InteriorEntrance"
+INTERIOR_MIN_HEIGHT_M = 9.5         # three storeys: 3 x 330 cm, less than four
+INTERIOR_MAX_HEIGHT_M = 12.5
+INTERIOR_PARK_REACH = 4000.0        # cm; the park's own frontage is taken by taller tenements
+INTERIOR_SAFEHOUSE_CLEAR = 3000.0   # cm from either safehouse door
+INTERIOR_ESCAPE_CLEAR = 400.0       # cm from the door to a fire-escape landing's facade point
+INTERIOR_RETURN_OUT = 220.0         # cm out from the door to the doorstep point
+INTERIOR_ROOF_EDGE = 250.0          # cm; the roof point is at least this far inside every roof edge
+INTERIOR_KEEPOUT = 250.0
+PAWN_HALF_HEIGHT = 100.0            # cm above the floor a return point stands (a capsule's centre)
+
+
+def interior_spot(district):
+    """{'rec', 'x', 'y', 'yaw', 'address', 'roof': (x, y, z), 'reach'} for the interior entrance, or None."""
+    if not district.parks:
+        return None
+    park = district.ring_cm(district.parks[0]["outer"])
+    start, _rot = player_start_transform(district)
+    start = (start.x, start.y)
+    taken = {rec["id"] for rec in objective_roofs(district).values()}
+    doors = [spot for _label, spot in safehouse_spots(district)]
+    taken |= {spot["rec"]["id"] for spot in doors}
+    end = chapter_end_spot(district)
+    if end is not None:
+        taken.add(end["osm"])
+    escapes = [(f[2][0], f[2][1]) for f in fire_escape_spots(district)]
+    roads = [path for _rec, paths in road_paths(district) for path in paths]
+    candidates = []
+    for rec in district.buildings:
+        if rec["id"] in taken or not INTERIOR_MIN_HEIGHT_M <= rec["height_m"] <= INTERIOR_MAX_HEIGHT_M:
+            continue
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) < 3 or ring_distance(start, ring) <= SAFEHOUSE_START_CLEAR:
+            continue
+        reach = min(ring_distance(p, ring) for p in park)
+        if reach > INTERIOR_PARK_REACH:
+            continue
+        centre = geo.centroid(ring)
+        hits = [closest_point_on_polyline(centre, path) for path in roads]
+        street = min((h for h in hits if h), key=lambda h: h[0], default=None)
+        door = _door_clear_of(ring, street[1], escapes) if street is not None else None
+        if door is None:
+            continue
+        if any(math.hypot(d["x"] - door[0], d["y"] - door[1]) < INTERIOR_SAFEHOUSE_CLEAR for d in doors):
+            continue
+        roof = _roof_point(ring)
+        if roof is None:
+            continue
+        candidates.append((reach, rec["id"], rec, door, roof))
+    if not candidates:
+        return None
+    reach, _id, rec, door, roof = min(candidates, key=lambda c_: (c_[0], c_[1]))
+    tags = rec.get("tags", {})
+    address = "{0} {1}".format(tags.get("addr:housenumber") or "", tags.get("addr:street") or "").strip()
+    return {"rec": rec, "x": door[0], "y": door[1], "yaw": door[2], "address": address, "reach": reach,
+            "roof": (roof[0], roof[1], rec["height_m"] * 100.0)}
+
+
+def _door_clear_of(ring, target, avoid):
+    """(x, y, yaw, edge length) of a door on ring's edge nearest target, slid along that edge (SAFEHOUSE_EDGE_INSET
+    from its ends, 50 cm steps) to the spot farthest from every point in avoid; None when the edge is short or no
+    spot is INTERIOR_ESCAPE_CLEAR from them (a fire escape usually hangs on the same street facade)."""
+    first = _safehouse_door(ring, target)
+    if first is None:
+        return None
+    n = len(ring)
+    best_edge = min(range(n), key=lambda i: closest_point_on_polyline(target, [ring[i], ring[(i + 1) % n]])[0])
+    a, b = ring[best_edge], ring[(best_edge + 1) % n]
+    length = math.hypot(b[0] - a[0], b[1] - a[1])
+    ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+    best = None
+    t = SAFEHOUSE_EDGE_INSET
+    while t <= length - SAFEHOUSE_EDGE_INSET + 0.01:
+        x, y = a[0] + ux * t, a[1] + uy * t
+        clear = min([math.hypot(px - x, py - y) for px, py in avoid] or [1.0e9])
+        if best is None or clear > best[0] + 0.5:
+            best = (clear, x, y)
+        t += 50.0
+    if best is None or best[0] < INTERIOR_ESCAPE_CLEAR:
+        return None
+    return best[1], best[2], first[2], length
+
+
+def _roof_point(ring):
+
+    """The point of a 50 cm grid inside ring farthest from its edges, if that is INTERIOR_ROOF_EDGE or more."""
+    x0, y0, x1, y1 = geo.bounds(ring)
+    best = None
+    gx = x0 + 25.0
+    while gx < x1:
+        gy = y0 + 25.0
+        while gy < y1:
+            if geo.point_in_polygon((gx, gy), ring):
+                edge = _edge_distance((gx, gy), ring)
+                if best is None or edge > best[2] + 1e-6:
+                    best = (gx, gy, edge)
+            gy += 50.0
+        gx += 50.0
+    return best if best is not None and best[2] >= INTERIOR_ROOF_EDGE else None
+
+
+def interior_building_ids(district):
+    spot = interior_spot(district)
+    return {spot["rec"]["id"]} if spot is not None else set()
+
+
+def interior_keepout(district):
+    """(x, y) of the pavement in front of the interior entrance, or None."""
+    spot = interior_spot(district)
+    if spot is None:
+        return None
+    yaw = math.radians(spot["yaw"])
+    return spot["x"] + math.cos(yaw) * 150.0, spot["y"] + math.sin(yaw) * 150.0
+
+
+def ensure_interior_entrance(district, existing):
+    """City_InteriorEntrance_Sample and its two return points. Idempotent by label."""
+    cls = c.find_class("InteriorEntrance", INTERIOR_CLASS)
+    if cls is None:
+        c.log("skipped", INTERIOR_LABEL, "AInteriorEntrance not exposed; build the module")
+        return 0
+    spot = interior_spot(district)
+    if spot is None:
+        c.log("FAILED", INTERIOR_LABEL, "no three-storey building by the park qualifies")
+        return 0
+    x, y, yaw = spot["x"], spot["y"], spot["yaw"]
+    ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
+    ground = ground_z(x + ux * 60.0, y + uy * 60.0, SIDEWALK_TOP, existing)
+    actor, changes = _ensure_located(existing, INTERIOR_LABEL, cls, unreal.Vector(x, y, ground), yaw)
+    if actor is None:
+        return changes
+    changes += _ensure_tags(actor, ["City", "CityInterior", "osm:" + spot["rec"]["id"]])
+    world = c.load_or_none(INTERIOR_MAP)
+    current = actor.get_editor_property("interior")
+    current_path = str(current.get_path_name()).split(".")[0] if current is not None else ""
+    if world is not None and current_path != INTERIOR_MAP:
+        actor.set_editor_property("interior", world)
+        changes += 1
+    elif world is None:
+        c.log("FAILED", INTERIOR_LABEL, INTERIOR_MAP + " missing; run generate_interior.py first")
+    if str(actor.get_editor_property("return_point_label")) != INTERIOR_RETURN_LABEL:
+        actor.set_editor_property("return_point_label", unreal.Name(INTERIOR_RETURN_LABEL))
+        changes += 1
+    if str(actor.get_editor_property("display_name")) != INTERIOR_NAME:
+        actor.set_editor_property("display_name", unreal.Text(INTERIOR_NAME))
+        changes += 1
+    wood = c.load_or_none(m.mi_int_path("Wood", "Door"))
+    trim = m.ensure_steel_painted()
+    changes += _ensure_part_material(actor, "door", wood or trim, INTERIOR_LABEL)
+    changes += _ensure_part_material(actor, "door_frame", trim, INTERIOR_LABEL)
+    changes += _ensure_part_material(actor, "sign_board", trim, INTERIOR_LABEL)
+
+    out = (x + ux * INTERIOR_RETURN_OUT, y + uy * INTERIOR_RETURN_OUT)
+    step = ground_z(out[0], out[1], SIDEWALK_TOP, existing)
+    point, n = _ensure_located(existing, INTERIOR_RETURN_LABEL, unreal.TargetPoint,
+                               unreal.Vector(out[0], out[1], step + PAWN_HALF_HEIGHT), yaw)
+    changes += n
+    if point is not None:
+        changes += _ensure_tags(point, ["City", "CityInteriorReturn", INTERIOR_RETURN_LABEL])
+    rx, ry, rz = spot["roof"]
+    roof, n = _ensure_located(existing, INTERIOR_ROOF_LABEL, unreal.TargetPoint,
+                              unreal.Vector(rx, ry, rz + PAWN_HALF_HEIGHT), yaw)
+    changes += n
+    if roof is not None:
+        changes += _ensure_tags(roof, ["City", "CityInteriorReturn", INTERIOR_ROOF_LABEL])
+    c.log("updated" if changes else "exists", INTERIOR_LABEL,
+          "osm {0} ({1}, {2:.1f} m, {3:.0f} m from the park), door at ({4:.0f}, {5:.0f}, {6:.0f}) yaw {7:.0f}".format(
+              spot["rec"]["id"], spot["address"] or "no address", spot["rec"]["height_m"], spot["reach"] / 100.0,
+              x, y, ground, yaw))
+    return changes
+
+
+# --------------------------------------------------------------------------------------
 # side challenges: a pedestal at each challenge's start
 # --------------------------------------------------------------------------------------
 
@@ -4182,6 +4395,7 @@ def run():
     changes += ensure_chapter_end(district, existing)
     changes += ensure_safehouse(district, existing)
     changes += ensure_safehouse2(district, existing)
+    changes += ensure_interior_entrance(district, existing)
     changes += ensure_challenge_starts(district, existing)
     changes += ensure_crime_spots(district, existing)
     changes += ensure_thugs(district, existing)
