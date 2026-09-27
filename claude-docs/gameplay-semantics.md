@@ -687,3 +687,17 @@ the last input came from a pad.
   Crime thugs despawn 60 s after success once the player is 40 m away, 20 s after failure.
 - Scripted mugging: rescued in 12.3 s with no hits. No alley spots yet; robbery, ambush,
   and rooftop are covered by headless world tests only.
+
+## Safehouses and fast travel (built 2026-09-27; rules also in Source/Hawkeye/World/SafehouseSubsystem.h)
+- Two safehouses: "[Safehouse 1]" at 140 East 7th Street (OSM W248142338) and
+  "[Safehouse 2]" on Avenue B at East 10th (OSM W250264779), 278 m apart. The generator
+  picks the second as the nearest qualifying storefront at least 250 m from the first,
+  skipping buildings whose fire escape would cut through the sign. Both must be entered
+  once to be discovered; undiscovered ones show greyed as "[Undiscovered]".
+- Fast travel from a safehouse menu to any other discovered one: fade out 0.5 s, hold
+  0.35 s during which Kate and Clint are moved to the destination door and the game
+  autosaves with them there (destination recorded as last used), fade in 0.6 s; about
+  1.5 s fade to fade, no map reload. Refused with a "[Can't fast travel now]" toast during
+  a crime or challenge.
+- Discovered safehouses show as house icons on the compass; the pause menu can mark the
+  nearest one. Chapter select is still a stub. Crime spots keep 40 m clear of both.
