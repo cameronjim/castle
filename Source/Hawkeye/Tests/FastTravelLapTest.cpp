@@ -456,22 +456,30 @@ void HawkeyeAddFastTravelShots(FAutomationTestBase* Test)
 		const FVector Mid = (First->GetActorLocation() + Second->GetActorLocation()) * 0.5f;
 		const FVector Across = FVector::CrossProduct(Second->GetActorLocation() - First->GetActorLocation(), FVector::UpVector).GetSafeNormal2D();
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(FastTravelCompassShot), false, Kate);
-		for (const float Out : { 12000.f, -12000.f, 16000.f, -16000.f, 9000.f, -9000.f })
+		// On a street or the park inside the district (not a roof, not the bare slab past its edge), as far
+		// off the line as that allows so the two houses sit apart on the strip.
+		bool bPlaced = false;
+		for (int32 Step = 0; Step < 24 && !bPlaced; ++Step)
 		{
+			const float Out = (Step % 2 == 0 ? 1.f : -1.f) * (16000.f - 600.f * (Step / 2));
 			const FVector Probe = Mid + Across * Out;
 			FHitResult Hit;
-			if (!World->LineTraceSingleByChannel(Hit, Probe + FVector(0.f, 0.f, 20000.f), Probe - FVector(0.f, 0.f, 500.f),
-				ECC_Visibility, Params) || Hit.ImpactPoint.Z > 2500.f)
+			const AActor* Ground = World->LineTraceSingleByChannel(Hit, Probe + FVector(0.f, 0.f, 20000.f), Probe - FVector(0.f, 0.f, 500.f),
+				ECC_Visibility, Params) ? Hit.GetActor() : nullptr;
+			const bool bStreet = Ground && (Ground->ActorHasTag(TEXT("CityRoad")) || Ground->ActorHasTag(TEXT("CitySidewalk")));
+			if (!bStreet)
 			{
 				continue;
 			}
+			const FString Under = Ground->ActorHasTag(TEXT("CityRoad")) ? TEXT("a road") : TEXT("a sidewalk");
+			bPlaced = true;
 			const FRotator Facing(0.f, (Mid - Hit.ImpactPoint).Rotation().Yaw, 0.f);
 			Kate->TeleportTo(Hit.ImpactPoint + FVector(0.f, 0.f, 100.f), Facing);
 			PC->SetControlRotation(FRotator(-6.f, Facing.Yaw, 0.f));
-			Test->AddInfo(FString::Printf(TEXT("Compass shot from %s, %.0f m off the line between the safehouses."),
-				*Hit.ImpactPoint.ToCompactString(), FMath::Abs(Out) / 100.f));
-			break;
+			Test->AddInfo(FString::Printf(TEXT("Compass shot from %s on %s, %.0f m off the line between the safehouses."),
+				*Hit.ImpactPoint.ToCompactString(), *Under, FMath::Abs(Out) / 100.f));
 		}
+		Test->TestTrue(TEXT("A street between the safehouses to stand on"), bPlaced);
 		Test->TestTrue(TEXT("Mark nearest safehouse marks one"), PC->MarkNearestSafehouse());
 		return true;
 	}));
