@@ -274,6 +274,12 @@ public:
 	/** Stands in for Landed() after a fall of FallHeight. */
 	void TestApplyLanding(float FallHeight) { ApplyLanding(FallHeight); }
 
+	/** Stands in for the footstep tracker calling a step. */
+	void TestPlayFootstep() { PlayFootstep(); }
+
+	/** Stands in for one Tick of the hit reactions (stagger, shake, screen pulse). */
+	void TestTickHitReactions(float DeltaSeconds) { UpdateHitReactions(DeltaSeconds); }
+
 	/** Stands in for one Tick of the landing roll, stumble or dip. */
 	void TestTickLanding(float DeltaSeconds) { UpdateLanding(DeltaSeconds); UpdateMaxWalkSpeed(); }
 
