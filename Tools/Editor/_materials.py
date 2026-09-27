@@ -1214,8 +1214,199 @@ def ensure_prop_instance(name, rgb, roughness):
 
 
 # --------------------------------------------------------------------------------------
+# interiors: the chapter interiors' walls, floors, furniture, glass and lamps (generate_interior.py).
+# Same comic palette as the streets: cream and plum walls, dark boards, a deep red carpet, black
+# iron, warm pendants and cool tubes. No snow: M_Prop's snow layer would settle on every desk.
+# --------------------------------------------------------------------------------------
+
+INTERIOR_BUILD = "interior-1"          # a different value rebuilds every interior master once
+INTERIOR_TAG = "HawkeyeInteriorBuild"
+
+M_INT_PLASTER = MATERIALS_PATH + "/M_IntPlaster"
+M_INT_WOOD_FLOOR = MATERIALS_PATH + "/M_IntWoodFloor"
+M_INT_CARPET = MATERIALS_PATH + "/M_IntCarpet"
+M_INT_CONCRETE = M_CONCRETE_FLOOR      # the existing concrete, grout grid and all
+M_INT_WOOD = MATERIALS_PATH + "/M_IntWood"
+M_INT_GLASS = MATERIALS_PATH + "/M_IntGlass"
+M_INT_PROP = MATERIALS_PATH + "/M_IntProp"
+
+PLASTER_CREAM = (0.62, 0.53, 0.38)
+PLANK_WIDTH = 20.0                     # cm across a board, along world Y
+PLANK_LENGTH = 120.0                   # cm along a board, along world X; rows are staggered by a hash
+PLANK_DARK = (0.10, 0.045, 0.02)
+PLANK_LIGHT = (0.22, 0.11, 0.045)
+PLANK_SEAM = (0.02, 0.01, 0.006)
+CARPET_RED = (0.16, 0.018, 0.026)
+
+# Wall paints, furniture woods, props and lamps: (name, colour, roughness). MI_IntPlaster_<name> etc.
+INTERIOR_PAINTS = {
+    "Cream": (PLASTER_CREAM, 0.85),
+    "Plum": ((0.12, 0.045, 0.14), 0.8),
+    "Slate": ((0.16, 0.17, 0.2), 0.85),
+    "Stone": ((0.32, 0.30, 0.27), 0.9),
+    "Outside": ((0.05, 0.04, 0.045), 0.9),
+}
+INTERIOR_WOODS = {
+    "Door": ((0.2, 0.09, 0.035), 0.5),
+    "Dark": ((0.07, 0.035, 0.02), 0.45),
+    "Honey": ((0.36, 0.2, 0.08), 0.5),
+}
+INTERIOR_PROPS = {
+    "Black": ((0.015, 0.015, 0.018), 0.4),
+    "Iron": ((0.03, 0.03, 0.033), 0.35),
+    "Cream": ((0.55, 0.48, 0.36), 0.8),
+    "Purple": ((0.2, 0.06, 0.32), 0.6),
+    "Velvet": ((0.1, 0.012, 0.02), 1.0),
+    "Crate": ((0.25, 0.16, 0.08), 0.9),
+    "Cardboard": ((0.3, 0.21, 0.12), 0.95),
+    "Brass": ((0.45, 0.3, 0.1), 0.3),
+    "Linen": ((0.5, 0.48, 0.44), 0.95),
+    "Shade": ((0.03, 0.025, 0.03), 0.6),
+    "Leaf": ((0.025, 0.07, 0.03), 0.8),
+}
+# Emissive strengths before EMISSIVE_INTENSITY_FACTOR, in the street lamps' range (MI_StreetLamp is 2).
+INTERIOR_LAMPS = {
+    "TubeCool": ((0.8, 0.9, 1.0), 1.5),
+    "PendantWarm": ((1.0, 0.66, 0.34), 1.2),
+    "ExitSign": ((0.15, 1.0, 0.35), 2.0),
+    "CaseGlow": ((1.0, 0.86, 0.62), 0.6),
+    "StageWash": ((0.62, 0.25, 1.0), 2.0),
+}
+
+
+def mi_int_path(kind, name):
+    """MI_IntPlaster_Cream, MI_IntWood_Door, MI_IntProp_Iron, MI_IntLamp_TubeCool."""
+    return MATERIALS_PATH + "/MI_Int{0}_{1}".format(kind, name)
+
+
+def _int_tagged(asset):
+    try:
+        return unreal.EditorAssetLibrary.get_metadata_tag(asset, INTERIOR_TAG) == INTERIOR_BUILD
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def ensure_interior_material(full_path, build_fn):
+    """ensure_material, rebuilt once whenever INTERIOR_BUILD changes."""
+    existing = c.load_or_none(full_path)
+    if existing is not None and _int_tagged(existing):
+        return ensure_material(full_path, build_fn)
+    material = ensure_material(full_path, build_fn, rebuild=True)
+    if material is not None:
+        unreal.EditorAssetLibrary.set_metadata_tag(material, INTERIOR_TAG, INTERIOR_BUILD)
+        c.save(material)
+    return material
+
+
+def _build_int_plaster(material):
+    """Color, very slightly mottled: fine grain and big soft patches, both only ever darkening a little."""
+    color = vector_param(material, "Color", PLASTER_CREAM, -1000, -200)
+    fine = noise(material, 0.08, -1000, 0, out_min=0.93, out_max=1.0, levels=2, turbulence=False)
+    patches = noise(material, 0.006, -1000, 200, out_min=0.88, out_max=1.0, levels=2, turbulence=False)
+    connect_property(mul_all(material, [color, fine, patches], -600, 0), unreal.MaterialProperty.MP_BASE_COLOR)
+    rough = scalar_param(material, "Roughness", 0.85, -600, 250)
+    connect_property(rough, unreal.MaterialProperty.MP_ROUGHNESS)
+
+
+def _build_int_wood_floor(material):
+    """Boards laid along world X: PLANK_WIDTH rows along Y, each row's joints shifted by a hash of the row,
+    each board its own tone between PLANK_DARK and PLANK_LIGHT, dark seams, a satin finish."""
+    wp = world_position(material, -2200, 0)
+    x = component_mask(material, wp, r=True, x=-2000, y=-100)
+    y = component_mask(material, wp, g=True, x=-2000, y=100)
+    rows = divide(material, y, None, -1850, 100, const_b=PLANK_WIDTH)
+    row = floor_node(material, rows, -1700, 100)
+    shift = multiply(material, hash01(material, add(material, row, None, -1600, 250, const_b=0.37), -1500, 250), None,
+                     -700, 250, const_b=PLANK_LENGTH)
+    along = divide(material, add(material, x, shift, -550, -100), None, -400, -100, const_b=PLANK_LENGTH)
+    board = floor_node(material, along, -250, -100)
+    tone = hash01(material, add(material, multiply(material, board, None, -150, -250, const_b=7.13),
+                                multiply(material, row, None, -150, -350, const_b=1.7), 0, -300), 100, -300)
+    base = lerp(material, constant3(material, PLANK_DARK, 800, -500), constant3(material, PLANK_LIGHT, 800, -400), tone,
+                1000, -400)
+    grain = noise(material, 0.12, 800, -200, out_min=0.8, out_max=1.0, levels=2, turbulence=False)
+    stained = multiply(material, base, grain, 1150, -300)
+    seam_y = step(material, absolute(material, subtract(material, frac(material, rows, -1550, 450), None, -1400, 450,
+                                                        const_b=0.5), -1250, 450), 0.46, -1100, 450)
+    seam_x = step(material, absolute(material, subtract(material, frac(material, along, -250, 50), None, -100, 50,
+                                                        const_b=0.5), 50, 50), 0.493, 200, 50)
+    seam = maximum(material, seam_y, seam_x, 600, 200)
+    connect_property(lerp(material, stained, constant3(material, PLANK_SEAM, 1150, 100), seam, 1350, -100),
+                     unreal.MaterialProperty.MP_BASE_COLOR)
+    connect_property(lerp(material, None, None, seam, 1350, 250, const_a=0.42, const_b=0.9),
+                     unreal.MaterialProperty.MP_ROUGHNESS)
+
+
+def _build_int_carpet(material):
+    """Deep red pile: a fine grain and a faint large mottle, fully rough."""
+    fine = noise(material, 0.35, -900, 0, out_min=0.75, out_max=1.0, levels=2, turbulence=False)
+    mottle = noise(material, 0.01, -900, 200, out_min=0.85, out_max=1.0, levels=2, turbulence=False)
+    color = vector_param(material, "Color", CARPET_RED, -900, -200)
+    connect_property(mul_all(material, [color, fine, mottle], -500, 0), unreal.MaterialProperty.MP_BASE_COLOR)
+    set_scalar_property(material, 1.0, unreal.MaterialProperty.MP_ROUGHNESS, -500, 250)
+
+
+def _build_int_wood(material):
+    """Painted or stained wood for doors and furniture: Color with a soft grain."""
+    color = vector_param(material, "Color", INTERIOR_WOODS["Door"][0], -900, -200)
+    grain = noise(material, 0.06, -900, 0, out_min=0.78, out_max=1.0, levels=3, turbulence=False)
+    connect_property(multiply(material, color, grain, -500, -100), unreal.MaterialProperty.MP_BASE_COLOR)
+    connect_property(scalar_param(material, "Roughness", 0.5, -500, 200), unreal.MaterialProperty.MP_ROUGHNESS)
+
+
+def _build_int_glass(material):
+    """Display-case and window glass: translucent, a pale blue-green tint, glossy, a whisper of emissive
+    so the edges still read against a dark room."""
+    c.set_props(material, [("blend_mode", unreal.BlendMode.BLEND_TRANSLUCENT), ("two_sided", True)], "M_IntGlass")
+    try:
+        material.set_editor_property("translucency_lighting_mode",
+                                     unreal.TranslucencyLightingMode.TLM_SURFACE_PER_PIXEL_LIGHTING)
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("translucency_lighting_mode M_IntGlass", exc)
+    connect_property(constant3(material, (0.55, 0.7, 0.72), -600, -200), unreal.MaterialProperty.MP_BASE_COLOR)
+    connect_property(constant3(material, (0.004, 0.006, 0.007), -600, -60), unreal.MaterialProperty.MP_EMISSIVE_COLOR)
+    set_scalar_property(material, 0.05, unreal.MaterialProperty.MP_ROUGHNESS, -600, 80)
+    set_scalar_property(material, 0.9, unreal.MaterialProperty.MP_SPECULAR, -600, 180)
+    set_scalar_property(material, 0.18, unreal.MaterialProperty.MP_OPACITY, -600, 280)
+
+
+def _build_int_prop(material):
+    """Flat Color / Roughness, no snow: every indoor prop."""
+    connect_property(vector_param(material, "Color", (0.2, 0.2, 0.2), -600, -200), unreal.MaterialProperty.MP_BASE_COLOR)
+    connect_property(scalar_param(material, "Roughness", 0.7, -600, 0), unreal.MaterialProperty.MP_ROUGHNESS)
+
+
+def ensure_interior_materials():
+    """Every interior master and instance. Returns {"plaster": {name: MI}, "wood": {...}, "prop": {...},
+    "lamp": {...}, "wood_floor": M, "carpet": M, "concrete": M, "glass": M}."""
+    c.ensure_directory(MATERIALS_PATH)
+    out = {
+        "wood_floor": ensure_interior_material(M_INT_WOOD_FLOOR, _build_int_wood_floor),
+        "carpet": ensure_interior_material(M_INT_CARPET, _build_int_carpet),
+        "concrete": ensure_material(M_INT_CONCRETE, _build_concrete_floor),
+        "glass": ensure_interior_material(M_INT_GLASS, _build_int_glass),
+    }
+    plaster = ensure_interior_material(M_INT_PLASTER, _build_int_plaster)
+    wood = ensure_interior_material(M_INT_WOOD, _build_int_wood)
+    prop = ensure_interior_material(M_INT_PROP, _build_int_prop)
+    emissive = ensure_material(M_EMISSIVE, _build_emissive)
+    for key, parent, table, kind in (("plaster", plaster, INTERIOR_PAINTS, "Plaster"),
+                                     ("wood", wood, INTERIOR_WOODS, "Wood"),
+                                     ("prop", prop, INTERIOR_PROPS, "Prop")):
+        out[key] = {name: ensure_material_instance(mi_int_path(kind, name), parent, vectors=[("Color", rgb)],
+                                                   scalars=[("Roughness", rough)])
+                    for name, (rgb, rough) in sorted(table.items())}
+    out["lamp"] = {name: ensure_material_instance(mi_int_path("Lamp", name), emissive,
+                                                  vectors=[(EMISSIVE_COLOR_PARAM, rgb)],
+                                                  scalars=[(EMISSIVE_INTENSITY_PARAM, strength * EMISSIVE_INTENSITY_FACTOR)])
+                   for name, (rgb, strength) in sorted(INTERIOR_LAMPS.items())}
+    return out
+
+
+# --------------------------------------------------------------------------------------
 # public entry points
 # --------------------------------------------------------------------------------------
+
 
 
 def ensure_surface_materials():
