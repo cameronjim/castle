@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "World/CityLedgeSpawner.h"
 
@@ -16,7 +16,9 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerStart.h"
 #include "HAL/PlatformTime.h"
+#include "NiagaraComponent.h"
 #include "Player/GrappleComponent.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/CityLedgeData.h"
 #include "World/FireEscapeLanding.h"
 #include "World/GrappleAnchor.h"
@@ -57,6 +59,7 @@ ACityLedgeSpawner::ACityLedgeSpawner()
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	RootComponent->SetMobility(EComponentMobility::Static);
 	FireEscapeClass = AFireEscapeLanding::StaticClass();
+	ChimneyWispVfx = TSoftObjectPtr<UNiagaraSystem>(FSoftObjectPath(TEXT("/Game/VFX/NS_ChimneyWisp.NS_ChimneyWisp")));
 }
 
 bool ACityLedgeSpawner::IsSpawnComplete() const
@@ -95,6 +98,7 @@ void ACityLedgeSpawner::BeginPlay()
 	const double Start = FPlatformTime::Seconds();
 	SpawnFireEscapeVisuals();
 	SpawnClutter();
+	SpawnChimneyWisps();
 	QueueLedges(FindFocus());
 	SpawnQueuedLedges(ImmediateRadius, TNumericLimits<double>::Max());
 	LoadLedgeSeconds = static_cast<float>(FPlatformTime::Seconds() - Start);
@@ -337,6 +341,51 @@ void ACityLedgeSpawner::SpawnFireEscapeVisuals()
 	FireEscapeCylinders->AddInstances(Cylinders, /*bShouldReturnIndices=*/false, /*bWorldSpace=*/true);
 }
 
+const FName ACityLedgeSpawner::ChimneyKind(TEXT("Chimney"));
+
+TArray<FVector> ACityLedgeSpawner::PickChimneyTops(const TArray<FTransform>& Chimneys, const FVector& Focus, int32 Count,
+	float TopCm)
+{
+	TArray<FTransform> Sorted = Chimneys;
+	Sorted.Sort([&Focus](const FTransform& A, const FTransform& B)
+	{
+		return FVector::DistSquared2D(A.GetLocation(), Focus) < FVector::DistSquared2D(B.GetLocation(), Focus);
+	});
+	TArray<FVector> Tops;
+	for (int32 Index = 0; Index < Sorted.Num() && Tops.Num() < Count; ++Index)
+	{
+		Tops.Add(Sorted[Index].TransformPosition(FVector(0.f, 0.f, TopCm)));
+	}
+	return Tops;
+}
+
+void ACityLedgeSpawner::SpawnChimneyWisps()
+{
+	UWorld* World = GetWorld();
+	if (!Data || !World || !World->IsGameWorld() || ChimneyWisps.Num() > 0 || ChimneyWispVfx.IsNull()
+		|| ChimneyWispCount <= 0)
+	{
+		return;
+	}
+	TArray<FTransform> Chimneys;
+	for (const FCityClutterGroup& Group : Data->Clutter)
+	{
+		if (Group.Kind == ChimneyKind)
+		{
+			Chimneys.Append(Group.Instances);
+		}
+	}
+	for (const FVector& Top : PickChimneyTops(Chimneys, FindFocus(), ChimneyWispCount, ChimneyTopCm))
+	{
+		if (UNiagaraComponent* Wisp = UHawkeyeVfxSubsystem::SpawnKept(this, ChimneyWispVfx, Top,
+				UHawkeyeVfxSubsystem::ChimneyEvent))
+		{
+			ChimneyWisps.Add(Wisp);
+		}
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %d chimney wisp(s) of %d chimneys."), *GetName(), ChimneyWisps.Num(), Chimneys.Num());
+}
+
 void ACityLedgeSpawner::SpawnClutter()
 {
 	if (!Data || Data->Clutter.Num() == 0 || ClutterComponents.Num() > 0)
@@ -568,6 +617,11 @@ void ACityLedgeSpawner::DestroySpawned()
 		}
 	}
 	ClutterComponents.Reset();
+	for (TObjectPtr<UNiagaraComponent>& Wisp : ChimneyWisps)
+	{
+		UHawkeyeVfxSubsystem::Kill(Wisp);
+	}
+	ChimneyWisps.Reset();
 	FireEscapeCubes = nullptr;
 	FireEscapeCylinders = nullptr;
 	SpawnedFireEscapes.Reset();

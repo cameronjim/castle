@@ -11,6 +11,8 @@ class AGrappleAnchor;
 class UCityLedgeData;
 class UHierarchicalInstancedStaticMeshComponent;
 class UMaterialInterface;
+class UNiagaraComponent;
+class UNiagaraSystem;
 class UStaticMesh;
 struct FCityFireEscapeRecord;
 struct FCityLedgeRecord;
@@ -41,6 +43,9 @@ struct FCityLedgeRecord;
  * HVAC boxes, chimneys, hydrants, bins, bags, scaffolding, parked cars), added at once at load. A
  * group with bCollision blocks pawns and physics but ignores the visibility, camera and traversable
  * traces, and none of them affect navigation.
+ *
+ * Chimney wisps: in a game world, ChimneyWispCount of the chimneys nearest the player at load get
+ * a slow smoke stream (ChimneyWispVfx, NS_ChimneyWisp) ChimneyTopCm above their base.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API ACityLedgeSpawner : public AActor
@@ -76,6 +81,32 @@ public:
 	/** Black iron (M_SteelPainted). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
 	TObjectPtr<UMaterialInterface> FireEscapeMaterial;
+
+	/** Smoke rising from a few chimneys (NS_ChimneyWisp). None when unset. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City|Effects")
+	TSoftObjectPtr<UNiagaraSystem> ChimneyWispVfx;
+
+	/** How many chimneys, nearest the player at load, smoke. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City|Effects", meta = (ClampMin = "0"))
+	int32 ChimneyWispCount = 6;
+
+	/** The top of a chimney above its instance origin (SM_City_Chimney is 170 cm), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City|Effects", meta = (ClampMin = "0.0"))
+	float ChimneyTopCm = 175.f;
+
+	/** Clutter group whose instances are chimneys. */
+	static const FName ChimneyKind;
+
+	/**
+	 * The tops of the Count chimneys nearest Focus (2D), nearest first: each instance's origin plus
+	 * TopCm along its up axis, scaled. Pure.
+	 */
+	static TArray<FVector> PickChimneyTops(const TArray<FTransform>& Chimneys, const FVector& Focus, int32 Count,
+		float TopCm);
+
+	/** Chimney wisps spawned. */
+	UFUNCTION(BlueprintPure, Category = "City|Effects")
+	int32 GetChimneyWispCount() const { return ChimneyWisps.Num(); }
 
 	/** Show the spawned actors in the editor viewport (transient, never saved). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
@@ -185,6 +216,9 @@ protected:
 	/** One instanced mesh per clutter group, once. */
 	void SpawnClutter();
 
+	/** The chimney wisps, once, in a game world. */
+	void SpawnChimneyWisps();
+
 	/** The ledge class at Transform, trace-only, tagged; Label in an editor world. */
 	AActor* SpawnLedgeActor(const FTransform& Transform, const TArray<FName>& LedgeTags, const FString& Label);
 
@@ -214,6 +248,9 @@ protected:
 
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UHierarchicalInstancedStaticMeshComponent>> ClutterComponents;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UNiagaraComponent>> ChimneyWisps;
 
 	/** Indices into Data->Ledges, nearest first, and how far down the list spawning has got. */
 	TArray<int32> LedgeQueue;
