@@ -3,6 +3,9 @@
 #include "Combat/ArrowProjectile.h"
 
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioMath.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
+#include "Components/AudioComponent.h"
 #include "CollisionQueryParams.h"
 #include "Combat/ArrowDefinition.h"
 #include "Combat/ArrowEffects/ArrowEffect.h"
@@ -203,6 +206,23 @@ void AArrowProjectile::LaunchWithVelocity(const FVector& Velocity)
 	{
 		Movement->OnProjectileStop.AddDynamic(this, &AArrowProjectile::HandleImpact);
 	}
+	if (const UBowComponent* SourceBow = Source.Get())
+	{
+		Whistle = UHawkeyeAudioSubsystem::PlayAttached(SourceBow->WhistleSound, Collision, TEXT("arrow whistle"));
+	}
+}
+
+void AArrowProjectile::PlayImpactSound(const FHitResult& Hit) const
+{
+	const UBowComponent* SourceBow = Source.Get();
+	if (!SourceBow)
+	{
+		return;
+	}
+	const AActor* HitActor = Hit.GetActor();
+	const EHawkeyeArrowSurface Surface = HawkeyeAudioMath::ClassifyArrowSurface(
+		HitActor && HitActor->FindComponentByClass<UHealthComponent>(), GetNameSafe(HitActor));
+	UHawkeyeAudioSubsystem::PlayAt(this, SourceBow->GetImpactSound(Surface), Hit.ImpactPoint, TEXT("arrow impact"));
 }
 
 void AArrowProjectile::AdvanceFlight(float DeltaSeconds)
@@ -346,6 +366,10 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 
 	bInFlight = false;
 	bStuck = true;
+	if (UAudioComponent* Air = Whistle.Get())
+	{
+		Air->Stop();
+	}
 
 	// The explosive's damage is the blast's, falling off from the centre; a direct hit is not
 	// also a stab for the full 80.
@@ -370,6 +394,7 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 	}
 
 	const FName Bone = ResolveHitBone(Hit, Direction);
+	PlayImpactSound(Hit);
 	if (Effect != EArrowHitEffect::Explosive)
 	{
 		DamageVictim(Hit, Direction, Bone);
@@ -413,6 +438,10 @@ bool AArrowProjectile::TryRecoverBy(AActor* Collector)
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s recovered %s as %s; %d in slot %d."), *GetNameSafe(Collector), *GetNameSafe(Arrow),
 		*GetNameSafe(Into), Inventory->GetArrowCount(Into->Slot), Into->Slot);
+	if (const UBowComponent* CollectorBow = Collector->FindComponentByClass<UBowComponent>())
+	{
+		CollectorBow->PlayPickupSound();
+	}
 	if (!Arrow->PickupToast.IsEmpty() && Inventory->NoteFirstPickup(Arrow))
 	{
 		UE_LOG(LogHawkeye, Log, TEXT("%s: first pickup of %s, toast \"%s\"."), *GetNameSafe(Collector), *GetNameSafe(Arrow),

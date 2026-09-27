@@ -7,6 +7,7 @@
 #include "ArrowProjectile.generated.h"
 
 class UArrowDefinition;
+class UAudioComponent;
 class UBowComponent;
 class UBowDefinition;
 class UProjectileMovementComponent;
@@ -175,6 +176,12 @@ protected:
 	TWeakObjectPtr<AActor> Shooter;
 	TWeakObjectPtr<UBowComponent> Source;
 	TWeakObjectPtr<AActor> StuckIn;
+
+	/** The whistle riding on the arrow; cut off when it lands. */
+	TWeakObjectPtr<UAudioComponent> Whistle;
+
+	/** The source bow's impact sound for what Hit struck, at the impact. */
+	void PlayImpactSound(const FHitResult& Hit) const;
 
 	float Damage = 0.f;
 	bool bInFlight = false;

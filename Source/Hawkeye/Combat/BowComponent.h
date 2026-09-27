@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Audio/HawkeyeAudioTypes.h"
 #include "Combat/BowHandIKTypes.h"
 #include "Math/RandomStream.h"
 #include "BowComponent.generated.h"
@@ -11,6 +12,8 @@
 class AArrowProjectile;
 class UAnimInstance;
 class UArrowDefinition;
+class UAudioComponent;
+class USoundBase;
 class UHawkeyeBowIKAnimInstance;
 class USkeletalMeshComponent;
 class UBowDefinition;
@@ -277,6 +280,45 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual", meta = (ClampMin = "1.0"))
 	float NockedArrowLength = 80.f;
 
+	// --- Audio ------------------------------------------------------------------------------------
+
+	/** Loops while drawing; its Draw input follows the draw fraction (MS_Bow_Draw). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Audio")
+	TSoftObjectPtr<USoundBase> DrawSound;
+
+	/** The twang as an arrow leaves (MS_Bow_Release). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Audio")
+	TSoftObjectPtr<USoundBase> ReleaseSound;
+
+	/** Rides on each of this bow's arrows as it flies (MS_Arrow_Whistle). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Audio")
+	TSoftObjectPtr<USoundBase> WhistleSound;
+
+	/** This bow's arrows landing in brick, concrete and steel: most of the city (MS_Arrow_Impact_Stone). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Audio")
+	TSoftObjectPtr<USoundBase> ImpactStoneSound;
+
+	/** In a water tower, a door, scaffolding (MS_Arrow_Impact_Wood). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Audio")
+	TSoftObjectPtr<USoundBase> ImpactWoodSound;
+
+	/** In anything with health (MS_Arrow_Impact_Flesh). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Audio")
+	TSoftObjectPtr<USoundBase> ImpactFleshSound;
+
+	/** An arrow or a pickup going into the quiver of this bow's owner (MS_Arrow_Pickup). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Audio")
+	TSoftObjectPtr<USoundBase> PickupSound;
+
+	/** The draw loop's float input. */
+	static const FName DrawParameter;
+
+	/** The impact sound for Surface. */
+	const TSoftObjectPtr<USoundBase>& GetImpactSound(EHawkeyeArrowSurface Surface) const;
+
+	/** Plays PickupSound on the owner. */
+	void PlayPickupSound() const;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -340,6 +382,10 @@ protected:
 	/** The bow the visual was built for, so a new bow rebuilds it. */
 	UPROPERTY(Transient)
 	TObjectPtr<UBowDefinition> VisualBow = nullptr;
+
+	/** The creak while drawing, or null. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> DrawLoop = nullptr;
 
 	UPROPERTY(Transient)
 	FRandomStream SpreadStream;

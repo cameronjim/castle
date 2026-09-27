@@ -4,6 +4,8 @@
 
 #include "Camera/CameraComponent.h"
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
+#include "Components/AudioComponent.h"
 #include "CollisionQueryParams.h"
 #include "Combat/ArrowDefinition.h"
 #include "Combat/ArrowProjectile.h"
@@ -28,6 +30,8 @@ namespace HawkeyeBow
 	static const TCHAR* CylinderPath = TEXT("/Engine/BasicShapes/Cylinder.Cylinder");
 	static const TCHAR* ShapeMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
 }
+
+const FName UBowComponent::DrawParameter(TEXT("Draw"));
 
 UBowComponent::UBowComponent()
 {
@@ -102,6 +106,7 @@ void UBowComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		Inventory->OnInventoryChanged.RemoveDynamic(this, &UBowComponent::HandleInventoryChanged);
 	}
+	UHawkeyeAudioSubsystem::StopLoop(DrawLoop, TEXT("bow draw"));
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -111,9 +116,35 @@ void UBowComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorCo
 
 	if (bDrawing)
 	{
-		OnDrawChanged.Broadcast(GetDrawFraction());
+		const float Fraction = GetDrawFraction();
+		OnDrawChanged.Broadcast(Fraction);
+		if (DrawLoop)
+		{
+			DrawLoop->SetFloatParameter(DrawParameter, Fraction);
+		}
 	}
 	UpdateBowVisual();
+}
+
+const TSoftObjectPtr<USoundBase>& UBowComponent::GetImpactSound(EHawkeyeArrowSurface Surface) const
+{
+	switch (Surface)
+	{
+	case EHawkeyeArrowSurface::Wood:
+		return ImpactWoodSound;
+	case EHawkeyeArrowSurface::Flesh:
+		return ImpactFleshSound;
+	default:
+		return ImpactStoneSound;
+	}
+}
+
+void UBowComponent::PlayPickupSound() const
+{
+	if (const AActor* Owner = GetOwner())
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, PickupSound, Owner->GetActorLocation(), TEXT("pickup"));
+	}
 }
 
 double UBowComponent::GetNowSeconds() const
@@ -203,12 +234,19 @@ bool UBowComponent::StartDraw()
 	}
 	OnDrawChanged.Broadcast(0.f);
 	UpdateBowVisual();
+	UHawkeyeAudioSubsystem::StopLoop(DrawLoop, TEXT("bow draw"));
+	DrawLoop = UHawkeyeAudioSubsystem::PlayAttached(DrawSound, Owner->GetRootComponent(), TEXT("bow draw"));
+	if (DrawLoop)
+	{
+		DrawLoop->SetFloatParameter(DrawParameter, 0.f);
+	}
 	return true;
 }
 
 void UBowComponent::EndDraw()
 {
 	bDrawing = false;
+	UHawkeyeAudioSubsystem::StopLoop(DrawLoop, TEXT("bow draw"));
 	OnDrawChanged.Broadcast(0.f);
 	if (AHawkeyeCharacter* Character = Cast<AHawkeyeCharacter>(GetOwner()))
 	{
@@ -310,6 +348,7 @@ bool UBowComponent::FireArrow(float Elapsed)
 		Projectile->InitArrow(Arrow, Bow, Damage, Owner, this);
 		Projectile->LaunchWithVelocity(Direction * Speed);
 	}
+	UHawkeyeAudioSubsystem::PlayAt(this, ReleaseSound, Start, TEXT("bow release"));
 
 	if (bPerfect)
 	{

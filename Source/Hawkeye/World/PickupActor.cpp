@@ -4,6 +4,7 @@
 
 #include "Hawkeye.h"
 #include "Combat/ArrowDefinition.h"
+#include "Combat/BowComponent.h"
 #include "Combat/BowDefinition.h"
 #include "Components/StaticMeshComponent.h"
 #include "Mission/MissionSubsystem.h"
@@ -147,6 +148,10 @@ bool APickupActor::ApplyTo(AActor* Interactor)
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s picked up %s."), *Character->GetName(), *GetName());
 
+	if (const UBowComponent* CollectorBow = Interactor ? Interactor->FindComponentByClass<UBowComponent>() : nullptr)
+	{
+		CollectorBow->PlayPickupSound();
+	}
 	OnPickedUp(Interactor);
 	Destroy();
 	return true;
