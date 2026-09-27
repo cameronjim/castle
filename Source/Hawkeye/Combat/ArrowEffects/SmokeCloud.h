@@ -14,9 +14,9 @@ class UStaticMeshComponent;
  * UArrowEffectsSubsystem, and a thug whose line of sight to the player passes through it (or who
  * stands in it) is blinded; Kate crouched inside it cannot be detected at all.
  *
- * The look is a placeholder: the engine ships no ready-made smoke Niagara system (only editor
- * templates) and the project has no starter content, so it is a cluster of soft grey translucent
- * puffs (M_ArrowFx) that swell in over GrowSeconds and thin out over FadeSeconds.
+ * The look is the definition's EffectVfx (NS_SmokeCloud: soft lit sprites billowing out at once,
+ * then a stream for six seconds, drifting). Without it the old placeholder stands in: a cluster of
+ * grey translucent puffs (M_ArrowFx) that swell over GrowSeconds and thin out over FadeSeconds.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API ASmokeCloud : public AArrowEffect

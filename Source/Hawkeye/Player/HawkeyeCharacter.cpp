@@ -46,6 +46,9 @@
 #include "UObject/SoftObjectPath.h"
 #include "UI/HawkeyeHudWidget.h"
 #include "UI/QuiverWheelMath.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Vfx/HawkeyeVfxMath.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 
 static TAutoConsoleVariable<int32> CVarHawkeyeDebugMovement(
 	TEXT("hawkeye.DebugMovement"),
@@ -1831,6 +1834,60 @@ void AHawkeyeCharacter::UpdateHitReactions(float DeltaSeconds)
 {
 	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
 	HitShakeRemaining = FMath::Max(0.f, HitShakeRemaining - DeltaSeconds);
+	UpdateScreenPulse(DeltaSeconds);
+}
+
+float AHawkeyeCharacter::GetScreenPulseStrength() const
+{
+	if (ScreenPulseRemaining <= 0.f || ScreenPulseSeconds <= 0.f)
+	{
+		return 0.f;
+	}
+	// Sharp on, eased off.
+	const float Alpha = ScreenPulseRemaining / ScreenPulseSeconds;
+	return ScreenPulseStart * Alpha * Alpha;
+}
+
+void AHawkeyeCharacter::PlayScreenPulse(float Seconds, float Strength)
+{
+	if (Seconds <= 0.f || Strength <= 0.f || GetScreenPulseStrength() > Strength)
+	{
+		return;
+	}
+	ScreenPulseSeconds = Seconds;
+	ScreenPulseRemaining = Seconds;
+	ScreenPulseStart = FMath::Clamp(Strength, 0.f, 1.f);
+	UHawkeyeVfxSubsystem::NoteRequest(this, UHawkeyeVfxSubsystem::ScreenPulseEvent, GetActorLocation());
+	if (!ScreenPulseInstance && FollowCamera && !ScreenPulseMaterial.IsNull())
+	{
+		// Loaded here, not at BeginPlay: most of a run never sees an EMP.
+		if (UMaterialInterface* Material = ScreenPulseMaterial.LoadSynchronous())
+		{
+			ScreenPulseInstance = UMaterialInstanceDynamic::Create(Material, this);
+			FollowCamera->PostProcessSettings.AddBlendable(ScreenPulseInstance, 0.f);
+		}
+	}
+	UpdateScreenPulse(0.f);
+}
+
+void AHawkeyeCharacter::UpdateScreenPulse(float DeltaSeconds)
+{
+	if (ScreenPulseRemaining <= 0.f && ScreenPulseStart <= 0.f)
+	{
+		return;
+	}
+	ScreenPulseRemaining = FMath::Max(0.f, ScreenPulseRemaining - DeltaSeconds);
+	const float Strength = GetScreenPulseStrength();
+	if (ScreenPulseRemaining <= 0.f)
+	{
+		ScreenPulseStart = 0.f;
+	}
+	if (ScreenPulseInstance && FollowCamera)
+	{
+		ScreenPulseInstance->SetScalarParameterValue(TEXT("Intensity"), Strength);
+		// Weight 0 once it is over, so the pass is skipped rather than run as a no-op.
+		FollowCamera->PostProcessSettings.AddBlendable(ScreenPulseInstance, Strength > 0.f ? 1.f : 0.f);
+	}
 }
 
 float AHawkeyeCharacter::ComputeLowHealthAlpha(float HealthPercent) const
@@ -2054,6 +2111,7 @@ void AHawkeyeCharacter::UpdateFootsteps()
 void AHawkeyeCharacter::PlayFootstep()
 {
 	++FootstepCount;
+	KickFootstepSnow();
 	if (FootstepSounds.Num() == 0)
 	{
 		return;
@@ -2069,6 +2127,14 @@ void AHawkeyeCharacter::PlayFootstep()
 		TEXT("footstep"), bIsSprinting ? 1.f : 0.8f);
 }
 
+void AHawkeyeCharacter::KickFootstepSnow()
+{
+	const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
+	const FVector Kick = HawkeyeVfxMath::ComputeFootstepKickDirection(GetActorForwardVector(), GetVelocity());
+	UHawkeyeVfxSubsystem::SpawnAt(this, FootstepVfx, GetActorLocation() - FVector(0.f, 0.f, HalfHeight - 3.f),
+		Kick.Rotation(), UHawkeyeVfxSubsystem::FootstepEvent, bIsSprinting ? 1.f : 0.75f);
+}
+
 void AHawkeyeCharacter::ApplyLanding(float FallHeight)
 {
 	LastFallHeight = FallHeight;
@@ -2079,6 +2145,13 @@ void AHawkeyeCharacter::ApplyLanding(float FallHeight)
 		{
 			Thud->SetFloatParameter(IntensityParameter, LandIntensity);
 		}
+	}
+	const float PuffScale = HawkeyeVfxMath::ComputeLandingPuffScale(FallHeight);
+	if (PuffScale > 0.f)
+	{
+		const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
+		UHawkeyeVfxSubsystem::SpawnAt(this, LandingVfx, GetActorLocation() - FVector(0.f, 0.f, HalfHeight - 3.f),
+			FRotator::ZeroRotator, UHawkeyeVfxSubsystem::LandingEvent, PuffScale);
 	}
 	if (FallHeight >= 50.f)
 	{

@@ -15,6 +15,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 
 const TCHAR* const AArrowEffect::FxMaterialPath = TEXT("/Game/Blueprints/Weapons/M_ArrowFx.M_ArrowFx");
 const TCHAR* const AArrowEffect::GlowMaterialPath = TEXT("/Game/Blueprints/Weapons/M_ArrowGlow.M_ArrowGlow");
@@ -126,6 +127,25 @@ void AArrowEffect::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	AdvanceEffect(DeltaSeconds);
+}
+
+UNiagaraComponent* AArrowEffect::SpawnEffectVfx(FName Event, const FVector& Location)
+{
+	const TSoftObjectPtr<UNiagaraSystem> None;
+	// The trick effects are authored Z-up (smoke rises, the EMP ring lies flat): Z along the normal.
+	UNiagaraComponent* Spawned = UHawkeyeVfxSubsystem::SpawnAt(this, Arrow ? Arrow->EffectVfx : None, Location,
+		FRotationMatrix::MakeFromZ(ImpactNormal).Rotator(), Event);
+	bEffectVfxSpawned = bEffectVfxSpawned || Spawned != nullptr;
+	return Spawned;
+}
+
+void AArrowEffect::HidePlaceholders()
+{
+	TInlineComponentArray<UStaticMeshComponent*> Parts(this);
+	for (UStaticMeshComponent* Part : Parts)
+	{
+		Part->SetVisibility(false);
+	}
 }
 
 UStaticMeshComponent* AArrowEffect::MakeVisualPart(const TCHAR* Name, UStaticMesh* Mesh)

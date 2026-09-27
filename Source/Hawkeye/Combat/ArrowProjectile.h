@@ -10,6 +10,7 @@ class UArrowDefinition;
 class UAudioComponent;
 class UBowComponent;
 class UBowDefinition;
+class UNiagaraComponent;
 class UProjectileMovementComponent;
 class USphereComponent;
 class UStaticMeshComponent;
@@ -180,8 +181,12 @@ protected:
 	/** The whistle riding on the arrow; cut off when it lands. */
 	TWeakObjectPtr<UAudioComponent> Whistle;
 
-	/** The source bow's impact sound for what Hit struck, at the impact. */
+	/** The source bow's impact sound and effect for what Hit struck, at the impact. */
 	void PlayImpactSound(const FHitResult& Hit) const;
+
+	/** The trail riding on the arrow in flight; let go (to fade) when it lands. */
+	UPROPERTY(Transient)
+	TObjectPtr<UNiagaraComponent> Trail = nullptr;
 
 	float Damage = 0.f;
 	bool bInFlight = false;

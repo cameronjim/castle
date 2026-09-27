@@ -13,7 +13,9 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
+#include "NiagaraComponent.h"
 #include "TimerManager.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/ThugCharacter.h"
 
 UWeaponComponent::UWeaponComponent()
@@ -336,6 +338,28 @@ bool UWeaponComponent::FireMelee()
 	return true;
 }
 
+FVector UWeaponComponent::GetMuzzleLocation(const FVector& ViewLocation, const FVector& Direction) const
+{
+	if (const AThugCharacter* Thug = Cast<AThugCharacter>(GetOwner()))
+	{
+		return Thug->GetGlintLocation();
+	}
+	return ViewLocation + Direction * 50.f;
+}
+
+void UWeaponComponent::PlayShotEffects(const FVector& ViewLocation, const FVector& Direction, const FVector& End) const
+{
+	const FVector Muzzle = GetMuzzleLocation(ViewLocation, Direction);
+	const FRotator Along = (End - Muzzle).IsNearlyZero() ? Direction.Rotation() : (End - Muzzle).Rotation();
+	UHawkeyeVfxSubsystem::SpawnAt(this, MuzzleFlashVfx, Muzzle, Along, UHawkeyeVfxSubsystem::MuzzleFlashEvent);
+	if (UNiagaraComponent* Tracer = UHawkeyeVfxSubsystem::SpawnAt(this, TracerVfx, Muzzle, Along,
+			UHawkeyeVfxSubsystem::TracerEvent))
+	{
+		Tracer->SetVariableVec3(TEXT("User.BeamStart"), Muzzle);
+		Tracer->SetVariableVec3(TEXT("User.BeamEnd"), End);
+	}
+}
+
 void UWeaponComponent::TraceAndApplyDamage()
 {
 	UWorld* World = GetWorld();
@@ -361,6 +385,7 @@ void UWeaponComponent::TraceAndApplyDamage()
 
 	FHitResult Hit;
 	const bool bHitSomething = World->LineTraceSingleByChannel(Hit, ViewLocation, TraceEnd, TraceChannel, QueryParams);
+	PlayShotEffects(ViewLocation, ShotDirection, bHitSomething ? FVector(Hit.ImpactPoint) : TraceEnd);
 
 	if (bHitSomething && Hit.GetActor())
 	{

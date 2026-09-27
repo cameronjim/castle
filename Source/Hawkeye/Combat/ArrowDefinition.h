@@ -8,6 +8,8 @@
 
 class AArrowEffect;
 class AArrowProjectile;
+class UMaterialInterface;
+class UNiagaraSystem;
 class USoundBase;
 class UTexture2D;
 
@@ -98,6 +100,29 @@ public:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Audio")
 	bool bEffectSoundFollowsEffect = false;
+
+	/**
+	 * What the effect looks like as it goes off, spawned where it lands (NS_SmokeCloud, NS_EmpPulse,
+	 * NS_Explosion, NS_PuttySplat). When it is set the effect's placeholder shapes stay hidden.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Effects")
+	TSoftObjectPtr<UNiagaraSystem> EffectVfx;
+
+	/** Rides on the arrow in flight (NS_BolaTrail). Empty: the bow's plain arrow trail. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Effects")
+	TSoftObjectPtr<UNiagaraSystem> FlightVfx;
+
+	/** A decal left on the ground under the effect (M_Decal_Scorch for the explosive). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Effects")
+	TSoftObjectPtr<UMaterialInterface> GroundDecal;
+
+	/** Radius of GroundDecal, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Effects", meta = (ClampMin = "1.0"))
+	float GroundDecalRadius = 170.f;
+
+	/** How long GroundDecal stays, fading over its last quarter, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Effects", meta = (ClampMin = "0.0"))
+	float GroundDecalSeconds = 30.f;
 
 	/** Hotbar icon. TODO(stage3): unused until icons are drawn; the hotbar shows ShortName. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")

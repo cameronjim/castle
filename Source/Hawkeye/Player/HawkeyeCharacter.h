@@ -21,6 +21,9 @@ class UHealthComponent;
 class UInteractionComponent;
 class UGrappleComponent;
 class UInventoryComponent;
+class UMaterialInstanceDynamic;
+class UMaterialInterface;
+class UNiagaraSystem;
 class UParkourComponent;
 class UPawnNoiseEmitterComponent;
 class USoundBase;
@@ -396,6 +399,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Camera")
 	void PlayImpactShake(float Seconds, float Amplitude);
 
+	/**
+	 * A brief chromatic split on her camera (ScreenPulseMaterial) for Seconds, Strength 0..1 at the
+	 * start and fading out. An EMP nearby calls it. A stronger pulse running on is left alone.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Camera")
+	void PlayScreenPulse(float Seconds, float Strength);
+
+	/** The screen pulse's strength right now, 0 when none is running. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	float GetScreenPulseStrength() const;
+
 	// --- Quiver wheel (claude-docs/gameplay-semantics.md, "trick arrows") -----------------------
 
 	/**
@@ -528,6 +542,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
 	TSoftObjectPtr<USoundBase> StaggerSound;
 
+	/** Snow kicked up behind each footstep (NS_FootstepSnow), on the same trigger as the sound. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Effects")
+	TSoftObjectPtr<UNiagaraSystem> FootstepVfx;
+
+	/** A ring of snow round her feet on landing, scaled by the fall (NS_LandingSnow). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Effects")
+	TSoftObjectPtr<UNiagaraSystem> LandingVfx;
+
+	/** The post-process material PlayScreenPulse blends in; its Intensity scalar is driven (M_PP_EmpAberration). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Effects")
+	TSoftObjectPtr<UMaterialInterface> ScreenPulseMaterial;
+
 	/** The landing sound's float input. */
 	static const FName IntensityParameter;
 
@@ -646,8 +672,11 @@ protected:
 	/** Walks the footstep tracker on by this frame's ground travel and plays a step when one is due. */
 	void UpdateFootsteps();
 
-	/** One of FootstepSounds at the feet. */
+	/** One of FootstepSounds at the feet, and the snow kick. */
 	void PlayFootstep();
+
+	/** FootstepVfx at the feet, thrown back and up from the way she moves. */
+	void KickFootstepSnow();
 
 	/**
 	 * A roll along Direction: RollDistance over RollSeconds as a root motion force, the capsule down
@@ -1367,6 +1396,18 @@ protected:
 	/** Length and throw of the shake now running: a hit's, or a blast's from PlayImpactShake. */
 	UPROPERTY(Transient)
 	float ActiveShakeSeconds = 0.2f;
+
+	/** The screen pulse now running: seconds left, its length and its starting strength. */
+	float ScreenPulseRemaining = 0.f;
+	float ScreenPulseSeconds = 0.f;
+	float ScreenPulseStart = 0.f;
+
+	/** The pulse material's instance on the follow camera, made on the first pulse. */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> ScreenPulseInstance = nullptr;
+
+	/** Fades the screen pulse and pushes it to the camera. */
+	void UpdateScreenPulse(float DeltaSeconds);
 
 	UPROPERTY(Transient)
 	float ActiveShakeAmplitude = 6.f;

@@ -24,6 +24,7 @@
 #include "Player/HawkeyeCharacter.h"
 #include "Player/GrappleComponent.h"
 #include "Player/InventoryComponent.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 
 namespace HawkeyeBow
 {
@@ -124,6 +125,19 @@ void UBowComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorCo
 		}
 	}
 	UpdateBowVisual();
+}
+
+const TSoftObjectPtr<UNiagaraSystem>& UBowComponent::GetImpactVfx(EHawkeyeArrowSurface Surface) const
+{
+	switch (Surface)
+	{
+	case EHawkeyeArrowSurface::Wood:
+		return ImpactWoodVfx;
+	case EHawkeyeArrowSurface::Flesh:
+		return HitSparkVfx;
+	default:
+		return ImpactStoneVfx;
+	}
 }
 
 const TSoftObjectPtr<USoundBase>& UBowComponent::GetImpactSound(EHawkeyeArrowSurface Surface) const
@@ -349,6 +363,7 @@ bool UBowComponent::FireArrow(float Elapsed)
 		Projectile->LaunchWithVelocity(Direction * Speed);
 	}
 	UHawkeyeAudioSubsystem::PlayAt(this, ReleaseSound, Start, TEXT("bow release"));
+	UHawkeyeVfxSubsystem::SpawnAt(this, ReleaseVfx, Start, Direction.Rotation(), UHawkeyeVfxSubsystem::BowReleaseEvent);
 
 	if (bPerfect)
 	{

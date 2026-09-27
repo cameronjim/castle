@@ -10,6 +10,8 @@
 #include "EngineUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Player/HawkeyeCharacter.h"
+#include "Vfx/HawkeyeVfxMath.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/ThugCharacter.h"
 
 AExplosiveBlast::AExplosiveBlast()
@@ -54,7 +56,26 @@ void AExplosiveBlast::Activate()
 	Super::Activate();
 	SetActorLocation(ImpactPoint);
 	ApplyBlast();
+	if (SpawnEffectVfx(UHawkeyeVfxSubsystem::ExplosionEvent, ImpactPoint))
+	{
+		HidePlaceholders();
+	}
+	LeaveScorch();
 	UpdateFireball();
+}
+
+void AExplosiveBlast::LeaveScorch()
+{
+	FHitResult Ground;
+	FVector Location;
+	FRotator Rotation;
+	if (!Arrow || !HawkeyeVfxMath::TraceGround(GetWorld(), ImpactPoint, ScorchDropCm, Ground, this)
+		|| !HawkeyeVfxMath::ComputeScorchPlacement(Ground, FMath::FRandRange(0.f, 360.f), Location, Rotation))
+	{
+		return;
+	}
+	UHawkeyeVfxSubsystem::SpawnDecal(this, Arrow->GroundDecal, Location, Rotation, Arrow->GroundDecalRadius,
+		Arrow->GroundDecalSeconds, Arrow->GroundDecalSeconds * 0.25f, UHawkeyeVfxSubsystem::ScorchEvent);
 }
 
 void AExplosiveBlast::ApplyBlast()
@@ -135,6 +156,7 @@ void AExplosiveBlast::UpdateFireball()
 	{
 		CoreMaterial->SetScalarParameterValue(TEXT("Intensity"), 1.2f * Fade);
 	}
-	// A street lamp is under 100 cd; this is a couple of dozen of them for an instant.
-	Flash->SetIntensity(2500.f * Fade * Fade);
+	// A street lamp is under 100 cd; this is a couple of dozen of them for an instant. With the
+	// Niagara fireball glowing on its own the light only has to throw the colour, not be the blast.
+	Flash->SetIntensity((bEffectVfxSpawned ? 700.f : 2500.f) * Fade * Fade);
 }

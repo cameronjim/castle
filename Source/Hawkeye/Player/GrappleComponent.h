@@ -11,6 +11,8 @@ class AGrappleAnchor;
 class AGrappleArrowProjectile;
 class UArrowDefinition;
 class UAudioComponent;
+class UNiagaraComponent;
+class UNiagaraSystem;
 class USoundBase;
 class UInventoryComponent;
 
@@ -272,8 +274,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple|Audio")
 	TSoftObjectPtr<USoundBase> LandSound;
 
+	/** The line from her hand to the anchor while she zips (NS_ZipLine; User.BeamStart/BeamEnd each frame). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple|Effects")
+	TSoftObjectPtr<UNiagaraSystem> ZipLineVfx;
+
+	/** Sparks where the grapple arrow bites into the anchor (NS_AnchorSparks). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple|Effects")
+	TSoftObjectPtr<UNiagaraSystem> AnchorSparksVfx;
+
+	/** The mesh socket the zip line leaves from; the capsule's top when the mesh has none. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple|Effects")
+	FName ZipLineSocket = TEXT("hand_l");
+
+	/** The zip line's component while she is on the line, else null. */
+	UFUNCTION(BlueprintPure, Category = "Grapple|Effects")
+	UNiagaraComponent* GetZipLineComponent() const { return ZipLine; }
+
+	/** Where the zip line leaves her: the ZipLineSocket, or 40 cm over the capsule centre. */
+	FVector GetZipLineStart() const;
+
 	/** The zip loop's float input, 0..1. */
 	static const FName SpeedParameter;
+
+	/** The zip line system's two ends. */
+	static const FName BeamStartParameter;
+	static const FName BeamEndParameter;
 
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
@@ -283,6 +308,13 @@ protected:
 	/** The zip hum while on the line, or null. */
 	UPROPERTY(Transient)
 	TObjectPtr<UAudioComponent> ZipLoop = nullptr;
+
+	/** The zip line while on the line, or null. */
+	UPROPERTY(Transient)
+	TObjectPtr<UNiagaraComponent> ZipLine = nullptr;
+
+	/** Puts the zip line's ends on her hand and the anchor (spawning it on the first call of a zip). */
+	void UpdateZipLine();
 
 	/** 0..1 for the zip loop: low on the hop up to the line, full along it at ZipSpeed. */
 	float ComputeZipSoundSpeed() const;

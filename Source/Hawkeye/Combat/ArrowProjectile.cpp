@@ -29,6 +29,7 @@
 #include "UI/HawkeyeHudWidget.h"
 #include "UI/HawkeyeObjectiveWidget.h"
 #include "UObject/ConstructorHelpers.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/ThugCharacter.h"
 
 namespace HawkeyeArrow
@@ -206,9 +207,17 @@ void AArrowProjectile::LaunchWithVelocity(const FVector& Velocity)
 	{
 		Movement->OnProjectileStop.AddDynamic(this, &AArrowProjectile::HandleImpact);
 	}
-	if (const UBowComponent* SourceBow = Source.Get())
+	const UBowComponent* SourceBow = Source.Get();
+	if (SourceBow)
 	{
 		Whistle = UHawkeyeAudioSubsystem::PlayAttached(SourceBow->WhistleSound, Collision, TEXT("arrow whistle"));
+	}
+	// A trick arrow's own trail (the bola's whirl), else the bow's faint streak.
+	const bool bOwnTrail = Arrow && !Arrow->FlightVfx.IsNull();
+	if (!Trail && (bOwnTrail || SourceBow))
+	{
+		Trail = UHawkeyeVfxSubsystem::SpawnAttached(bOwnTrail ? Arrow->FlightVfx : SourceBow->ArrowTrailVfx, Collision,
+			bOwnTrail ? UHawkeyeVfxSubsystem::TrickEffectEvent : UHawkeyeVfxSubsystem::ArrowTrailEvent);
 	}
 }
 
@@ -223,6 +232,10 @@ void AArrowProjectile::PlayImpactSound(const FHitResult& Hit) const
 	const EHawkeyeArrowSurface Surface = HawkeyeAudioMath::ClassifyArrowSurface(
 		HitActor && HitActor->FindComponentByClass<UHealthComponent>(), GetNameSafe(HitActor));
 	UHawkeyeAudioSubsystem::PlayAt(this, SourceBow->GetImpactSound(Surface), Hit.ImpactPoint, TEXT("arrow impact"));
+	// Out of the surface: the systems throw along their X.
+	const FVector Normal = FVector(Hit.ImpactNormal).IsNearlyZero() ? -GetActorForwardVector() : FVector(Hit.ImpactNormal);
+	UHawkeyeVfxSubsystem::SpawnAt(this, SourceBow->GetImpactVfx(Surface), Hit.ImpactPoint, Normal.Rotation(),
+		Surface == EHawkeyeArrowSurface::Flesh ? UHawkeyeVfxSubsystem::HitSparkEvent : UHawkeyeVfxSubsystem::ArrowImpactEvent);
 }
 
 void AArrowProjectile::AdvanceFlight(float DeltaSeconds)
@@ -370,6 +383,7 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 	{
 		Air->Stop();
 	}
+	UHawkeyeVfxSubsystem::Release(Trail);
 
 	// The explosive's damage is the blast's, falling off from the centre; a direct hit is not
 	// also a stab for the full 80.

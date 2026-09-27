@@ -9,6 +9,7 @@
 #include "WeaponComponent.generated.h"
 
 class UDamageType;
+class UNiagaraSystem;
 class USoundBase;
 class UWeaponDefinition;
 
@@ -119,6 +120,17 @@ public:
 	/** Each shot fired, at the muzzle end of the owner (MS_Thug_Gunshot on the gunner). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Audio")
 	TSoftObjectPtr<USoundBase> FireSound;
+
+	/** Each shot's flash at the muzzle, along the shot (NS_MuzzleFlash on the gunner). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
+	TSoftObjectPtr<UNiagaraSystem> MuzzleFlashVfx;
+
+	/** Each shot's line from the muzzle to where it hit (NS_Tracer; User.BeamStart and BeamEnd). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
+	TSoftObjectPtr<UNiagaraSystem> TracerVfx;
+
+	/** Where shots leave from for the effects: a thug's pistol, else 50 cm out from the view point. */
+	FVector GetMuzzleLocation(const FVector& ViewLocation, const FVector& Direction) const;
 
 	/** Damage one punch does. Separate from Damage so holding fists never rewrites gun stats. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Melee", meta = (ClampMin = "0.0"))
@@ -255,6 +267,9 @@ protected:
 
 	/** Runs the hitscan trace and applies damage. Skipped when the component has no world. */
 	void TraceAndApplyDamage();
+
+	/** The muzzle flash and the tracer for a shot along Direction that ended at End. */
+	void PlayShotEffects(const FVector& ViewLocation, const FVector& Direction, const FVector& End) const;
 
 	/** Copies ActiveDefinition's stats onto this component's own tuning properties. */
 	void ApplyStatsFromDefinition();

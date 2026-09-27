@@ -13,6 +13,7 @@ class AArrowProjectile;
 class UAnimInstance;
 class UArrowDefinition;
 class UAudioComponent;
+class UNiagaraSystem;
 class USoundBase;
 class UHawkeyeBowIKAnimInstance;
 class USkeletalMeshComponent;
@@ -318,6 +319,31 @@ public:
 
 	/** Plays PickupSound on the owner. */
 	void PlayPickupSound() const;
+
+	// --- Effects ----------------------------------------------------------------------------------
+
+	/** A tiny puff where the arrow leaves the string (NS_BowRelease). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Effects")
+	TSoftObjectPtr<UNiagaraSystem> ReleaseVfx;
+
+	/** Rides on every arrow in flight unless its definition has its own (NS_ArrowTrail). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Effects")
+	TSoftObjectPtr<UNiagaraSystem> ArrowTrailVfx;
+
+	/** An arrow into stone, brick, concrete, metal (NS_ArrowImpact_Stone), out along the surface. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Effects")
+	TSoftObjectPtr<UNiagaraSystem> ImpactStoneVfx;
+
+	/** An arrow into wood (NS_ArrowImpact_Wood). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Effects")
+	TSoftObjectPtr<UNiagaraSystem> ImpactWoodVfx;
+
+	/** An arrow into anyone with health: a purple-white comic spark, no blood (NS_HitSpark). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Effects")
+	TSoftObjectPtr<UNiagaraSystem> HitSparkVfx;
+
+	/** The impact effect for Surface: HitSparkVfx for flesh. */
+	const TSoftObjectPtr<UNiagaraSystem>& GetImpactVfx(EHawkeyeArrowSurface Surface) const;
 
 protected:
 	virtual void BeginPlay() override;

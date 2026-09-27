@@ -16,8 +16,9 @@ class UStaticMeshComponent;
  * it. Surviving thugs are knocked down for KnockdownSeconds and thrown; the player's camera
  * shakes within ShakeRadius. No cover check: the blast goes round corners. TODO(stage3): occlusion.
  *
- * The look is an orange flash light and an additive fireball sphere (M_ArrowGlow) that swells
- * and fades over FlashSeconds.
+ * The look is the orange flash light plus the definition's EffectVfx (NS_Explosion: fireball, core
+ * flash, sparks, a smoke puff) and its GroundDecal (M_Decal_Scorch) on the ground found by a trace
+ * down from the impact. Without the system the old additive fireball spheres (M_ArrowGlow) stand in.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API AExplosiveBlast : public AArrowEffect
@@ -76,6 +77,13 @@ protected:
 
 	/** Damages, knocks down and shakes. */
 	void ApplyBlast();
+
+	/** The scorch decal on the ground under the blast, if there is ground within ScorchDropCm. */
+	void LeaveScorch();
+
+	/** How far below the impact the scorch looks for ground, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Explosive", meta = (ClampMin = "0.0"))
+	float ScorchDropCm = 250.f;
 
 	void UpdateFireball();
 

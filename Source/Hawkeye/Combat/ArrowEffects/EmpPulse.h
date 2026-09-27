@@ -16,9 +16,10 @@ class UStaticMeshComponent;
  * gunner's pistol jams for JamSeconds (AThugAIController::Jam). TODO(stage3): security cameras,
  * once there are any, go off the same way.
  *
- * The look is a blue ring of glowing segments (M_ArrowGlow) racing out to Radius over
- * RingSeconds and fading, with a blue flash at the centre. Placeholder, like the smoke: the
- * engine has no ready-made pulse Niagara system.
+ * The look is the definition's EffectVfx (NS_EmpPulse: a ring of blue light racing out to 600 cm,
+ * sparks and arcs) with the blue flash light at the centre, and a brief chromatic split on the
+ * screen of a player within ScreenPulseRadius. Without the system it falls back to the old ring of
+ * glowing segments (M_ArrowGlow) racing out over RingSeconds.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API AEmpPulse : public AArrowEffect
@@ -46,6 +47,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "EMP")
 	FLinearColor PulseColor = FLinearColor(0.25f, 0.6f, 1.f);
 
+	/** A player this close sees the pulse on her own screen (a brief chromatic split), cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "EMP", meta = (ClampMin = "0.0"))
+	float ScreenPulseRadius = 2000.f;
+
+	/** How long the screen pulse lasts, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "EMP", meta = (ClampMin = "0.0"))
+	float ScreenPulseSeconds = 0.45f;
+
 	/** Lamp actors put out by this pulse. */
 	UFUNCTION(BlueprintPure, Category = "EMP")
 	int32 GetLampsAffected() const { return LampsAffected; }
@@ -65,6 +74,9 @@ protected:
 
 	/** Sizes and fades the ring and the flash for the current moment. */
 	void UpdateRing();
+
+	/** The screen pulse for every player within ScreenPulseRadius. */
+	void PulseScreens() const;
 
 	static constexpr int32 SegmentCount = 32;
 

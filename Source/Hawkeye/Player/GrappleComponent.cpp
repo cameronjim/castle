@@ -10,6 +10,7 @@
 #include "Combat/BowComponent.h"
 #include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -17,6 +18,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Player/HawkeyeCharacter.h"
 #include "Player/InventoryComponent.h"
+#include "NiagaraComponent.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/GrappleAnchor.h"
 #include "World/GrappleArrowProjectile.h"
 
@@ -30,10 +33,13 @@ namespace HawkeyeGrapple
 }
 
 const FName UGrappleComponent::SpeedParameter(TEXT("Speed"));
+const FName UGrappleComponent::BeamStartParameter(TEXT("User.BeamStart"));
+const FName UGrappleComponent::BeamEndParameter(TEXT("User.BeamEnd"));
 
 void UGrappleComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	UHawkeyeAudioSubsystem::StopLoop(ZipLoop, TEXT("grapple zip"));
+	UHawkeyeVfxSubsystem::Kill(ZipLine);
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -57,6 +63,10 @@ void UGrappleComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	if (bZipping)
 	{
 		AdvanceZip(DeltaTime);
+	}
+	if (bZipping)
+	{
+		UpdateZipLine();
 	}
 
 	RefreshAccumulator += DeltaTime;
@@ -371,8 +381,51 @@ AGrappleArrowProjectile* UGrappleComponent::SpawnGrappleArrow(UArrowDefinition* 
 	return Arrow;
 }
 
+FVector UGrappleComponent::GetZipLineStart() const
+{
+	const ACharacter* Character = GetCharacter();
+	if (!Character)
+	{
+		return GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
+	}
+	const USkeletalMeshComponent* Mesh = Character->GetMesh();
+	if (Mesh && !ZipLineSocket.IsNone() && Mesh->DoesSocketExist(ZipLineSocket))
+	{
+		return Mesh->GetSocketLocation(ZipLineSocket);
+	}
+	return Character->GetActorLocation() + FVector(0.f, 0.f, 40.f);
+}
+
+void UGrappleComponent::UpdateZipLine()
+{
+	const AGrappleAnchor* Anchor = ZipAnchor.Get();
+	if (!Anchor)
+	{
+		return;
+	}
+	const FVector Start = GetZipLineStart();
+	if (!ZipLine)
+	{
+		ZipLine = UHawkeyeVfxSubsystem::SpawnKept(this, ZipLineVfx, Start, UHawkeyeVfxSubsystem::ZipLineEvent);
+	}
+	if (IsValid(ZipLine))
+	{
+		// The component sits at her hand so its bounds hold the near end; both ends are world positions.
+		ZipLine->SetWorldLocation(Start);
+		ZipLine->SetVariableVec3(BeamStartParameter, Start);
+		ZipLine->SetVariableVec3(BeamEndParameter, Anchor->GetMarkerLocation());
+	}
+}
+
 void UGrappleComponent::HandleArrowArrived(AGrappleArrowProjectile* Arrow, AGrappleAnchor* Anchor)
 {
+	if (Anchor)
+	{
+		const AActor* Owner = GetOwner();
+		const FVector Back = Owner ? (Owner->GetActorLocation() - Anchor->GetMarkerLocation()).GetSafeNormal() : FVector::UpVector;
+		UHawkeyeVfxSubsystem::SpawnAt(this, AnchorSparksVfx, Anchor->GetMarkerLocation(), Back.Rotation(),
+			UHawkeyeVfxSubsystem::AnchorSparksEvent);
+	}
 	if (InFlightArrow.Get() == Arrow)
 	{
 		InFlightArrow.Reset();
@@ -717,6 +770,7 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 	{
 		ZipLoop->SetFloatParameter(SpeedParameter, ComputeZipSoundSpeed());
 	}
+	UpdateZipLine();
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: zip to %s, %.0f cm at %.0f cm/s (%.2f s), %s, line %+.0f cm, ignoring %s%s and %d start support(s)"),
 		*GetNameSafe(Character), *GetNameSafe(Anchor), ZipLength, ZipSpeed, ZipLength / ZipSpeed,
@@ -840,6 +894,7 @@ void UGrappleComponent::FinishZip()
 	EndZipMovement();
 	ZipAnchor.Reset();
 	UHawkeyeAudioSubsystem::StopLoop(ZipLoop, TEXT("grapple zip"));
+	UHawkeyeVfxSubsystem::Kill(ZipLine);
 	if (Character)
 	{
 		UHawkeyeAudioSubsystem::PlayAt(this, LandSound, Character->GetActorLocation(), TEXT("grapple land"));
@@ -874,6 +929,7 @@ void UGrappleComponent::CancelZip()
 	EndZipMovement();
 	ZipAnchor.Reset();
 	UHawkeyeAudioSubsystem::StopLoop(ZipLoop, TEXT("grapple zip"));
+	UHawkeyeVfxSubsystem::Kill(ZipLine);
 
 	if (Character && Character->GetCharacterMovement())
 	{

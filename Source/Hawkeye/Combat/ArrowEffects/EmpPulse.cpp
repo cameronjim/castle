@@ -10,6 +10,8 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Player/HawkeyeCharacter.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
@@ -79,7 +81,25 @@ void AEmpPulse::Activate()
 		TEXT("%s: EMP %.0f cm at %s: %d lamp actor(s) dark for %.0f s, %d gunner(s) jammed for %.0f s."), *GetName(),
 		Radius, *ImpactPoint.ToCompactString(), LampsAffected, LampOffSeconds, GunnersJammed, JamSeconds);
 	SetActorLocation(ImpactPoint + FVector(0.f, 0.f, 10.f));
+	if (SpawnEffectVfx(UHawkeyeVfxSubsystem::EmpPulseEvent, ImpactPoint + FVector(0.f, 0.f, 10.f)))
+	{
+		HidePlaceholders();
+	}
+	PulseScreens();
 	UpdateRing();
+}
+
+void AEmpPulse::PulseScreens() const
+{
+	// Every player's own screen, stronger the nearer the pulse.
+	for (TActorIterator<AHawkeyeCharacter> It(GetWorld()); It; ++It)
+	{
+		const float Distance = FVector::Dist(It->GetActorLocation(), ImpactPoint);
+		if (It->IsPlayerControlled() && Distance <= ScreenPulseRadius)
+		{
+			It->PlayScreenPulse(ScreenPulseSeconds, FMath::Lerp(1.f, 0.35f, Distance / FMath::Max(ScreenPulseRadius, 1.f)));
+		}
+	}
 }
 
 void AEmpPulse::AdvanceEffect(float DeltaSeconds)

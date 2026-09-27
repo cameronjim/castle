@@ -6,6 +6,7 @@
 #include "Combat/ArrowEffects/ArrowEffectsSubsystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 
 ASmokeCloud::ASmokeCloud()
 {
@@ -84,6 +85,10 @@ void ASmokeCloud::Activate()
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: smoke cloud %.0f cm for %.0f s at %s."), *GetName(), Radius, LifeSeconds,
 		*GetCloudCentre().ToCompactString());
+	if (SpawnEffectVfx(UHawkeyeVfxSubsystem::SmokeCloudEvent, GetCloudCentre()))
+	{
+		HidePlaceholders();
+	}
 	UpdatePuffs();
 }
 

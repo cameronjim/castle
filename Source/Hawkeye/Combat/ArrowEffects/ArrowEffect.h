@@ -8,6 +8,7 @@
 #include "ArrowEffect.generated.h"
 
 class UMaterialInterface;
+class UNiagaraComponent;
 class UStaticMesh;
 class UStaticMeshComponent;
 
@@ -68,12 +69,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Arrow Effect")
 	AActor* GetShooter() const { return Shooter.Get(); }
 
+	/** True once SpawnEffectVfx drew something: the placeholder shapes are hidden from then on. */
+	UFUNCTION(BlueprintPure, Category = "Arrow Effect")
+	bool HasEffectVfx() const { return bEffectVfxSpawned; }
+
 	/** The definition's damage (0 when spawned without one). */
 	UFUNCTION(BlueprintPure, Category = "Arrow Effect")
 	float GetArrowDamage() const { return ArrowDamage; }
 
 protected:
 	virtual void Tick(float DeltaSeconds) override;
+
+	/**
+	 * Spawns the definition's EffectVfx at Location for Event, its Z along the impact normal. Returns
+	 * the component, or null when unset or culled; either way the request is counted.
+	 */
+	UNiagaraComponent* SpawnEffectVfx(FName Event, const FVector& Location);
+
+	/** Hides every mesh part of this effect (the placeholder look), leaving its lights alone. */
+	void HidePlaceholders();
 
 	/** A mesh part with no collision and a tint through BasicShapeMaterial's (or Material's) Color. */
 	UStaticMeshComponent* MakeVisualPart(const TCHAR* Name, UStaticMesh* Mesh);
@@ -100,6 +114,7 @@ protected:
 	float ArrowDamage = 0.f;
 	float Elapsed = 0.f;
 	bool bActivated = false;
+	bool bEffectVfxSpawned = false;
 
 	/** The engine's basic shapes, found once in the constructor. */
 	UPROPERTY(Transient)

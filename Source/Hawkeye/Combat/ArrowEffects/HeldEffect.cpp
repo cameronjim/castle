@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
@@ -85,6 +86,7 @@ AThugCharacter* AHeldEffect::FindThugNear(UWorld* World, const FVector& Point, f
 void AHeldEffect::Activate()
 {
 	Super::Activate();
+	SpawnEffectVfx(UHawkeyeVfxSubsystem::PuttySplatEvent, ImpactPoint);
 
 	AThugCharacter* Thug = Cast<AThugCharacter>(GetHitActor());
 	if (!Thug || Thug->IsLimp())
