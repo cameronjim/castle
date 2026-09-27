@@ -647,12 +647,13 @@ def build_outside(b):
     x0, y0, x1, y1 = b.layout.bounds()
     cx, cy = (x0 + x1) * 0.5, (y0 + y1) * 0.5
     scale = STARS_RADIUS / 50.0
-    b.box("Outside", "NightSky", (cx, cy, 0.0), (scale * 100.0,) * 3, b.mats["stars"], collide=False, shape="sphere")
+    b.box("Outside", "NightSky", (cx, cy, 0.0), (scale * 100.0,) * 3, b.mats["stars"], collide=False, shape="sphere",
+          shadow=False)
     sky = b.existing.get("Int_Outside_NightSky_0")
     if sky is not None:
         comp = sky.get_editor_property("static_mesh_component")
-        b.changes += gen.set_if_different(comp, "cast_shadow", False, "Int_Outside_NightSky_0")
         b.changes += gen.set_if_different(comp, "affect_distance_field_lighting", False, "Int_Outside_NightSky_0")
+
     styles = sorted(b.mats["facades"].keys())
     span_x, span_y = (x1 - x0) + 2 * BACKDROP_OUT + 3000.0, (y1 - y0) + 2 * BACKDROP_OUT + 3000.0
     fronts = (((cx, y0 - BACKDROP_OUT - 50.0), (span_x, 100.0)), ((cx, y1 + BACKDROP_OUT + 50.0), (span_x, 100.0)),
