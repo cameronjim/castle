@@ -40,6 +40,10 @@ public class Hawkeye : ModuleRules
 		// Hawkeye.Audio.Smoke finds the MetaSounds through the asset registry.
 		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry" });
 
+		// The game mode indexes the Game Animation Sample's motion-matching databases during the
+		// load in uncooked runs, instead of on the first frame.
+		PrivateDependencyModuleNames.Add("PoseSearch");
+
 		// UHawkeyePartnerTreeBuilder authors ST_Partner headless through the StateTree editor API;
 		// UHawkeyeBowIKGraphBuilder authors the bow hands AnimBlueprints through the anim graph nodes;
 		// UHawkeyeVfxBuilder authors the Niagara systems through the Niagara editor's stack view model.

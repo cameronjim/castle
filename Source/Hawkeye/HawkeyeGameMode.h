@@ -87,6 +87,13 @@ public:
 	bool bBuildNavigationAtStart = true;
 
 	/**
+	 * Build that navmesh on worker threads over the first frames instead of blocking BeginPlay on
+	 * it (half a second on the district). Thugs asked to move before it is done wait for it.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Navigation")
+	bool bBuildNavigationAsync = true;
+
+	/**
 	 * Outdoor weather: snow falls round the camera only in a map whose game mode says so. An interior
 	 * (a flashback's playable scene) turns it off.
 	 */
@@ -95,6 +102,16 @@ public:
 
 	/** Whether the game mode running World wants outdoor weather. A world without a Hawkeye game mode has none. */
 	static bool WantsOutdoorWeather(const UWorld* World);
+
+	/**
+	 * Uncooked builds only (-game from the editor binaries): index every loaded PoseSearch database
+	 * during the load instead of on the first frame. The motion-matching databases wait for their
+	 * animations to finish loading and then compose their DDC keys on the game thread, all ~240 of
+	 * them in the first tick after the map loads, which made that frame take 1.4 s. Doing it in
+	 * BeginPlay moves the same work before the playable mark. Cooked builds carry the index.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Loading")
+	bool bIndexMotionMatchingAtLoad = true;
 
 	/** Frames longer than this after the first playable frame are logged as hitches, ms. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Diagnostics", meta = (ClampMin = "1.0"))
@@ -122,8 +139,14 @@ protected:
 	/** Timer body: actually reopens the level. */
 	void ReopenCurrentLevel();
 
+	/** See bIndexMotionMatchingAtLoad. */
+	void IndexMotionMatchingDatabases();
+
 	/** Rebuilds navigation when the level shipped without any. See bBuildNavigationAtStart. */
 	void BuildNavigationIfEmpty();
+
+	/** Logs when the async navigation build started in BeginPlay has finished. */
+	void PollNavigationBuild();
 	virtual void BeginPlay() override;
 
 	UFUNCTION()
@@ -160,6 +183,8 @@ private:
 	void HandleScreenshotProcessed();
 
 	double BeginPlayWallSeconds = 0.0;
+	double NavBuildStartSeconds = 0.0;
+	bool bNavBuildPending = false;
 	double PlayableWallSeconds = 0.0;
 	double LastFrameWallSeconds = 0.0;
 	float PlayableSeconds = -1.f;
