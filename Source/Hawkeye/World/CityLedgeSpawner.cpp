@@ -97,24 +97,37 @@ void ACityLedgeSpawner::BeginPlay()
 
 	const double Start = FPlatformTime::Seconds();
 	SpawnFireEscapeVisuals();
+	const double Visuals = FPlatformTime::Seconds();
 	SpawnClutter();
-	SpawnChimneyWisps();
+	const double Clutter = FPlatformTime::Seconds();
 	QueueLedges(FindFocus());
 	SpawnQueuedLedges(ImmediateRadius, TNumericLimits<double>::Max());
 	LoadLedgeSeconds = static_cast<float>(FPlatformTime::Seconds() - Start);
 	TotalLedgeSeconds = LoadLedgeSeconds;
+	// The smoke waits for the first frame: nothing on screen needs it before the player can move.
+	bChimneyWispsPending = GetWorld()->IsGameWorld();
 
-	UE_LOG(LogHawkeye, Log, TEXT("%s: at load %d anchors in %.0f ms, %d clutter instances in %d groups, %d of %d ledges and %d of %d fire-escape landings (%d parts) within %.0f m in %.0f ms; the rest at %.1f ms a frame"),
-		*GetName(), SpawnedAnchors.Num(), AnchorSeconds * 1000.f, GetClutterInstanceCount(), ClutterComponents.Num(),
-		SpawnedLedges.Num(), Data->Ledges.Num(), SpawnedFireEscapes.Num(), Data->FireEscapes.Num(), GetFireEscapeInstanceCount(),
-		ImmediateRadius / 100.f, LoadLedgeSeconds * 1000.f, FrameBudgetMs);
-	SetActorTickEnabled(!IsSpawnComplete());
+	UE_LOG(LogHawkeye, Log, TEXT("%s: at load %d anchors in %.0f ms, fire-escape bars in %.0f ms, %d clutter instances in %d groups in %.0f ms, %d of %d ledges and %d of %d fire-escape landings (%d parts) within %.0f m in %.0f ms (%.0f ms in all); the rest at %.1f ms a frame"),
+		*GetName(), SpawnedAnchors.Num(), AnchorSeconds * 1000.f, (Visuals - Start) * 1000.0, GetClutterInstanceCount(),
+		ClutterComponents.Num(), (Clutter - Visuals) * 1000.0, SpawnedLedges.Num(), Data->Ledges.Num(), SpawnedFireEscapes.Num(),
+		Data->FireEscapes.Num(), GetFireEscapeInstanceCount(), ImmediateRadius / 100.f,
+		(FPlatformTime::Seconds() - Clutter) * 1000.0, LoadLedgeSeconds * 1000.f, FrameBudgetMs);
+	SetActorTickEnabled(!IsSpawnComplete() || bChimneyWispsPending);
 }
 
 void ACityLedgeSpawner::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (!Data || !bLedgesQueued)
+	if (bChimneyWispsPending)
+	{
+		bChimneyWispsPending = false;
+		const double WispStart = FPlatformTime::Seconds();
+		SpawnChimneyWisps();
+		UE_LOG(LogHawkeye, Log, TEXT("%s: chimney wisps after the first frame in %.1f ms."), *GetName(),
+			(FPlatformTime::Seconds() - WispStart) * 1000.0);
+		return;
+	}
+	if (!Data || !bLedgesQueued || LedgeQueueNext >= LedgeQueue.Num())
 	{
 		SetActorTickEnabled(false);
 		return;

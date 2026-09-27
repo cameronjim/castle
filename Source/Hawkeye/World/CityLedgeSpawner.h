@@ -45,7 +45,8 @@ struct FCityLedgeRecord;
  * traces, and none of them affect navigation.
  *
  * Chimney wisps: in a game world, ChimneyWispCount of the chimneys nearest the player at load get
- * a slow smoke stream (ChimneyWispVfx, NS_ChimneyWisp) ChimneyTopCm above their base.
+ * a slow smoke stream (ChimneyWispVfx, NS_ChimneyWisp) ChimneyTopCm above their base, spawned on the
+ * spawner's first tick rather than in BeginPlay so they stay out of the load.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API ACityLedgeSpawner : public AActor
@@ -112,9 +113,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City")
 	bool bSpawnInEditor = false;
 
-	/** At BeginPlay, ledges this close to the player (2D) spawn before the first frame, cm. */
+	/**
+	 * At BeginPlay, ledges this close to the player (2D) spawn before the first frame, cm. 40 m is
+	 * further than she can get before the next ring arrives at FrameBudgetMs a frame; 100 m cost
+	 * 0.5 s of the load.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City", meta = (ClampMin = "0.0"))
-	float ImmediateRadius = 10000.f;
+	float ImmediateRadius = 4000.f;
 
 	/** After BeginPlay, how much of each frame the remaining ledges may take, ms. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "City", meta = (ClampMin = "0.5"))
@@ -262,4 +267,5 @@ protected:
 	float TotalLedgeSeconds = 0.f;
 	float AnchorSeconds = 0.f;
 	int32 BackgroundFrames = 0;
+	bool bChimneyWispsPending = false;
 };
