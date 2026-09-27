@@ -31,4 +31,11 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Navigation", meta = (WorldContext = "WorldContext"))
 	static bool ProjectToNavigation(UObject* WorldContext, FVector Point, FVector Extent, FVector& OutProjected);
+
+	/**
+	 * The length of the navmesh path from From to To (both projected onto it first), cm, or -1 when
+	 * there is no complete path. verify_city.py checks the robbery's escape routes with it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Navigation", meta = (WorldContext = "WorldContext"))
+	static float FindPathLength(UObject* WorldContext, FVector From, FVector To);
 };
