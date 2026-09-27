@@ -381,7 +381,7 @@ void AThugAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus
 void AThugAIController::ReportStimulus(EStimulusKind Kind, FVector Location, bool bSuccessful, float Loudness)
 {
 	AThugCharacter* Thug = GetThug();
-	if (!Thug)
+	if (!Thug || bPacified)
 	{
 		return;
 	}
@@ -556,7 +556,7 @@ void AThugAIController::UpdateSquadAlert(float DeltaSeconds)
 void AThugAIController::ReceiveSquadAlert(FVector Location, AThugCharacter* From)
 {
 	AThugCharacter* Thug = GetThug();
-	if (!Thug || Thug->IsAlerted())
+	if (!Thug || Thug->IsAlerted() || bPacified)
 	{
 		return;
 	}
@@ -568,6 +568,25 @@ void AThugAIController::ReceiveSquadAlert(FVector Location, AThugCharacter* From
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: squad alert from %s, suspicious toward %s."), *Thug->GetName(), *GetNameSafe(From),
 		*Location.ToCompactString());
+}
+
+void AThugAIController::SetPacified(bool bInPacified)
+{
+	if (bPacified == bInPacified)
+	{
+		return;
+	}
+	bPacified = bInPacified;
+	if (bPacified)
+	{
+		bPerceivesTarget = false;
+		bSeesTarget = false;
+		TargetActor = nullptr;
+		bSquadAlertPending = false;
+		SetState(EThugAlertState::Calm);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s."), *GetNameSafe(GetPawn()), bPacified ? TEXT("calm for a challenge, ignoring the player")
+		: TEXT("challenge over, senses back"));
 }
 
 void AThugAIController::NotifyDamaged(AActor* By)
@@ -617,7 +636,14 @@ void AThugAIController::Think(float DeltaSeconds)
 		return;
 	}
 
-	if (Thug->IsArcher())
+	if (bPacified)
+	{
+		// A challenge nearby: nobody to see, and nothing that happened before it still counts.
+		bPerceivesTarget = false;
+		TargetActor = nullptr;
+		SetState(EThugAlertState::Calm);
+	}
+	else if (Thug->IsArcher())
 	{
 		UpdateArcherSight();
 	}

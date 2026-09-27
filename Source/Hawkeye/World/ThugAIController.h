@@ -283,6 +283,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	bool IsThinkingEnabled() const { return bThinkingEnabled; }
 
+	/**
+	 * A side challenge is running nearby (UChallengeSubsystem): he drops to Calm, lets go of his target,
+	 * and neither sees, hears, nor takes a squad alert about anyone until cleared. He keeps patrolling.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void SetPacified(bool bInPacified);
+
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	bool IsPacified() const { return bPacified; }
+
 	// --- Trick arrow states (claude-docs/gameplay-semantics.md, "trick arrows") ------------------
 
 	/** Putty: while held he does nothing at all, not even think. AHeldEffect sets and clears it. */
@@ -600,6 +610,7 @@ private:
 
 	bool bHeld = false;
 	bool bBlinded = false;
+	bool bPacified = false;
 	float JamRemaining = 0.f;
 
 	float SeenSeconds = 0.f;
