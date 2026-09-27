@@ -9,7 +9,7 @@
     /Game/Blueprints/Animation/ABP_BowIK_Post_Thug   the same graph for the old mannequin (BP_Archer),
                                                      with nothing to chain
 
-Then BowComponent.HandsIKClass on BP_Kate, BP_Clint and BP_Archer. UBowComponent sets it as the
+Then BowComponent.HandsIKClass on BP_Kate, BP_Clint, BP_Thug (for the hit lean) and BP_Archer. UBowComponent sets it as the
 mesh's post-process override at BeginPlay; the mesh assets (the sample's, git-ignored) are never
 touched.
 
@@ -29,7 +29,7 @@ import create_blueprints as cb  # noqa: E402
 
 ANIM_PATH = "/Game/Blueprints/Animation"
 BUILD_TAG = "HawkeyeBuild"
-IK_BUILD = "bow-ik-1"   # bump when UHawkeyeBowIKGraphBuilder's graph changes
+IK_BUILD = "bow-ik-2"   # bump when UHawkeyeBowIKGraphBuilder's graph changes (2: hit lean, arm alphas)
 
 # (asset, skeleton, the mesh's own post-process AnimBP class to chain or None, spine bone, neck bone)
 GRAPHS = [
@@ -44,6 +44,9 @@ GRAPHS = [
 USERS = [
     ("/Game/Blueprints/Player", "BP_Kate", "ABP_BowIK_Post", []),
     ("/Game/Blueprints/Player", "BP_Clint", "ABP_BowIK_Post", []),
+    # Every thug runs the old mannequin's graph for the hit lean (the heavy and the gunner inherit it);
+    # with no bow its arms stay on the animation.
+    ("/Game/Blueprints/AI", "BP_Thug", "ABP_BowIK_Post_Thug", []),
     # The old mannequin has no palm socket, so his bow hangs off hand_l (the wrist): 8 cm on along
     # the aim puts the grip in his fist.
     ("/Game/Blueprints/Bosses", "BP_Archer", "ABP_BowIK_Post_Thug", [("hand_grip_offset", unreal.Vector(8.0, 0.0, 0.0))]),
