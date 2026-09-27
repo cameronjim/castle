@@ -224,6 +224,14 @@ void UHawkeyeObjectiveWidget::UpdateMarker(const FGeometry& /*MyGeometry*/)
 	const FVector CameraLocation = PC->PlayerCameraManager->GetCameraLocation();
 	ViewBearing = UObjectiveMarkerMath::YawToBearing(PC->PlayerCameraManager->GetCameraRotation().Yaw, NorthYawDegrees);
 
+	Secondary.Reset();
+	NearestSecondary = INDEX_NONE;
+	if (Pawn && UpdateSecondaryMarkers(PC, Pawn->GetActorLocation(), CameraLocation))
+	{
+		// A challenge's markers take the objective's place until it ends.
+		return;
+	}
+
 	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
 	FVector Target;
 	if (!Pawn || !Missions || !Missions->GetCurrentObjectiveLocation(Target))
@@ -258,6 +266,68 @@ void UHawkeyeObjectiveWidget::UpdateMarker(const FGeometry& /*MyGeometry*/)
 	bMarkerVisible = true;
 }
 
+bool UHawkeyeObjectiveWidget::UpdateSecondaryMarkers(APlayerController* PC, const FVector& PawnLocation, const FVector& CameraLocation)
+{
+	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
+	const TArray<FVector> Points = Missions ? Missions->GetSecondaryMarkers() : TArray<FVector>();
+	if (Points.Num() == 0)
+	{
+		return false;
+	}
+	ULocalPlayer* LocalPlayer = PC->GetLocalPlayer();
+	FSceneViewProjectionData Projection;
+	const bool bProjects = LocalPlayer && LocalPlayer->ViewportClient
+		&& LocalPlayer->GetProjectionData(LocalPlayer->ViewportClient->Viewport, Projection);
+	const FIntRect ViewRect = bProjects ? Projection.GetConstrainedViewRect() : FIntRect();
+	ViewportScale = FMath::Max(UWidgetLayoutLibrary::GetViewportScale(this), UE_KINDA_SMALL_NUMBER);
+	ViewRectMin = FVector2D(ViewRect.Min);
+	float Nearest = BIG_NUMBER;
+	for (const FVector& Point : Points)
+	{
+		FSecondaryMark Mark;
+		Mark.Distance = FVector::Dist(PawnLocation, Point);
+		Mark.CompassOffset = UObjectiveMarkerMath::CompassOffset(UObjectiveMarkerMath::BearingBetween(CameraLocation, Point,
+			NorthYawDegrees), ViewBearing, CompassWidth, CompassSpanDegrees, Mark.bCompassClamped);
+		if (bProjects)
+		{
+			Mark.Placement = UObjectiveMarkerMath::PlaceMarker(Point, Projection.ComputeViewProjectionMatrix(),
+				FVector2D(ViewRect.Width(), ViewRect.Height()), EdgeMargin * ViewportScale);
+		}
+		if (Mark.Distance < Nearest)
+		{
+			Nearest = Mark.Distance;
+			NearestSecondary = Secondary.Num();
+		}
+		Secondary.Add(Mark);
+	}
+	SecondaryDistanceText = UObjectiveMarkerMath::FormatDistance(Nearest);
+	return true;
+}
+
+void UHawkeyeObjectiveWidget::PaintSecondary(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
+{
+	using namespace HawkeyeObjectiveHud;
+	const float Half = SecondarySizePixels * 0.5f;
+	const float CentreX = Geometry.GetLocalSize().X * 0.5f;
+	for (int32 Index = 0; Index < Secondary.Num(); ++Index)
+	{
+		const FSecondaryMark& Mark = Secondary[Index];
+		const FVector2D Centre = (ViewRectMin + Mark.Placement.Position) / ViewportScale;
+		FLinearColor Color = SecondaryColor;
+		Color.A = Mark.Placement.bOnScreen ? 1.f : 0.6f;
+		DrawDiamond(Out, LayerId, Geometry, Centre, Half, MarkerLineWidth, Color);
+		if (Index == NearestSecondary)
+		{
+			const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 12);
+			DrawText(Out, LayerId, Geometry, SecondaryDistanceText, Font, Centre + FVector2D(0.f, Half + 3.f), SecondaryColor);
+		}
+		FLinearColor IconColor = SecondaryColor;
+		IconColor.A = Mark.bCompassClamped ? 0.5f : 1.f;
+		DrawDiamond(Out, LayerId + 2, Geometry, FVector2D(CentreX + Mark.CompassOffset, CompassTop + HawkeyeObjectiveHud::CompassHeight * 0.5f),
+			6.f, 2.f, IconColor);
+	}
+}
+
 int32 UHawkeyeObjectiveWidget::NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry,
 	const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId,
 	const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
@@ -266,6 +336,7 @@ int32 UHawkeyeObjectiveWidget::NativePaint(const FPaintArgs& Args, const FGeomet
 		bParentEnabled);
 	PaintCompass(AllottedGeometry, OutDrawElements, Layer + 1);
 	PaintMarker(AllottedGeometry, OutDrawElements, Layer + 1);
+	PaintSecondary(AllottedGeometry, OutDrawElements, Layer + 1);
 	PaintToast(AllottedGeometry, OutDrawElements, Layer + 1);
 	return Layer + 4;
 }

@@ -69,6 +69,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
 	bool GetCurrentObjectiveLocation(FVector& OutLocation) const;
 
+	/** Replaces Source's secondary markers (UMissionTracker::SetSecondaryMarkers). */
+	UFUNCTION(BlueprintCallable, Category = "Mission|Marker")
+	void SetSecondaryMarkers(FName Source, const TArray<FVector>& Locations);
+
+	UFUNCTION(BlueprintCallable, Category = "Mission|Marker")
+	void ClearSecondaryMarkers(FName Source);
+
+	/** Every secondary marker point; the HUD marks these instead of the objective while there are any. */
+	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
+	TArray<FVector> GetSecondaryMarkers() const;
+
 	UPROPERTY(BlueprintAssignable, Category = "Mission")
 	FOnMissionStartedSignature OnMissionStarted;
 

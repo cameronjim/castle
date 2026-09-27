@@ -115,6 +115,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
 	bool GetCurrentObjectiveLocation(FVector& OutLocation) const;
 
+	/**
+	 * Secondary markers: points the HUD marks alongside (in place of) the objective, grouped by who set
+	 * them ("challenge"). Setting a source replaces its points; an empty list clears it. Kept across
+	 * StartMission and AbortMission, like registered points. While any are set the HUD shows them instead
+	 * of the objective's marker (claude-docs/gameplay-semantics.md, "Objective markers").
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Mission|Marker")
+	void SetSecondaryMarkers(FName Source, const TArray<FVector>& Locations);
+
+	UFUNCTION(BlueprintCallable, Category = "Mission|Marker")
+	void ClearSecondaryMarkers(FName Source);
+
+	/** Every source's points, in the order the sources were first set. */
+	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
+	TArray<FVector> GetSecondaryMarkers() const;
+
+	UFUNCTION(BlueprintPure, Category = "Mission|Marker")
+	bool HasSecondaryMarkers() const { return SecondaryMarkers.Num() > 0; }
+
 	/** Ids of every completed objective, optional ones included, in array order. The save writes these. */
 	UFUNCTION(BlueprintPure, Category = "Mission")
 	TArray<FName> GetCompletedObjectiveIds() const;
@@ -142,6 +161,9 @@ private:
 	TArray<TObjectPtr<UMissionObjective>> ActiveObjectives;
 
 	bool bMissionComplete = false;
+
+	/** Secondary marker points by source, in the order the sources were set. Plain vectors: nothing for the GC. */
+	TArray<TPair<FName, TArray<FVector>>> SecondaryMarkers;
 
 	/** Marker points by objective id, registered by placed volumes. */
 	UPROPERTY(Transient)

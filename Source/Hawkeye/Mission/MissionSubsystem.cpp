@@ -121,6 +121,27 @@ void UMissionSubsystem::UnregisterObjectiveLocation(FName ObjectiveId)
 	}
 }
 
+void UMissionSubsystem::SetSecondaryMarkers(FName Source, const TArray<FVector>& Locations)
+{
+	if (Tracker)
+	{
+		Tracker->SetSecondaryMarkers(Source, Locations);
+	}
+}
+
+void UMissionSubsystem::ClearSecondaryMarkers(FName Source)
+{
+	if (Tracker)
+	{
+		Tracker->ClearSecondaryMarkers(Source);
+	}
+}
+
+TArray<FVector> UMissionSubsystem::GetSecondaryMarkers() const
+{
+	return Tracker ? Tracker->GetSecondaryMarkers() : TArray<FVector>();
+}
+
 bool UMissionSubsystem::GetCurrentObjectiveLocation(FVector& OutLocation) const
 {
 	const UMissionObjective* Objective = GetCurrentObjective();

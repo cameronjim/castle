@@ -233,6 +233,39 @@ bool UMissionTracker::GetCurrentObjectiveLocation(FVector& OutLocation) const
 	return GetRegisteredObjectiveLocation(Objective->ObjectiveId, OutLocation);
 }
 
+void UMissionTracker::SetSecondaryMarkers(FName Source, const TArray<FVector>& Locations)
+{
+	if (Locations.Num() == 0)
+	{
+		ClearSecondaryMarkers(Source);
+		return;
+	}
+	for (TPair<FName, TArray<FVector>>& Entry : SecondaryMarkers)
+	{
+		if (Entry.Key == Source)
+		{
+			Entry.Value = Locations;
+			return;
+		}
+	}
+	SecondaryMarkers.Emplace(Source, Locations);
+}
+
+void UMissionTracker::ClearSecondaryMarkers(FName Source)
+{
+	SecondaryMarkers.RemoveAll([Source](const TPair<FName, TArray<FVector>>& Entry) { return Entry.Key == Source; });
+}
+
+TArray<FVector> UMissionTracker::GetSecondaryMarkers() const
+{
+	TArray<FVector> Points;
+	for (const TPair<FName, TArray<FVector>>& Entry : SecondaryMarkers)
+	{
+		Points.Append(Entry.Value);
+	}
+	return Points;
+}
+
 TArray<FName> UMissionTracker::GetCompletedObjectiveIds() const
 {
 	TArray<FName> Ids;
@@ -278,4 +311,5 @@ void UMissionTracker::Reset()
 
 	AbortMission();
 	RegisteredLocations.Reset();
+	SecondaryMarkers.Reset();
 }

@@ -76,6 +76,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
 	float GetMarkerSize() const { return MarkerSizePixels; }
 
+	/** Secondary markers drawn this frame (they replace the objective's marker while there are any). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	int32 GetSecondaryMarkerCount() const { return Secondary.Num(); }
+
+	/** This frame's placement of secondary marker Index, in viewport pixels. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	FObjectiveMarkerPlacement GetSecondaryPlacement(int32 Index) const
+	{
+		return Secondary.IsValidIndex(Index) ? Secondary[Index].Placement : FObjectiveMarkerPlacement();
+	}
+
 protected:
 	//~ Begin UUserWidget interface
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -90,6 +101,14 @@ protected:
 	/** Projects the current objective's point and fills the marker and compass state. */
 	void UpdateMarker(const FGeometry& MyGeometry);
 
+	/**
+	 * Projects the mission's secondary markers (a challenge's targets or next checkpoint). True when
+	 * there are any, in which case they take the objective marker's place.
+	 */
+	bool UpdateSecondaryMarkers(APlayerController* PC, const FVector& PawnLocation, const FVector& CameraLocation);
+
+	void PaintSecondary(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
+
 	void PaintMarker(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
 	void PaintCompass(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
 	void PaintToast(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
@@ -102,6 +121,13 @@ protected:
 
 	/** Queues "New objective" when the current objective is no longer the one last seen. */
 	void NoteCurrentObjective();
+
+	/** Secondary markers: Kate's purple, smaller than the objective's diamond. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Objective")
+	FLinearColor SecondaryColor = FLinearColor(0.78f, 0.55f, 1.f, 1.f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Objective", meta = (ClampMin = "4.0"))
+	float SecondarySizePixels = 12.f;
 
 	/** Warm off-white: distinct from Kate's purple reticle and the grapple marker's green. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Objective")
@@ -171,6 +197,19 @@ private:
 
 	/** Id of the objective that was current when last looked, so a change can be announced. */
 	FName LastCurrentObjectiveId;
+
+	struct FSecondaryMark
+	{
+		FObjectiveMarkerPlacement Placement;
+		float CompassOffset = 0.f;
+		bool bCompassClamped = false;
+		float Distance = 0.f;
+	};
+
+	/** This frame's secondary markers; the nearest one carries the distance. */
+	TArray<FSecondaryMark> Secondary;
+	int32 NearestSecondary = INDEX_NONE;
+	FText SecondaryDistanceText;
 
 	bool bMarkerVisible = false;
 	FObjectiveMarkerPlacement Placement;
