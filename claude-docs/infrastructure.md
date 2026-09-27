@@ -235,3 +235,23 @@ Get-Content "C:\Users\camer\code\fps-game\Saved\Logs\Hawkeye.log" -Tail 50 | Sel
   warnings); the synchronous build is 0.5 s.
 - Screenshot captures in tests run one at a time, write off the game thread, and fail the
   test if the file is missing, empty, or older than the request.
+
+## Packaged builds (working since 2026-09-27)
+- `Tools\package.ps1`: Development by default, `-Shipping`, `-NoZip`, `-NoIoStore`. Cooks
+  both maps plus the folders the code loads by path (listed in `DefaultGame.ini`), pak and
+  IoStore on, archives to `Saved\Packaged\Windows`, zips to
+  `Saved\Packaged\Hawkeye-win64-<date>.zip`. A warm run takes 1 to 3 minutes. Log at
+  `Saved\Logs\Package.log`. Nothing under `Saved/` is committed.
+- Load time in the package: about 5.5 s on a fresh exe, 2.8 to 3.0 s after, versus 21 s
+  in the editor's `-game` mode (uncooked animation data). Sizes: Development 1.21 GB
+  (zip 0.64 GB; the exe and symbols are most of it), Shipping 0.87 GB (zip 0.54 GB).
+- Automation runs in the packaged Development build (`-ExecCmds="Automation RunTests
+  Hawkeye.Smoke.LoadEastVillage; Quit"`); smoke tests carry `ClientContext`.
+- Runtime code must not include editor-only headers inside `#if WITH_EDITOR` blocks that
+  are needed outside them; the VFX builder and a screenshot test broke the standalone
+  target once. `GetActorLabel` is editor-only; use `GetActorNameOrLabel`.
+- Open: the packaged log shows about 140 load errors from `CR_UEFN_Mannequin_FullBodyIK`
+  (editor-only Control Rig classes referenced by the sample's Mover animation Blueprint,
+  which Kate doesn't use). Harmless so far. The NNEDenoiser plugin adds 98 MB and could be
+  disabled.
+- Desktop shortcut: "Play Hawkeye (Packaged)".
