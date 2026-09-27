@@ -18,6 +18,8 @@
 #include "Player/HawkeyeCharacter.h"
 #include "Tests/AutomationCommon.h"
 #include "World/CityLedgeSpawner.h"
+#include "World/Safehouse.h"
+#include "World/SafehouseSubsystem.h"
 #include "World/ThugCharacter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -133,6 +135,16 @@ bool FHawkeyeAssertEastVillagePlayable::Update()
 	Test->TestEqual(TEXT("Twelve crime spots are placed"), SpotCount, 12);
 	Test->TestEqual(TEXT("Each holds its crimes"), SpotsWithoutCrimes, 0);
 	Test->TestEqual(TEXT("And every thug and victim class they spawn loads"), MissingClasses, 0);
+
+	// Both safehouses, registered for fast travel under their own ids and placeholder names.
+	const USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(World);
+	const ASafehouse* First = Safehouses ? Safehouses->FindSafehouse(TEXT("ch01_east_7th")) : nullptr;
+	const ASafehouse* Second = Safehouses ? Safehouses->FindSafehouse(TEXT("avenue_b")) : nullptr;
+	Test->TestEqual(TEXT("Two safehouses are registered"), Safehouses ? Safehouses->GetSafehouses().Num() : 0, 2);
+	Test->TestTrue(TEXT("The first is [Safehouse 1]"), First && First->GetDisplayName().ToString() == TEXT("[Safehouse 1]"));
+	Test->TestTrue(TEXT("The second is [Safehouse 2]"), Second && Second->GetDisplayName().ToString() == TEXT("[Safehouse 2]"));
+	Test->TestTrue(TEXT("At least 250 m apart"), First && Second
+		&& FVector::Dist2D(First->GetActorLocation(), Second->GetActorLocation()) >= 25000.f);
 
 	int32 PlayerStartCount = 0;
 	for (TActorIterator<APlayerStart> It(World); It; ++It)

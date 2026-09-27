@@ -70,10 +70,17 @@ namespace HawkeyeSaveRoundTrip
 		return PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
 	}
 
+	/** The first safehouse (ch01_east_7th); the district has two. */
 	static ASafehouse* FindSafehouse(UWorld* World)
 	{
-		TActorIterator<ASafehouse> It(World);
-		return It ? *It : nullptr;
+		for (TActorIterator<ASafehouse> It(World); It; ++It)
+		{
+			if (It->SafehouseId == TEXT("ch01_east_7th"))
+			{
+				return *It;
+			}
+		}
+		return nullptr;
 	}
 
 	/** Puts the player Distance in front of the safehouse door, facing it. */
@@ -333,7 +340,6 @@ void HawkeyeAddSaveShots(FAutomationTestBase* Test)
 		Test->TestEqual(TEXT("Entering heals to full"), Kate->GetHealthComponent()->GetHealthPercent(), 1.f);
 		const UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(World);
 		Test->TestTrue(TEXT("The safehouse is discovered"), Save && Save->IsSafehouseDiscovered(TEXT("ch01_east_7th")));
-		PC->SafehouseFastTravel();
 		return true;
 	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.7f));
