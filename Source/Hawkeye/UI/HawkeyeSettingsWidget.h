@@ -16,13 +16,13 @@ class UVerticalBox;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSettingsBackSignature);
 
 /**
- * The Settings screen: one option today, mouse sensitivity, and the shape every later one
- * copies - a label, a control, a live value, all driven straight into UHawkeyeSettingsSubsystem.
+ * The Settings screen, in two columns: controls and audio on the left, difficulty and accessibility on
+ * the right, inside a scroll box so nothing is cut off at 1280x720. Every row is a label, a control and
+ * (for sliders and choices) a live value, all driven straight into UHawkeyeSettingsSubsystem.
  *
- * Reparent a UMG widget to this class and name the parts SensitivitySlider,
- * SensitivityValueText and BackButton to have them driven automatically. A subclass with no
- * designer layout works too, because RebuildWidget builds one (the same approach as
- * UHawkeyePauseWidget).
+ * Reparent a UMG widget to this class and name the parts after the properties below to have them
+ * driven automatically. A subclass with no designer layout works too, because RebuildWidget builds one
+ * (the same approach as UHawkeyePauseWidget).
  *
  * The widget owns no settings state. It reads the subsystem on open and writes it on change;
  * AHawkeyePlayerController decides what Back means.
@@ -63,9 +63,17 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings|Audio")
 	FText AmbientVolumeLabel;
 
-	/** Pulls the slider and the number back in line with the subsystem. Called on construct. */
+	/** Pulls every control and number back in line with the subsystem. Called on construct. */
 	UFUNCTION(BlueprintCallable, Category = "Settings")
 	void RefreshFromSettings();
+
+	/** The text a choice row shows now ("Normal", "Large", "Deuteranopia"), for tests and the render check. */
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	FText GetDifficultyShown() const;
+
+	/** Rows the screen built, both columns together. */
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	int32 GetRowCount() const { return RowCount; }
 
 protected:
 	//~ Begin UUserWidget interface
@@ -101,6 +109,34 @@ protected:
 	UFUNCTION()
 	void HandleAmbientVolumeChanged(float Value);
 
+	UFUNCTION()
+	void HandleToggleAimChanged(bool bIsChecked);
+
+	UFUNCTION()
+	void HandleToggleCrouchChanged(bool bIsChecked);
+
+	UFUNCTION()
+	void HandleReduceShakeChanged(bool bIsChecked);
+
+	UFUNCTION()
+	void HandleReduceFlashingChanged(bool bIsChecked);
+
+	UFUNCTION()
+	void HandleSubtitleBackgroundChanged(float Value);
+
+	UFUNCTION()
+	void HandleHudScaleChanged(float Value);
+
+	/** The choice rows step to the next value on a click, wrapping. */
+	UFUNCTION()
+	void HandleDifficultyClicked();
+
+	UFUNCTION()
+	void HandleSubtitleSizeClicked();
+
+	UFUNCTION()
+	void HandlePaletteClicked();
+
 	/** Writes Value (0..1) into Text as a whole percentage. */
 	static void UpdateVolumeText(UTextBlock* Text, float Value);
 
@@ -112,6 +148,26 @@ protected:
 
 	/** Writes Value into StickSensitivityValueText as two decimals. */
 	void UpdateStickValueText(float Value);
+
+	/** Adds or removes every control's handler. */
+	void BindControls(bool bBind);
+
+	// --- Layout helpers (RebuildWidget only) -----------------------------------------------------
+
+	/** A column heading: larger text, space above it. */
+	void AddHeading(UVerticalBox* Column, const FText& Text, const TCHAR* Name);
+
+	/** Label, slider, value on one row. */
+	void AddSliderRow(UVerticalBox* Column, const FText& Label, TObjectPtr<USlider>& OutSlider,
+		TObjectPtr<UTextBlock>& OutValue, TObjectPtr<UTextBlock>& OutLabel, const TCHAR* BaseName);
+
+	/** A checkbox whose content is its label, so a click on the words toggles it. */
+	void AddCheckRow(UVerticalBox* Column, const FText& Label, TObjectPtr<UCheckBox>& OutCheckBox,
+		TObjectPtr<UTextBlock>& OutLabel, const TCHAR* BaseName);
+
+	/** Label and a button showing the current choice; a click steps it on. */
+	void AddChoiceRow(UVerticalBox* Column, const FText& Label, TObjectPtr<UButton>& OutButton,
+		TObjectPtr<UTextBlock>& OutValue, const TCHAR* BaseName);
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<USlider> SensitivitySlider = nullptr;
@@ -140,7 +196,20 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> InvertStickYLabelText = nullptr;
 
-	/** Three volume rows under the checkboxes: master, sound effects, ambience. */
+	/** "Toggle aim" and "Toggle crouch": press to switch instead of hold. */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UCheckBox> ToggleAimCheckBox = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ToggleAimLabelText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UCheckBox> ToggleCrouchCheckBox = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ToggleCrouchLabelText = nullptr;
+
+	/** Three volume rows: master, sound effects, ambience. */
 	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
 	TObjectPtr<USlider> MasterVolumeSlider = nullptr;
 
@@ -168,6 +237,58 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> AmbientVolumeLabelText = nullptr;
 
+	/** Difficulty: a button reading Story / Normal / Hard, and the line under it saying what that means. */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Difficulty", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> DifficultyButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Difficulty", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DifficultyValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Difficulty", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> DifficultyBlurbText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SubtitleSizeButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SubtitleSizeValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<USlider> SubtitleBackgroundSlider = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SubtitleBackgroundValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SubtitleBackgroundLabelText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> PaletteButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> PaletteValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UCheckBox> ReduceShakeCheckBox = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ReduceShakeLabelText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UCheckBox> ReduceFlashingCheckBox = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> ReduceFlashingLabelText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<USlider> HudScaleSlider = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> HudScaleValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> HudScaleLabelText = nullptr;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;
 
@@ -186,4 +307,5 @@ protected:
 
 private:
 	bool bBound = false;
+	int32 RowCount = 0;
 };
