@@ -13,7 +13,7 @@ so nothing is placed by hand:
   point on the sidewalk 60 m along one of its streets for the robbery;
 * four on roofs 8 to 25 m tall with a grapple anchor, a spot 4.5 m clear of every edge and prop, and
   no chapter or challenge business on them;
-* none within 40 m of the safehouse door or a challenge pedestal, none within 25 m of chapter 1's
+* none within 40 m of a safehouse door or a challenge pedestal, none within 25 m of chapter 1's
   thugs or archers, and every two at least 35 m apart.
 
 Street spots take the mugging, robbery and ambush; rooftops the rooftop crime. The names are
@@ -110,10 +110,9 @@ def _dist2(a, b):
 
 
 def _blockers(district, gen, cc):
-    """[(x, y, clearance)] a spot must keep away from: the safehouse, every pedestal, chapter 1's fighters."""
+    """[(x, y, clearance)] a spot must keep away from: the safehouses, every pedestal, chapter 1's fighters."""
     out = []
-    safehouse = gen.safehouse_spot(district)
-    if safehouse is not None:
+    for _label, safehouse in gen.safehouse_spots(district):
         out.append((safehouse["x"], safehouse["y"], SAFEHOUSE_CLEAR))
     for plan in cc.plan_challenges(district):
         out.append((plan["start"][0], plan["start"][1], PEDESTAL_CLEAR))

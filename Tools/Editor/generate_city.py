@@ -3353,6 +3353,9 @@ def clutter_keepouts(district):
     door = safehouse_keepout(district)
     if door is not None:
         points.append(("safehouse", door, SAFEHOUSE_KEEPOUT))
+    door2 = safehouse2_keepout(district)
+    if door2 is not None:
+        points.append(("safehouse", door2, SAFEHOUSE_KEEPOUT))
     for label, _tag, origin, yaw, scale in test_block_spots(district):
         ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
         cx = origin[0] + ux * scale[0] * 50.0 - uy * scale[1] * 50.0
@@ -3727,6 +3730,7 @@ def _clutter_record(group):
 # goes on its facade at the point nearest the park, facing out, standing on the sidewalk.
 SAFEHOUSE_LABEL = "City_Safehouse"
 SAFEHOUSE_ID = "ch01_east_7th"
+SAFEHOUSE_NAME = "[Safehouse 1]"   # placeholder until the story names it; the address is the subtitle
 SAFEHOUSE_PARK_REACH = 3000.0       # cm between the building and the park's edge
 SAFEHOUSE_MIN_HEIGHT_M = 6.0
 SAFEHOUSE_START_CLEAR = 2500.0      # cm
@@ -3813,6 +3817,15 @@ def _ensure_part_material(actor, prop, material, label):
     return 1
 
 
+def _ensure_safehouse_names(actor, name, address):
+    changes = 0
+    for prop, value in (("display_name", name), ("address", address)):
+        if str(actor.get_editor_property(prop)) != value:
+            actor.set_editor_property(prop, unreal.Text(value))
+            changes += 1
+    return changes
+
+
 def ensure_safehouse(district, existing):
     """City_Safehouse (ASafehouse) on its storefront. Idempotent by label."""
     cls = c.find_class("Safehouse", SAFEHOUSE_CLASS)
@@ -3833,10 +3846,8 @@ def ensure_safehouse(district, existing):
     if str(actor.get_editor_property("safehouse_id")) != SAFEHOUSE_ID:
         actor.set_editor_property("safehouse_id", unreal.Name(SAFEHOUSE_ID))
         changes += 1
-    name = spot["address"] or "Tompkins Square"
-    if str(actor.get_editor_property("display_name")) != name:
-        actor.set_editor_property("display_name", unreal.Text(name))
-        changes += 1
+    changes += _ensure_safehouse_names(actor, SAFEHOUSE_NAME, spot["address"] or "Tompkins Square")
+    name = spot["address"]
     door = c.load_or_none(MI_BEACON)
     trim = m.ensure_steel_painted()
     changes += _ensure_part_material(actor, "door", door, SAFEHOUSE_LABEL)
@@ -3844,6 +3855,137 @@ def ensure_safehouse(district, existing):
     changes += _ensure_part_material(actor, "sign_board", trim, SAFEHOUSE_LABEL)
     c.log("updated" if changes else "exists", SAFEHOUSE_LABEL, "osm {0} ({1}), door at ({2:.0f}, {3:.0f}, {4:.0f}) yaw {5:.0f}".format(
         spot["rec"]["id"], name, x, y, ground, yaw))
+    return changes
+
+
+# --------------------------------------------------------------------------------------
+# the second safehouse: the same door on an Avenue B storefront across the district
+# --------------------------------------------------------------------------------------
+
+# The fast-travel destination. Same rules as the first (at least SAFEHOUSE_MIN_HEIGHT_M tall, not an
+# objective roof, a facade edge of SAFEHOUSE_EDGE_MIN or more) but on the far side of the district:
+# east of Avenue B's centre line and in the north half of its length, fronting the avenue (within
+# SAFEHOUSE2_AVENUE_REACH of it, door on the facade point nearest it), at least SAFEHOUSE2_MIN_APART
+# from the first door, and with no fire-escape landing within SAFEHOUSE2_ESCAPE_CLEAR of the door (the
+# first landing would cut through the sign). Of those, the one nearest the first safehouse.
+SAFEHOUSE2_LABEL = "City_Safehouse_2"
+SAFEHOUSE2_ID = "avenue_b"
+SAFEHOUSE2_NAME = "[Safehouse 2]"
+SAFEHOUSE2_AVENUE = "Avenue B"
+SAFEHOUSE2_AVENUE_REACH = 1500.0    # cm from the building to the avenue's centre line
+SAFEHOUSE2_MIN_APART = 25000.0      # cm from the first safehouse's door
+SAFEHOUSE2_ESCAPE_CLEAR = 400.0     # cm from the door to any fire-escape landing's facade point
+
+
+def _avenue_frame(district, name):
+    """(pieces in cm, origin, north unit, east unit) for a named avenue, or None.
+
+    North is along the avenue toward smaller Y (East 11th Street has a smaller Y than East 6th);
+    east is across it toward larger X (Avenue C has a larger X than Avenue B).
+    """
+    pieces = [district.ring_cm(p) for rec in district.roads if rec.get("name") == name for p in rec["pieces"]]
+    points = [p for piece in pieces for p in piece]
+    if len(points) < 2:
+        return None
+    a, b = max(points, key=lambda p: p[1]), min(points, key=lambda p: p[1])
+    L = math.hypot(b[0] - a[0], b[1] - a[1]) or 1.0
+    north = ((b[0] - a[0]) / L, (b[1] - a[1]) / L)
+    east = (-north[1], north[0]) if -north[1] > 0 else (north[1], -north[0])
+    mid = ((a[0] + b[0]) * 0.5, (a[1] + b[1]) * 0.5)
+    return pieces, mid, north, east
+
+
+def safehouse2_spot(district):
+    """{'rec', 'x', 'y', 'yaw', 'address', 'apart'} for the second safehouse door, or None."""
+    first = safehouse_spot(district)
+    frame = _avenue_frame(district, SAFEHOUSE2_AVENUE)
+    if first is None or frame is None:
+        return None
+    pieces, mid, north, east = frame
+    taken = {rec["id"] for rec in objective_roofs(district).values()}
+    taken.add(first["rec"]["id"])
+    escapes = [(f[2][0], f[2][1]) for f in fire_escape_spots(district)]
+    candidates = []
+    for rec in district.buildings:
+        if rec["id"] in taken or rec["height_m"] < SAFEHOUSE_MIN_HEIGHT_M:
+            continue
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) < 3:
+            continue
+        cx, cy = geo.centroid(ring)
+        rel = (cx - mid[0], cy - mid[1])
+        if rel[0] * east[0] + rel[1] * east[1] <= 0.0 or rel[0] * north[0] + rel[1] * north[1] <= 0.0:
+            continue
+        hits = [closest_point_on_polyline((cx, cy), piece) for piece in pieces]
+        hit = min((h for h in hits if h), key=lambda h: h[0], default=None)
+        if hit is None or ring_distance(hit[1], ring) > SAFEHOUSE2_AVENUE_REACH:
+            continue
+        door = _safehouse_door(ring, hit[1])
+        if door is None:
+            continue
+        apart = math.hypot(door[0] - first["x"], door[1] - first["y"])
+        if apart < SAFEHOUSE2_MIN_APART:
+            continue
+        if any(math.hypot(ex - door[0], ey - door[1]) < SAFEHOUSE2_ESCAPE_CLEAR for ex, ey in escapes):
+            continue
+        candidates.append((apart, rec["id"], rec, door))
+    if not candidates:
+        return None
+    apart, _id, rec, door = min(candidates, key=lambda c_: (c_[0], c_[1]))
+    tags = rec.get("tags", {})
+    address = "{0} {1}".format(tags.get("addr:housenumber") or "", tags.get("addr:street") or "").strip()
+    return {"rec": rec, "x": door[0], "y": door[1], "yaw": door[2], "address": address or SAFEHOUSE2_AVENUE,
+            "apart": apart}
+
+
+def safehouse_spots(district):
+    """[(label, spot)] for every safehouse that has a building, first safehouse first."""
+    out = []
+    for label, fn in ((SAFEHOUSE_LABEL, safehouse_spot), (SAFEHOUSE2_LABEL, safehouse2_spot)):
+        spot = fn(district)
+        if spot is not None:
+            out.append((label, spot))
+    return out
+
+
+def safehouse2_keepout(district):
+    """(x, y) of the pavement in front of the second safehouse door, or None."""
+    spot = safehouse2_spot(district)
+    if spot is None:
+        return None
+    yaw = math.radians(spot["yaw"])
+    return spot["x"] + math.cos(yaw) * 150.0, spot["y"] + math.sin(yaw) * 150.0
+
+
+def ensure_safehouse2(district, existing):
+    """City_Safehouse_2 (ASafehouse) on its Avenue B storefront. Idempotent by label."""
+    cls = c.find_class("Safehouse", SAFEHOUSE_CLASS)
+    if cls is None:
+        c.log("skipped", SAFEHOUSE2_LABEL, "ASafehouse not exposed; build the module")
+        return 0
+    spot = safehouse2_spot(district)
+    if spot is None:
+        c.log("FAILED", SAFEHOUSE2_LABEL, "no Avenue B storefront east and north qualifies")
+        return 0
+    x, y, yaw = spot["x"], spot["y"], spot["yaw"]
+    ground = ground_z(x + math.cos(math.radians(yaw)) * 60.0, y + math.sin(math.radians(yaw)) * 60.0,
+                      SIDEWALK_TOP, existing)
+    actor, changes = _ensure_located(existing, SAFEHOUSE2_LABEL, cls, unreal.Vector(x, y, ground), yaw)
+    if actor is None:
+        return changes
+    changes += _ensure_tags(actor, ["City", "CitySafehouse", "osm:" + spot["rec"]["id"]])
+    if str(actor.get_editor_property("safehouse_id")) != SAFEHOUSE2_ID:
+        actor.set_editor_property("safehouse_id", unreal.Name(SAFEHOUSE2_ID))
+        changes += 1
+    changes += _ensure_safehouse_names(actor, SAFEHOUSE2_NAME, spot["address"])
+    door = c.load_or_none(MI_BEACON)
+    trim = m.ensure_steel_painted()
+    changes += _ensure_part_material(actor, "door", door, SAFEHOUSE2_LABEL)
+    changes += _ensure_part_material(actor, "door_frame", trim, SAFEHOUSE2_LABEL)
+    changes += _ensure_part_material(actor, "sign_board", trim, SAFEHOUSE2_LABEL)
+    c.log("updated" if changes else "exists", SAFEHOUSE2_LABEL,
+          "osm {0} ({1}), door at ({2:.0f}, {3:.0f}, {4:.0f}) yaw {5:.0f}, {6:.0f} m from the first".format(
+              spot["rec"]["id"], spot["address"], x, y, ground, yaw, spot["apart"] / 100.0))
     return changes
 
 
@@ -4039,6 +4181,7 @@ def run():
     changes += ensure_objective_beacons(district, existing)
     changes += ensure_chapter_end(district, existing)
     changes += ensure_safehouse(district, existing)
+    changes += ensure_safehouse2(district, existing)
     changes += ensure_challenge_starts(district, existing)
     changes += ensure_crime_spots(district, existing)
     changes += ensure_thugs(district, existing)
