@@ -63,6 +63,22 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save")
 	FString ControlledCharacter;
 
+	/** Phone messages that have arrived, oldest first (DT_Messages row names). UPhoneSubsystem mirrors these. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Phone")
+	TArray<FName> ReceivedMessages;
+
+	/** The arrived messages that have been read. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Phone")
+	TArray<FName> ReadMessages;
+
+	/** Chapters (mission asset names) whose opening title card has been shown. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Narrative")
+	TArray<FName> SeenChapterTitles;
+
+	/** Dialogue sequences that have played through. UDialogueSubsystem mirrors these. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Narrative")
+	TArray<FName> PlayedDialogueSequences;
+
 	/** Back to a fresh campaign. */
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	void ResetCampaign();

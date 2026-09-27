@@ -13,6 +13,10 @@ void UHawkeyeCampaignState::ResetCampaign()
 	DiscoveredSafehouses.Reset();
 	PlayTimeSeconds = 0.f;
 	ControlledCharacter.Reset();
+	ReceivedMessages.Reset();
+	ReadMessages.Reset();
+	SeenChapterTitles.Reset();
+	PlayedDialogueSequences.Reset();
 }
 
 bool UHawkeyeCampaignState::CanMigrateFrom(int32 SavedVersion)

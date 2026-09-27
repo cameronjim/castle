@@ -29,6 +29,8 @@ public class Hawkeye : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"GameplayTags",
+			// UHawkeyeNarrativeSettings: where the phone and dialogue tables live.
+			"DeveloperSettings",
 			// Campaign save: Plugins/SPUD (sinbad/SPUD, MIT) persists ISpudObject actors and globals.
 			"SPUD",
 			// Effects: every particle system is Niagara, built headless by create_vfx.py.
