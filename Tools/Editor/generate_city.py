@@ -3916,6 +3916,72 @@ def ensure_challenge_starts(district, existing):
     return changes
 
 
+# --------------------------------------------------------------------------------------
+# street crimes: the spots they can start at
+# --------------------------------------------------------------------------------------
+
+# ACrimeSpot (Source/Hawkeye/Crime/CrimeSpot.h) at each of the twelve places create_crimes.py plans:
+# eight at street corners (the mugging, robbery and ambush), four on roofs (the rooftop crime), none
+# within 40 m of the safehouse or a pedestal. UCrimeSubsystem starts crimes at them while she roams.
+CRIME_SPOT_PREFIX = "City_CrimeSpot_"
+CRIME_SPOT_CLASS = "/Script/Hawkeye.CrimeSpot"
+
+
+def _same_assets(current, wanted):
+    return [c.safe_name(a) for a in (current or [])] == [c.safe_name(a) for a in wanted]
+
+
+def ensure_crime_spots(district, existing):
+    """City_CrimeSpot_<n> (ACrimeSpot) per planned spot, holding the crimes that may start there.
+    Idempotent by label; spots past the plan are removed."""
+    import create_crimes as cr  # noqa: PLC0415 - it imports this module in turn
+    cls = c.find_class("CrimeSpot", CRIME_SPOT_CLASS)
+    if cls is None:
+        c.log("skipped", CRIME_SPOT_PREFIX + "*", "ACrimeSpot not exposed; build the module")
+        return 0
+    definitions = cr.crime_definitions()
+    if not definitions:
+        c.log("skipped", CRIME_SPOT_PREFIX + "*", "no crime definitions; run create_crimes.py")
+        return 0
+    spots = cr.plan_crime_spots(district)
+    if len(spots) != cr.STREET_SPOTS + cr.ROOF_SPOTS:
+        c.log("FAILED", CRIME_SPOT_PREFIX + "*", "planned {0} crime spots, want {1}".format(
+            len(spots), cr.STREET_SPOTS + cr.ROOF_SPOTS))
+    wanted = {CRIME_SPOT_PREFIX + str(s["index"]) for s in spots}
+    changes = 0
+    for label, actor in list(existing.items()):
+        if label.startswith(CRIME_SPOT_PREFIX) and label not in wanted:
+            actor.destroy_actor()
+            existing.pop(label, None)
+            c.log("updated", label, "removed; no longer planned")
+            changes += 1
+    for spot in spots:
+        label = CRIME_SPOT_PREFIX + str(spot["index"])
+        x, y = spot["at"]
+        z = spot["z"] if spot["rooftop"] else ground_z(x, y, spot["z"], existing)
+        actor, changed = _ensure_located(existing, label, cls, unreal.Vector(x, y, z), spot["yaw"])
+        if actor is None:
+            continue
+        crimes = [definitions[cid] for cid in spot["crimes"] if cid in definitions]
+        if not _same_assets(actor.get_editor_property("crimes"), crimes):
+            actor.set_editor_property("crimes", crimes)
+            changed += 1
+        if bool(actor.get_editor_property("rooftop")) != spot["rooftop"]:
+            actor.set_editor_property("rooftop", spot["rooftop"])
+            changed += 1
+        escape = unreal.Vector(0.0, 0.0, 0.0)
+        if spot["escape"] is not None:
+            ex, ey, ez = spot["escape"]
+            escape = unreal.Vector(ex, ey, ground_z(ex, ey, ez, existing))
+        if not same_vector(actor.get_editor_property("escape_location"), escape, 0.5):
+            actor.set_editor_property("escape_location", escape)
+            changed += 1
+        changed += _ensure_tags(actor, ["City", "CityCrimeSpot", "crime:" + spot["kind"], "osm:" + spot["osm"]])
+        c.log("updated" if changed else "exists", label, cr.describe(spot))
+        changes += changed
+    return changes
+
+
 def open_or_create_map():
     """(ok, created)."""
     subsystem = c.level_editor_subsystem()
@@ -3974,6 +4040,7 @@ def run():
     changes += ensure_chapter_end(district, existing)
     changes += ensure_safehouse(district, existing)
     changes += ensure_challenge_starts(district, existing)
+    changes += ensure_crime_spots(district, existing)
     changes += ensure_thugs(district, existing)
     changes += ensure_archers(district, existing)
     changes += ensure_clint(district, existing)
