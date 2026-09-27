@@ -32,6 +32,10 @@ void UHawkeyePauseWidget::ApplyDefaultLabels()
 	{
 		ReplayFlashbacksLabel = NSLOCTEXT("Hawkeye", "PauseReplayFlashbacks", "Replay flashbacks");
 	}
+	if (MarkSafehouseLabel.IsEmpty())
+	{
+		MarkSafehouseLabel = NSLOCTEXT("Hawkeye", "PauseMarkSafehouse", "Mark nearest safehouse");
+	}
 	if (RestartMissionLabel.IsEmpty())
 	{
 		RestartMissionLabel = NSLOCTEXT("Hawkeye", "PauseRestart", "Restart mission");
@@ -112,6 +116,7 @@ TSharedRef<SWidget> UHawkeyePauseWidget::RebuildWidget()
 		AddButton(ResumeButton, TEXT("ResumeButton"), ResumeLabel);
 		AddButton(SettingsButton, TEXT("SettingsButton"), SettingsLabel);
 		AddButton(ReplayFlashbacksButton, TEXT("ReplayFlashbacksButton"), ReplayFlashbacksLabel);
+		AddButton(MarkSafehouseButton, TEXT("MarkSafehouseButton"), MarkSafehouseLabel);
 		AddButton(RestartMissionButton, TEXT("RestartMissionButton"), RestartMissionLabel);
 		AddButton(QuitToMenuButton, TEXT("QuitToMenuButton"), QuitToMenuLabel);
 		AddButton(QuitToDesktopButton, TEXT("QuitToDesktopButton"), QuitToDesktopLabel);
@@ -143,6 +148,10 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		ReplayFlashbacksButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleReplayFlashbacksClicked);
 	}
+	if (MarkSafehouseButton)
+	{
+		MarkSafehouseButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleMarkSafehouseClicked);
+	}
 	if (RestartMissionButton)
 	{
 		RestartMissionButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleRestartMissionClicked);
@@ -155,7 +164,7 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		QuitToDesktopButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleQuitToDesktopClicked);
 	}
-	for (UButton* Button : { ResumeButton.Get(), SettingsButton.Get(), ReplayFlashbacksButton.Get(), RestartMissionButton.Get(),
+	for (UButton* Button : { ResumeButton.Get(), SettingsButton.Get(), ReplayFlashbacksButton.Get(), MarkSafehouseButton.Get(), RestartMissionButton.Get(),
 			 QuitToMenuButton.Get(), QuitToDesktopButton.Get() })
 	{
 		if (Button)
@@ -183,6 +192,10 @@ void UHawkeyePauseWidget::NativeDestruct()
 		if (ReplayFlashbacksButton)
 		{
 			ReplayFlashbacksButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleReplayFlashbacksClicked);
+		}
+		if (MarkSafehouseButton)
+		{
+			MarkSafehouseButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleMarkSafehouseClicked);
 		}
 		if (RestartMissionButton)
 		{
@@ -225,6 +238,11 @@ void UHawkeyePauseWidget::HandleSettingsClicked()
 void UHawkeyePauseWidget::HandleReplayFlashbacksClicked()
 {
 	OnReplayFlashbacksClicked.Broadcast();
+}
+
+void UHawkeyePauseWidget::HandleMarkSafehouseClicked()
+{
+	OnMarkSafehouseClicked.Broadcast();
 }
 
 void UHawkeyePauseWidget::HandleRestartMissionClicked()

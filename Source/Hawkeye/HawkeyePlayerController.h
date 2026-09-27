@@ -388,13 +388,31 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Safehouse")
 	void SafehouseSave();
 
-	/** Fast travel: lists the other discovered safehouses. A stub until there is a second one. */
+	/**
+	 * Fast travel: the list of the district's other safehouses (undiscovered ones greyed). Refused with
+	 * the "[Can't fast travel now]" toast during a crime or a challenge.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Safehouse")
 	void SafehouseFastTravel();
 
-	/** Chapter select: a stub while CH01 is the only chapter. */
+	/** Chapter select: a stub listing "[CH01]" and the rest as "[Locked]". */
 	UFUNCTION(BlueprintCallable, Category = "Safehouse")
 	void SafehouseChapterSelect();
+
+	/**
+	 * Closes the menu and travels to a discovered safehouse (USafehouseSubsystem::BeginFastTravel).
+	 * False, with the refusal toast when that is why, when it does not start.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Safehouse")
+	bool FastTravelTo(FName SafehouseId);
+
+	/** Pause menu "Mark nearest safehouse": closes the menu and marks it, or says none is found yet. */
+	UFUNCTION(BlueprintCallable, Category = "Safehouse")
+	bool MarkNearestSafehouse();
+
+	/** Chapter select's rows: "[CH01]" then this many less one "[Locked]". */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Safehouse", meta = (ClampMin = "1"))
+	int32 ChapterSelectSlots = 6;
 
 	// --- Side challenges ----------------------------------------------------------------------
 
@@ -634,6 +652,18 @@ protected:
 
 	void SetSafehouseStatus(const FText& Status);
 
+	/** A toast with no title under it ("[Can't fast travel now]"). */
+	void PushHudToast(const FText& Heading, const FText& Title);
+
+	UFUNCTION()
+	void HandleSafehouseListPicked(int32 Index);
+
+	UFUNCTION()
+	void HandleSafehouseListBack();
+
+	UFUNCTION()
+	void HandlePauseMarkSafehouseClicked();
+
 	/** Creates PauseWidget (if needed) and adds it to the viewport. Returns the widget or null. */
 	UHawkeyePauseWidget* ShowPauseWidget();
 
@@ -773,6 +803,12 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Safehouse")
 	bool bSafehouseMenuOpen = false;
+
+	/** Which list the safehouse menu is showing: 0 none, 1 fast travel, 2 chapter select. */
+	uint8 SafehouseListKind = 0;
+
+	/** The fast-travel list's safehouse ids, row for row. */
+	TArray<FName> TravelRowIds;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Challenge")
 	TObjectPtr<UChallengeResultsWidget> ChallengeResultsWidget = nullptr;

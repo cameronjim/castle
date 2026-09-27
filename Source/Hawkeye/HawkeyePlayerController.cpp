@@ -49,6 +49,7 @@
 #include "UI/ChallengeResultsWidget.h"
 #include "UI/HawkeyeSafehouseWidget.h"
 #include "World/Safehouse.h"
+#include "World/SafehouseSubsystem.h"
 #include "Challenge/ChallengeSubsystem.h"
 #include "World/ChapterEndInteractable.h"
 #include "Dialogue/DialogueSubsystem.h"
@@ -528,6 +529,7 @@ UHawkeyePauseWidget* AHawkeyePlayerController::ShowPauseWidget()
 		PauseWidget->OnResumeClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseResumeClicked);
 		PauseWidget->OnSettingsClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseSettingsClicked);
 		PauseWidget->OnReplayFlashbacksClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseReplayFlashbacksClicked);
+		PauseWidget->OnMarkSafehouseClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseMarkSafehouseClicked);
 		PauseWidget->OnRestartMissionClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseRestartClicked);
 		PauseWidget->OnQuitToDesktopClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitClicked);
 		PauseWidget->OnQuitToMenuClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitToMenuClicked);
@@ -960,6 +962,8 @@ UHawkeyeSafehouseWidget* AHawkeyePlayerController::EnsureSafehouseWidget()
 	SafehouseWidget->OnFastTravelClicked.AddDynamic(this, &AHawkeyePlayerController::SafehouseFastTravel);
 	SafehouseWidget->OnChapterSelectClicked.AddDynamic(this, &AHawkeyePlayerController::SafehouseChapterSelect);
 	SafehouseWidget->OnLeaveClicked.AddDynamic(this, &AHawkeyePlayerController::CloseSafehouseMenu);
+	SafehouseWidget->OnListRowPicked.AddDynamic(this, &AHawkeyePlayerController::HandleSafehouseListPicked);
+	SafehouseWidget->OnListBackClicked.AddDynamic(this, &AHawkeyePlayerController::HandleSafehouseListBack);
 	return SafehouseWidget;
 }
 
@@ -977,6 +981,9 @@ void AHawkeyePlayerController::OpenSafehouseMenu(ASafehouse* Safehouse)
 	SetInventoryOpen(false);
 	ActiveSafehouse = Safehouse;
 	Menu->SetSafehouseName(Safehouse->GetDisplayName());
+	Menu->SetSubtitle(Safehouse->Address);
+	Menu->ShowMain();
+	SafehouseListKind = 0;
 	Menu->SetStatus(NSLOCTEXT("Hawkeye", "SafehouseWelcome", "Healed to full. Progress saved."));
 	if (!Menu->IsInViewport())
 	{
@@ -999,6 +1006,8 @@ void AHawkeyePlayerController::CloseSafehouseMenu()
 	}
 	bSafehouseMenuOpen = false;
 	ActiveSafehouse = nullptr;
+	SafehouseListKind = 0;
+	TravelRowIds.Reset();
 	SetPause(false);
 	ApplyPauseInputMode(false);
 }
@@ -1084,29 +1093,119 @@ void AHawkeyePlayerController::SafehouseSave()
 		: NSLOCTEXT("Hawkeye", "SafehouseSaveFailed", "Could not save right now."));
 }
 
+void AHawkeyePlayerController::PushHudToast(const FText& Heading, const FText& Title)
+{
+	if (UHawkeyeObjectiveWidget* Toasts = HudWidget ? HudWidget->GetObjectiveMarker() : nullptr)
+	{
+		Toasts->PushToast(Heading, Title);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: toast: %s %s"), *GetName(), *Heading.ToString(), *Title.ToString());
+}
+
 void AHawkeyePlayerController::SafehouseFastTravel()
 {
+	const USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this);
 	const UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
-	TArray<FString> Others;
-	for (const FName Id : Save ? Save->GetDiscoveredSafehouses() : TArray<FName>())
+	if (!Safehouses || !SafehouseWidget)
 	{
-		if (!ActiveSafehouse || Id != ActiveSafehouse->SafehouseId)
-		{
-			Others.Add(Id.ToString());
-		}
+		return;
 	}
-	// TODO(stage4): travel once a second safehouse exists; for now the list is all there is.
-	SetSafehouseStatus(Others.Num() == 0
-		? NSLOCTEXT("Hawkeye", "SafehouseNoOther", "No other safehouse yet.")
-		: FText::Format(NSLOCTEXT("Hawkeye", "SafehouseOthers", "Discovered: {0}. Fast travel is not built yet."),
-			FText::FromString(FString::Join(Others, TEXT(", ")))));
+	const FText Refusal = Safehouses->GetTravelRefusalNow();
+	if (!Refusal.IsEmpty())
+	{
+		SetSafehouseStatus(Refusal);
+		PushHudToast(FText::GetEmpty(), Refusal);
+		return;
+	}
+	const TArray<FName> Discovered = Save ? Save->GetDiscoveredSafehouses() : TArray<FName>();
+	const TArray<FHawkeyeSafehouseEntry> List = USafehouseSubsystem::BuildTravelList(Safehouses->MakeEntries(Discovered),
+		ActiveSafehouse ? ActiveSafehouse->SafehouseId : NAME_None, Discovered);
+	TArray<FHawkeyeMenuListRow> Rows;
+	TravelRowIds.Reset();
+	for (const FHawkeyeSafehouseEntry& Entry : List)
+	{
+		FHawkeyeMenuListRow& Row = Rows.AddDefaulted_GetRef();
+		Row.Label = Entry.bDiscovered ? Entry.DisplayName : NSLOCTEXT("Hawkeye", "SafehouseUndiscovered", "[Undiscovered]");
+		Row.bEnabled = Entry.bDiscovered;
+		TravelRowIds.Add(Entry.SafehouseId);
+	}
+	SafehouseListKind = 1;
+	SafehouseWidget->ShowList(NSLOCTEXT("Hawkeye", "FastTravelHeading", "Fast travel"), Rows);
+	SetSafehouseStatus(Rows.Num() == 0 ? NSLOCTEXT("Hawkeye", "SafehouseNoOther", "No other safehouse yet.")
+		: NSLOCTEXT("Hawkeye", "FastTravelPick", "Pick a safehouse."));
 }
 
 void AHawkeyePlayerController::SafehouseChapterSelect()
 {
-	// TODO(stage4): list the chapters once there is more than one.
-	SetSafehouseStatus(NSLOCTEXT("Hawkeye", "SafehouseChapters",
-		"Chapter select: CH01 East Village is the only chapter so far."));
+	if (!SafehouseWidget)
+	{
+		return;
+	}
+	// TODO(stage4): real chapters once more than CH01 exists; until then a stub with placeholder rows.
+	TArray<FHawkeyeMenuListRow> Rows;
+	Rows.Add({ NSLOCTEXT("Hawkeye", "ChapterSelectCH01", "[CH01]"), true });
+	for (int32 Slot = 1; Slot < ChapterSelectSlots; ++Slot)
+	{
+		Rows.Add({ NSLOCTEXT("Hawkeye", "ChapterSelectLocked", "[Locked]"), false });
+	}
+	SafehouseListKind = 2;
+	SafehouseWidget->ShowList(NSLOCTEXT("Hawkeye", "ChapterSelectHeading", "Chapter select"), Rows);
+	SetSafehouseStatus(NSLOCTEXT("Hawkeye", "SafehouseChapters", "[Chapter select is a stub]"));
+}
+
+void AHawkeyePlayerController::HandleSafehouseListPicked(int32 Index)
+{
+	if (SafehouseListKind == 1 && TravelRowIds.IsValidIndex(Index))
+	{
+		FastTravelTo(TravelRowIds[Index]);
+		return;
+	}
+	if (SafehouseListKind == 2)
+	{
+		SetSafehouseStatus(NSLOCTEXT("Hawkeye", "ChapterSelectCurrent", "[CH01] is the chapter in progress."));
+	}
+}
+
+void AHawkeyePlayerController::HandleSafehouseListBack()
+{
+	SafehouseListKind = 0;
+	TravelRowIds.Reset();
+	SetSafehouseStatus(FText::GetEmpty());
+}
+
+bool AHawkeyePlayerController::FastTravelTo(FName SafehouseId)
+{
+	USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this);
+	ASafehouse* Destination = Safehouses ? Safehouses->FindSafehouse(SafehouseId) : nullptr;
+	if (!Safehouses || !Destination)
+	{
+		return false;
+	}
+	const FText Refusal = Safehouses->GetTravelRefusalNow();
+	if (!Refusal.IsEmpty())
+	{
+		SetSafehouseStatus(Refusal);
+		PushHudToast(FText::GetEmpty(), Refusal);
+		return false;
+	}
+	CloseSafehouseMenu();
+	return Safehouses->BeginFastTravel(this, Destination);
+}
+
+bool AHawkeyePlayerController::MarkNearestSafehouse()
+{
+	SetPauseMenuOpen(false);
+	USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this);
+	const ASafehouse* Marked = Safehouses && GetPawn() ? Safehouses->MarkNearestSafehouse(GetPawn()->GetActorLocation()) : nullptr;
+	PushHudToast(Marked ? NSLOCTEXT("Hawkeye", "SafehouseMarked", "[Safehouse marked]")
+		: NSLOCTEXT("Hawkeye", "SafehouseNoneToMark", "[No safehouse found yet]"),
+		Marked ? Marked->GetDisplayName() : FText::GetEmpty());
+	return Marked != nullptr;
+}
+
+void AHawkeyePlayerController::HandlePauseMarkSafehouseClicked()
+{
+	MarkNearestSafehouse();
 }
 
 void AHawkeyePlayerController::QuitToDesktop()
@@ -1220,6 +1319,8 @@ void AHawkeyePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		SafehouseWidget->OnFastTravelClicked.RemoveDynamic(this, &AHawkeyePlayerController::SafehouseFastTravel);
 		SafehouseWidget->OnChapterSelectClicked.RemoveDynamic(this, &AHawkeyePlayerController::SafehouseChapterSelect);
 		SafehouseWidget->OnLeaveClicked.RemoveDynamic(this, &AHawkeyePlayerController::CloseSafehouseMenu);
+		SafehouseWidget->OnListRowPicked.RemoveDynamic(this, &AHawkeyePlayerController::HandleSafehouseListPicked);
+		SafehouseWidget->OnListBackClicked.RemoveDynamic(this, &AHawkeyePlayerController::HandleSafehouseListBack);
 		SafehouseWidget->RemoveFromParent();
 		SafehouseWidget = nullptr;
 	}

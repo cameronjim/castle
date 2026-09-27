@@ -13,7 +13,7 @@ class UVerticalBox;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPauseMenuChoiceSignature);
 
 /**
- * The Escape menu: Resume, Settings, Replay flashbacks, Restart mission (the last save), Quit to menu,
+ * The Escape menu: Resume, Settings, Replay flashbacks, Mark nearest safehouse, Restart mission (the last save), Quit to menu,
  * Quit to desktop.
  *
  * Reparent a UMG widget to this class and name the buttons ResumeButton, SettingsButton,
@@ -39,6 +39,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnReplayFlashbacksClicked;
 
+	/** "Mark nearest safehouse": a marker on the nearest discovered safehouse. */
+	UPROPERTY(BlueprintAssignable, Category = "Pause")
+	FOnPauseMenuChoiceSignature OnMarkSafehouseClicked;
+
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnRestartMissionClicked;
 
@@ -60,6 +64,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText ReplayFlashbacksLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
+	FText MarkSafehouseLabel;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText RestartMissionLabel;
@@ -85,6 +92,9 @@ protected:
 
 	UFUNCTION()
 	void HandleReplayFlashbacksClicked();
+
+	UFUNCTION()
+	void HandleMarkSafehouseClicked();
 
 	UFUNCTION()
 	void HandleRestartMissionClicked();
@@ -114,6 +124,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> ReplayFlashbacksButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> MarkSafehouseButton = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> RestartMissionButton = nullptr;
