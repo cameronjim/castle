@@ -664,6 +664,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
 	TArray<TSoftObjectPtr<USoundBase>> FootstepSounds;
 
+	/** Steps on a floor tagged SurfaceWood (boards, stair treads, a stage): MS_Footstep_Wood. Empty uses FootstepSounds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
+	TArray<TSoftObjectPtr<USoundBase>> WoodFootstepSounds;
+
+	/** Steps on a floor tagged SurfaceCarpet: MS_Footstep_Carpet. Empty uses FootstepSounds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
+	TArray<TSoftObjectPtr<USoundBase>> CarpetFootstepSounds;
+
+	/** What the floor she is standing on is, from its actor's tags (HawkeyeAudioMath::ClassifyFootstepSurface). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Audio")
+	EHawkeyeFootstepSurface GetFootstepSurface() const;
+
+	/** The sounds a step on Surface picks from: the wood or carpet set, or FootstepSounds when that set is empty. */
+	const TArray<TSoftObjectPtr<USoundBase>>& GetFootstepSoundsFor(EHawkeyeFootstepSurface Surface) const;
+
+	/** Indoors the hip arm is capped at IndoorArmLength. BeginPlay sets it from the map's game mode. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Camera")
+	void SetIndoorCamera(bool bIndoors) { bIndoorCamera = bIndoors; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	bool IsIndoorCamera() const { return bIndoorCamera; }
+
+
 	/** A step every 70 cm walking, 55 cm sprinting, on the ground only. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
 	FHawkeyeFootstepTracker Footsteps;
@@ -1321,6 +1344,18 @@ protected:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera")
 	FHawkeyeCameraTargets AimCamera = { 180.f, FVector(0.f, 70.f, 65.f), 70.f };
+
+	/**
+	 * Indoors (a map whose game mode sets bInteriorCamera) the hip arm is never longer than this, so
+	 * the lens stays in the room rather than pressing into the wall behind her. Aiming is unchanged.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
+	float IndoorArmLength = 250.f;
+
+	/** Set at BeginPlay from the game mode (AHawkeyeGameMode::WantsInteriorCamera), or by SetIndoorCamera. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Camera")
+	bool bIndoorCamera = false;
+
 
 	/** Seconds the camera takes to travel the whole way between HipCamera and AimCamera. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))

@@ -74,3 +74,15 @@ EHawkeyeArrowSurface HawkeyeAudioMath::ClassifyArrowSurface(bool bHasHealth, con
 	}
 	return EHawkeyeArrowSurface::Stone;
 }
+
+const FName HawkeyeAudioMath::WoodSurfaceTag(TEXT("SurfaceWood"));
+const FName HawkeyeAudioMath::CarpetSurfaceTag(TEXT("SurfaceCarpet"));
+
+EHawkeyeFootstepSurface HawkeyeAudioMath::ClassifyFootstepSurface(const TArray<FName>& FloorTags)
+{
+	if (FloorTags.Contains(CarpetSurfaceTag))
+	{
+		return EHawkeyeFootstepSurface::Carpet;
+	}
+	return FloorTags.Contains(WoodSurfaceTag) ? EHawkeyeFootstepSurface::Wood : EHawkeyeFootstepSurface::Snow;
+}

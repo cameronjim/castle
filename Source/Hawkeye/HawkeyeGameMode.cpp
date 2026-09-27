@@ -66,7 +66,14 @@ bool AHawkeyeGameMode::WantsOutdoorWeather(const AGameModeBase* GameMode)
 	return Hawkeye && Hawkeye->bOutdoorWeather;
 }
 
+bool AHawkeyeGameMode::WantsInteriorCamera(const UWorld* World)
+{
+	const AHawkeyeGameMode* Hawkeye = World ? Cast<AHawkeyeGameMode>(World->GetAuthGameMode()) : nullptr;
+	return Hawkeye && Hawkeye->bInteriorCamera;
+}
+
 void AHawkeyeGameMode::Tick(float DeltaSeconds)
+
 {
 	Super::Tick(DeltaSeconds);
 	const double Now = FPlatformTime::Seconds();
@@ -99,7 +106,16 @@ void AHawkeyeGameMode::NotePlayable()
 
 	ScreenshotProcessedHandle = FScreenshotRequest::OnScreenshotRequestProcessed().AddUObject(
 		this, &AHawkeyeGameMode::HandleScreenshotProcessed);
+
+	// Walked in through a door that faded to black: bring the picture back now the room is here.
+	UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	if (Save && PC && PC->PlayerCameraManager && Save->ConsumeInteriorArrivalFade())
+	{
+		PC->PlayerCameraManager->StartCameraFade(1.f, 0.f, Save->FadeInSeconds, FLinearColor::Black, false, false);
+	}
 }
+
 
 void AHawkeyeGameMode::HandleScreenshotProcessed()
 {

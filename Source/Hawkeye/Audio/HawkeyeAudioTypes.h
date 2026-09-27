@@ -26,6 +26,19 @@ enum class EHawkeyeArrowSurface : uint8
 };
 
 /**
+ * What the floor under a footstep is. Outdoors everything is snow; an interior floor says what it is
+ * with an actor tag (SurfaceWood, SurfaceCarpet) that Tools/Editor/generate_interior.py writes.
+ */
+UENUM(BlueprintType)
+enum class EHawkeyeFootstepSurface : uint8
+{
+	Snow,
+	Wood,
+	Carpet,
+};
+
+
+/**
  * The gain each sound class gets from the settings sliders. Every value already includes the
  * master slider: classes are overridden one by one with the product, never relying on the class
  * tree to multiply (see HawkeyeAudioMath::ComputeClassVolumes).

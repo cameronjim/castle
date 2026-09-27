@@ -100,6 +100,17 @@ public:
 	static bool WantsOutdoorWeather(const AGameModeBase* GameMode);
 
 	/**
+	 * An interior map (L_Int_*): the player's hip camera arm is capped at the character's
+	 * IndoorArmLength (250 cm) so it stays inside the room. Off in the district.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "World")
+	bool bInteriorCamera = false;
+
+	/** Whether the game mode running World wants the indoor camera. No Hawkeye game mode: no. */
+	static bool WantsInteriorCamera(const UWorld* World);
+
+
+	/**
 	 * Uncooked builds only (-game from the editor binaries): index every loaded PoseSearch database
 	 * during the load instead of on the first frame. The motion-matching databases wait for their
 	 * animations to finish loading and then compose their DDC keys on the game thread, all ~240 of

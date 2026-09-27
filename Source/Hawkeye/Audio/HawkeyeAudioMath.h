@@ -39,4 +39,14 @@ namespace HawkeyeAudioMath
 
 	/** Flesh for anything with health, wood by the hit actor's name, stone for everything else. */
 	HAWKEYE_API EHawkeyeArrowSurface ClassifyArrowSurface(bool bHasHealth, const FString& ActorName);
+
+	/** The floor tag for a wooden floor (boards, stair treads, a stage). */
+	HAWKEYE_API extern const FName WoodSurfaceTag;
+
+	/** The floor tag for carpet. */
+	HAWKEYE_API extern const FName CarpetSurfaceTag;
+
+	/** Wood or carpet by the floor actor's tags (carpet wins if both), snow for anything else or no floor. */
+	HAWKEYE_API EHawkeyeFootstepSurface ClassifyFootstepSurface(const TArray<FName>& FloorTags);
+
 }

@@ -225,6 +225,7 @@ void AHawkeyeCharacter::BeginPlay()
 
 	ApplyTuningToComponents();
 	UpdateMaxWalkSpeed();
+	bIndoorCamera = AHawkeyeGameMode::WantsInteriorCamera(GetWorld());
 	UpdateCamera(0.f);
 
 	if (HealthComponent)
@@ -1457,6 +1458,10 @@ FHawkeyeCameraTargets AHawkeyeCharacter::ComputeCameraTargets(bool bAiming, floa
 	Targets.ArmLength = FMath::Lerp(HipCamera.ArmLength, LookUpArmLength, Alpha);
 	Targets.SocketOffset.Z = FMath::Lerp(HipCamera.SocketOffset.Z, LookUpSocketZ, Alpha);
 	Targets.PivotLift = FMath::Lerp(HipCamera.PivotLift, LookUpPivotLift, Alpha);
+	if (bIndoorCamera)
+	{
+		Targets.ArmLength = FMath::Min(Targets.ArmLength, IndoorArmLength);
+	}
 	return Targets;
 }
 
@@ -2589,24 +2594,46 @@ void AHawkeyeCharacter::UpdateFootsteps()
 	}
 }
 
+EHawkeyeFootstepSurface AHawkeyeCharacter::GetFootstepSurface() const
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const AActor* Floor = Movement && Movement->CurrentFloor.IsWalkableFloor() ? Movement->CurrentFloor.HitResult.GetActor() : nullptr;
+	return Floor ? HawkeyeAudioMath::ClassifyFootstepSurface(Floor->Tags) : EHawkeyeFootstepSurface::Snow;
+}
+
+const TArray<TSoftObjectPtr<USoundBase>>& AHawkeyeCharacter::GetFootstepSoundsFor(EHawkeyeFootstepSurface Surface) const
+{
+	const TArray<TSoftObjectPtr<USoundBase>>& Set = Surface == EHawkeyeFootstepSurface::Wood ? WoodFootstepSounds
+		: Surface == EHawkeyeFootstepSurface::Carpet ? CarpetFootstepSounds : FootstepSounds;
+	return Set.Num() > 0 ? Set : FootstepSounds;
+}
+
 void AHawkeyeCharacter::PlayFootstep()
 {
 	++FootstepCount;
-	KickFootstepSnow();
-	if (FootstepSounds.Num() == 0)
+	const EHawkeyeFootstepSurface Surface = GetFootstepSurface();
+	// Only snow kicks up; a board or a carpet does not.
+	if (Surface == EHawkeyeFootstepSurface::Snow)
+	{
+		KickFootstepSnow();
+	}
+	const TArray<TSoftObjectPtr<USoundBase>>& Sounds = GetFootstepSoundsFor(Surface);
+	if (Sounds.Num() == 0)
 	{
 		return;
 	}
-	int32 Index = FMath::RandRange(0, FootstepSounds.Num() - 1);
-	if (FootstepSounds.Num() > 1 && Index == LastFootstepIndex)
+	int32 Index = FMath::RandRange(0, Sounds.Num() - 1);
+	if (Sounds.Num() > 1 && Index == LastFootstepIndex)
 	{
-		Index = (Index + 1) % FootstepSounds.Num();
+		Index = (Index + 1) % Sounds.Num();
 	}
 	LastFootstepIndex = Index;
 	const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
-	UHawkeyeAudioSubsystem::PlayAt(this, FootstepSounds[Index], GetActorLocation() - FVector(0.f, 0.f, HalfHeight),
-		TEXT("footstep"), bIsSprinting ? 1.f : 0.8f);
+	UHawkeyeAudioSubsystem::PlayAt(this, Sounds[Index], GetActorLocation() - FVector(0.f, 0.f, HalfHeight),
+		Surface == EHawkeyeFootstepSurface::Snow ? TEXT("footstep") : Surface == EHawkeyeFootstepSurface::Wood
+		? TEXT("footstep wood") : TEXT("footstep carpet"), bIsSprinting ? 1.f : 0.8f);
 }
+
 
 void AHawkeyeCharacter::KickFootstepSnow()
 {
