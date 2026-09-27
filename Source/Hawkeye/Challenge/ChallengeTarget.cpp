@@ -9,6 +9,7 @@
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Misc/App.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace HawkeyeChallengeTarget
@@ -29,6 +30,7 @@ namespace HawkeyeChallengeTarget
 AChallengeTarget::AChallengeTarget()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	FaceMaterial = TSoftObjectPtr<UMaterialInterface>(FSoftObjectPath(TEXT("/Game/Materials/M_Emissive.M_Emissive")));
 
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	Root->SetMobility(EComponentMobility::Movable);
@@ -98,11 +100,15 @@ void AChallengeTarget::LayoutParts()
 	Disc(BullseyeDisc, BullseyeRadius, RingThickness, FaceThickness * 0.5f + RingThickness * 2.f);
 }
 
-void AChallengeTarget::Tint(UStaticMeshComponent* Part, const FLinearColor& Color)
+void AChallengeTarget::Tint(UStaticMeshComponent* Part, const FLinearColor& Color, float Glow)
 {
 	if (UMaterialInstanceDynamic* Material = Part ? Part->CreateDynamicMaterialInstance(0) : nullptr)
 	{
 		Material->SetVectorParameterValue(TEXT("Color"), Color);
+		if (Glow >= 0.f)
+		{
+			Material->SetScalarParameterValue(TEXT("Intensity"), Glow);
+		}
 	}
 }
 
@@ -125,9 +131,20 @@ void AChallengeTarget::InitTarget(int32 InIndex, const FChallengeTargetSpawn& Sp
 	bDown = false;
 	FallAlpha = 0.f;
 	LayoutParts();
-	Tint(OuterDisc, OuterColor);
-	Tint(RingDisc, RingColor);
-	Tint(BullseyeDisc, BullseyeColor);
+	// Synchronously, the first target of a run spawns with it; never in a headless test.
+	UMaterialInterface* Glow = FApp::CanEverRender() && !FaceMaterial.IsNull() ? FaceMaterial.LoadSynchronous() : nullptr;
+	for (UStaticMeshComponent* Disc : { OuterDisc.Get(), RingDisc.Get(), BullseyeDisc.Get() })
+	{
+		if (Glow)
+		{
+			Disc->SetMaterial(0, Glow);
+		}
+	}
+	bGlowing = Glow != nullptr;
+	const float Intensity = Glow ? FaceGlow : -1.f;
+	Tint(OuterDisc, OuterColor, Intensity);
+	Tint(RingDisc, RingColor, Intensity);
+	Tint(BullseyeDisc, BullseyeColor, Intensity);
 	Tint(Post, PostColor);
 }
 
@@ -166,10 +183,11 @@ void AChallengeTarget::KnockDown(int32 Points)
 	Root->ComponentVelocity = FVector::ZeroVector;
 	// No more hits once it is scored: arrows fly past it into whatever is behind.
 	OuterDisc->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	if (Points <= 0)
-	{
-		Tint(OuterDisc, HawkeyeChallengeTarget::DownColor);
-	}
+	// Scored: the glow goes out, so what is left to shoot stands out.
+	const float Dim = bGlowing ? FaceGlow * 0.1f : -1.f;
+	Tint(OuterDisc, Points > 0 ? HawkeyeChallengeTarget::OuterColor : HawkeyeChallengeTarget::DownColor, Dim);
+	Tint(RingDisc, HawkeyeChallengeTarget::RingColor, Dim);
+	Tint(BullseyeDisc, HawkeyeChallengeTarget::BullseyeColor, Dim);
 }
 
 void AChallengeTarget::EndPlay(const EEndPlayReason::Type EndPlayReason)

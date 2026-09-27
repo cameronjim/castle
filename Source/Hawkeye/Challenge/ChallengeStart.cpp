@@ -23,7 +23,7 @@
 
 namespace HawkeyeChallengeStart
 {
-	static const TCHAR* GlowPath = TEXT("/Game/Materials/MI_ObjectiveBeacon.MI_ObjectiveBeacon");
+	static const TCHAR* GlowPath = TEXT("/Game/Materials/M_Emissive.M_Emissive");
 	static const FLinearColor Purple(0.62f, 0.25f, 1.f);
 	static const FLinearColor Steel(0.035f, 0.035f, 0.04f);
 	static constexpr float PedestalHeight = 100.f;
@@ -114,8 +114,8 @@ AChallengeStart::AChallengeStart()
 	Glow->SetupAttachment(Root);
 	Glow->SetRelativeLocation(FVector(0.f, 0.f, IconHeight));
 	Glow->SetIntensityUnits(ELightUnits::Lumens);
-	Glow->SetIntensity(1500.f);
-	Glow->SetAttenuationRadius(900.f);
+	Glow->SetIntensity(450.f);
+	Glow->SetAttenuationRadius(650.f);
 	Glow->SetLightColor(Purple);
 	Glow->SetCastShadows(false);
 
@@ -162,34 +162,35 @@ void AChallengeStart::RefreshLook()
 		Body->SetVectorParameterValue(TEXT("Color"), Steel);
 	}
 	// The glow only in a game that draws: the editor placing a pedestal, and headless tests, never load it.
+	// M_Emissive per part: the cap and a ring icon purple, a target icon in its three ring colours.
 	UWorld* World = GetWorld();
 	UMaterialInterface* Emissive = World && World->IsGameWorld() && FApp::CanEverRender() && !GlowMaterial.IsNull()
 		? GlowMaterial.LoadSynchronous() : nullptr;
-	TArray<UStaticMeshComponent*> Lit{ Cap.Get() };
-	Lit.Append(bArchery ? TargetIcon : RingIcon);
-	for (int32 Index = 0; Index < Lit.Num(); ++Index)
+	auto Light = [Emissive](UStaticMeshComponent* Part, const FLinearColor& Color, float Intensity)
 	{
-		UStaticMeshComponent* Part = Lit[Index];
 		if (Emissive)
 		{
 			Part->SetMaterial(0, Emissive);
 		}
-		else if (UMaterialInstanceDynamic* Material = Part->CreateDynamicMaterialInstance(0))
+		if (UMaterialInstanceDynamic* Material = Part->CreateDynamicMaterialInstance(0))
 		{
-			Material->SetVectorParameterValue(TEXT("Color"), Purple);
+			Material->SetVectorParameterValue(TEXT("Color"), Color);
+			Material->SetScalarParameterValue(TEXT("Intensity"), Intensity);
 		}
-	}
-	// The icon's rings read as a target: cream, red and gold over the glow.
+	};
+	Light(Cap, Purple, CapGlow);
 	if (bArchery && TargetIcon.Num() == 3)
 	{
 		const FLinearColor Colors[] = { FLinearColor(0.86f, 0.82f, 0.72f), FLinearColor(0.72f, 0.05f, 0.04f), FLinearColor(1.f, 0.72f, 0.08f) };
-		for (int32 Index = 1; Index < 3; ++Index)
+		for (int32 Index = 0; Index < 3; ++Index)
 		{
-			if (UMaterialInstanceDynamic* Material = TargetIcon[Index]->CreateDynamicMaterialInstance(0))
-			{
-				Material->SetVectorParameterValue(TEXT("Color"), Colors[Index]);
-			}
+			Light(TargetIcon[Index], Colors[Index], IconGlow);
 		}
+		return;
+	}
+	for (UStaticMeshComponent* Part : RingIcon)
+	{
+		Light(Part, Purple, IconGlow * 2.f);
 	}
 }
 

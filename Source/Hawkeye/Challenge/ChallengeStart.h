@@ -35,9 +35,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Challenge")
 	TObjectPtr<UChallengeDefinition> Definition;
 
-	/** The glow on the top and the icon; MI_ObjectiveBeacon. */
+	/** The glow on the top and the icon: M_Emissive (Color, Intensity), an instance per part. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge")
 	TSoftObjectPtr<UMaterialInterface> GlowMaterial;
+
+	/** The cap's emissive intensity. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
+	float CapGlow = 1.5f;
+
+	/** The icon's emissive intensity (a ring icon twice it). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
+	float IconGlow = 1.2f;
 
 	/** Degrees a second the icon turns. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge")

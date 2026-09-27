@@ -15,7 +15,7 @@
 namespace HawkeyeChallengeCheckpoint
 {
 	static constexpr int32 SegmentCount = 24;
-	static const TCHAR* GlowPath = TEXT("/Game/Materials/MI_ObjectiveBeacon.MI_ObjectiveBeacon");
+	static const TCHAR* GlowPath = TEXT("/Game/Materials/M_Emissive.M_Emissive");
 	static const FLinearColor Purple(0.62f, 0.25f, 1.f);
 	static const FLinearColor DimColor(0.2f, 0.12f, 0.3f);
 }
@@ -57,7 +57,7 @@ AChallengeCheckpoint::AChallengeCheckpoint()
 	Light = CreateDefaultSubobject<UPointLightComponent>(TEXT("Light"));
 	Light->SetupAttachment(Root);
 	Light->SetIntensityUnits(ELightUnits::Lumens);
-	Light->SetIntensity(600.f);
+	Light->SetIntensity(350.f);
 	Light->SetAttenuationRadius(600.f);
 	Light->SetLightColor(Purple);
 	Light->SetCastShadows(false);
@@ -88,6 +88,7 @@ void AChallengeCheckpoint::BeginPlay()
 	LayoutSegments();
 	// Synchronously: a ring spawned mid-run must glow on its first frame.
 	LoadedGlow = GlowMaterial.IsNull() || !FApp::CanEverRender() ? nullptr : GlowMaterial.LoadSynchronous();
+	bLookReady = true;
 	SetState(State);
 }
 
@@ -98,22 +99,29 @@ void AChallengeCheckpoint::SetState(EChallengeCheckpointState NewState)
 	const bool bVisible = State == EChallengeCheckpointState::Next || State == EChallengeCheckpointState::Upcoming;
 	Spinner->SetVisibility(bVisible, true);
 	Light->SetVisibility(State == EChallengeCheckpointState::Next);
-	for (UStaticMeshComponent* Segment : Segments)
+	// Materials only once the ring has begun play (its constructor sets the state too).
+	for (UStaticMeshComponent* Segment : bLookReady ? Segments : TArray<TObjectPtr<UStaticMeshComponent>>())
 	{
-		if (!Segment)
+		if (!Segment || !Segment->GetMaterial(0))
 		{
 			continue;
 		}
-		if (State == EChallengeCheckpointState::Next && LoadedGlow)
+		const UMaterialInstanceDynamic* Existing = Cast<UMaterialInstanceDynamic>(Segment->GetMaterial(0));
+		if (LoadedGlow && Segment->GetMaterial(0) != LoadedGlow && (!Existing || Existing->Parent != LoadedGlow))
 		{
 			Segment->SetMaterial(0, LoadedGlow);
 		}
-		else if (UMaterialInstanceDynamic* Material = Segment->CreateDynamicMaterialInstance(0))
+		if (UMaterialInstanceDynamic* Material = Segment->CreateDynamicMaterialInstance(0))
 		{
-			Material->SetVectorParameterValue(TEXT("Color"), State == EChallengeCheckpointState::Next ? Purple : DimColor);
+			const bool bNext = State == EChallengeCheckpointState::Next;
+			Material->SetVectorParameterValue(TEXT("Color"), bNext ? Purple : DimColor);
+			Material->SetScalarParameterValue(TEXT("Intensity"), bNext ? NextGlow : NextGlow * 0.25f);
 		}
 	}
-	SetActorTickEnabled(State == EChallengeCheckpointState::Next);
+	if (!IsTemplate())
+	{
+		SetActorTickEnabled(State == EChallengeCheckpointState::Next);
+	}
 }
 
 void AChallengeCheckpoint::Tick(float DeltaSeconds)

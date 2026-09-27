@@ -7,6 +7,7 @@
 #include "Challenge/ChallengeTypes.h"
 #include "ChallengeTarget.generated.h"
 
+class UMaterialInterface;
 class UStaticMeshComponent;
 class USceneComponent;
 
@@ -56,6 +57,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Challenge|Target")
 	FVector GetSlideVelocity() const { return SlideVelocity; }
 
+	/**
+	 * The face's glow, so the rings read across a street at night: M_Emissive (Color, Intensity), one
+	 * instance per ring. The plain shape material when it is not there.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge|Target")
+	TSoftObjectPtr<UMaterialInterface> FaceMaterial;
+
+	/** The rings' emissive intensity; a scored target drops to a tenth of it. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge|Target", meta = (ClampMin = "0.0"))
+	float FaceGlow = 0.8f;
+
 	/** The face's centre this high above the foot of the post, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge|Target", meta = (ClampMin = "0.0"))
 	float FaceHeight = 150.f;
@@ -69,8 +81,8 @@ protected:
 	/** Sizes and places the post and the three discs from the radii. */
 	void LayoutParts();
 
-	/** Colours one part through its own instance of the shape material. */
-	static void Tint(UStaticMeshComponent* Part, const FLinearColor& Color);
+	/** Colours one part through its own instance of its material, and sets its glow when it has one. */
+	static void Tint(UStaticMeshComponent* Part, const FLinearColor& Color, float Glow = -1.f);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Challenge|Target")
 	TObjectPtr<USceneComponent> Root;
@@ -115,6 +127,8 @@ protected:
 	FVector SlideVelocity = FVector::ZeroVector;
 
 	bool bDown = false;
+	/** The rings wear FaceMaterial (and so take an intensity). */
+	bool bGlowing = false;
 	/** 0 to 1 over the fall. */
 	float FallAlpha = 0.f;
 };

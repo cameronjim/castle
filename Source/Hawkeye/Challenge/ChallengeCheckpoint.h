@@ -53,9 +53,13 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge|Checkpoint", meta = (ClampMin = "1.0"))
 	float TubeThickness = 9.f;
 
-	/** The glow on the next ring; MI_ObjectiveBeacon, the rooftop beacons' purple. */
+	/** The rings' glow: M_Emissive (Color, Intensity), purple on the next ring, dim on the one after. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge|Checkpoint")
 	TSoftObjectPtr<UMaterialInterface> GlowMaterial;
+
+	/** The next ring's emissive intensity; the one after glows a quarter of it. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge|Checkpoint", meta = (ClampMin = "0.0"))
+	float NextGlow = 6.f;
 
 	/** Degrees a second the next ring turns about its axis. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge|Checkpoint")
@@ -86,4 +90,7 @@ protected:
 	TObjectPtr<UMaterialInterface> LoadedGlow = nullptr;
 
 	EChallengeCheckpointState State = EChallengeCheckpointState::Hidden;
+
+	/** BeginPlay has run: the glow is loaded and the segments may take their instances. */
+	bool bLookReady = false;
 };
