@@ -27,7 +27,7 @@ Then, on the class default objects:
                              PauseWidgetClass = WBP_Pause_C,
                              SettingsWidgetClass = WBP_Settings_C, PauseAction = IA_Pause,
                              PauseMappingContext = IMC_Default,
-                             EndCardWidgetClass = WBP_EndCard_C
+                             EndCardWidgetClass = WBP_EndCard_C, PhoneAction = IA_Phone
 
 Property names come from Source/Hawkeye/Player/HawkeyeCharacter.h and
 Source/Hawkeye/HawkeyePlayerController.h. Anything not found on the class is reported and
@@ -630,6 +630,7 @@ def run():
                 ),
                 ("end_card_widget_class", c.load_generated_class(UI_PATH, "WBP_EndCard")),
                 ("inventory_widget_class", c.load_generated_class(UI_PATH, "WBP_Inventory")),
+                ("phone_action", c.load_or_none(c.asset_path(INPUT_PATH, "IA_Phone"))),
             ],
         )
 

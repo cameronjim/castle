@@ -10,6 +10,7 @@
     IA_Melee                        (Digital / bool, V: bow strike, tap light / hold heavy)
     IA_SwitchCharacter              (Digital / bool, X / LB: swap between Kate and Clint)
     IA_PartnerMark                  (Digital / bool, T: send the partner to the point under the view)
+    IA_Phone                        (Digital / bool, P: the phone)
     IA_SlotScroll                   (Axis1D, the mouse wheel and the D-pad left/right)
     IMC_Default                     with the UE first-person template's WASD + mouse setup, plus
                                      a full Xbox-layout gamepad mapping (PlayStation pads read the
@@ -60,6 +61,7 @@ ACTIONS = [
     ("IA_Melee", BOOL),
     ("IA_SwitchCharacter", BOOL),
     ("IA_PartnerMark", BOOL),
+    ("IA_Phone", BOOL),
 ]
 
 # (action name, FKey name, [modifier specs])
@@ -115,6 +117,9 @@ MAPPINGS = [
     # Partner and switching, bound on AHawkeyePlayerController: X swaps who you play, T marks a point.
     ("IA_SwitchCharacter", "X", []),
     ("IA_PartnerMark", "T", []),
+    # The phone. The pad has no spare button: AHawkeyePlayerController opens it on a 0.4 s hold of
+    # D-pad down (a tap stays quiver slot 2), so there is no gamepad mapping here.
+    ("IA_Phone", "P", []),
 
     # --- Gamepad (Xbox layout; a PlayStation pad reports the same Gamepad_* keys) --------------
     ("IA_Move", "Gamepad_Left2D", [STICK_MOVE_DEADZONE]),
