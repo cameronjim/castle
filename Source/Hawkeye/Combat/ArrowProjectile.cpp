@@ -5,6 +5,7 @@
 #include "Hawkeye.h"
 #include "Audio/HawkeyeAudioMath.h"
 #include "Audio/HawkeyeAudioSubsystem.h"
+#include "Challenge/ChallengeTarget.h"
 #include "Components/AudioComponent.h"
 #include "CollisionQueryParams.h"
 #include "Combat/ArrowDefinition.h"
@@ -412,6 +413,11 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 	if (Effect != EArrowHitEffect::Explosive)
 	{
 		DamageVictim(Hit, Direction, Bone);
+	}
+	// A challenge target scores where on its face the arrow went in.
+	if (AChallengeTarget* Target = Cast<AChallengeTarget>(Hit.GetActor()))
+	{
+		Target->HandleArrowHit(Hit.ImpactPoint, Shooter.Get());
 	}
 	Embed(Hit, Direction, Bone);
 	SpawnHitEffect(Hit);

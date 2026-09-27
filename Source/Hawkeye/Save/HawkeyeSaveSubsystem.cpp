@@ -5,6 +5,7 @@
 #include "Hawkeye.h"
 #include "HawkeyePlayerController.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Challenge/ChallengeSubsystem.h"
 #include "Combat/HealthComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
@@ -163,6 +164,10 @@ void UHawkeyeSaveSubsystem::CaptureCampaign(UWorld* World)
 	{
 		Phone->CatchUpTriggers();
 		Phone->MirrorToCampaign();
+	}
+	if (const UChallengeSubsystem* Challenges = World->GetSubsystem<UChallengeSubsystem>())
+	{
+		Challenges->MirrorToCampaign();
 	}
 }
 

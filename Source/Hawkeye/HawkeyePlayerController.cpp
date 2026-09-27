@@ -42,8 +42,10 @@
 #include "Sound/SoundClass.h"
 #include "Sound/SoundMix.h"
 #include "UI/HawkeyeMainMenuWidget.h"
+#include "UI/ChallengeResultsWidget.h"
 #include "UI/HawkeyeSafehouseWidget.h"
 #include "World/Safehouse.h"
+#include "Challenge/ChallengeSubsystem.h"
 #include "World/ChapterEndInteractable.h"
 #include "Dialogue/DialogueSubsystem.h"
 #include "Misc/CommandLine.h"
@@ -59,6 +61,7 @@ AHawkeyePlayerController::AHawkeyePlayerController()
 	Snowfall = CreateDefaultSubobject<USnowfallComponent>(TEXT("Snowfall"));
 	MainMenuWidgetClass = UHawkeyeMainMenuWidget::StaticClass();
 	SafehouseWidgetClass = UHawkeyeSafehouseWidget::StaticClass();
+	ChallengeResultsWidgetClass = UChallengeResultsWidget::StaticClass();
 	ChapterTitleWidgetClass = UChapterTitleWidget::StaticClass();
 	PhoneWidgetClass = UPhoneWidget::StaticClass();
 }
@@ -216,7 +219,7 @@ void AHawkeyePlayerController::HandleDPadDownReleased(double NowSeconds)
 	case EHawkeyeTapHold::Tap:
 	{
 		// Quiver slot 2 (grapple), as IA_Slot2 does from the keyboard; not under a menu or the phone.
-		const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bInventoryOpen
+		const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bInventoryOpen
 			|| bPhoneOpen || bCloseUpActive;
 		const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(GetPawn());
 		if (!bScreenTaken && Hawkeye && Hawkeye->GetInventoryComponent())
@@ -246,7 +249,7 @@ void AHawkeyePlayerController::SetPhoneOpen(bool bOpen)
 	{
 		return;
 	}
-	const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bInventoryOpen
+	const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bInventoryOpen
 		|| bCloseUpActive || (MissionFlow && MissionFlow->IsRunning());
 	if (bOpen && (bScreenTaken || !IsLocalController()))
 	{
@@ -308,6 +311,12 @@ void AHawkeyePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
 		return;
 	}
 
+	if (bChallengeResultsOpen)
+	{
+		CloseChallengeResults();
+		return;
+	}
+
 	// The main menu has no "back": the player picks one of its buttons.
 	if (bMainMenuOpen)
 	{
@@ -330,7 +339,7 @@ void AHawkeyePlayerController::SetInventoryOpen(bool bOpen)
 	}
 
 	// One thing owns the pause at a time; the slideshow and every menu outrank Tab.
-	if (bOpen && (bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bPhoneOpen))
+	if (bOpen && (bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bPhoneOpen))
 	{
 		return;
 	}
@@ -375,7 +384,7 @@ bool AHawkeyePlayerController::CanTogglePause() const
 {
 	// The slideshow pauses the game itself and restores the previous state on finish; letting
 	// Escape unpause underneath it would leave the flashback running over live gameplay.
-	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bPhoneOpen)
+	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bPhoneOpen)
 	{
 		return false;
 	}
@@ -564,6 +573,10 @@ TSharedPtr<SWidget> AHawkeyePlayerController::GetFocusedMenuWidget() const
 	if (bSafehouseMenuOpen && SafehouseWidget)
 	{
 		return SafehouseWidget->TakeWidget();
+	}
+	if (bChallengeResultsOpen && ChallengeResultsWidget)
+	{
+		return ChallengeResultsWidget->TakeWidget();
 	}
 	if (bMainMenuOpen && MainMenuWidget)
 	{
@@ -784,7 +797,7 @@ UHawkeyeSafehouseWidget* AHawkeyePlayerController::EnsureSafehouseWidget()
 
 void AHawkeyePlayerController::OpenSafehouseMenu(ASafehouse* Safehouse)
 {
-	if (bSafehouseMenuOpen || bMainMenuOpen || bPauseMenuOpen || bFlashbackActive || !Safehouse)
+	if (bSafehouseMenuOpen || bChallengeResultsOpen || bMainMenuOpen || bPauseMenuOpen || bFlashbackActive || !Safehouse)
 	{
 		return;
 	}
@@ -820,6 +833,60 @@ void AHawkeyePlayerController::CloseSafehouseMenu()
 	ActiveSafehouse = nullptr;
 	SetPause(false);
 	ApplyPauseInputMode(false);
+}
+
+void AHawkeyePlayerController::OpenChallengeResults(const FChallengeResult& Result)
+{
+	if (!IsLocalController() || !ChallengeResultsWidgetClass || bMainMenuOpen || bPauseMenuOpen || bFlashbackActive
+		|| bSafehouseMenuOpen)
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %s results not shown (another screen is up)."), *GetName(), *Result.ChallengeId.ToString());
+		return;
+	}
+	if (!ChallengeResultsWidget)
+	{
+		ChallengeResultsWidget = CreateWidget<UChallengeResultsWidget>(this, ChallengeResultsWidgetClass);
+		if (!ChallengeResultsWidget)
+		{
+			return;
+		}
+		ChallengeResultsWidget->OnRetryClicked.AddDynamic(this, &AHawkeyePlayerController::ChallengeRetry);
+		ChallengeResultsWidget->OnLeaveClicked.AddDynamic(this, &AHawkeyePlayerController::CloseChallengeResults);
+	}
+	SetInventoryOpen(false);
+	SetPhoneOpen(false);
+	ChallengeResultsWidget->SetResult(Result);
+	if (!ChallengeResultsWidget->IsInViewport())
+	{
+		ChallengeResultsWidget->AddToViewport(10);
+	}
+	bChallengeResultsOpen = true;
+	SetPause(true);
+	ApplyPauseInputMode(true);
+}
+
+void AHawkeyePlayerController::CloseChallengeResults()
+{
+	if (!bChallengeResultsOpen)
+	{
+		return;
+	}
+	if (ChallengeResultsWidget)
+	{
+		ChallengeResultsWidget->RemoveFromParent();
+	}
+	bChallengeResultsOpen = false;
+	SetPause(false);
+	ApplyPauseInputMode(false);
+}
+
+void AHawkeyePlayerController::ChallengeRetry()
+{
+	CloseChallengeResults();
+	if (UChallengeSubsystem* Challenges = UChallengeSubsystem::Get(this))
+	{
+		Challenges->RetryLastChallenge();
+	}
 }
 
 void AHawkeyePlayerController::SetSafehouseStatus(const FText& Status)
@@ -989,6 +1056,15 @@ void AHawkeyePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		SafehouseWidget = nullptr;
 	}
 	bSafehouseMenuOpen = false;
+
+	if (ChallengeResultsWidget)
+	{
+		ChallengeResultsWidget->OnRetryClicked.RemoveDynamic(this, &AHawkeyePlayerController::ChallengeRetry);
+		ChallengeResultsWidget->OnLeaveClicked.RemoveDynamic(this, &AHawkeyePlayerController::CloseChallengeResults);
+		ChallengeResultsWidget->RemoveFromParent();
+		ChallengeResultsWidget = nullptr;
+	}
+	bChallengeResultsOpen = false;
 
 	if (PauseWidget)
 	{

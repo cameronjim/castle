@@ -87,6 +87,26 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Narrative")
 	TArray<FName> PlayedDialogueSequences;
 
+	/** Side challenges completed at least once, in id order. UChallengeSubsystem mirrors these five arrays. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Challenges")
+	TArray<FName> ChallengeIds;
+
+	/** Best archery score per challenge, in ChallengeIds' order (0 for traversal). */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Challenges")
+	TArray<int32> ChallengeBestScores;
+
+	/** Fastest traversal time per challenge, seconds (0 for archery). */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Challenges")
+	TArray<float> ChallengeBestSeconds;
+
+	/** Best medal per challenge, as EChallengeMedal's value. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Challenges")
+	TArray<int32> ChallengeBestMedals;
+
+	/** Completed runs per challenge. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Challenges")
+	TArray<int32> ChallengeCompletions;
+
 	/** Back to a fresh campaign. */
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	void ResetCampaign();

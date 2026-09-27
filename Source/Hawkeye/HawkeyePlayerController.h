@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "Audio/HawkeyeAudioTypes.h"
+#include "Challenge/ChallengeTypes.h"
 #include "Mission/MissionFlowController.h"
 #include "Settings/HawkeyeSettings.h"
 #include "Player/HawkeyeTapHold.h"
@@ -15,6 +16,7 @@ class AHawkeyeCharacter;
 class AHawkeyePartnerController;
 class ASafehouse;
 class UBanterComponent;
+class UChallengeResultsWidget;
 class UChapterTitleWidget;
 class UPhoneWidget;
 class USnowfallComponent;
@@ -347,6 +349,30 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Safehouse")
 	void SafehouseChapterSelect();
 
+	// --- Side challenges ----------------------------------------------------------------------
+
+	/** The card at the end of a challenge. UChallengeResultsWidget by default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Challenge")
+	TSubclassOf<UChallengeResultsWidget> ChallengeResultsWidgetClass;
+
+	/** UChallengeSubsystem calls this when a run ends: pauses under the results card. */
+	UFUNCTION(BlueprintCallable, Category = "Challenge")
+	void OpenChallengeResults(const FChallengeResult& Result);
+
+	/** The card's Leave (and Escape): back to roaming. */
+	UFUNCTION(BlueprintCallable, Category = "Challenge")
+	void CloseChallengeResults();
+
+	/** The card's Retry: shuts the card and runs the same challenge again from its pedestal. */
+	UFUNCTION(BlueprintCallable, Category = "Challenge")
+	void ChallengeRetry();
+
+	UFUNCTION(BlueprintPure, Category = "Challenge")
+	bool IsChallengeResultsOpen() const { return bChallengeResultsOpen; }
+
+	UFUNCTION(BlueprintPure, Category = "Challenge")
+	UChallengeResultsWidget* GetChallengeResultsWidget() const { return ChallengeResultsWidget; }
+
 	// --- Input device -----------------------------------------------------------------------
 
 	/**
@@ -676,6 +702,12 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Safehouse")
 	bool bSafehouseMenuOpen = false;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Challenge")
+	TObjectPtr<UChallengeResultsWidget> ChallengeResultsWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Challenge")
+	bool bChallengeResultsOpen = false;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
 	TObjectPtr<UMissionEndCardWidget> EndCardWidget = nullptr;

@@ -19,6 +19,11 @@ void UHawkeyeCampaignState::ResetCampaign()
 	PendingMessageSeconds.Reset();
 	SeenChapterTitles.Reset();
 	PlayedDialogueSequences.Reset();
+	ChallengeIds.Reset();
+	ChallengeBestScores.Reset();
+	ChallengeBestSeconds.Reset();
+	ChallengeBestMedals.Reset();
+	ChallengeCompletions.Reset();
 }
 
 bool UHawkeyeCampaignState::CanMigrateFrom(int32 SavedVersion)
