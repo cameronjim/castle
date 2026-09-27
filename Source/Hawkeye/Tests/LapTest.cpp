@@ -6,6 +6,7 @@
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowDefinition.h"
+#include "Combat/FightMetrics.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -32,6 +33,9 @@
 #include "Player/InventoryComponent.h"
 #include "Player/ParkourComponent.h"
 #include "Tests/AutomationCommon.h"
+#include "Tests/HawkeyeTestUtils.h"
+#include "Tests/PartnerScreenshots.h"
+#include "UObject/StrongObjectPtr.h"
 #include "UnrealClient.h"
 #include "World/CityLedgeSpawner.h"
 #include "World/FireEscapeLanding.h"
@@ -73,6 +77,10 @@
  * Hawkeye.Lap.ArcherDuel: Kate on the find_arrow roof against the ArcherPair (both archers thinking,
  * on their own sight), using the parapet for cover and the bow; must win inside 60 s with health
  * above 0. Writes Saved/Automation/lap_archer_duel.json with the hits she took and the arrows used.
+ *
+ * Hawkeye.Lap.StreetFight: Kate on the Avenue A sidewalk against the StreetGroup (bat, gunner, heavy)
+ * with fists, strikes, arrows and two trick arrows; must win. Writes Saved/Automation/lap_street_fight.json
+ * with the time, hits taken, arrows used, dodges, the annoyance share and the untelegraphed hits.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapEastVillage, "Hawkeye.Lap.EastVillage",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
@@ -83,6 +91,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapRoofFight, "Hawkeye.Lap.RoofFight",
 	| EAutomationTestFlags::ProductFilter)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapArcherDuel, "Hawkeye.Lap.ArcherDuel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+	| EAutomationTestFlags::ProductFilter)
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapStreetFight, "Hawkeye.Lap.StreetFight",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 	| EAutomationTestFlags::ProductFilter)
 
@@ -98,12 +110,15 @@ namespace HawkeyeLap
 	static const TCHAR* BowAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Bow_Kate.DA_Bow_Kate");
 	static const TCHAR* StandardAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Standard.DA_Arrow_Standard");
 	static const TCHAR* GrappleAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Grapple.DA_Arrow_Grapple");
+	static const TCHAR* PuttyAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Putty.DA_Arrow_Putty");
+	static const TCHAR* BolaAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Bola.DA_Arrow_Bola");
 
 	static const FName BuildingTag(TEXT("CityBuilding"));
 	static const FName VaultTag(TEXT("CityTestVault"));
 	static const FName MantleTag(TEXT("CityTestMantle"));
 	static const FName RoofPairTag(TEXT("RoofPair"));
 	static const FName ArcherPairTag(TEXT("ArcherPair"));
+	static const FName StreetGroupTag(TEXT("StreetGroup"));
 
 	/** Speed under which held input counts as the capsule being stopped, cm/s. */
 	static constexpr float BlockedSpeed = 100.f;
@@ -2288,8 +2303,14 @@ bool FHawkeyeRoofFightRunner::Update()
  * Hawkeye.Lap.ArcherDuel: Kate on the find_arrow roof against the ArcherPair, with the bow and the
  * parapet. She crouches behind cover (a spot where both archers' lines to her crouched body are
  * blocked but a standing one is clear), stands to shoot only when neither archer is past the start of
- * a draw, looses at full draw on the weaker archer she can see, and crouches again. A draw of 0.9 s
- * or more on either archer while she is up sends her down at once. Must win inside 60 s.
+ * a draw, looses at full draw on the weaker archer she can see, and crouches again. A fresh draw of
+ * 0.9 s or more on either archer while she is up sends her down at once. Must win inside 60 s.
+ *
+ * An archer who loses her mid-draw holds it (up to 2.5 s) and looses the moment she shows again. She
+ * plays it as a first-time player would: she does not know about the hold, so with a glint still up she
+ * stands HoldGuessSeconds after ducking, as if the draw had been let down. The first arrow out of a
+ * held draw teaches her; from then on she waits for every glint to go out. That lesson is the exchange
+ * the duel measures.
  */
 class FHawkeyeArcherDuelRunner : public IAutomationLatentCommand
 {
@@ -2320,6 +2341,16 @@ private:
 	int32 ArrowsAtStart = 0;
 	int32 Pops = 0;
 	int32 Aborts = 0;
+	/** When she last went down behind the parapet, and how long after it she guesses a hold has run out. */
+	double DuckedAt = -10.0;
+	double HoldGuessSeconds = 1.5;
+	/** Set by the first arrow she takes out of a held draw: from then on she waits the glint out. */
+	bool bLearnedHolds = false;
+	/** Draws the archers held after losing her, and how many of those they loosed on her return. */
+	int32 Holds = 0;
+	int32 HoldShots = 0;
+	TMap<TWeakObjectPtr<AThugCharacter>, bool> WasHolding;
+	TMap<TWeakObjectPtr<AThugCharacter>, int32> LoosedBefore;
 	FVector Cover = FVector::ZeroVector;
 	FString CoverNote;
 	HawkeyeLap::FMeter Meter;
@@ -2520,9 +2551,9 @@ void FHawkeyeArcherDuelRunner::Finish(UWorld* World, APlayerController* PC, AHaw
 		"{\n  \"test\": \"Hawkeye.Lap.ArcherDuel\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
 		"  \"kate_health\": %.1f,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n  \"archers_down\": %d,\n"
 		"  \"arrows_used\": %d,\n  \"archer_arrows\": %d,\n  \"pops\": %d,\n  \"aborted_pops\": %d,\n  \"cover_moves\": %d,\n"
-		"  \"cover\": \"%s\",\n  \"average_frame_ms\": %.2f\n}\n"),
+		"  \"archer_holds\": %d,\n  \"hold_shots\": %d,\n  \"hold_guess_seconds\": %.2f,\n  \"cover\": \"%s\",\n  \"average_frame_ms\": %.2f\n}\n"),
 		bWon ? TEXT("true") : TEXT("false"), *Why, Seconds, Health, HitsTaken, DamageTaken, Down, ArrowsUsed, TheirArrows,
-		Pops, Aborts, Moves, *CoverNote, Meter.AverageMs());
+		Pops, Aborts, Moves, Holds, HoldShots, HoldGuessSeconds, *CoverNote, Meter.AverageMs());
 	HawkeyeLap::WriteText(TEXT("lap_archer_duel.json"), Json);
 	Test->AddInfo(TEXT("lap_archer_duel.json:\n") + Json);
 	UE_LOG(LogTemp, Display, TEXT("[Hawkeye] archer duel: %s"), *Json);
@@ -2623,6 +2654,27 @@ bool FHawkeyeArcherDuelRunner::Update()
 		DamageTaken += LastHealth - Health;
 		Test->AddInfo(FString::Printf(TEXT("Archer duel %.1f s: Kate hit for %.0f, health %.0f"), Now - FightStart, LastHealth - Health, Health));
 	}
+	// The holds: when one starts, and whether it ended in a shot.
+	for (const TWeakObjectPtr<AThugCharacter>& Archer : Archers)
+	{
+		const AThugAIController* Brain = Archer.IsValid() ? Cast<AThugAIController>(Archer->GetController()) : nullptr;
+		const bool bHolding = Brain && Brain->IsHoldingDraw();
+		bool& bWas = WasHolding.FindOrAdd(Archer);
+		int32& Loosed = LoosedBefore.FindOrAdd(Archer);
+		if (bHolding && !bWas)
+		{
+			++Holds;
+			Loosed = Brain->GetArrowsLoosed();
+		}
+		else if (!bHolding && bWas && Brain && Brain->GetArrowsLoosed() > Loosed)
+		{
+			++HoldShots;
+			bLearnedHolds = true;
+			Test->AddInfo(FString::Printf(TEXT("Archer duel %.1f s: %s loosed on her out of a held draw; she waits the glints out from now on."),
+				Now - FightStart, *Archer->GetName()));
+		}
+		bWas = bHolding;
+	}
 	LastHealth = Health;
 	if (!KateHealth->IsAlive() || Kate->IsDowned())
 	{
@@ -2642,6 +2694,7 @@ bool FHawkeyeArcherDuelRunner::Update()
 	AThugCharacter* Pick = nullptr;
 	float PickHeight = 30.f;
 	float Danger = -1.f;
+	bool bAnyHold = false;
 	int32 Alive = 0;
 	for (const TWeakObjectPtr<AThugCharacter>& Archer : Archers)
 	{
@@ -2651,7 +2704,15 @@ bool FHawkeyeArcherDuelRunner::Update()
 			continue;
 		}
 		++Alive;
-		Danger = FMath::Max(Danger, DrawOf(A));
+		const AThugAIController* ABrain = Cast<AThugAIController>(A->GetController());
+		if (ABrain && ABrain->IsHoldingDraw())
+		{
+			bAnyHold = true;
+		}
+		else
+		{
+			Danger = FMath::Max(Danger, DrawOf(A));
+		}
 		// The chest if it shows over his parapet, else his head.
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(DuelAim), false, Kate);
 		Params.AddIgnoredActor(A);
@@ -2702,8 +2763,10 @@ bool FHawkeyeArcherDuelRunner::Update()
 			}
 			NoShotSince = Now;
 		}
-		// Up only when nobody is more than a moment into a draw: her 0.8 s draw beats his 1.2 s.
-		if (Now - PhaseSince >= 0.5 && Kate->bIsCrouched && Pick && Danger < 0.25f)
+		// Up only when nobody is more than a moment into a draw (her 0.8 s draw beats his 1.2 s) and any held
+		// draw should, by her clock, have been let down.
+		if (Now - PhaseSince >= 0.5 && Kate->bIsCrouched && Pick && Danger < 0.25f
+			&& (!bAnyHold || (!bLearnedHolds && Now - DuckedAt >= HoldGuessSeconds)))
 		{
 			Target = Pick;
 			TargetHeight = PickHeight;
@@ -2746,6 +2809,7 @@ bool FHawkeyeArcherDuelRunner::Update()
 			Crouch(PC, true);
 			Phase = EPhase::Hidden;
 			PhaseSince = Now;
+			DuckedAt = Now;
 		}
 		break;
 	}
@@ -2767,6 +2831,642 @@ bool FHawkeyeArcherDuelRunner::Update()
 		break;
 	}
 	}
+	return false;
+}
+
+// --- The street fight ----------------------------------------------------------------------------
+
+/**
+ * Hawkeye.Lap.StreetFight: Kate on the Avenue A sidewalk against the StreetGroup (the bat, the gunner
+ * and the heavy), with fists, heavy strikes, standard arrows and two trick arrows (a bola and putty,
+ * both for the heavy). She starts between the pair and the heavy's patrol, so the heavy arrives last.
+ *
+ * What she does, in order of urgency: dodge a swing whose telegraph is about to land; break a gunner's
+ * telegraph with a quick shot (any hit breaks a burst); then fight the nearest threat: the bat with
+ * lights and heavies, the heavy with the bola (then lights while he is down), putty (then lights from
+ * behind while he is held) and heavy strikes (then lights while his guard is broken), the gunner with
+ * full-draw arrows. Must win inside 120 s with health above 0.
+ *
+ * Writes Saved/Automation/lap_street_fight.json: time, hits taken, arrows used, dodges, the annoyance
+ * (seconds and share of the fight Kate was staggered or down; the target is under 15%) and the hits
+ * that landed with no telegraph from their attacker in the second before (must be 0).
+ */
+class FHawkeyeStreetFightRunner : public IAutomationLatentCommand
+{
+public:
+	explicit FHawkeyeStreetFightRunner(FAutomationTestBase* InTest) : Test(InTest) {}
+
+	virtual bool Update() override;
+
+private:
+	FAutomationTestBase* Test;
+	bool bSetUp = false;
+	bool bDone = false;
+	double FightStart = -1.0;
+	double DoneAt = -1.0;
+	double NextActionAt = 0.0;
+	double LastStatus = -10.0;
+	float LastHealth = 0.f;
+	float DamageTaken = 0.f;
+	int32 ArrowsAtStart = 0;
+	int32 LightSwings = 0;
+	int32 HeavySwings = 0;
+	int32 Dodges = 0;
+	int32 QuickShots = 0;
+	int32 FullShots = 0;
+	TArray<FString> TrickArrows;
+	bool bBolaUsed = false;
+	bool bPuttyUsed = false;
+	bool bMoveInjecting = false;
+	bool bMeleeHeld = false;
+	double MeleeHeldSince = 0.0;
+	bool bDrawing = false;
+	double DrawStart = 0.0;
+	float DrawFor = 0.82f;
+	int32 DrawSlot = 1;
+	TWeakObjectPtr<AThugCharacter> DrawTarget;
+	FHawkeyeFightMetrics Metrics;
+	HawkeyeLap::FMeter Meter;
+	TStrongObjectPtr<UHawkeyeTestListener> Listener;
+	TArray<TWeakObjectPtr<AThugCharacter>> Group;
+
+	static bool IsDown(const AThugCharacter* Thug)
+	{
+		return !Thug || Thug->IsLimp() || Thug->GetHealthComponent()->IsDead();
+	}
+
+	static bool IsMeleeThug(const AThugCharacter* Thug)
+	{
+		return Thug && !Thug->IsGunner() && !Thug->IsArcher();
+	}
+
+	/** A clear line from Kate's chest to his. */
+	static bool Sees(UWorld* World, const AHawkeyeCharacter* Kate, const AThugCharacter* Thug)
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(StreetSight), false, Kate);
+		Params.AddIgnoredActor(Thug);
+		return !World->LineTraceTestByChannel(Kate->GetActorLocation() + FVector(0.f, 0.f, 40.f),
+			Thug->GetActorLocation() + FVector(0.f, 0.f, 30.f), ECC_Visibility, Params);
+	}
+
+	void Move(APlayerController* PC, const FVector2D& Value)
+	{
+		UEnhancedInputLocalPlayerSubsystem* Input = HawkeyeLap::InputOf(PC);
+		const UInputAction* A = HawkeyeLap::Action(HawkeyeLap::MovePath);
+		if (!Input || !A)
+		{
+			return;
+		}
+		if (Value.IsNearlyZero())
+		{
+			if (bMoveInjecting)
+			{
+				Input->StopContinuousInputInjectionForAction(A);
+				bMoveInjecting = false;
+			}
+			return;
+		}
+		if (!bMoveInjecting)
+		{
+			Input->StartContinuousInputInjectionForAction(A, FInputActionValue(Value), {}, {});
+			bMoveInjecting = true;
+		}
+		else
+		{
+			Input->UpdateValueOfContinuousInputInjectionForAction(A, FInputActionValue(Value));
+		}
+	}
+
+	void MoveTo(APlayerController* PC, const AHawkeyeCharacter* Kate, const FVector& Goal)
+	{
+		const FVector To = (Goal - Kate->GetActorLocation()).GetSafeNormal2D();
+		Move(PC, HawkeyeLap::MoveTowards(To, PC->GetControlRotation().Yaw));
+	}
+
+	/** Starts a draw of Slot at Target, released after Seconds. */
+	void BeginDraw(APlayerController* PC, AHawkeyeCharacter* Kate, AThugCharacter* Target, int32 Slot, float Seconds, double Now)
+	{
+		Move(PC, FVector2D::ZeroVector);
+		Kate->GetInventoryComponent()->SelectArrowSlot(Slot);
+		DrawSlot = Slot;
+		DrawTarget = Target;
+		DrawFor = Seconds;
+		DrawStart = Now;
+		bDrawing = true;
+		HawkeyeLap::Hold(PC, HawkeyeLap::FirePath, true);
+	}
+
+	void NoteTelegraphs(double Now);
+	void NoteHits(double Now);
+	/** Dodges a swing about to land; true when she did. */
+	bool TryDodgeSwings(AHawkeyeCharacter* Kate, double Now);
+	void FightMelee(APlayerController* PC, AHawkeyeCharacter* Kate, AThugCharacter* Target, float Distance, double Now);
+	void FightHeavy(UWorld* World, APlayerController* PC, AHawkeyeCharacter* Kate, AThugCharacter* Heavy, float Distance, double Now);
+	void Finish(UWorld* World, APlayerController* PC, AHawkeyeCharacter* Kate, const FString& Why);
+};
+
+void FHawkeyeStreetFightRunner::NoteTelegraphs(double Now)
+{
+	for (const TWeakObjectPtr<AThugCharacter>& Weak : Group)
+	{
+		const AThugCharacter* Thug = Weak.Get();
+		if (IsDown(Thug))
+		{
+			continue;
+		}
+		const AThugAIController* Brain = Cast<AThugAIController>(Thug->GetController());
+		const bool bSwing = Thug->GetMeleeComponent() && Thug->GetMeleeComponent()->IsWindingUp();
+		const bool bRaised = Brain && Thug->IsGunner() && Brain->IsTelegraphing();
+		if (bSwing || bRaised)
+		{
+			Metrics.NoteTelegraph(Thug->GetName(), Now);
+		}
+	}
+}
+
+void FHawkeyeStreetFightRunner::NoteHits(double Now)
+{
+	if (!Listener.IsValid())
+	{
+		return;
+	}
+	for (const TObjectPtr<AActor>& By : Listener->DamageInstigators)
+	{
+		const FString Name = GetNameSafe(By.Get());
+		if (!Metrics.NoteDamage(Name, Now))
+		{
+			Test->AddWarning(FString::Printf(TEXT("Street fight %.1f s: hit by %s with no telegraph in the second before."),
+				Now - FightStart, *Name));
+		}
+	}
+	Listener->DamageInstigators.Reset();
+}
+
+bool FHawkeyeStreetFightRunner::TryDodgeSwings(AHawkeyeCharacter* Kate, double Now)
+{
+	if (Kate->GetDodgeCooldownRemaining() > 0.f)
+	{
+		return false;
+	}
+	for (const TWeakObjectPtr<AThugCharacter>& Weak : Group)
+	{
+		const AThugCharacter* Thug = Weak.Get();
+		if (IsDown(Thug) || !IsMeleeThug(Thug) || Thug->IsIncapacitated())
+		{
+			continue;
+		}
+		const UMeleeComponent* Melee = Thug->GetMeleeComponent();
+		const float Reach = Melee ? Melee->GetCurrentAttack().Range + 110.f : 0.f;
+		const float D = FVector::Dist2D(Thug->GetActorLocation(), Kate->GetActorLocation());
+		if (!Melee || !Melee->IsWindingUp() || Melee->GetPhaseRemaining() > 0.3f || D > Reach)
+		{
+			continue;
+		}
+		// Sideways and back: out of the sweep, not out of reach of her own next swing.
+		const FVector Away = (Kate->GetActorLocation() - Thug->GetActorLocation()).GetSafeNormal2D();
+		if (Kate->TryDodge((Away + FVector::CrossProduct(FVector::UpVector, Away)).GetSafeNormal2D()))
+		{
+			++Dodges;
+			NextActionAt = Now + 0.3;
+			return true;
+		}
+	}
+	return false;
+}
+
+void FHawkeyeStreetFightRunner::FightMelee(APlayerController* PC, AHawkeyeCharacter* Kate, AThugCharacter* Target,
+	float Distance, double Now)
+{
+	using namespace HawkeyeLap;
+	if (Distance > 190.f)
+	{
+		MoveTo(PC, Kate, Target->GetActorLocation());
+		return;
+	}
+	Move(PC, FVector2D::ZeroVector);
+	const UMeleeComponent* ThugMelee = Target->GetMeleeComponent();
+	int32 Near = 0;
+	for (const TWeakObjectPtr<AThugCharacter>& Other : Group)
+	{
+		Near += !IsDown(Other.Get()) && FVector::Dist2D(Other->GetActorLocation(), Kate->GetActorLocation()) <= 400.f ? 1 : 0;
+	}
+	// A light lands in 0.1 s and cancels a wind-up; the heavy only on one who is alone and not swinging.
+	if ((ThugMelee && ThugMelee->IsWindingUp()) || Target->IsIncapacitated() || Near > 1)
+	{
+		Tap(PC, MeleePath);
+		++LightSwings;
+		NextActionAt = Now + 0.32;
+		return;
+	}
+	Hold(PC, MeleePath, true);
+	bMeleeHeld = true;
+	MeleeHeldSince = Now;
+	++HeavySwings;
+}
+
+void FHawkeyeStreetFightRunner::FightHeavy(UWorld* World, APlayerController* PC, AHawkeyeCharacter* Kate, AThugCharacter* Heavy,
+	float Distance, double Now)
+{
+	using namespace HawkeyeLap;
+	UInventoryComponent* Inventory = Kate->GetInventoryComponent();
+	const AThugAIController* Brain = Cast<AThugAIController>(Heavy->GetController());
+	const bool bHeld = Brain && Brain->IsHeld();
+	const bool bOpen = Heavy->IsIncapacitated();
+	// The bola first, from range, while he walks in behind the shield.
+	if (!bBolaUsed && !bOpen && Distance >= 350.f && Distance <= 1800.f && Inventory->GetArrowCount(4) > 0 && Sees(World, Kate, Heavy))
+	{
+		bBolaUsed = true;
+		TrickArrows.Add(TEXT("bola"));
+		BeginDraw(PC, Kate, Heavy, 4, 0.82f, Now);
+		return;
+	}
+	// Putty once the bola has been spent and he is up again, from a step or two back.
+	if (bBolaUsed && !bPuttyUsed && !bOpen && !bHeld && Distance >= 300.f && Distance <= 1500.f && Inventory->GetArrowCount(3) > 0
+		&& Sees(World, Kate, Heavy))
+	{
+		bPuttyUsed = true;
+		TrickArrows.Add(TEXT("putty"));
+		BeginDraw(PC, Kate, Heavy, 3, 0.82f, Now);
+		return;
+	}
+	if (bBolaUsed && !bPuttyUsed && !bOpen && !bHeld && Distance < 300.f)
+	{
+		// Step back to make room for the putty shot.
+		MoveTo(PC, Kate, Kate->GetActorLocation() + (Kate->GetActorLocation() - Heavy->GetActorLocation()).GetSafeNormal2D() * 200.f);
+		return;
+	}
+	// Held: round behind him (he cannot turn), then lights into his back.
+	if (bHeld && !bOpen)
+	{
+		const FVector Behind = Heavy->GetActorLocation() - Heavy->GetActorForwardVector().GetSafeNormal2D() * 120.f;
+		const bool bIsBehind = !Heavy->BlocksHitFrom(Kate->GetActorLocation() - Heavy->GetActorLocation());
+		if (!bIsBehind || (FVector::Dist2D(Kate->GetActorLocation(), Behind) > 90.f && Distance > 170.f))
+		{
+			// Wide round his side, so she never walks into the shield face.
+			const FVector Side = FVector::CrossProduct(FVector::UpVector, Heavy->GetActorForwardVector()).GetSafeNormal2D();
+			const FVector Waypoint = bIsBehind ? Behind : Heavy->GetActorLocation() + Side * 170.f;
+			MoveTo(PC, Kate, Waypoint);
+			return;
+		}
+		Move(PC, FVector2D::ZeroVector);
+		Tap(PC, MeleePath);
+		++LightSwings;
+		NextActionAt = Now + 0.32;
+		return;
+	}
+	if (Distance > 190.f)
+	{
+		MoveTo(PC, Kate, Heavy->GetActorLocation());
+		return;
+	}
+	Move(PC, FVector2D::ZeroVector);
+	if (bOpen)
+	{
+		// Down, staggered or getting up: the shield is down; lights land.
+		Tap(PC, MeleePath);
+		++LightSwings;
+		NextActionAt = Now + 0.32;
+		return;
+	}
+	// Standing behind the shield: only a heavy gets through, and only when his own swing is not about to land.
+	const UMeleeComponent* Melee = Heavy->GetMeleeComponent();
+	if (Melee && Melee->IsWindingUp())
+	{
+		return;
+	}
+	Hold(PC, MeleePath, true);
+	bMeleeHeld = true;
+	MeleeHeldSince = Now;
+	++HeavySwings;
+}
+
+void FHawkeyeStreetFightRunner::Finish(UWorld* World, APlayerController* PC, AHawkeyeCharacter* Kate, const FString& Why)
+{
+	Move(PC, FVector2D::ZeroVector);
+	HawkeyeLap::Hold(PC, HawkeyeLap::FirePath, false);
+	HawkeyeLap::Hold(PC, HawkeyeLap::MeleePath, false);
+	if (UBowComponent* Bow = Kate->GetBowComponent())
+	{
+		Bow->ClearAimOverride();
+	}
+	Kate->GetInventoryComponent()->SelectArrowSlot(1);
+	if (Listener.IsValid())
+	{
+		Kate->GetHealthComponent()->OnHealthChanged.RemoveDynamic(Listener.Get(), &UHawkeyeTestListener::HandleHealthChanged);
+	}
+	bDone = true;
+	DoneAt = World->GetTimeSeconds();
+	const float Health = Kate->GetHealthComponent()->GetCurrentHealth();
+	int32 Down = 0;
+	FString Blocks;
+	for (const TWeakObjectPtr<AThugCharacter>& Thug : Group)
+	{
+		Down += IsDown(Thug.Get()) ? 1 : 0;
+		if (const AThugCharacter* T = Thug.Get(); T && T->IsHeavy())
+		{
+			Blocks = FString::Printf(TEXT("%d"), T->GetBlockCount());
+		}
+	}
+	const double Seconds = DoneAt - FightStart;
+	const int32 ArrowsUsed = Kate->GetBowComponent() ? Kate->GetBowComponent()->GetArrowsLoosed() - ArrowsAtStart : 0;
+	const float Annoyance = Metrics.GetAnnoyanceFraction();
+	const bool bWon = Down == Group.Num() && Group.Num() == 3 && Health > 0.f && Seconds <= 120.0;
+	FString Untelegraphed;
+	for (const FString& Note : Metrics.GetUntelegraphedNotes())
+	{
+		Untelegraphed += (Untelegraphed.IsEmpty() ? TEXT("") : TEXT("; ")) + Note;
+	}
+	const FString Json = FString::Printf(TEXT(
+		"{\n  \"test\": \"Hawkeye.Lap.StreetFight\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
+		"  \"kate_health\": %.1f,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n  \"thugs_down\": %d,\n"
+		"  \"arrows_used\": %d,\n  \"full_draw_shots\": %d,\n  \"quick_shots\": %d,\n  \"trick_arrows\": \"%s\",\n"
+		"  \"light_swings\": %d,\n  \"heavy_swings\": %d,\n  \"dodges\": %d,\n  \"shield_blocks\": %s,\n"
+		"  \"staggered_or_down_seconds\": %.2f,\n  \"annoyance_percent\": %.1f,\n  \"untelegraphed_hits\": %d,\n"
+		"  \"untelegraphed_detail\": \"%s\",\n  \"average_frame_ms\": %.2f\n}\n"),
+		bWon ? TEXT("true") : TEXT("false"), *Why, Seconds, Health, Metrics.GetHits(), DamageTaken, Down, ArrowsUsed,
+		FullShots, QuickShots, *FString::Join(TrickArrows, TEXT(", ")), LightSwings, HeavySwings, Dodges,
+		Blocks.IsEmpty() ? TEXT("0") : *Blocks, Metrics.GetDisabledSeconds(), Annoyance * 100.f, Metrics.GetUntelegraphedHits(),
+		*Untelegraphed, Meter.AverageMs());
+	HawkeyeLap::WriteText(TEXT("lap_street_fight.json"), Json);
+	Test->AddInfo(TEXT("lap_street_fight.json:\n") + Json);
+	UE_LOG(LogTemp, Display, TEXT("[Hawkeye] street fight: %s"), *Json);
+	if (!bWon)
+	{
+		Test->AddError(FString::Printf(TEXT("Kate did not win the street fight (%s): health %.0f, %d of 3 down in %.1f s."),
+			*Why, Health, Down, Seconds));
+	}
+	if (Metrics.GetUntelegraphedHits() > 0)
+	{
+		Test->AddError(FString::Printf(TEXT("%d hit(s) landed with no telegraph in the second before: %s"),
+			Metrics.GetUntelegraphedHits(), *Untelegraphed));
+	}
+	if (Annoyance >= 0.15f)
+	{
+		Test->AddWarning(FString::Printf(TEXT("Kate spent %.0f%% of the fight staggered or down; the target is under 15%%."),
+			Annoyance * 100.f));
+	}
+	HawkeyeLap::SetThugsThinking(World, NAME_None, true);
+}
+
+bool FHawkeyeStreetFightRunner::Update()
+{
+	using namespace HawkeyeLap;
+	UWorld* World = FindWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	if (!World || !Kate)
+	{
+		Test->AddError(TEXT("No game world or no Kate for the street fight."));
+		return true;
+	}
+	const double Now = World->GetTimeSeconds();
+	if (bDone)
+	{
+		return Now - DoneAt > 1.0;
+	}
+	UHealthComponent* KateHealth = Kate->GetHealthComponent();
+
+	if (!bSetUp)
+	{
+		AThugCharacter* HeavyThug = nullptr;
+		FVector PairMid = FVector::ZeroVector;
+		int32 PairCount = 0;
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			if (It->ActorHasTag(StreetGroupTag) && !IsDown(*It))
+			{
+				Group.Add(*It);
+				if (It->IsHeavy())
+				{
+					HeavyThug = *It;
+				}
+				else
+				{
+					PairMid += It->GetActorLocation();
+					++PairCount;
+				}
+			}
+		}
+		if (Group.Num() != 3 || !HeavyThug || PairCount != 2)
+		{
+			Test->AddError(FString::Printf(TEXT("Expected the three StreetGroup thugs (bat, gunner, heavy), found %d."), Group.Num()));
+			return true;
+		}
+		PairMid /= PairCount;
+		SetThugsThinking(World, NAME_None, false);
+		// Kate alone: Clint's arrows would muddy who hit whom (and one of his once hit her).
+		HawkeyeFreezePartner(World);
+		UInventoryComponent* Inventory = Kate->GetInventoryComponent();
+		EnsureQuiver(Test, Inventory);
+		for (const TPair<int32, const TCHAR*>& Trick : { TPair<int32, const TCHAR*>(3, PuttyAssetPath), TPair<int32, const TCHAR*>(4, BolaAssetPath) })
+		{
+			if (Inventory->GetArrowCount(Trick.Key) <= 0)
+			{
+				Inventory->AddArrows(LoadObject<UArrowDefinition>(nullptr, Trick.Value), 1);
+			}
+		}
+		Inventory->SelectArrowSlot(1);
+		// On the sidewalk 9 m from the pair toward the heavy: the pair first, the heavy some seconds later.
+		const FVector Toward = (HeavyThug->GetActorLocation() - PairMid).GetSafeNormal2D();
+		FVector Ground;
+		if (!FindGround(World, PairMid + Toward * 900.f, PairMid.Z + 300.f, Kate, Ground))
+		{
+			Test->AddError(TEXT("No sidewalk between the pair and the heavy."));
+			return true;
+		}
+		const float HalfHeight = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const float Yaw = (-Toward).Rotation().Yaw;
+		Kate->TeleportTo(Ground + FVector(0.f, 0.f, HalfHeight + 2.f), FRotator(0.f, Yaw, 0.f));
+		PC->SetControlRotation(FRotator(-8.f, Yaw, 0.f));
+		PC->SetViewTarget(Kate);
+		KateHealth->SetInvulnerable(false);
+		KateHealth->Heal(1000.f);
+		LastHealth = KateHealth->GetCurrentHealth();
+		ArrowsAtStart = Kate->GetBowComponent() ? Kate->GetBowComponent()->GetArrowsLoosed() : 0;
+		Listener.Reset(NewObject<UHawkeyeTestListener>());
+		KateHealth->OnHealthChanged.AddDynamic(Listener.Get(), &UHawkeyeTestListener::HandleHealthChanged);
+		SetThugsThinking(World, StreetGroupTag, true);
+		for (const TWeakObjectPtr<AThugCharacter>& Thug : Group)
+		{
+			if (AThugAIController* Brain = Cast<AThugAIController>(Thug->GetController()))
+			{
+				Brain->SetTarget(Kate);
+				Brain->ReportStimulus(EStimulusKind::Hearing, Kate->GetActorLocation(), true, Brain->GunshotLoudnessThreshold);
+			}
+		}
+		Test->AddInfo(FString::Printf(TEXT("Street fight: Kate at %s, pair %.0f cm away, heavy %.0f cm away, health %.0f."),
+			*Kate->GetActorLocation().ToCompactString(), FVector::Dist2D(PairMid, Kate->GetActorLocation()),
+			FVector::Dist2D(HeavyThug->GetActorLocation(), Kate->GetActorLocation()), LastHealth));
+		bSetUp = true;
+		FightStart = Now;
+		return false;
+	}
+
+	const float DeltaSeconds = World->GetDeltaSeconds();
+	Meter.Frame(DeltaSeconds);
+	Metrics.Tick(DeltaSeconds, Kate->IsStaggered() || Kate->IsDowned());
+	NoteTelegraphs(Now);
+	NoteHits(Now);
+	const float Health = KateHealth->GetCurrentHealth();
+	if (Health < LastHealth - 0.01f)
+	{
+		DamageTaken += LastHealth - Health;
+		Test->AddInfo(FString::Printf(TEXT("Street fight %.1f s: Kate hit for %.0f, health %.0f"), Now - FightStart, LastHealth - Health, Health));
+	}
+	LastHealth = Health;
+	if (!KateHealth->IsAlive() || Kate->IsDowned())
+	{
+		Finish(World, PC, Kate, TEXT("Kate went down"));
+		return false;
+	}
+	if (Now - FightStart > 120.0)
+	{
+		Finish(World, PC, Kate, TEXT("timed out"));
+		return false;
+	}
+
+	AThugCharacter* Nearest = nullptr;
+	AThugCharacter* Gunner = nullptr;
+	float Distance = BIG_NUMBER;
+	int32 Alive = 0;
+	for (const TWeakObjectPtr<AThugCharacter>& Weak : Group)
+	{
+		AThugCharacter* Thug = Weak.Get();
+		if (IsDown(Thug))
+		{
+			continue;
+		}
+		++Alive;
+		Gunner = Thug->IsGunner() ? Thug : Gunner;
+		const float D = FVector::Dist2D(Thug->GetActorLocation(), Kate->GetActorLocation());
+		if (D < Distance)
+		{
+			Distance = D;
+			Nearest = Thug;
+		}
+	}
+	if (Alive == 0)
+	{
+		Finish(World, PC, Kate, TEXT("all three down"));
+		return false;
+	}
+	if (Now - LastStatus >= 3.0)
+	{
+		LastStatus = Now;
+		FString States;
+		for (const TWeakObjectPtr<AThugCharacter>& Weak : Group)
+		{
+			if (const AThugCharacter* T = Weak.Get())
+			{
+				States += FString::Printf(TEXT("%s %.0f hp %.0f cm; "), *T->GetName(), T->GetHealthComponent()->GetCurrentHealth(),
+					FVector::Dist2D(T->GetActorLocation(), Kate->GetActorLocation()));
+			}
+		}
+		Test->AddInfo(FString::Printf(TEXT("Street fight %.1f s: health %.0f; %s"), Now - FightStart, Health, *States));
+	}
+
+	// Look at the one she is dealing with.
+	AThugCharacter* Focus = bDrawing && DrawTarget.IsValid() && !IsDown(DrawTarget.Get()) ? DrawTarget.Get() : Nearest;
+	AimAt(PC, Kate, Focus->GetActorLocation() + FVector(0.f, 0.f, 30.f));
+
+	if (bMeleeHeld)
+	{
+		if (Now - MeleeHeldSince >= 0.45)
+		{
+			Hold(PC, MeleePath, false);
+			bMeleeHeld = false;
+			NextActionAt = Now + 0.1;
+		}
+		Move(PC, FVector2D::ZeroVector);
+		return false;
+	}
+	if (bDrawing)
+	{
+		AThugCharacter* Target = DrawTarget.Get();
+		UBowComponent* Bow = Kate->GetBowComponent();
+		if (Target && Bow)
+		{
+			const FVector Chest = Target->GetActorLocation() + FVector(0.f, 0.f, 30.f);
+			Bow->SetAimOverride(AThugAIController::ComputeLeadAimPoint(Bow->GetArrowSpawnLocation(), Chest, Target->GetVelocity(),
+				6000.f * FMath::Max(Bow->GetDrawFraction(), 0.4f), World->GetGravityZ()));
+		}
+		// A swing about to land cuts the draw short.
+		bool bThreat = false;
+		for (const TWeakObjectPtr<AThugCharacter>& Weak : Group)
+		{
+			const AThugCharacter* T = Weak.Get();
+			bThreat = bThreat || (!IsDown(T) && IsMeleeThug(T) && T->GetMeleeComponent()->IsWindingUp()
+				&& T->GetMeleeComponent()->GetPhaseRemaining() < 0.3f
+				&& FVector::Dist2D(T->GetActorLocation(), Kate->GetActorLocation()) < 260.f);
+		}
+		if (Now - DrawStart >= DrawFor || IsDown(Target) || (bThreat && Now - DrawStart >= 0.25))
+		{
+			Hold(PC, FirePath, false);
+			bDrawing = false;
+			NextActionAt = Now + 0.15;
+			if (Bow)
+			{
+				Bow->ClearAimOverride();
+			}
+			Kate->GetInventoryComponent()->SelectArrowSlot(1);
+		}
+		else if (bThreat)
+		{
+			// Too early to loose: let it down and get out.
+			Kate->GetBowComponent()->CancelDraw();
+			Hold(PC, FirePath, false);
+			bDrawing = false;
+		}
+		return false;
+	}
+
+	const bool bBusy = Kate->IsMeleeAttacking() || Kate->IsDodging() || Kate->IsStaggered();
+	if (bBusy || Now < NextActionAt)
+	{
+		if (!bBusy && Now < NextActionAt)
+		{
+			TryDodgeSwings(Kate, Now);
+		}
+		return false;
+	}
+	if (TryDodgeSwings(Kate, Now))
+	{
+		return false;
+	}
+
+	// The gunner raising his pistol with a line on her: a quick shot breaks the burst.
+	const AThugAIController* GunBrain = Gunner ? Cast<AThugAIController>(Gunner->GetController()) : nullptr;
+	const bool bMeleeClose = Nearest && IsMeleeThug(Nearest) && Distance < 300.f;
+	if (GunBrain && GunBrain->IsTelegraphing() && !bMeleeClose && Sees(World, Kate, Gunner)
+		&& FVector::Dist2D(Gunner->GetActorLocation(), Kate->GetActorLocation()) < 2500.f)
+	{
+		++QuickShots;
+		BeginDraw(PC, Kate, Gunner, 1, 0.3f, Now);
+		return false;
+	}
+
+	// The nearest melee thug within 7 m, else the gunner, else whoever is nearest.
+	AThugCharacter* Target = (Nearest && IsMeleeThug(Nearest) && Distance < 700.f) ? Nearest : (Gunner ? Gunner : Nearest);
+	const float TargetDistance = FVector::Dist2D(Target->GetActorLocation(), Kate->GetActorLocation());
+	if (Target->IsHeavy())
+	{
+		FightHeavy(World, PC, Kate, Target, TargetDistance, Now);
+		return false;
+	}
+	if (Target->IsGunner() && TargetDistance > 450.f)
+	{
+		if (Sees(World, Kate, Target))
+		{
+			++FullShots;
+			BeginDraw(PC, Kate, Target, 1, 0.82f, Now);
+		}
+		else
+		{
+			MoveTo(PC, Kate, Target->GetActorLocation());
+		}
+		return false;
+	}
+	FightMelee(PC, Kate, Target, TargetDistance, Now);
 	return false;
 }
 
@@ -2808,6 +3508,19 @@ bool FHawkeyeLapArcherDuel::RunTest(const FString& Parameters)
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeArcherDuelRunner(this));
+	return true;
+}
+
+bool FHawkeyeLapStreetFight::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddInfo(TEXT("No RHI: skipping the street fight. Run it from the standalone game (-game, no -nullrhi)."));
+		return true;
+	}
+	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeStreetFightRunner(this));
 	return true;
 }
 
