@@ -2799,11 +2799,12 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFightShot(this, static_cast<uint8>(EFight::Cleanup)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
+	// The enemies, while the street pair is still standing: the squad alert, the gunner's peek from
+	// cover, the archer's draw and his arrow.
+	HawkeyeAddEnemyShots(this);
+
 	// Clint: following, shooting what she hit, a banter line, and the switch to him.
 	HawkeyeAddPartnerShots(this);
-
-	// The enemies: the squad alert, the gunner's peek from cover, the archer's draw and his arrow.
-	HawkeyeAddEnemyShots(this);
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.DebugMovement 0")));
 

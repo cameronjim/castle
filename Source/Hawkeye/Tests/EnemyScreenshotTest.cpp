@@ -2,6 +2,7 @@
 
 #include "Tests/EnemyScreenshots.h"
 
+#include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "Combat/ArrowDefinition.h"
 #include "Combat/ArrowProjectile.h"
@@ -36,9 +37,10 @@
  *   squad_alert.png    the StreetPair walking away from Kate 16 m down the sidewalk; the bat thug is
  *                      alerted on her, and 1.5 s later the squad alert turns the gunner too: both
  *                      facing her, one rushing, one coming to look
- *   gunner_cover.png   the StreetPair gunner behind the corner of the building at the end of East 7th
- *                      Street, Kate out on the avenue: his burst into the wall, then cover (EQS), then a
- *                      peek past the corner with the pistol raised and the muzzle glint on
+ *   gunner_cover.png   the StreetPair gunner behind the corner of a building at an end of the block
+ *                      across East 7th Street (not the safehouse's), Kate out on the avenue, seen from 3 m
+ *                      out along his line of fire: his burst into the wall, then cover (EQS), then a peek past the corner
+ *                      with the pistol raised and the muzzle glint on
  *   archer_draw.png    Kate standing on the find_arrow roof, aiming at the ArcherPair archer nearest a
  *                      full draw: the purple glint on his arrow tip on the far roof
  *   archer_arrow.png   his arrow (the real bow, aimed at the roof 2.5 m beside her) stuck in the roof
@@ -57,6 +59,7 @@ namespace HawkeyeEnemyShots
 		SquadSetup,
 		GunnerSetup,
 		ArcherSetup,
+		ArrowFreeze,
 		ArrowSetup,
 		ArrowRelease,
 		ArrowView,
@@ -75,6 +78,8 @@ namespace HawkeyeEnemyShots
 	static TWeakObjectPtr<AThugCharacter> Gunner;
 	static TWeakObjectPtr<AThugCharacter> Archer;
 	static FVector ArrowSpot = FVector::ZeroVector;
+	/** A camera just behind Kate's head for the gunner shot: the spring arm catches the shop signs. */
+	static TWeakObjectPtr<ACameraActor> ShotCamera;
 	static bool bKateWasInvulnerable = false;
 
 	static UWorld* FindWorld()
@@ -164,9 +169,10 @@ namespace HawkeyeEnemyShots
 	}
 
 	/**
-	 * The corner at the park end of the block the PlayerStart's street runs along: stepping from the
-	 * start toward the park, the last step whose sideways trace still meets a building. Out: the
-	 * corner on the facade line, the step direction (toward the park) and the side (toward the facade).
+	 * The corner at one end of the block across the street from the PlayerStart: the start faces away
+	 * from the park, across East 7th Street, at the facades; stepping along the street, the last step
+	 * whose trace toward the facades still meets a building. Out: the corner on the facade line, the
+	 * step direction (past the corner, into the avenue) and the side (toward the facade).
 	 */
 	static bool FindCorner(UWorld* World, FVector& OutCorner, FVector& OutToPark, FVector& OutSide)
 	{
@@ -175,20 +181,20 @@ namespace HawkeyeEnemyShots
 		{
 			return false;
 		}
-		const FVector Away = Start->GetActorForwardVector().GetSafeNormal2D();
-		const FVector Across = FVector::CrossProduct(FVector::UpVector, Away);
+		const FVector Side = Start->GetActorForwardVector().GetSafeNormal2D();
+		const FVector Along = FVector::CrossProduct(FVector::UpVector, Side);
 		const FVector Origin = Start->GetActorLocation();
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(EnemyShotCorner), false);
 		for (const float Sign : { 1.f, -1.f })
 		{
-			const FVector Side = Across * Sign;
+			const FVector StepDir = Along * Sign;
 			bool bHadFacade = false;
 			FVector LastHit = FVector::ZeroVector;
-			for (float Step = 0.f; Step <= 5000.f; Step += 50.f)
+			for (float Step = 0.f; Step <= 8000.f; Step += 50.f)
 			{
-				const FVector From = Origin - Away * Step + FVector(0.f, 0.f, 50.f);
+				const FVector From = Origin + StepDir * Step + FVector(0.f, 0.f, 50.f);
 				FHitResult Hit;
-				const bool bFacade = World->LineTraceSingleByChannel(Hit, From, From + Side * 1500.f, ECC_Visibility, Params)
+				const bool bFacade = World->LineTraceSingleByChannel(Hit, From, From + Side * 2500.f, ECC_Visibility, Params)
 					&& Hit.GetActor() && Hit.GetActor()->Tags.Contains(BuildingTag);
 				if (bFacade)
 				{
@@ -197,8 +203,19 @@ namespace HawkeyeEnemyShots
 				}
 				else if (bHadFacade)
 				{
+					// Not the safehouse's corner: its sign board stands right where he would peek.
+					bool bSafehouse = false;
+					for (TActorIterator<AActor> It(World); It; ++It)
+					{
+						bSafehouse = bSafehouse || (It->Tags.Contains(FName(TEXT("CitySafehouse")))
+							&& FVector::Dist2D(It->GetActorLocation(), LastHit) < 1000.f);
+					}
+					if (bSafehouse)
+					{
+						break;
+					}
 					OutCorner = LastHit;
-					OutToPark = -Away;
+					OutToPark = StepDir;
 					OutSide = Side;
 					return true;
 				}
@@ -214,11 +231,14 @@ namespace HawkeyeEnemyShots
 		AActor* Roof = nullptr;
 		FVector Under;
 		Ground(World, Feet, Feet.Z + 100.f, Kate, Under, &Roof);
+		// Beside and behind her from him first: flat lines, the likeliest to clear his parapet.
+		const float Behind = (Feet - Shooter->GetActorLocation()).Rotation().Yaw + 60.f;
 		for (const float Radius : { 250.f, 300.f, 220.f })
 		{
 			for (int32 Step = 0; Step < 16; ++Step)
 			{
-				const FVector Probe = Feet + FRotator(0.f, Step * 22.5f, 0.f).Vector() * Radius;
+				const float Turn = (Step % 2 == 0 ? 1.f : -1.f) * ((Step + 1) / 2) * 22.5f;
+				const FVector Probe = Feet + FRotator(0.f, Behind + Turn, 0.f).Vector() * Radius;
 				FVector Spot;
 				AActor* Hit = nullptr;
 				if (!Ground(World, Probe, Feet.Z + 150.f, Kate, Spot, &Hit) || Hit != Roof || FMath::Abs(Spot.Z - Feet.Z) > 30.f)
@@ -228,7 +248,11 @@ namespace HawkeyeEnemyShots
 				FCollisionQueryParams Params(SCENE_QUERY_STAT(EnemyShotArrow), false, Shooter);
 				Params.AddIgnoredActor(Kate);
 				const FVector Target = Spot + FVector(0.f, 0.f, 5.f);
-				if (!World->LineTraceTestByChannel(Shooter->GetActorLocation() + FVector(0.f, 0.f, 60.f), Target, ECC_Visibility, Params))
+				const UBowComponent* Bow = Shooter->GetBowComponent();
+				const FVector From = Bow ? Bow->GetArrowSpawnLocation() : Shooter->GetActorLocation() + FVector(0.f, 0.f, 60.f);
+				// Clear of the roof and wide of Kate herself, or it sticks in her instead.
+				if (!World->LineTraceTestByChannel(From, Target, ECC_Visibility, Params)
+					&& FMath::PointDistToSegment(Kate->GetActorLocation(), From, Target) > 90.f)
 				{
 					Out = Target;
 					return true;
@@ -345,7 +369,8 @@ bool FHawkeyeEnemyShot::Update()
 		}
 		const float AwayYaw = Along.Rotation().Yaw;
 		Bat->SetActorRotation(FRotator(0.f, AwayYaw, 0.f));
-		Gun->SetActorLocation(Bat->GetActorLocation() + Out * 180.f);
+		// In line on the sidewalk, as they walk: sideways may be into the park wall.
+		Gun->SetActorLocation(Bat->GetActorLocation() - Along * 200.f);
 		Gun->SetActorRotation(FRotator(0.f, AwayYaw, 0.f));
 		Stand(Kate, Feet, AwayYaw);
 		PC->SetViewTarget(Kate);
@@ -387,14 +412,63 @@ bool FHawkeyeEnemyShot::Update()
 			Test->AddWarning(TEXT("gunner_cover.png: no gunner or no street corner by the PlayerStart."));
 			break;
 		}
-		// He is round the corner on East 7th; she is out on the avenue, 5 m past the corner and 5 m along it.
+		// He is round the corner on the side street; she is out on the avenue, where the building hides
+		// him in cover but the spot he will peek from is in clear view of her and her camera.
 		FVector GunFeet, KateFeet;
-		Ground(World, Corner - Side * 90.f - ToPark * 250.f, Corner.Z + 300.f, Gunner.Get(), GunFeet);
-		Ground(World, Corner + ToPark * 500.f + Side * 500.f, Corner.Z + 300.f, Kate, KateFeet);
+		// From just over head height: from higher up the trace lands on scaffold decks and awnings.
+		Ground(World, Corner - Side * 90.f - ToPark * 250.f, Corner.Z + 30.f, Gunner.Get(), GunFeet);
+		const FVector PeekGuess = Corner - Side * 90.f + ToPark * 120.f + FVector(0.f, 0.f, 100.f);
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(EnemyShotGunnerSpot), false, Gunner.Get());
+		Params.AddIgnoredActor(Kate);
+		bool bFound = false;
+		for (const float Out : { 600.f, 800.f, 1000.f, 400.f, 1200.f, 300.f })
+		{
+			for (const float Past : { 400.f, 600.f, 300.f, 800.f, 200.f, 1000.f })
+			{
+				FVector Feet;
+				if (!Ground(World, Corner + ToPark * Past + Side * Out, Corner.Z + 30.f, Kate, Feet) || FMath::Abs(Feet.Z - GunFeet.Z) > 60.f)
+				{
+					continue;
+				}
+				const FVector Eye = Feet + FVector(0.f, 0.f, 160.f);
+				const bool bHidden = World->LineTraceTestByChannel(Eye, GunFeet + FVector(0.f, 0.f, 120.f), ECC_Visibility, Params);
+				const bool bSeesPeek = !World->LineTraceTestByChannel(Eye, PeekGuess, ECC_Visibility, Params);
+				if (bHidden && bSeesPeek && FVector::Dist2D(Feet, GunFeet) < 1150.f)
+				{
+					KateFeet = Feet;
+					bFound = true;
+					break;
+				}
+			}
+			if (bFound)
+			{
+				break;
+			}
+		}
+		if (!bFound)
+		{
+			Ground(World, Corner + ToPark * 500.f + Side * 500.f, Corner.Z + 30.f, Kate, KateFeet);
+			Test->AddWarning(TEXT("gunner_cover.png: no spot on the avenue that both hides his cover and sees his peek."));
+		}
 		Stand(Gunner.Get(), GunFeet, (KateFeet - GunFeet).Rotation().Yaw);
-		Stand(Kate, KateFeet, (GunFeet - KateFeet).Rotation().Yaw);
+		Stand(Kate, KateFeet, (PeekGuess - KateFeet).Rotation().Yaw);
 		PC->SetViewTarget(Kate);
-		LookAt(PC, Kate, Corner + FVector(0.f, 0.f, 60.f));
+		LookAt(PC, Kate, PeekGuess);
+		{
+			const FVector ToPeek = (PeekGuess - KateFeet).GetSafeNormal2D();
+			// Her own eye line: the gunner only peeks to where he has a line on her, so from here he shows.
+			const FVector Eye = KateFeet + FVector(0.f, 0.f, 150.f) + ToPeek * 40.f;
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			ACameraActor* Camera = World->SpawnActor<ACameraActor>(Eye, (PeekGuess - Eye).Rotation(), SpawnParams);
+			if (Camera)
+			{
+				Camera->GetCameraComponent()->SetFieldOfView(55.f);
+				Camera->GetCameraComponent()->bConstrainAspectRatio = false;
+				ShotCamera = Camera;
+				PC->SetViewTarget(Camera);
+			}
+		}
 		Alert(Gunner.Get(), Kate);
 		Test->AddInfo(FString::Printf(TEXT("gunner_cover.png: corner %s, gunner %.0f cm from Kate behind it."), *Corner.ToCompactString(),
 			FVector::Dist2D(GunFeet, KateFeet)));
@@ -404,6 +478,11 @@ bool FHawkeyeEnemyShot::Update()
 	case EShot::ArcherSetup:
 	{
 		SetThinking(World, false);
+		PC->SetViewTarget(Kate);
+		if (ACameraActor* Camera = ShotCamera.Get())
+		{
+			Camera->Destroy();
+		}
 		if (Gunner.IsValid())
 		{
 			Gunner->SetAlertState(EThugAlertState::Calm);
@@ -431,10 +510,14 @@ bool FHawkeyeEnemyShot::Update()
 		break;
 	}
 
-	case EShot::ArrowSetup:
-	{
+	case EShot::ArrowFreeze:
+		// Frozen first: the brain's switch to Stunned a frame later would let a draw down.
 		SetThinking(World, false);
 		Kate->StopAim();
+		break;
+
+	case EShot::ArrowSetup:
+	{
 		AThugCharacter* Shooter = Archer.Get();
 		UBowComponent* Bow = Shooter ? Shooter->GetBowComponent() : nullptr;
 		if (!Bow || !FindArrowSpot(World, Kate, Shooter, ArrowSpot))
@@ -443,7 +526,8 @@ bool FHawkeyeEnemyShot::Update()
 			break;
 		}
 		Bow->CancelDraw();
-		Bow->SetAimOverride(ArrowSpot);
+		Bow->SetAimOverride(AThugAIController::ComputeLeadAimPoint(Bow->GetArrowSpawnLocation(), ArrowSpot, FVector::ZeroVector,
+			5000.f, World->GetGravityZ()));
 		Bow->StartDraw();
 		Shooter->SetTelegraphGlint(true);
 		break;
@@ -462,8 +546,29 @@ bool FHawkeyeEnemyShot::Update()
 		break;
 
 	case EShot::ArrowView:
-		LookAt(PC, Kate, ArrowSpot);
+	{
+		AArrowProjectile* Landed = nullptr;
+		for (TActorIterator<AArrowProjectile> It(World); It; ++It)
+		{
+			if (It->GetArrowDefinition() && It->GetArrowDefinition()->RecoverAs && It->GetOwner() == Archer.Get())
+			{
+				Landed = *It;
+			}
+		}
+		if (Landed)
+		{
+			ArrowSpot = Landed->GetActorLocation();
+		}
+		Test->AddInfo(FString::Printf(TEXT("archer_arrow.png: his arrow %s%s at %s, %.0f cm from Kate%s."),
+			Landed ? TEXT("found") : TEXT("not found"), Landed && Landed->IsStuck() ? TEXT(", stuck") : TEXT(""),
+			*ArrowSpot.ToCompactString(), FVector::Dist2D(ArrowSpot, Kate->GetActorLocation()),
+			Landed && Landed->GetStuckInActor() ? *FString::Printf(TEXT(" in %s"), *Landed->GetStuckInActor()->GetClass()->GetName()) : TEXT("")));
+		// Face it first, so the camera swings round behind her instead of looking down past her head.
+		const FVector To = (ArrowSpot - Kate->GetActorLocation()).GetSafeNormal2D();
+		Kate->SetActorRotation(FRotator(0.f, To.Rotation().Yaw, 0.f));
+		PC->SetControlRotation(FRotator(-22.f, To.Rotation().Yaw - 25.f, 0.f));
 		break;
+	}
 
 	case EShot::Pickup:
 	{
@@ -471,7 +576,7 @@ bool FHawkeyeEnemyShot::Update()
 		for (TActorIterator<AArrowProjectile> It(World); It; ++It)
 		{
 			if (It->IsStuck() && It->GetArrowDefinition() && It->GetArrowDefinition()->RecoverAs
-				&& FVector::Dist(It->GetActorLocation(), ArrowSpot) < 400.f)
+				&& FVector::Dist(It->GetActorLocation(), ArrowSpot) < 100.f)
 			{
 				Stuck = *It;
 			}
@@ -493,6 +598,7 @@ bool FHawkeyeEnemyShot::Update()
 	case EShot::Cleanup:
 	{
 		SetThinking(World, false);
+		PC->SetViewTarget(Kate);
 		for (const FSaved& Entry : Saved)
 		{
 			if (AThugCharacter* Thug = Entry.Thug.Get())
@@ -551,6 +657,15 @@ public:
 			if (Gun)
 			{
 				LookAt(PC, Kate, Gun->GetActorLocation() + FVector(0.f, 0.f, 40.f));
+				// On his own line of fire, 3 m out toward her and a little to the side: wherever he peeks
+				// from, he has a line on her, so this view of him is open, the corner beside him.
+				if (ACameraActor* Camera = ShotCamera.Get())
+				{
+					const FVector ToKate = (Kate->GetActorLocation() - Gun->GetActorLocation()).GetSafeNormal2D();
+					const FVector Eye = Gun->GetActorLocation() + ToKate * 320.f
+						+ FVector::CrossProduct(FVector::UpVector, ToKate) * 60.f + FVector(0.f, 0.f, 40.f);
+					Camera->SetActorLocationAndRotation(Eye, (Gun->GetActorLocation() + FVector(0.f, 0.f, 30.f) - Eye).Rotation());
+				}
 			}
 			// She is loosing arrows at his corner: he keeps hearing her while he hides.
 			if (Now - LastPing > 1.0 && Brain && Gun)
@@ -697,6 +812,8 @@ void HawkeyeAddEnemyShots(FAutomationTestBase* Test)
 	Take(TEXT("archer_draw.png"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
 
+	Shot(EShot::ArrowFreeze);
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
 	Shot(EShot::ArrowSetup);
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.3f));
 	Shot(EShot::ArrowRelease);
