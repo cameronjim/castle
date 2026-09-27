@@ -114,6 +114,9 @@ public:
 	/** Overrides the clock, for automation tests whose components have no ticking world. */
 	void SetTestTimeSeconds(double InSeconds);
 
+	/** Back to the world clock after SetTestTimeSeconds (a screenshot that held a draw still). */
+	void ClearTestTime() { bUseTestTime = false; }
+
 	/** Replaces the spread stream so a test gets the same cone every run. */
 	void SetTestRandomStream(const FRandomStream& InStream) { SpreadStream = InStream; }
 
@@ -207,9 +210,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bow|Visual")
 	bool bHolsterWhenIdle = true;
 
-	/** Pitch of the bow resting in the hand with the arm down (bHolsterWhenIdle off), degrees. */
+	/**
+	 * Pitch of the bow resting in the hand with the arm down (bHolsterWhenIdle off), degrees: the top
+	 * limb tips forward, off the arm. It takes DrawnCantDegrees of cant too.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
-	float RestPitchDegrees = -10.f;
+	float RestPitchDegrees = -30.f;
 
 	/** Bone the bow hangs off while holstered. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")

@@ -564,7 +564,7 @@ void UBowComponent::PlaceBowWithHandsIK(const USkeletalMeshComponent& Body, cons
 	const FVector Hand = Body.GetSocketLocation(Grip);
 	const FVector Anchor = Body.DoesSocketExist(HandsIK.AnchorBone) ? Body.GetSocketLocation(HandsIK.AnchorBone) : Hand;
 	const FRotator Aim = ComputeHandsAimRotation(Anchor);
-	const FQuat Resting = FRotator(RestPitchDegrees, GetOwner()->GetActorRotation().Yaw, 0.f).Quaternion();
+	const FQuat Resting = FRotator(RestPitchDegrees, GetOwner()->GetActorRotation().Yaw, DrawnCantDegrees).Quaternion();
 	const FQuat Raised = FRotator(Aim.Pitch, Aim.Yaw, DrawnCantDegrees).Quaternion();
 	OutRotation = FQuat::Slerp(Resting, Raised, FMath::SmoothStep(0.f, 1.f, Hands.GetBowAlpha()));
 	OutLocation = Hand + OutRotation.RotateVector(HandGripOffset);
@@ -582,7 +582,7 @@ void UBowComponent::PlaceBowHeldOut(const USkeletalMeshComponent& Body, FName Gr
 	const float Raise = !bRaised ? 0.f
 		: bDrawing ? FMath::SmoothStep(0.f, 1.f, FMath::Min(1.f, Draw / RaiseByDrawFraction)) : 1.f;
 	const FQuat Lowered = bRaised ? FRotator(LoweredPitchDegrees, Aim.Yaw, 0.f).Quaternion()
-		: FRotator(RestPitchDegrees, Character->GetActorRotation().Yaw, 0.f).Quaternion();
+		: FRotator(RestPitchDegrees, Character->GetActorRotation().Yaw, DrawnCantDegrees).Quaternion();
 	const FQuat Raised = FRotator(Aim.Pitch, Aim.Yaw, DrawnCantDegrees).Quaternion();
 	OutRotation = FQuat::Slerp(Lowered, Raised, Raise);
 	const FVector Hand = Body.GetSocketLocation(Grip) + OutRotation.RotateVector(HandGripOffset);
