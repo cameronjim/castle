@@ -363,38 +363,45 @@ void AHawkeyePlayerController::SetInventoryOpen(bool bOpen)
 		return;
 	}
 
+	// The flag flips regardless of whether a widget can be shown for it, the same as the pause
+	// menu: a bot or a headless test with no local player still needs bInventoryOpen (and the
+	// pause it drives) to be accurate, even with nothing drawn.
+	bInventoryOpen = bOpen;
+
 	if (bOpen)
 	{
 		if (!InventoryWidgetClass || !IsLocalController())
 		{
 			UE_LOG(LogHawkeye, Warning, TEXT("%s has no InventoryWidgetClass set."), *GetName());
-			return;
 		}
-
-		if (!InventoryWidget)
+		else
 		{
-			InventoryWidget = CreateWidget<UHawkeyeInventoryWidget>(this, InventoryWidgetClass);
 			if (!InventoryWidget)
 			{
-				UE_LOG(LogHawkeye, Warning, TEXT("%s: could not create the inventory widget."), *GetName());
-				return;
+				InventoryWidget = CreateWidget<UHawkeyeInventoryWidget>(this, InventoryWidgetClass);
+				if (!InventoryWidget)
+				{
+					UE_LOG(LogHawkeye, Warning, TEXT("%s: could not create the inventory widget."), *GetName());
+				}
+			}
+
+			if (InventoryWidget)
+			{
+				if (!InventoryWidget->IsInViewport())
+				{
+					InventoryWidget->AddToViewport(10);
+				}
+				InventoryWidget->SetVisibility(ESlateVisibility::Visible);
+				InventoryWidget->BindToOwningPawn();
+				InventoryWidget->RefreshRows();
 			}
 		}
-
-		if (!InventoryWidget->IsInViewport())
-		{
-			InventoryWidget->AddToViewport(10);
-		}
-		InventoryWidget->SetVisibility(ESlateVisibility::Visible);
-		InventoryWidget->BindToOwningPawn();
-		InventoryWidget->RefreshRows();
 	}
 	else if (InventoryWidget)
 	{
 		InventoryWidget->RemoveFromParent();
 	}
 
-	bInventoryOpen = bOpen;
 	SetPause(bOpen);
 	ApplyPauseInputMode(bOpen);
 }
