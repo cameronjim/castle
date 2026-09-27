@@ -193,6 +193,17 @@ FText UHawkeyeHotbarWidget::GetSlotCountText(int32 QuiverSlot) const
 		: FText::FromString(FString::Printf(TEXT("%d/%d"), Entry.Count, BoundInventory->GetCap(Entry.Arrow)));
 }
 
+void UHawkeyeHotbarWidget::SetAccentColor(const FLinearColor& Purple, bool bDesign)
+{
+	if (!bDesignColorKept)
+	{
+		DesignActiveSlotColor = ActiveSlotColor;
+		bDesignColorKept = true;
+	}
+	ActiveSlotColor = bDesign ? DesignActiveSlotColor : FLinearColor(Purple.R * 0.55f, Purple.G * 0.55f, Purple.B * 0.55f, 0.9f);
+	RefreshSlots();
+}
+
 FLinearColor UHawkeyeHotbarWidget::GetSlotColor(int32 QuiverSlot) const
 {
 	if (IsSlotEmpty(QuiverSlot))

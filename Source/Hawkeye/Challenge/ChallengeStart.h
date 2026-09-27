@@ -44,11 +44,11 @@ public:
 	 * and the icon are what read from the next roof.
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float CapGlow = 4.f;
+	float CapGlow = 2.5f;
 
 	/** The icon's emissive intensity (a ring icon twice it). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float IconGlow = 2.5f;
+	float IconGlow = 1.8f;
 
 	/** The purple point light's brightness, lm: 135, 30% of the 450 that washed the whole roof. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))

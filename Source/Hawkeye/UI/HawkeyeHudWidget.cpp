@@ -1124,6 +1124,10 @@ void UHawkeyeHudWidget::ApplyPalette(EHawkeyeColorPalette Palette)
 	{
 		ThugOverhead->SetAccentColors(ActivePalette.Cream, ActivePalette.HealthBar, bDesign);
 	}
+	if (Hotbar)
+	{
+		Hotbar->SetAccentColor(ReticleColor, bDesign);
+	}
 	// Repaint the badge and the counter with the new colours on the next tick.
 	PhoneBadgeCount = -1;
 	ShownComboCount = -1;

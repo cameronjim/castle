@@ -69,6 +69,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Hotbar")
 	FLinearColor GetSlotColor(int32 QuiverSlot) const;
 
+	/**
+	 * The active slot in the palette's purple (a darker shade of it, so the white text reads); bDesign
+	 * puts the built colour back.
+	 */
+	void SetAccentColor(const FLinearColor& Purple, bool bDesign);
+
 protected:
 	//~ Begin UUserWidget interface
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -113,6 +119,10 @@ protected:
 	/** A slot with nothing in it. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Hotbar")
 	FLinearColor EmptySlotColor = FLinearColor(0.f, 0.f, 0.f, 0.22f);
+
+	/** The active colour the widget was built with, for the default palette. */
+	FLinearColor DesignActiveSlotColor = FLinearColor::White;
+	bool bDesignColorKept = false;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInventoryComponent> BoundInventory = nullptr;
