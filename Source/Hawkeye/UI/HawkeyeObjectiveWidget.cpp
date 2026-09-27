@@ -312,7 +312,7 @@ void UHawkeyeObjectiveWidget::PaintSecondary(const FGeometry& Geometry, FSlateWi
 	for (int32 Index = 0; Index < Secondary.Num(); ++Index)
 	{
 		const FSecondaryMark& Mark = Secondary[Index];
-		const FVector2D Centre = (ViewRectMin + Mark.Placement.Position) / ViewportScale;
+		const FVector2D Centre = (ViewRectMin + Mark.Placement.Position) / ViewportScale / FMath::Max(HudScale, 0.1f);
 		FLinearColor Color = SecondaryColor;
 		Color.A = Mark.Placement.bOnScreen ? 1.f : 0.6f;
 		DrawDiamond(Out, LayerId, Geometry, Centre, Half, MarkerLineWidth, Color);
@@ -328,16 +328,38 @@ void UHawkeyeObjectiveWidget::PaintSecondary(const FGeometry& Geometry, FSlateWi
 	}
 }
 
+void UHawkeyeObjectiveWidget::SetHudScale(float Scale)
+{
+	HudScale = FMath::Clamp(Scale, 0.5f, 2.f);
+}
+
+void UHawkeyeObjectiveWidget::SetAccentColors(const FLinearColor& Cream, const FLinearColor& Purple, bool bDesign)
+{
+	if (!bDesignColorsKept)
+	{
+		DesignMarkerColor = MarkerColor;
+		DesignSecondaryColor = SecondaryColor;
+		bDesignColorsKept = true;
+	}
+	MarkerColor = bDesign ? DesignMarkerColor : Cream;
+	SecondaryColor = bDesign ? DesignSecondaryColor : Purple;
+}
+
 int32 UHawkeyeObjectiveWidget::NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry,
 	const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId,
 	const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
 {
 	int32 Layer = Super::NativePaint(Args, AllottedGeometry, MyCullingRect, OutDrawElements, LayerId, InWidgetStyle,
 		bParentEnabled);
-	PaintCompass(AllottedGeometry, OutDrawElements, Layer + 1);
-	PaintMarker(AllottedGeometry, OutDrawElements, Layer + 1);
-	PaintSecondary(AllottedGeometry, OutDrawElements, Layer + 1);
-	PaintToast(AllottedGeometry, OutDrawElements, Layer + 1);
+	// Everything is painted in a child geometry scaled by the HUD scale about the top-left corner: the
+	// compass and toasts centre on its (smaller) local width, so they stay top centre; the markers'
+	// screen points are divided by the scale on the way in, so they stay on what they mark.
+	const float Scale = FMath::Max(HudScale, 0.1f);
+	const FGeometry Scaled = AllottedGeometry.MakeChild(AllottedGeometry.GetLocalSize() / Scale, FSlateLayoutTransform(Scale));
+	PaintCompass(Scaled, OutDrawElements, Layer + 1);
+	PaintMarker(Scaled, OutDrawElements, Layer + 1);
+	PaintSecondary(Scaled, OutDrawElements, Layer + 1);
+	PaintToast(Scaled, OutDrawElements, Layer + 1);
 	return Layer + 4;
 }
 
@@ -349,7 +371,7 @@ void UHawkeyeObjectiveWidget::PaintMarker(const FGeometry& Geometry, FSlateWindo
 		return;
 	}
 
-	const FVector2D Centre = (ViewRectMin + Placement.Position) / ViewportScale;
+	const FVector2D Centre = (ViewRectMin + Placement.Position) / ViewportScale / FMath::Max(HudScale, 0.1f);
 	const float Half = MarkerSizePixels * 0.5f;
 	DrawDiamond(Out, LayerId, Geometry, Centre, Half, MarkerLineWidth, MarkerColor);
 

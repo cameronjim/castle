@@ -62,6 +62,23 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs")
 	FVector2D BarSize = FVector2D(46.f, 4.f);
 
+	/**
+	 * A thin dark outline round the glyph, px, so the "!" and "?" read by shape on any background and
+	 * in any palette, not by colour alone.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs", meta = (ClampMin = "0"))
+	int32 GlyphOutlineSize = 1;
+
+	/** The font the glyphs are painted with, outline included. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Thugs")
+	FSlateFontInfo GetGlyphFont() const;
+
+	/**
+	 * The palette's cream for the glyphs and its health-bar colour. bDesign puts back the colours the
+	 * widget was built with (the default palette).
+	 */
+	void SetAccentColors(const FLinearColor& Glyph, const FLinearColor& Bar, bool bDesign);
+
 	/** The glyph's font size. Small: a flag, not a banner. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs", meta = (ClampMin = "6"))
 	int32 GlyphFontSize = 20;
@@ -83,4 +100,9 @@ protected:
 	void GatherEntries();
 
 	TArray<FHawkeyeThugOverhead> Entries;
+
+	/** The colours the widget was built with, kept for the default palette. */
+	FLinearColor DesignGlyphColor = FLinearColor::White;
+	FLinearColor DesignBarColor = FLinearColor::White;
+	bool bDesignColorsKept = false;
 };

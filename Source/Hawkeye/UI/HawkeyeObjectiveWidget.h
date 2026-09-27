@@ -70,11 +70,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Compass")
 	float GetCompassIconOffset() const { return CompassIconOffset; }
 
+	/** The strip's width on screen, px (its CompassWidth times the HUD scale). */
 	UFUNCTION(BlueprintPure, Category = "HUD|Compass")
-	float GetCompassWidth() const { return CompassWidth; }
+	float GetCompassWidth() const { return CompassWidth * HudScale; }
+
+	/** The diamond's size on screen, px (MarkerSizePixels times the HUD scale). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	float GetMarkerSize() const { return MarkerSizePixels * HudScale; }
+
+	/**
+	 * Scales the markers, the compass and the toasts (0.8 to 1.4, the HUD scale setting). The markers
+	 * stay on the points they mark; the compass and toasts grow about the top centre.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
+	void SetHudScale(float Scale);
 
 	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
-	float GetMarkerSize() const { return MarkerSizePixels; }
+	float GetHudScale() const { return HudScale; }
+
+	/** The palette's cream (the marker, the compass caret) and purple (secondary markers); bDesign puts the built ones back. */
+	void SetAccentColors(const FLinearColor& Cream, const FLinearColor& Purple, bool bDesign);
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	FLinearColor GetMarkerColor() const { return MarkerColor; }
 
 	/** Secondary markers drawn this frame (they replace the objective's marker while there are any). */
 	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
@@ -223,6 +241,12 @@ private:
 	bool bCompassIconVisible = false;
 	bool bCompassIconClamped = false;
 	float CompassIconOffset = 0.f;
+
+	float HudScale = 1.f;
+
+	FLinearColor DesignMarkerColor = FLinearColor::White;
+	FLinearColor DesignSecondaryColor = FLinearColor::White;
+	bool bDesignColorsKept = false;
 
 	bool bBound = false;
 };

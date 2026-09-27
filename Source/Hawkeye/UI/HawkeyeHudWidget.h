@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Settings/HawkeyeAccessibility.h"
+#include "Settings/HawkeyeSettings.h"
 #include "HawkeyeHudWidget.generated.h"
 
 class UBorder;
@@ -19,6 +21,7 @@ class UImage;
 class UInventoryComponent;
 class UOverlay;
 class UTextBlock;
+class UWidget;
 class UTakedownComponent;
 class UMissionDefinition;
 class UMissionObjective;
@@ -241,6 +244,40 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Combo")
 	int32 GetShownComboCount() const { return ShownComboCount; }
 
+	// --- Settings -------------------------------------------------------------------------------
+
+	/**
+	 * The HUD's share of the settings: the accent palette (reticle, grapple marker, markers, glyphs,
+	 * health bars), the subtitle size and backing, and the HUD scale on the text lines, hotbar,
+	 * markers and compass. Bound to the settings subsystem; tests call it directly.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Settings")
+	void ApplySettings(const FHawkeyeSettings& Settings);
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Settings")
+	float GetHudScale() const { return HudScale; }
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Settings")
+	int32 GetSubtitleFontSize() const { return SubtitleFontSize; }
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Settings")
+	float GetSubtitleBackgroundOpacity() const { return SubtitleBackgroundOpacity; }
+
+	UFUNCTION(BlueprintPure, Category = "HUD|Settings")
+	EHawkeyeColorPalette GetPaletteShown() const { return PaletteShown; }
+
+	/** The palette's colours as the HUD is using them. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Settings")
+	FHawkeyePalette GetActivePalette() const { return ActivePalette; }
+
+	/** The grapple marker's colour now (the palette's green). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Settings")
+	FLinearColor GetGrappleMarkerColor() const { return GrappleMarkerColor; }
+
+	/** The render scale on the hotbar now. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Settings")
+	float GetHotbarRenderScale() const;
+
 	// --- Movement debug -------------------------------------------------------------------------
 
 	/** The debug line's text, or empty while hawkeye.DebugMovement is 0 or there is no player. */
@@ -293,6 +330,15 @@ protected:
 
 	UFUNCTION()
 	void HandleMissionStarted(UMissionDefinition* Mission);
+
+	UFUNCTION()
+	void HandleSettingsChanged(FHawkeyeSettings Settings);
+
+	/** Recolours everything drawn in an accent: the dot, ring, bar, grapple marker, badge, combo, tag. */
+	void ApplyPalette(EHawkeyeColorPalette Palette);
+
+	/** Scales the HUD's parts about their own anchors, so each stays where it is on the screen. */
+	void ApplyHudScale(float Scale);
 
 	UFUNCTION()
 	void HandleObjectiveUpdated(UMissionObjective* Objective, int32 ObjectiveIndex);
@@ -494,6 +540,14 @@ protected:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Partner")
 	TObjectPtr<UTextBlock> SubtitleText = nullptr;
 
+	/** The box behind the subtitle; its opacity is the setting's. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Partner")
+	TObjectPtr<UBorder> SubtitleBox = nullptr;
+
+	/** The phone outline and its count, bottom right. */
+	UPROPERTY(Transient)
+	TObjectPtr<UWidget> PhoneBadge = nullptr;
+
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Partner")
 	TObjectPtr<UCanvasPanel> PartnerTagCanvas = nullptr;
 
@@ -544,6 +598,28 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "HUD|Combo")
 	FLinearColor ComboBonusColor = FLinearColor(0.72f, 0.35f, 1.f, 1.f);
+
+	UPROPERTY(Transient)
+	float HudScale = 1.f;
+
+	UPROPERTY(Transient)
+	int32 SubtitleFontSize = 26;
+
+	UPROPERTY(Transient)
+	float SubtitleBackgroundOpacity = 0.f;
+
+	UPROPERTY(Transient)
+	EHawkeyeColorPalette PaletteShown = EHawkeyeColorPalette::Default;
+
+	UPROPERTY(Transient)
+	FHawkeyePalette ActivePalette;
+
+	/** The designer's accent colours, kept so the default palette can put them back. */
+	FLinearColor DesignReticleColor = FLinearColor::White;
+	FLinearColor DesignGrappleColor = FLinearColor::White;
+	FLinearColor DesignComboColor = FLinearColor::White;
+	FLinearColor DesignComboBonusColor = FLinearColor::White;
+	bool bDesignColorsKept = false;
 
 	bool bBound = false;
 };

@@ -37,6 +37,7 @@
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/SizeBox.h"
 #include "Phone/PhoneSubsystem.h"
+#include "Settings/HawkeyeSettingsSubsystem.h"
 
 TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 {
@@ -138,6 +139,7 @@ void UHawkeyeHudWidget::BuildPhoneBadge(UOverlay* Root)
 		return;
 	}
 	UHorizontalBox* Badge = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("PhoneBadge"));
+	PhoneBadge = Badge;
 	if (UOverlaySlot* BadgeSlot = Cast<UOverlaySlot>(Root->AddChild(Badge)))
 	{
 		BadgeSlot->SetHorizontalAlignment(HAlign_Right);
@@ -237,7 +239,7 @@ void UHawkeyeHudWidget::UpdatePhoneBadge()
 	}
 	if (PhoneIcon)
 	{
-		// Dim until something is waiting, then Kate purple.
+		// Dim until something is waiting, then Kate purple (the palette's).
 		const FLinearColor Outline = Count > 0 ? ReticleColor : FLinearColor(1.f, 1.f, 1.f, 0.45f);
 		PhoneIcon->SetBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent, 3.f, Outline, 1.5f));
 	}
@@ -630,6 +632,7 @@ void UHawkeyeHudWidget::NativeConstruct()
 	RefreshObjective();
 	RefreshAmmo();
 	ClearPrompt();
+	ApplySettings(UHawkeyeSettingsSubsystem::GetCurrentSettings(this));
 }
 
 void UHawkeyeHudWidget::NativeDestruct()
@@ -668,6 +671,11 @@ void UHawkeyeHudWidget::BindToGame()
 		BoundTakedown = Takedown;
 	}
 
+	if (UHawkeyeSettingsSubsystem* Settings = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		Settings->OnSettingsChanged.AddUniqueDynamic(this, &UHawkeyeHudWidget::HandleSettingsChanged);
+	}
+
 	bBound = true;
 }
 
@@ -701,6 +709,11 @@ void UHawkeyeHudWidget::UnbindFromGame()
 	{
 		BoundTakedown->OnTakedownPerformed.RemoveDynamic(this, &UHawkeyeHudWidget::HandleTakedownPerformed);
 		BoundTakedown = nullptr;
+	}
+
+	if (UHawkeyeSettingsSubsystem* Settings = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		Settings->OnSettingsChanged.RemoveDynamic(this, &UHawkeyeHudWidget::HandleSettingsChanged);
 	}
 
 	bBound = false;
@@ -870,8 +883,29 @@ void UHawkeyeHudWidget::BuildPartnerWidgets(UOverlay* Root)
 	CharacterNameText = AddText(TEXT("CharacterName"), 22, HAlign_Left, FMargin(48.f, 0.f, 0.f, 76.f), FLinearColor::White);
 	PartnerStatusText = AddText(TEXT("PartnerStatus"), 15, HAlign_Left, FMargin(48.f, 0.f, 0.f, 50.f),
 		FLinearColor(0.85f, 0.8f, 0.95f, 1.f));
-	SubtitleText = AddText(TEXT("Subtitle"), 20, HAlign_Center, FMargin(0.f, 0.f, 0.f, 150.f),
-		FLinearColor(1.f, 0.97f, 0.88f, 1.f));
+	// The subtitle sits in a box whose black the setting fades in; at 0 it is the bare shadowed line.
+	SubtitleBox = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("SubtitleBox"));
+	SubtitleBox->SetBrush(FSlateColorBrush(FLinearColor::White));
+	SubtitleBox->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, SubtitleBackgroundOpacity));
+	SubtitleBox->SetPadding(FMargin(16.f, 6.f));
+	SubtitleBox->SetVisibility(ESlateVisibility::Collapsed);
+	if (UOverlaySlot* BoxSlot = Cast<UOverlaySlot>(Root->AddChild(SubtitleBox)))
+	{
+		BoxSlot->SetHorizontalAlignment(HAlign_Center);
+		BoxSlot->SetVerticalAlignment(VAlign_Bottom);
+		BoxSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 150.f));
+	}
+	SubtitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("Subtitle"));
+	FSlateFontInfo SubtitleFont = SubtitleText->GetFont();
+	SubtitleFont.Size = SubtitleFontSize;
+	SubtitleText->SetFont(SubtitleFont);
+	SubtitleText->SetColorAndOpacity(FSlateColor(FLinearColor(1.f, 0.97f, 0.88f, 1.f)));
+	SubtitleText->SetShadowOffset(FVector2D(1.f, 1.f));
+	SubtitleText->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.8f));
+	SubtitleText->SetJustification(ETextJustify::Center);
+	SubtitleText->SetAutoWrapText(true);
+	SubtitleText->SetWrapTextAt(1000.f);
+	SubtitleBox->SetContent(SubtitleText);
 
 	PartnerTagCanvas = WidgetTree->ConstructWidget<UCanvasPanel>(UCanvasPanel::StaticClass(), TEXT("PartnerTagCanvas"));
 	if (UOverlaySlot* CanvasSlot = Cast<UOverlaySlot>(Root->AddChild(PartnerTagCanvas)))
@@ -935,7 +969,10 @@ void UHawkeyeHudWidget::ShowSubtitle(FText Speaker, FText Line, float Seconds)
 	if (SubtitleText)
 	{
 		SubtitleText->SetText(SubtitleShown);
-		SubtitleText->SetVisibility(SubtitleRemaining > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	}
+	if (SubtitleBox)
+	{
+		SubtitleBox->SetVisibility(SubtitleRemaining > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	}
 }
 
@@ -960,10 +997,10 @@ void UHawkeyeHudWidget::UpdatePartnerWidgets(float DeltaSeconds)
 	if (SubtitleRemaining > 0.f)
 	{
 		SubtitleRemaining -= DeltaSeconds;
-		if (SubtitleRemaining <= 0.f && SubtitleText)
+		if (SubtitleRemaining <= 0.f && SubtitleBox)
 		{
 			SubtitleRemaining = 0.f;
-			SubtitleText->SetVisibility(ESlateVisibility::Collapsed);
+			SubtitleBox->SetVisibility(ESlateVisibility::Collapsed);
 		}
 	}
 
@@ -1007,4 +1044,124 @@ void UHawkeyeHudWidget::UpdatePartnerWidgets(float DeltaSeconds)
 			TagSlot->SetPosition(TagPosition);
 		}
 	}
+}
+
+// --- Settings ---------------------------------------------------------------------------------------
+
+void UHawkeyeHudWidget::HandleSettingsChanged(FHawkeyeSettings Settings)
+{
+	ApplySettings(Settings);
+}
+
+void UHawkeyeHudWidget::ApplySettings(const FHawkeyeSettings& Settings)
+{
+	ApplyPalette(Settings.ColorPalette);
+
+	SubtitleFontSize = UHawkeyeAccessibility::GetSubtitleFontSize(Settings.SubtitleSize);
+	SubtitleBackgroundOpacity = FMath::Clamp(Settings.SubtitleBackgroundOpacity, 0.f, 1.f);
+	if (SubtitleText)
+	{
+		FSlateFontInfo Font = SubtitleText->GetFont();
+		Font.Size = SubtitleFontSize;
+		SubtitleText->SetFont(Font);
+	}
+	if (SubtitleBox)
+	{
+		SubtitleBox->SetBrushColor(FLinearColor(0.f, 0.f, 0.f, SubtitleBackgroundOpacity));
+	}
+
+	ApplyHudScale(UHawkeyeSettingsSubsystem::ClampHudScale(Settings.HudScale));
+}
+
+void UHawkeyeHudWidget::ApplyPalette(EHawkeyeColorPalette Palette)
+{
+	if (!bDesignColorsKept)
+	{
+		DesignReticleColor = ReticleColor;
+		DesignGrappleColor = GrappleMarkerColor;
+		DesignComboColor = ComboColor;
+		DesignComboBonusColor = ComboBonusColor;
+		bDesignColorsKept = true;
+	}
+	PaletteShown = Palette;
+	ActivePalette = UHawkeyeAccessibility::GetPalette(Palette);
+	const bool bDesign = Palette == EHawkeyeColorPalette::Default;
+	ReticleColor = bDesign ? DesignReticleColor : ActivePalette.Purple;
+	GrappleMarkerColor = bDesign ? DesignGrappleColor : ActivePalette.Green;
+	ComboColor = bDesign ? DesignComboColor : ActivePalette.Cream;
+	ComboBonusColor = bDesign ? DesignComboBonusColor : ActivePalette.Purple;
+	if (bDesign)
+	{
+		ActivePalette.Purple = ReticleColor;
+		ActivePalette.Green = GrappleMarkerColor;
+	}
+
+	RefreshReticle();
+	RefreshDrawIndicator();
+	if (GrappleMarker)
+	{
+		FSlateBrush Brush = GrappleMarker->GetBrush();
+		Brush.OutlineSettings.Color = FSlateColor(GrappleMarkerColor);
+		GrappleMarker->SetBrush(Brush);
+	}
+	if (GrappleHint)
+	{
+		GrappleHint->SetColorAndOpacity(FSlateColor(GrappleMarkerColor));
+	}
+	if (PhoneBadgeText)
+	{
+		PhoneBadgeText->SetColorAndOpacity(FSlateColor(ReticleColor));
+	}
+	if (PartnerTag)
+	{
+		PartnerTag->SetColorAndOpacity(FSlateColor(ReticleColor));
+	}
+	if (ObjectiveMarker)
+	{
+		ObjectiveMarker->SetAccentColors(ActivePalette.Cream, ReticleColor, bDesign);
+	}
+	if (ThugOverhead)
+	{
+		ThugOverhead->SetAccentColors(ActivePalette.Cream, ActivePalette.HealthBar, bDesign);
+	}
+	// Repaint the badge and the counter with the new colours on the next tick.
+	PhoneBadgeCount = -1;
+	ShownComboCount = -1;
+	UpdatePhoneBadge();
+	UpdateComboCounter();
+}
+
+void UHawkeyeHudWidget::ApplyHudScale(float Scale)
+{
+	HudScale = Scale;
+	const FVector2D Size(Scale, Scale);
+	auto ScaleAbout = [&Size](UWidget* Part, const FVector2D& Pivot)
+	{
+		if (Part)
+		{
+			Part->SetRenderTransformPivot(Pivot);
+			Part->SetRenderScale(Size);
+		}
+	};
+	// Each part grows from the corner or edge it is pinned to, so nothing slides off the screen.
+	ScaleAbout(ObjectiveText, FVector2D(0.f, 0.f));
+	ScaleAbout(DebugText, FVector2D(0.f, 0.f));
+	ScaleAbout(AmmoText, FVector2D(1.f, 1.f));
+	ScaleAbout(PromptText, FVector2D(0.5f, 0.5f));
+	ScaleAbout(CharacterNameText, FVector2D(0.f, 1.f));
+	ScaleAbout(PartnerStatusText, FVector2D(0.f, 1.f));
+	ScaleAbout(PhoneBadge, FVector2D(1.f, 1.f));
+	ScaleAbout(ComboText, FVector2D(1.f, 0.5f));
+	ScaleAbout(ChallengePanel, FVector2D(1.f, 0.f));
+	ScaleAbout(Hotbar, FVector2D(0.5f, 1.f));
+	ScaleAbout(GrappleMarker, FVector2D(0.5f, 0.5f));
+	if (ObjectiveMarker)
+	{
+		ObjectiveMarker->SetHudScale(Scale);
+	}
+}
+
+float UHawkeyeHudWidget::GetHotbarRenderScale() const
+{
+	return Hotbar ? Hotbar->GetRenderTransform().Scale.X : 1.f;
 }

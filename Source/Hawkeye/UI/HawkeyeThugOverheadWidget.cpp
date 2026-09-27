@@ -76,6 +76,26 @@ void UHawkeyeThugOverheadWidget::GatherEntries()
 	}
 }
 
+FSlateFontInfo UHawkeyeThugOverheadWidget::GetGlyphFont() const
+{
+	FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), GlyphFontSize);
+	Font.OutlineSettings.OutlineSize = GlyphOutlineSize;
+	Font.OutlineSettings.OutlineColor = FLinearColor(0.f, 0.f, 0.f, 0.9f);
+	return Font;
+}
+
+void UHawkeyeThugOverheadWidget::SetAccentColors(const FLinearColor& Glyph, const FLinearColor& Bar, bool bDesign)
+{
+	if (!bDesignColorsKept)
+	{
+		DesignGlyphColor = GlyphColor;
+		DesignBarColor = BarColor;
+		bDesignColorsKept = true;
+	}
+	GlyphColor = bDesign ? DesignGlyphColor : Glyph;
+	BarColor = bDesign ? DesignBarColor : Bar;
+}
+
 int32 UHawkeyeThugOverheadWidget::NativePaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry,
 	const FSlateRect& MyCullingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId,
 	const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const
@@ -83,7 +103,7 @@ int32 UHawkeyeThugOverheadWidget::NativePaint(const FPaintArgs& Args, const FGeo
 	const int32 Layer = Super::NativePaint(Args, AllottedGeometry, MyCullingRect, OutDrawElements, LayerId, InWidgetStyle,
 		bParentEnabled) + 1;
 	const FSlateBrush* White = FCoreStyle::Get().GetBrush(TEXT("WhiteBrush"));
-	const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), GlyphFontSize);
+	const FSlateFontInfo Font = GetGlyphFont();
 	const bool bCanMeasure = FSlateApplication::IsInitialized() && FSlateApplication::Get().GetRenderer();
 	for (const FHawkeyeThugOverhead& Entry : Entries)
 	{
