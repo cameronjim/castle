@@ -33,7 +33,8 @@ public class Hawkeye : ModuleRules
 			"SPUD"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		// Hawkeye.Audio.Smoke finds the MetaSounds through the asset registry.
+		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry" });
 
 		// UHawkeyePartnerTreeBuilder authors ST_Partner headless through the StateTree editor API;
 		// UHawkeyeBowIKGraphBuilder authors the bow hands AnimBlueprints through the anim graph nodes.
