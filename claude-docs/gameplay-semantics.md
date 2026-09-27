@@ -138,9 +138,20 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Arrows: 100 cm shaft, 2.5 cm thick, light wood colour with three vanes at 120 degrees
   and a purple nock, so Kate's arrows read as hers when stuck in things. A nocked arrow
   sits on the string while drawing.
-- Known gap: there is no draw animation. A bow held in the left hand with the string at
-  the shoulder was tried and rejected (it vanished behind her hip from the default
-  camera; kept as `bow_draw_inhand.png`). The bow blends from the left palm socket to a
+- Hands (built 2026-09-26): a post-process animation Blueprint, `ABP_BowIK_Post` (and a
+  `_Thug` variant for the old mannequin), built headless by editor-only C++ from
+  `create_bow_ik.py`. It links the mesh's own post-process graph, then in component space
+  turns the spine 15 degrees side-on plus up to 45 toward the aim (neck counter-turned),
+  then two-bone IK on the left hand to the grip and the right hand to the string point,
+  alphas blended over 0.15 s. Applied at BeginPlay as a post-process override so the
+  motion-matching graph keeps its state. Targets in the head frame (forward, right, up,
+  cm): grip (50, -10, -4); string hand from (34, -2, -6) at rest to (-2, 10, -8) at full
+  draw. Hands land within 0.8 cm of target. While the bow is up it rides in the IK hand;
+  the string nock follows the right palm. `bHolsterWhenIdle` (default on) puts it on the
+  back when idle. Fingers do not curl (no finger posing). Kate, Clint, and archers use it.
+  A native anim-instance proxy was rejected because a post-process instance can't receive
+  the input pose without a Blueprint graph.
+- Superseded note: before IK, the bow blended from the left palm socket to a
   point in front of the left shoulder while drawing and rides across the back when
   holstered. A layered upper-body aim animation is stage 3 work.
 
