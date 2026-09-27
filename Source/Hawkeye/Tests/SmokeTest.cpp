@@ -29,7 +29,7 @@
  * the one thing the unit tests cannot cover. Hawkeye.Lap.EastVillage plays the level through.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeSmokeLoadEastVillage, "Hawkeye.Smoke.LoadEastVillage",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
 
 namespace HawkeyeSmoke
 {
