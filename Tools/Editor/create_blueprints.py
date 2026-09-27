@@ -690,8 +690,10 @@ AUDIO_DEFAULTS = [
         ("land_sound", "MS_Land"),
         ("roll_sound", "MS_Roll_Thump"),
         ("stagger_sound", "MS_Melee_Stagger"),
+        ("parry_sound", "MS_Parry"),
     ]),
     (PLAYER_PATH, "BP_HawkeyeCharacter", "bow_component", _BOW_SOUNDS),
+    (PLAYER_PATH, "BP_HawkeyeCharacter", "finisher_component", [("strike_sound", "MS_Melee_Heavy")]),
     (PLAYER_PATH, "BP_HawkeyeCharacter", "grapple_component", [
         ("fire_sound", "MS_Grapple_Fire"),
         ("zip_sound", "MS_Grapple_Zip"),
@@ -851,6 +853,7 @@ VFX_DEFAULTS = [
         ("footstep_vfx", "NS_FootstepSnow"),
         ("landing_vfx", "NS_LandingSnow"),
         ("screen_pulse_material", "M_PP_EmpAberration"),
+        ("parry_vfx", "NS_ParryRing"),
     ]),
     (PLAYER_PATH, "BP_HawkeyeCharacter", "bow_component", _BOW_VFX),
     (PLAYER_PATH, "BP_HawkeyeCharacter", "grapple_component", [

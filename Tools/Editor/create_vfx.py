@@ -542,6 +542,16 @@ EFFECTS = {
         burst_sprites("Dust", "M_Vfx_Smoke", 6, (0.5, 0.9), (0.32, 0.24, 0.15, 0.5), (10, 20), 3, (30, 90),
                       gravity=(0, 0, -40), drag=3.0, fade=((0.0, 1.0), (1.0, 0.0)), grow=((0.0, 0.8), (1.0, 2.0))),
     ],
+    # A parry: a purple ring flashing out across the line between them (the system's X), a flash and a
+    # few sparks. Small and fast, so it reads as a clash, not an explosion.
+    "NS_ParryRing": [
+        burst_sprites("Ring", "M_Vfx_Glow", 90, (0.22, 0.3), (1.6, 0.5, 3.2, 1.0), (10, 16), 8, (480, 520),
+                      drag=2.5, fade=((0.0, 1.0), (0.5, 0.8), (1.0, 0.0)), grow=((0.0, 0.7), (1.0, 1.3)))
+        .i("Shape Location", "Non Uniform Scale", vec(0.02, 1, 1)),
+        flash("Flash", 0.1, (2.4, 1.0, 4.8, 1.0), 110),
+        spark_streaks("Sparks", 18, (0.1, 0.25), (2.5, 1.4, 5.0, 1.0), (1.5, 10.0, 2.5, 24.0), (1, 0, 0), 80,
+                      (500, 1000), gravity=-300, drag=3.0),
+    ],
     # An arrow into a thug: no blood, a purple-white comic spark.
     "NS_HitSpark": [
         flash("Star", 0.2, (2.2, 0.9, 4.5, 1.0), 120),

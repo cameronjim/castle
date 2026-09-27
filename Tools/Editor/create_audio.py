@@ -437,6 +437,17 @@ def block_clank(g):
     g.finish(g.mix((ring1, 0.3), (ring2, 0.2), (ring3, 0.12), (hit, 0.3)), done)
 
 
+def parry(g):
+    # A bright ring off the bow limb: three high partials over a sharp crack and a small thud, shorter
+    # and higher than the shield's clank so the two never read as one.
+    ring1, done = g.tone(1568.0, 0.4, curve=0.45)
+    ring2, _r2 = g.tone(2637.0, 0.3, curve=0.45)
+    ring3, _r3 = g.tone(3951.0, 0.18, curve=0.5)
+    crack, _c = g.burst(4500.0, 0.03, 0.5, out="High Pass Filter")
+    thud, _t = g.tone(220.0, 0.08, drop=0.6)
+    g.finish(g.mix((ring1, 0.28), (ring2, 0.2), (ring3, 0.12), (crack, 0.35), (thud, 0.3)), done)
+
+
 def stagger_hit(g):
     thud, done = g.tone(180.0, 0.12, drop=0.5)
     smack, _s = g.burst(900.0, 0.06, 1.0)
@@ -606,6 +617,7 @@ SOUNDS = [
     ("MS_Melee_Heavy", SFX_PATH, heavy_whump, True, "SCL_SFX", "ATT_World"),
     ("MS_Melee_Block", SFX_PATH, block_clank, True, "SCL_SFX", "ATT_World"),
     ("MS_Melee_Stagger", SFX_PATH, stagger_hit, True, "SCL_SFX", "ATT_World"),
+    ("MS_Parry", SFX_PATH, parry, True, "SCL_SFX", "ATT_World"),
     ("MS_Thug_Telegraph", SFX_PATH, telegraph, True, "SCL_SFX", "ATT_World"),
     ("MS_Thug_Gunshot", SFX_PATH, gunshot, True, "SCL_SFX", "ATT_World"),
     ("MS_Thug_BatSwing", SFX_PATH, bat_whoosh, True, "SCL_SFX", "ATT_World"),
