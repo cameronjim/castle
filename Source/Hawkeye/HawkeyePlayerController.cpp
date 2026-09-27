@@ -6,6 +6,7 @@
 #include "Hawkeye.h"
 #include "Audio/HawkeyeAudioMath.h"
 #include "Audio/HawkeyeAudioSubsystem.h"
+#include "Vfx/SnowfallComponent.h"
 #include "Audio/HawkeyeVolumeSubsystem.h"
 #include "HawkeyeGameMode.h"
 #include "Combat/HealthComponent.h"
@@ -47,6 +48,7 @@
 AHawkeyePlayerController::AHawkeyePlayerController()
 {
 	Banter = CreateDefaultSubobject<UBanterComponent>(TEXT("Banter"));
+	Snowfall = CreateDefaultSubobject<USnowfallComponent>(TEXT("Snowfall"));
 	MainMenuWidgetClass = UHawkeyeMainMenuWidget::StaticClass();
 	SafehouseWidgetClass = UHawkeyeSafehouseWidget::StaticClass();
 }

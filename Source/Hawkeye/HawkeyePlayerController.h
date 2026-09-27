@@ -13,6 +13,7 @@ class AHawkeyeCharacter;
 class AHawkeyePartnerController;
 class ASafehouse;
 class UBanterComponent;
+class USnowfallComponent;
 class UHawkeyeHudWidget;
 class UHawkeyeInventoryWidget;
 class UHawkeyeMainMenuWidget;
@@ -305,6 +306,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Partner")
 	UBanterComponent* GetBanter() const { return Banter; }
 
+	/** The light snow that follows this player's camera. */
+	USnowfallComponent* GetSnowfall() const { return Snowfall; }
+
 	/** X on the keyboard, LB on a pad. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Partner")
 	TObjectPtr<UInputAction> SwitchCharacterAction;
@@ -388,6 +392,10 @@ protected:
 	/** Kate and Clint's banter, shown on the HUD. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Partner")
 	TObjectPtr<UBanterComponent> Banter;
+
+	/** Snow round the camera (NS_Snowfall, set by create_blueprints.py). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Effects")
+	TObjectPtr<USnowfallComponent> Snowfall;
 
 	/** Set by SwitchCharacter; empty until the first switch, when the pawn's own name is used. */
 	UPROPERTY(Transient)
