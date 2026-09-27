@@ -46,6 +46,7 @@
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 #include "Tests/BowIKScreenshots.h"
+#include "Tests/CombatScreenshots.h"
 #include "Tests/EnemyScreenshots.h"
 #include "Tests/PartnerScreenshots.h"
 #include "Tests/SaveScreenshots.h"
@@ -115,6 +116,8 @@
  *                           (PartnerScreenshotTest.cpp)
  *   squad_alert.png, gunner_cover.png, archer_draw.png, archer_arrow.png, archer_pickup.png: the
  *                           enemy pass (EnemyScreenshotTest.cpp)
+ *   heavy_block.png, heavy_bash.png, archer_hold.png, thug_alert_glyph.png, aim_view_clear.png: the
+ *                           fair-fight pass (CombatScreenshotTest.cpp)
  *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass, run last
  *                           (SaveRoundTripTest.cpp)
  *
@@ -2809,6 +2812,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	// The enemies, while the street pair is still standing: the squad alert, the gunner's peek from
 	// cover, the archer's draw and his arrow.
 	HawkeyeAddEnemyShots(this);
+
+	// Fair fights: the heavy's shield and bash, an archer's held draw, the alert glyphs, the aim view.
+	HawkeyeAddCombatShots(this);
 
 	// Clint: following, shooting what she hit, a banter line, and the switch to him.
 	HawkeyeAddPartnerShots(this);
