@@ -42,7 +42,7 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
   them, a City_Challenge_<id> pedestal on each start holding its definition, every archery target
   10 to 40 m out with a clear line, and every traversal ring reachable from the one before it
 * the street crimes: four DA_Crime_ definitions, twelve City_CrimeSpot_ (eight street, four roof) as
-  create_crimes.py plans them, none within 40 m of the safehouse or a pedestal, all on the navmesh, and
+  create_crimes.py plans them, none within 40 m of a safehouse or a pedestal, all on the navmesh, and
   every robbery escape point 50 to 70 m out with a walkable path
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
@@ -754,33 +754,59 @@ def check_clint(district, actors):
     check(ok, "Clint starts on the navmesh", "feet z {0:.0f}".format(feet.z))
 
 
-def check_safehouse(district, actors):
-    """City_Safehouse (ASafehouse) on the chosen storefront, its door on the facade facing the park,
-    standing on the pavement, with the purple door material and an entry zone in front of it."""
-    actor = actors.get(gen.SAFEHOUSE_LABEL)
-    ok = check(actor is not None and "Safehouse" in c.class_name(actor.get_class()),
-               gen.SAFEHOUSE_LABEL + " placed (ASafehouse)",
+def _check_one_safehouse(actor, spot, label, safehouse_id, name, what):
+    """The checks both safehouses share: placed on its facade point, facing out, on the pavement,
+    tagged, the purple door, its id, its placeholder name and its address. Returns the location."""
+    ok = check(actor is not None and "Safehouse" in c.class_name(actor.get_class()), label + " placed (ASafehouse)",
                c.class_name(actor.get_class()) if actor is not None else "missing")
-    spot = gen.safehouse_spot(district)
-    check(spot is not None, "a building fronting the park qualifies for the safehouse")
+    check(spot is not None, what)
     if not ok or spot is None:
-        return
+        return None
     loc = actor.get_actor_location()
     off = math.hypot(loc.x - spot["x"], loc.y - spot["y"])
-    check(off <= 1.0, "safehouse door on its facade point", "{0:.1f} cm off, osm {1}".format(off, spot["rec"]["id"]))
+    check(off <= 1.0, label + " door on its facade point", "{0:.1f} cm off, osm {1}".format(off, spot["rec"]["id"]))
     check(abs(((actor.get_actor_rotation().yaw - spot["yaw"]) + 180.0) % 360.0 - 180.0) <= 0.5,
-          "safehouse faces out of the building", "yaw {0:.1f}".format(actor.get_actor_rotation().yaw))
-    check(gen.SIDEWALK_TOP - 30.0 <= loc.z <= gen.SIDEWALK_TOP + 30.0, "safehouse stands on the pavement",
+          label + " faces out of the building", "yaw {0:.1f}".format(actor.get_actor_rotation().yaw))
+    check(gen.SIDEWALK_TOP - 30.0 <= loc.z <= gen.SIDEWALK_TOP + 30.0, label + " stands on the pavement",
           "z {0:.0f}".format(loc.z))
     tags = [str(t) for t in actor.get_editor_property("tags")]
-    check("osm:" + spot["rec"]["id"] in tags, "safehouse tagged with its building", ", ".join(tags))
+    check("osm:" + spot["rec"]["id"] in tags, label + " tagged with its building", ", ".join(tags))
     door = actor.get_editor_property("door")
     mats = door.get_editor_property("override_materials") if door is not None else []
     check(len(mats) >= 1 and mats[0] is not None and mats[0].get_name() == gen.MI_BEACON.split("/")[-1],
-          "safehouse door is the purple beacon material", mats[0].get_name() if len(mats) >= 1 and mats[0] else "none")
-    check(str(actor.get_editor_property("safehouse_id")) == gen.SAFEHOUSE_ID, "safehouse id " + gen.SAFEHOUSE_ID)
-    unreal.log("[Hawkeye] info  safehouse: osm {0} ({1}) at ({2:.0f}, {3:.0f}, {4:.0f}) yaw {5:.0f}".format(
-        spot["rec"]["id"], spot["address"] or "no address", loc.x, loc.y, loc.z, actor.get_actor_rotation().yaw))
+          label + " door is the purple beacon material", mats[0].get_name() if len(mats) >= 1 and mats[0] else "none")
+    check(str(actor.get_editor_property("safehouse_id")) == safehouse_id, label + " id " + safehouse_id)
+    shown = str(actor.get_editor_property("display_name"))
+    check(shown == name, label + " is named " + name, shown)
+    address = str(actor.get_editor_property("address"))
+    check(bool(address), label + " has an address subtitle", address or "empty")
+    unreal.log("[Hawkeye] info  {0}: osm {1} ({2}) at ({3:.0f}, {4:.0f}, {5:.0f}) yaw {6:.0f}".format(
+        label, spot["rec"]["id"], address, loc.x, loc.y, loc.z, actor.get_actor_rotation().yaw))
+    return loc
+
+
+def check_safehouse(district, actors):
+    """City_Safehouse on the storefront facing the park and City_Safehouse_2 on Avenue B, east of the
+    avenue in the north half, at least 250 m from the first; both with the door, sign and light."""
+    first = _check_one_safehouse(actors.get(gen.SAFEHOUSE_LABEL), gen.safehouse_spot(district), gen.SAFEHOUSE_LABEL,
+                                 gen.SAFEHOUSE_ID, gen.SAFEHOUSE_NAME, "a building fronting the park qualifies for the safehouse")
+    spot2 = gen.safehouse2_spot(district)
+    second = _check_one_safehouse(actors.get(gen.SAFEHOUSE2_LABEL), spot2, gen.SAFEHOUSE2_LABEL, gen.SAFEHOUSE2_ID,
+                                  gen.SAFEHOUSE2_NAME, "an Avenue B storefront qualifies for the second safehouse")
+    if first is None or second is None:
+        return
+    apart = math.hypot(first.x - second.x, first.y - second.y)
+    check(apart >= gen.SAFEHOUSE2_MIN_APART, "the safehouses are at least 250 m apart", "{0:.1f} m".format(apart / 100.0))
+    _pieces, mid, north, east = gen._avenue_frame(district, gen.SAFEHOUSE2_AVENUE)
+    rel = (second.x - mid[0], second.y - mid[1])
+    along, across = rel[0] * north[0] + rel[1] * north[1], rel[0] * east[0] + rel[1] * east[1]
+    check(across > 0.0 and along > 0.0, "the second is east of Avenue B in the district's north half",
+          "{0:.0f} m north of the avenue's middle, {1:.0f} m east of its line".format(along / 100.0, across / 100.0))
+    escapes = [f for f in gen.fire_escape_spots(district)
+               if math.hypot(f[2][0] - second.x, f[2][1] - second.y) < gen.SAFEHOUSE2_ESCAPE_CLEAR]
+    check(not escapes, "no fire escape over the second safehouse's sign", ", ".join(f[0] for f in escapes))
+    ids = [str(a.get_editor_property("safehouse_id")) for label, a in actors.items() if label.startswith(gen.SAFEHOUSE_LABEL)]
+    check(len(ids) == 2 and len(set(ids)) == 2, "two safehouses with different ids", ", ".join(ids))
 
 
 def _vec3(v):
@@ -885,9 +911,10 @@ def check_crimes(district, actors):
     check(not bad, "every crime spot on its plan, holding its crimes", "; ".join(bad))
 
     keep_off = []
-    house = actors.get(gen.SAFEHOUSE_LABEL)
-    if house is not None:
-        keep_off.append(("safehouse", house.get_actor_location()))
+    for house_label in (gen.SAFEHOUSE_LABEL, gen.SAFEHOUSE2_LABEL):
+        house = actors.get(house_label)
+        if house is not None:
+            keep_off.append((house_label, house.get_actor_location()))
     for label, actor in actors.items():
         if label.startswith(gen.CHALLENGE_PREFIX):
             keep_off.append((label, actor.get_actor_location()))
@@ -898,7 +925,7 @@ def check_crimes(district, actors):
         for what, at in keep_off:
             if math.hypot(loc.x - at.x, loc.y - at.y) < 4000.0:
                 near.append("{0} {1:.0f} m from {2}".format(label, math.hypot(loc.x - at.x, loc.y - at.y) / 100.0, what))
-    check(not near and len(keep_off) >= 2, "no crime spot within 40 m of the safehouse or a pedestal",
+    check(not near and len(keep_off) >= 3, "no crime spot within 40 m of a safehouse or a pedestal",
           "; ".join(near) or "{0} kept clear of".format(len(keep_off)))
     close = []
     for i, (la, a) in enumerate(placed):
