@@ -228,6 +228,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Phone")
 	int32 GetPhoneBadgeCount() const { return PhoneBadgeCount; }
 
+	/** The combo counter's text ("x3"), empty under two hits. Pure so a test can read it. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Combo")
+	static FText FormatComboCount(int32 Count);
+
+	/** The count the combo counter shows now. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Combo")
+	int32 GetShownComboCount() const { return ShownComboCount; }
+
 	// --- Movement debug -------------------------------------------------------------------------
 
 	/** The debug line's text, or empty while hawkeye.DebugMovement is 0 or there is no player. */
@@ -262,6 +270,12 @@ protected:
 
 	/** A small phone outline bottom right with the unread count beside it. */
 	void BuildPhoneBadge(UOverlay* Root);
+
+	/** The combo counter's text block. */
+	void BuildComboCounter(UOverlay* Root);
+
+	/** Reads the pawn's combo count and bonus and updates the counter on a change. */
+	void UpdateComboCounter();
 
 	/** Reads UPhoneSubsystem's unread count and repaints the badge when it changed. */
 	void UpdatePhoneBadge();
@@ -505,6 +519,23 @@ protected:
 
 	UPROPERTY(Transient)
 	int32 PhoneBadgeCount = -1;
+
+	/** The combo counter: small, right of centre, cream, purple once the bonus is on. */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> ComboText = nullptr;
+
+	UPROPERTY(Transient)
+	int32 ShownComboCount = -1;
+
+	UPROPERTY(Transient)
+	bool bShownComboBonus = false;
+
+	/** The counter's colour, and its colour at the bonus. */
+	UPROPERTY(EditAnywhere, Category = "HUD|Combo")
+	FLinearColor ComboColor = FLinearColor(0.96f, 0.92f, 0.82f, 1.f);
+
+	UPROPERTY(EditAnywhere, Category = "HUD|Combo")
+	FLinearColor ComboBonusColor = FLinearColor(0.72f, 0.35f, 1.f, 1.f);
 
 	bool bBound = false;
 };

@@ -71,6 +71,7 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 		BuildGrappleMarker(Root);
 		BuildPartnerWidgets(Root);
 		BuildPhoneBadge(Root);
+		BuildComboCounter(Root);
 
 		// Under the objective marker and the hotbar: the thugs' glyphs and health bars.
 		ThugOverhead = WidgetTree->ConstructWidget<UHawkeyeThugOverheadWidget>(
@@ -156,6 +157,58 @@ void UHawkeyeHudWidget::BuildPhoneBadge(UOverlay* Root)
 		CountSlot->SetPadding(FMargin(8.f, 0.f, 0.f, 0.f));
 	}
 	UpdatePhoneBadge();
+}
+
+void UHawkeyeHudWidget::BuildComboCounter(UOverlay* Root)
+{
+	if (!WidgetTree || !Root)
+	{
+		return;
+	}
+	ComboText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("ComboText"));
+	FSlateFontInfo Font = ComboText->GetFont();
+	Font.Size = 22;
+	ComboText->SetFont(Font);
+	ComboText->SetColorAndOpacity(FSlateColor(ComboColor));
+	ComboText->SetShadowOffset(FVector2D(1.f, 1.f));
+	ComboText->SetShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.6f));
+	ComboText->SetVisibility(ESlateVisibility::HitTestInvisible);
+	if (UOverlaySlot* ComboSlot = Cast<UOverlaySlot>(Root->AddChild(ComboText)))
+	{
+		// Right of the reticle and a little above it, where the eye already is in a fight.
+		ComboSlot->SetHorizontalAlignment(HAlign_Right);
+		ComboSlot->SetVerticalAlignment(VAlign_Center);
+		ComboSlot->SetPadding(FMargin(0.f, 0.f, 220.f, 120.f));
+	}
+	UpdateComboCounter();
+}
+
+FText UHawkeyeHudWidget::FormatComboCount(int32 Count)
+{
+	return Count >= 2 ? FText::FromString(FString::Printf(TEXT("x%d"), Count)) : FText::GetEmpty();
+}
+
+void UHawkeyeHudWidget::UpdateComboCounter()
+{
+	const APlayerController* PC = GetOwningPlayer();
+	const AHawkeyeCharacter* Character = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	const int32 Count = Character ? Character->GetComboCount() : 0;
+	const bool bBonus = Character && Character->IsComboBonusActive();
+	if (!ComboText || (Count == ShownComboCount && bBonus == bShownComboBonus))
+	{
+		return;
+	}
+	ShownComboCount = Count;
+	bShownComboBonus = bBonus;
+	ComboText->SetText(FormatComboCount(Count));
+	ComboText->SetColorAndOpacity(FSlateColor(bBonus ? ComboBonusColor : ComboColor));
+	// The glow: a purple halo in place of the drop shadow.
+	ComboText->SetShadowOffset(bBonus ? FVector2D::ZeroVector : FVector2D(1.f, 1.f));
+	ComboText->SetShadowColorAndOpacity(bBonus ? FLinearColor(0.6f, 0.2f, 1.f, 0.9f) : FLinearColor(0.f, 0.f, 0.f, 0.6f));
+	FSlateFontInfo Font = ComboText->GetFont();
+	Font.OutlineSettings.OutlineSize = bBonus ? 2 : 0;
+	Font.OutlineSettings.OutlineColor = FLinearColor(0.55f, 0.15f, 1.f, 0.85f);
+	ComboText->SetFont(Font);
 }
 
 void UHawkeyeHudWidget::UpdatePhoneBadge()
@@ -530,6 +583,7 @@ void UHawkeyeHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSecon
 	RefreshMovementDebug();
 	UpdatePartnerWidgets(DeltaSeconds);
 	UpdatePhoneBadge();
+	UpdateComboCounter();
 
 	if (HitFlashRemaining > 0.f)
 	{
