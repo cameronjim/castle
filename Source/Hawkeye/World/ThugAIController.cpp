@@ -41,6 +41,8 @@ namespace HawkeyeThugBrain
 	static constexpr float SameCoverDistance = 200.f;
 	/** Close enough to a move goal to count as there, cm. */
 	static constexpr float ArriveDistance = 90.f;
+	/** A cover point more than this above or below him is another level (a fire escape, an awning), cm. */
+	static constexpr float CoverMaxStep = 150.f;
 }
 
 AThugAIController::AThugAIController()
@@ -1242,7 +1244,8 @@ bool AThugAIController::FindCoverPointEqs(FVector& OutPoint, const FVector* Avoi
 	for (int32 Index = 0; Index < Result->Items.Num(); ++Index)
 	{
 		const FVector Point = Result->GetItemAsLocation(Index) + FVector(0.f, 0.f, 90.f);
-		if (Avoid && FVector::Dist2D(Point, *Avoid) < HawkeyeThugBrain::SameCoverDistance)
+		if ((Avoid && FVector::Dist2D(Point, *Avoid) < HawkeyeThugBrain::SameCoverDistance)
+			|| FMath::Abs(Point.Z - Thug->GetActorLocation().Z) > HawkeyeThugBrain::CoverMaxStep)
 		{
 			continue;
 		}
@@ -1282,7 +1285,8 @@ bool AThugAIController::FindCoverPointRing(const FVector& Threat, FVector& OutPo
 			{
 				Candidate = OnNav.Location + FVector(0.f, 0.f, 90.f);
 			}
-			if (Avoid && FVector::Dist2D(Candidate, *Avoid) < HawkeyeThugBrain::SameCoverDistance)
+			if ((Avoid && FVector::Dist2D(Candidate, *Avoid) < HawkeyeThugBrain::SameCoverDistance)
+				|| FMath::Abs(Candidate.Z - Me->GetActorLocation().Z) > HawkeyeThugBrain::CoverMaxStep)
 			{
 				continue;
 			}
