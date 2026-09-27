@@ -1,0 +1,146 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "World/ChapterEndInteractable.h"
+
+#include "Hawkeye.h"
+#include "HawkeyePlayerController.h"
+#include "Camera/CameraComponent.h"
+#include "Components/BoxComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "GameFramework/Pawn.h"
+#include "Mission/MissionObjective.h"
+#include "Mission/MissionSubsystem.h"
+
+AChapterEndInteractable::AChapterEndInteractable()
+{
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = false;
+
+	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+	SetRootComponent(Root);
+
+	Prop = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Prop"));
+	Prop->SetupAttachment(Root);
+	Prop->SetCollisionProfileName(UCollisionProfile::BlockAllDynamic_ProfileName);
+	Prop->SetCanEverAffectNavigation(false);
+
+	PropAccent = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PropAccent"));
+	PropAccent->SetupAttachment(Prop);
+	PropAccent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	PropAccent->SetCanEverAffectNavigation(false);
+
+	CloseUpCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("CloseUpCamera"));
+	CloseUpCamera->SetupAttachment(Root);
+	CloseUpCamera->SetFieldOfView(50.f);
+
+	InteractZone = CreateDefaultSubobject<UBoxComponent>(TEXT("InteractZone"));
+	InteractZone->SetupAttachment(Root);
+	InteractZone->SetBoxExtent(FVector(200.f, 200.f, 200.f));
+	InteractZone->SetCollisionProfileName(UCollisionProfile::CustomCollisionProfileName);
+	InteractZone->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	InteractZone->SetCollisionResponseToAllChannels(ECR_Ignore);
+	InteractZone->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	InteractZone->SetGenerateOverlapEvents(true);
+	InteractZone->SetCanEverAffectNavigation(false);
+}
+
+void AChapterEndInteractable::OnConstruction(const FTransform& Transform)
+{
+	Super::OnConstruction(Transform);
+	Prop->SetRelativeRotation(PropRotation);
+	const FVector Look = CloseUpLookAt - CloseUpOffset;
+	CloseUpCamera->SetRelativeLocationAndRotation(CloseUpOffset, Look.IsNearlyZero() ? FRotator::ZeroRotator : Look.Rotation());
+	InteractZone->SetRelativeLocation(InteractZoneOffset);
+	InteractZone->SetBoxExtent(InteractZoneExtent);
+}
+
+void AChapterEndInteractable::BeginPlay()
+{
+	Super::BeginPlay();
+	if (UMissionSubsystem* Missions = UMissionSubsystem::Get(this); Missions && !ObjectiveId.IsNone())
+	{
+		Missions->RegisterObjectiveLocation(ObjectiveId, GetActorLocation());
+	}
+}
+
+void AChapterEndInteractable::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (UMissionSubsystem* Missions = UMissionSubsystem::Get(this); Missions && !ObjectiveId.IsNone())
+	{
+		Missions->UnregisterObjectiveLocation(ObjectiveId);
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+bool AChapterEndInteractable::CanInteract_Implementation(AActor* Interactor) const
+{
+	const APawn* Pawn = Cast<APawn>(Interactor);
+	if (bUsed || !Pawn || !Pawn->IsPlayerControlled())
+	{
+		return false;
+	}
+	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
+	const UMissionTracker* Tracker = Missions ? Missions->GetTracker() : nullptr;
+	const UMissionObjective* Objective = Tracker ? Tracker->FindObjective(ObjectiveId) : nullptr;
+	if (!Objective || Objective->IsCompleted())
+	{
+		return false;
+	}
+	return !bRequireCurrentObjective || Tracker->GetCurrentObjective() == Objective;
+}
+
+FText AChapterEndInteractable::GetInteractPrompt_Implementation() const
+{
+	return Prompt.IsEmpty() ? NSLOCTEXT("Hawkeye", "ChapterEndPrompt", "[Examine]") : Prompt;
+}
+
+void AChapterEndInteractable::Interact_Implementation(AActor* Interactor)
+{
+	if (!IInteractable::Execute_CanInteract(this, Interactor))
+	{
+		return;
+	}
+	bUsed = true;
+	const APawn* Pawn = Cast<APawn>(Interactor);
+	AHawkeyePlayerController* PC = Pawn ? Cast<AHawkeyePlayerController>(Pawn->GetController()) : nullptr;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: examined by %s; completing %s."), *GetName(), *GetNameSafe(Interactor), *ObjectiveId.ToString());
+
+	// The close-up first, so the mission's end sequence sees it running and waits for it.
+	if (PC)
+	{
+		PC->PlayCloseUp(this, CloseUpSeconds, CloseUpBlendSeconds);
+	}
+	OnExamined(Interactor);
+	if (UMissionSubsystem* Missions = UMissionSubsystem::Get(this))
+	{
+		Missions->CompleteObjective(ObjectiveId);
+	}
+}
+
+void AChapterEndInteractable::BeginPush()
+{
+	CameraStart = CloseUpCamera->GetRelativeLocation();
+	PushElapsed = 0.f;
+	bPushing = true;
+	SetActorTickEnabled(true);
+}
+
+void AChapterEndInteractable::EndPush()
+{
+	bPushing = false;
+	SetActorTickEnabled(false);
+	CloseUpCamera->SetRelativeLocation(CameraStart);
+}
+
+void AChapterEndInteractable::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	if (!bPushing)
+	{
+		return;
+	}
+	PushElapsed += DeltaSeconds;
+	const float Alpha = FMath::Clamp(PushElapsed / FMath::Max(CloseUpSeconds, 0.1f), 0.f, 1.f);
+	const FVector Forward = CloseUpCamera->GetRelativeRotation().Vector();
+	CloseUpCamera->SetRelativeLocation(CameraStart + Forward * PushDistance * FMath::InterpEaseOut(0.f, 1.f, Alpha, 2.f));
+}

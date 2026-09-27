@@ -6,8 +6,10 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Save/HawkeyeAutosaveClock.h"
 #include "Save/HawkeyeCampaignState.h"
+#include "Save/HawkeyeSceneReturn.h"
 #include "HawkeyeSaveSubsystem.generated.h"
 
+class UFlashbackDefinition;
 class USpudSubsystem;
 class UWorld;
 
@@ -127,6 +129,34 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	void SetAutosaveInterval(float Seconds) { AutosaveClock.IntervalSeconds = FMath::Max(1.f, Seconds); }
 
+	// --- Playable scenes ---------------------------------------------------------------------------
+
+	/**
+	 * A flashback's playable scene: saves the district (the reason is "playable scene"), remembers
+	 * the flashback's ReturnPointLabel and opens its PlayableScene. False when it has none.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Save|Scene")
+	bool EnterPlayableScene(UFlashbackDefinition* Flashback);
+
+	/** Between EnterPlayableScene and the scene's mission completing. Saves are refused. */
+	UFUNCTION(BlueprintPure, Category = "Save|Scene")
+	bool IsInPlayableScene() const { return SceneReturn.bInScene; }
+
+	/**
+	 * The scene's mission is done: loads the save made on the way in (or, if it cannot be used,
+	 * opens the district fresh) and puts the player at the return point once it is back.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Save|Scene")
+	void ReturnFromPlayableScene();
+
+	/**
+	 * Puts the player at the pending return point and tells the controller the scene is over.
+	 * Runs after a load restores the district, or from the game mode after a fresh open.
+	 */
+	void ApplyPendingSceneReturn(UWorld* World);
+
+	const FHawkeyeSceneReturn& GetSceneReturn() const { return SceneReturn; }
+
 	// --- Main menu --------------------------------------------------------------------------------
 
 	/**
@@ -180,6 +210,9 @@ private:
 
 	UPROPERTY(Transient)
 	FHawkeyeAutosaveClock AutosaveClock;
+
+	UPROPERTY(Transient)
+	FHawkeyeSceneReturn SceneReturn;
 
 	FDelegateHandle PreLoadMapHandle;
 	bool bRestorePending = false;

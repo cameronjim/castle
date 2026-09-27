@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
 #include "Audio/HawkeyeAudioTypes.h"
+#include "Mission/MissionFlowController.h"
 #include "Settings/HawkeyeSettings.h"
 #include "HawkeyePlayerController.generated.h"
 
@@ -13,6 +14,8 @@ class AHawkeyeCharacter;
 class AHawkeyePartnerController;
 class ASafehouse;
 class UBanterComponent;
+class UChapterTitleWidget;
+class UPhoneWidget;
 class USnowfallComponent;
 class UHawkeyeHudWidget;
 class UHawkeyeInventoryWidget;
@@ -93,6 +96,84 @@ public:
 	/** The end-of-mission beat ordering. Created on BeginPlay and never null. */
 	UFUNCTION(BlueprintPure, Category = "End card")
 	UMissionFlowController* GetMissionFlow() const { return MissionFlow; }
+
+	/**
+	 * The end sequence's route for Mission: which beats it has (claude-docs/gameplay-semantics.md,
+	 * "Chapter end"). bCloseUp says a close-up is running as it completes.
+	 */
+	UFUNCTION(BlueprintPure, Category = "End card")
+	static FMissionFlowRoute MakeFlowRoute(const UMissionDefinition* Mission, bool bCloseUp);
+
+	/**
+	 * The camera blends to ViewTarget's camera for Seconds (blend in included), then back over
+	 * BlendSeconds, with the player's move and look input held. An AChapterEndInteractable pushes
+	 * its camera in meanwhile. A mission completing during it starts its end sequence with it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "End card")
+	void PlayCloseUp(AActor* ViewTarget, float Seconds, float BlendSeconds);
+
+	/** From PlayCloseUp until the view is back on the pawn. */
+	UFUNCTION(BlueprintPure, Category = "End card")
+	bool IsCloseUpActive() const { return bCloseUpActive; }
+
+	/**
+	 * The save subsystem calls this once the district is back from a flashback's playable scene and
+	 * the player is at the return point: the end sequence carries on from the scene (roaming again
+	 * with the chapter-complete toast, or the next level).
+	 */
+	void HandleReturnedFromScene();
+
+	// --- Chapter title --------------------------------------------------------------------------
+
+	/** The opening title card. UChapterTitleWidget by default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Chapter title")
+	TSubclassOf<UChapterTitleWidget> ChapterTitleWidgetClass;
+
+	/** Shows Mission's title card now, whether or not it has been seen. */
+	UFUNCTION(BlueprintCallable, Category = "Chapter title")
+	UChapterTitleWidget* ShowChapterTitle(UMissionDefinition* Mission);
+
+	UFUNCTION(BlueprintPure, Category = "Chapter title")
+	bool IsChapterTitleShowing() const;
+
+	UFUNCTION(BlueprintPure, Category = "Chapter title")
+	UChapterTitleWidget* GetChapterTitleWidget() const { return ChapterTitleWidget; }
+
+	// --- Phone ----------------------------------------------------------------------------------
+
+	/** The phone panel. UPhoneWidget by default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Phone")
+	TSubclassOf<UPhoneWidget> PhoneWidgetClass;
+
+	/** P on the keyboard (IA_Phone). The pad holds D-pad down for PhoneHoldSeconds instead. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Phone")
+	TObjectPtr<UInputAction> PhoneAction;
+
+	/** How long D-pad down is held to open the phone (a tap is still quiver slot 2). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Phone", meta = (ClampMin = "0.05"))
+	float PhoneHoldSeconds = 0.4f;
+
+	UFUNCTION(BlueprintCallable, Category = "Phone")
+	void TogglePhone();
+
+	/**
+	 * Opens the phone over a paused game, or closes it. Refused while a menu, the inventory, a
+	 * flashback, a close-up or an end sequence has the screen.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Phone")
+	void SetPhoneOpen(bool bOpen);
+
+	UFUNCTION(BlueprintPure, Category = "Phone")
+	bool IsPhoneOpen() const { return bPhoneOpen; }
+
+	UFUNCTION(BlueprintPure, Category = "Phone")
+	UPhoneWidget* GetPhoneWidget() const { return PhoneWidget; }
+
+	/** True once a D-pad hold that started at PressedSeconds has lasted HoldSeconds by NowSeconds. */
+	static bool IsHoldComplete(double PressedSeconds, double NowSeconds, float HoldSeconds)
+	{
+		return NowSeconds - PressedSeconds >= HoldSeconds;
+	}
 
 	// --- Pause ----------------------------------------------------------------------------------
 
@@ -385,7 +466,10 @@ protected:
 	virtual void SetupInputComponent() override;
 	virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
+	virtual void PlayerTick(float DeltaTime) override;
+
 	void Input_Pause(const FInputActionValue& Value);
+	void Input_Phone(const FInputActionValue& Value);
 	void Input_SwitchCharacter(const FInputActionValue& Value);
 	void Input_PartnerMark(const FInputActionValue& Value);
 
@@ -486,6 +570,52 @@ protected:
 
 	/** Runs whichever beat the flow is on now. Called after every Begin and Advance. */
 	void PerformCurrentFlowStep();
+
+	/** The HUD back and the chapter-complete toast: the chapter is over and the district is open. */
+	void ReturnToRoaming();
+
+	/** The close-up's hold is over: the view blends back to the pawn. */
+	void EndCloseUpView();
+
+	/** The view is back: input returns and the end sequence (if waiting) moves on. */
+	void FinishCloseUp();
+
+	/** The chapter's opening title card and sequence, unless a load, an automation run or the menu says wait. */
+	UFUNCTION()
+	void HandleMissionStartedForOpening(UMissionDefinition* Mission);
+
+	/** Shows the title (once per campaign) and queues the opening sequence. */
+	void BeginChapterOpening(UMissionDefinition* Mission);
+
+	/** Automation drives the game itself; opening cards would sit over its screenshots. */
+	static bool IsAutomationRun();
+
+	UPROPERTY(Transient)
+	TObjectPtr<UChapterTitleWidget> ChapterTitleWidget = nullptr;
+
+	/** A mission that started under the main menu; its opening waits for the menu to close. */
+	UPROPERTY(Transient)
+	TObjectPtr<UMissionDefinition> PendingOpening = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UPhoneWidget> PhoneWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Phone")
+	bool bPhoneOpen = false;
+
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> CloseUpTarget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
+	bool bCloseUpActive = false;
+
+	float CloseUpBlendSeconds = 0.5f;
+	FTimerHandle CloseUpTimer;
+
+	/** D-pad down: when it went down (real seconds) and whether this hold already opened the phone. */
+	double DPadDownPressedSeconds = 0.0;
+	bool bDPadDownHeld = false;
+	bool bPhoneHoldFired = false;
 
 	/** Creates the end card (if needed) and plays it. bWaitForInput is the campaign-end card. */
 	UMissionEndCardWidget* ShowEndCard(UMissionDefinition* Mission, bool bWaitForInput);

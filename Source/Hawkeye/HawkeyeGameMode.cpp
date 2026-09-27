@@ -61,6 +61,8 @@ void AHawkeyeGameMode::BeginPlay()
 		return;
 	}
 	Save->ApplyPendingRestore(GetWorld());
+	// Back from a playable scene without a save to load: put the player at the return point now.
+	Save->ApplyPendingSceneReturn(GetWorld());
 	GetWorldTimerManager().SetTimer(AutosaveTimerHandle, this, &AHawkeyeGameMode::TickAutosave, AutosaveTickSeconds, true);
 	if (Save->ConsumeNewGameAutosave())
 	{
@@ -282,8 +284,10 @@ void AHawkeyeGameMode::HandleMissionComplete(UMissionDefinition* Mission)
 	UE_LOG(LogHawkeye, Log, TEXT("Mission complete: %s"),
 		Mission ? *Mission->MissionName.ToString() : TEXT("<none>"));
 
-	// Before the end card, so the last frame of gameplay is not a quiver the player keeps.
-	if (UInventoryComponent* Inventory = FindPlayerInventory())
+	// Before the end card, so the last frame of gameplay is not a quiver the player keeps. A chapter
+	// that hands the player back to the district keeps it: she goes on roaming with it.
+	UInventoryComponent* Inventory = FindPlayerInventory();
+	if (Inventory && !(Mission && Mission->bReturnToRoamingAtEnd))
 	{
 		Inventory->Clear();
 	}

@@ -44,6 +44,14 @@
 #include "UI/HawkeyeMainMenuWidget.h"
 #include "UI/HawkeyeSafehouseWidget.h"
 #include "World/Safehouse.h"
+#include "World/ChapterEndInteractable.h"
+#include "Dialogue/DialogueSubsystem.h"
+#include "Misc/CommandLine.h"
+#include "Save/HawkeyeCampaignState.h"
+#include "TimerManager.h"
+#include "UI/ChapterTitleWidget.h"
+#include "UI/HawkeyeObjectiveWidget.h"
+#include "UI/PhoneWidget.h"
 
 AHawkeyePlayerController::AHawkeyePlayerController()
 {
@@ -51,6 +59,8 @@ AHawkeyePlayerController::AHawkeyePlayerController()
 	Snowfall = CreateDefaultSubobject<USnowfallComponent>(TEXT("Snowfall"));
 	MainMenuWidgetClass = UHawkeyeMainMenuWidget::StaticClass();
 	SafehouseWidgetClass = UHawkeyeSafehouseWidget::StaticClass();
+	ChapterTitleWidgetClass = UChapterTitleWidget::StaticClass();
+	PhoneWidgetClass = UPhoneWidget::StaticClass();
 }
 
 void AHawkeyePlayerController::BeginPlay()
@@ -68,6 +78,7 @@ void AHawkeyePlayerController::BeginPlay()
 	{
 		MissionSubsystem->OnMissionComplete.AddDynamic(this, &AHawkeyePlayerController::HandleMissionComplete);
 		MissionSubsystem->OnFlashbackRequested.AddDynamic(this, &AHawkeyePlayerController::HandleFlashbackRequested);
+		MissionSubsystem->OnMissionStarted.AddDynamic(this, &AHawkeyePlayerController::HandleMissionStartedForOpening);
 	}
 
 	AddPauseMappingContext();
@@ -87,6 +98,12 @@ void AHawkeyePlayerController::BeginPlay()
 	{
 		ShowMainMenu();
 		bMainMenuOverFreshBoot = true;
+	}
+
+	// The game mode may have started the chapter before this controller began play.
+	if (const UMissionSubsystem* Missions = UMissionSubsystem::Get(this); Missions && Missions->GetCurrentMission())
+	{
+		HandleMissionStartedForOpening(Missions->GetCurrentMission());
 	}
 }
 
@@ -108,7 +125,7 @@ void AHawkeyePlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
 
-	if (!PauseAction && !SwitchCharacterAction && !PartnerMarkAction)
+	if (!PauseAction && !SwitchCharacterAction && !PartnerMarkAction && !PhoneAction)
 	{
 		return;
 	}
@@ -135,6 +152,10 @@ void AHawkeyePlayerController::SetupInputComponent()
 	{
 		EnhancedInput->BindAction(PartnerMarkAction, ETriggerEvent::Started, this, &AHawkeyePlayerController::Input_PartnerMark);
 	}
+	if (PhoneAction)
+	{
+		EnhancedInput->BindAction(PhoneAction, ETriggerEvent::Started, this, &AHawkeyePlayerController::Input_Phone);
+	}
 }
 
 bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
@@ -143,7 +164,87 @@ bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
 	// place that reliably knows which device was touched last.
 	bUsingGamepad = Params.Key.IsGamepadKey();
 
+	if (Params.Event == IE_Pressed)
+	{
+		// Input is allowed under the title card; the first press after its lockout also fades it.
+		if (ChapterTitleWidget && ChapterTitleWidget->IsPlaying())
+		{
+			ChapterTitleWidget->Skip();
+		}
+		if (Params.Key == EKeys::Gamepad_DPad_Down)
+		{
+			DPadDownPressedSeconds = FPlatformTime::Seconds();
+			bDPadDownHeld = true;
+			bPhoneHoldFired = false;
+		}
+	}
+	else if (Params.Event == IE_Released && Params.Key == EKeys::Gamepad_DPad_Down)
+	{
+		bDPadDownHeld = false;
+	}
+
 	return Super::InputKey(Params);
+}
+
+void AHawkeyePlayerController::PlayerTick(float DeltaTime)
+{
+	Super::PlayerTick(DeltaTime);
+
+	// Real time, like the quiver wheel: the hold is the thumb, not game time.
+	if (bDPadDownHeld && !bPhoneHoldFired && IsHoldComplete(DPadDownPressedSeconds, FPlatformTime::Seconds(), PhoneHoldSeconds))
+	{
+		bPhoneHoldFired = true;
+		TogglePhone();
+	}
+}
+
+void AHawkeyePlayerController::Input_Phone(const FInputActionValue& /*Value*/)
+{
+	TogglePhone();
+}
+
+void AHawkeyePlayerController::TogglePhone()
+{
+	SetPhoneOpen(!bPhoneOpen);
+}
+
+void AHawkeyePlayerController::SetPhoneOpen(bool bOpen)
+{
+	if (bPhoneOpen == bOpen)
+	{
+		return;
+	}
+	const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bInventoryOpen
+		|| bCloseUpActive || (MissionFlow && MissionFlow->IsRunning());
+	if (bOpen && (bScreenTaken || !IsLocalController()))
+	{
+		return;
+	}
+	if (bOpen)
+	{
+		if (!PhoneWidget)
+		{
+			PhoneWidget = CreateWidget<UPhoneWidget>(this, PhoneWidgetClass ? PhoneWidgetClass.Get() : UPhoneWidget::StaticClass());
+		}
+		if (!PhoneWidget)
+		{
+			return;
+		}
+		if (!PhoneWidget->IsInViewport())
+		{
+			PhoneWidget->AddToViewport(12);
+		}
+		PhoneWidget->Open();
+	}
+	else if (PhoneWidget)
+	{
+		// It slides out and takes itself off the screen.
+		PhoneWidget->Close();
+	}
+	bPhoneOpen = bOpen;
+	SetPause(bOpen);
+	ApplyPauseInputMode(bOpen);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: phone %s."), *GetName(), bOpen ? TEXT("open") : TEXT("closed"));
 }
 
 void AHawkeyePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
@@ -153,6 +254,12 @@ void AHawkeyePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
 	if (bSettingsOpen)
 	{
 		CloseSettings();
+		return;
+	}
+
+	if (bPhoneOpen)
+	{
+		SetPhoneOpen(false);
 		return;
 	}
 
@@ -191,7 +298,7 @@ void AHawkeyePlayerController::SetInventoryOpen(bool bOpen)
 	}
 
 	// One thing owns the pause at a time; the slideshow and every menu outrank Tab.
-	if (bOpen && (bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen))
+	if (bOpen && (bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bPhoneOpen))
 	{
 		return;
 	}
@@ -236,7 +343,7 @@ bool AHawkeyePlayerController::CanTogglePause() const
 {
 	// The slideshow pauses the game itself and restores the previous state on finish; letting
 	// Escape unpause underneath it would leave the flashback running over live gameplay.
-	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen)
+	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bPhoneOpen)
 	{
 		return false;
 	}
@@ -410,6 +517,10 @@ void AHawkeyePlayerController::HideSettingsWidget()
 
 TSharedPtr<SWidget> AHawkeyePlayerController::GetFocusedMenuWidget() const
 {
+	if (bPhoneOpen && PhoneWidget)
+	{
+		return PhoneWidget->TakeWidget();
+	}
 	if (bInventoryOpen && InventoryWidget)
 	{
 		return InventoryWidget->TakeWidget();
@@ -539,6 +650,7 @@ void AHawkeyePlayerController::ShowMainMenu()
 		return;
 	}
 	SetInventoryOpen(false);
+	SetPhoneOpen(false);
 	CloseSafehouseMenu();
 	Menu->RefreshFromSave(UHawkeyeSaveSubsystem::Get(this));
 	if (!Menu->IsInViewport())
@@ -570,6 +682,12 @@ void AHawkeyePlayerController::HideMainMenu()
 	SetHudVisible(true);
 	SetPause(false);
 	ApplyPauseInputMode(false);
+
+	if (UMissionDefinition* Opening = PendingOpening)
+	{
+		PendingOpening = nullptr;
+		BeginChapterOpening(Opening);
+	}
 }
 
 void AHawkeyePlayerController::MainMenuContinue()
@@ -774,6 +892,19 @@ void AHawkeyePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		MissionSubsystem->OnMissionComplete.RemoveDynamic(this, &AHawkeyePlayerController::HandleMissionComplete);
 		MissionSubsystem->OnFlashbackRequested.RemoveDynamic(this, &AHawkeyePlayerController::HandleFlashbackRequested);
+		MissionSubsystem->OnMissionStarted.RemoveDynamic(this, &AHawkeyePlayerController::HandleMissionStartedForOpening);
+	}
+	GetWorldTimerManager().ClearTimer(CloseUpTimer);
+	if (PhoneWidget)
+	{
+		PhoneWidget->RemoveFromParent();
+		PhoneWidget = nullptr;
+	}
+	bPhoneOpen = false;
+	if (ChapterTitleWidget)
+	{
+		ChapterTitleWidget->RemoveFromParent();
+		ChapterTitleWidget = nullptr;
 	}
 
 	if (EndCardWidget)
@@ -931,6 +1062,18 @@ void AHawkeyePlayerController::HandleMissionComplete(UMissionDefinition* Mission
 		return;
 	}
 
+	// A flashback's playable scene: its mission done, the district comes back instead of an end card.
+	if (UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this); Save && Save->IsInPlayableScene())
+	{
+		SetHudVisible(false);
+		if (PlayerCameraManager)
+		{
+			PlayerCameraManager->StartCameraFade(0.f, 1.f, 0.5f, FLinearColor::Black, false, true);
+		}
+		Save->ReturnFromPlayableScene();
+		return;
+	}
+
 	if (MissionFlow->IsRunning())
 	{
 		UE_LOG(LogHawkeye, Warning,
@@ -944,11 +1087,188 @@ void AHawkeyePlayerController::HandleMissionComplete(UMissionDefinition* Mission
 	SetHudVisible(false);
 	SetPauseMenuOpen(false);
 
-	const bool bHasFlashback = Mission && !Mission->FlashbackToPlay.IsNull();
-	const bool bHasNextLevel = Mission && !Mission->NextLevel.IsNull();
-
-	MissionFlow->Begin(bHasFlashback, bHasNextLevel);
+	SetPhoneOpen(false);
+	MissionFlow->BeginRoute(MakeFlowRoute(Mission, bCloseUpActive));
 	PerformCurrentFlowStep();
+}
+
+FMissionFlowRoute AHawkeyePlayerController::MakeFlowRoute(const UMissionDefinition* Mission, bool bCloseUp)
+{
+	FMissionFlowRoute Route;
+	Route.bHasCloseUp = bCloseUp;
+	if (!Mission)
+	{
+		return Route;
+	}
+	Route.bHasFlashback = !Mission->FlashbackToPlay.IsNull();
+	const UFlashbackDefinition* Flashback = Route.bHasFlashback ? Mission->FlashbackToPlay.LoadSynchronous() : nullptr;
+	Route.bHasPlayableScene = Flashback && Flashback->HasPlayableScene();
+	Route.bHasNextLevel = !Mission->NextLevel.IsNull();
+	Route.bReturnToRoaming = Mission->bReturnToRoamingAtEnd;
+	return Route;
+}
+
+void AHawkeyePlayerController::PlayCloseUp(AActor* ViewTarget, float Seconds, float BlendSeconds)
+{
+	if (!ViewTarget || bCloseUpActive)
+	{
+		return;
+	}
+	bCloseUpActive = true;
+	CloseUpTarget = ViewTarget;
+	CloseUpBlendSeconds = FMath::Max(BlendSeconds, 0.f);
+	SetIgnoreMoveInput(true);
+	SetIgnoreLookInput(true);
+	SetViewTargetWithBlend(ViewTarget, CloseUpBlendSeconds, VTBlend_EaseInOut, 2.f);
+	if (AChapterEndInteractable* Examined = Cast<AChapterEndInteractable>(ViewTarget))
+	{
+		Examined->BeginPush();
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: close-up on %s for %.1f s."), *GetName(), *ViewTarget->GetName(), Seconds);
+	GetWorldTimerManager().SetTimer(CloseUpTimer, this, &AHawkeyePlayerController::EndCloseUpView, FMath::Max(Seconds, 0.1f), false);
+}
+
+void AHawkeyePlayerController::EndCloseUpView()
+{
+	if (APawn* ControlledPawn = GetPawn())
+	{
+		SetViewTargetWithBlend(ControlledPawn, CloseUpBlendSeconds, VTBlend_EaseInOut, 2.f);
+	}
+	if (CloseUpBlendSeconds <= 0.f)
+	{
+		FinishCloseUp();
+		return;
+	}
+	GetWorldTimerManager().SetTimer(CloseUpTimer, this, &AHawkeyePlayerController::FinishCloseUp, CloseUpBlendSeconds, false);
+}
+
+void AHawkeyePlayerController::FinishCloseUp()
+{
+	if (!bCloseUpActive)
+	{
+		return;
+	}
+	bCloseUpActive = false;
+	if (AChapterEndInteractable* Examined = Cast<AChapterEndInteractable>(CloseUpTarget))
+	{
+		Examined->EndPush();
+	}
+	CloseUpTarget = nullptr;
+	SetIgnoreMoveInput(false);
+	SetIgnoreLookInput(false);
+	if (MissionFlow && MissionFlow->GetStep() == EMissionFlowStep::CloseUp)
+	{
+		MissionFlow->Advance();
+		PerformCurrentFlowStep();
+	}
+}
+
+void AHawkeyePlayerController::ReturnToRoaming()
+{
+	HideEndCard();
+	SetHudVisible(true);
+	ApplyPauseInputMode(false);
+	const UMissionDefinition* Mission = CompletedMission;
+	const FText Toast = Mission && !Mission->ChapterCompleteToast.IsEmpty()
+		? Mission->ChapterCompleteToast : NSLOCTEXT("Hawkeye", "ChapterCompleteToast", "[Chapter complete]");
+	if (UHawkeyeObjectiveWidget* Toasts = HudWidget ? HudWidget->GetObjectiveMarker() : nullptr)
+	{
+		Toasts->PushToast(Toast, Mission ? Mission->MissionName : FText::GetEmpty(), EHawkeyeUISound::ObjectiveComplete);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: chapter complete; back to roaming."), *GetName());
+}
+
+void AHawkeyePlayerController::HandleReturnedFromScene()
+{
+	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
+	UMissionDefinition* Mission = Missions ? Missions->GetCurrentMission() : nullptr;
+	if (!MissionFlow || !Mission)
+	{
+		return;
+	}
+	CompletedMission = Mission;
+	FMissionFlowRoute Route = MakeFlowRoute(Mission, false);
+	Route.bHasPlayableScene = true;
+	MissionFlow->ResumeAt(Route, EMissionFlowStep::PlayableScene);
+	MissionFlow->Advance();
+	PerformCurrentFlowStep();
+}
+
+bool AHawkeyePlayerController::IsAutomationRun()
+{
+	const TCHAR* CommandLine = FCommandLine::Get();
+	return GIsAutomationTesting || FCString::Stristr(CommandLine, TEXT("RunTests")) != nullptr
+		|| FParse::Param(CommandLine, TEXT("NoChapterOpening"));
+}
+
+void AHawkeyePlayerController::HandleMissionStartedForOpening(UMissionDefinition* Mission)
+{
+	if (!Mission || !IsLocalController() || IsAutomationRun())
+	{
+		return;
+	}
+	// A loaded game is past its opening (a save only exists after it), and so is a return from a scene.
+	if (const UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this); Save && (Save->IsLoading() || Save->GetSceneReturn().bReturnPending))
+	{
+		return;
+	}
+	if (bMainMenuOpen)
+	{
+		PendingOpening = Mission;
+		return;
+	}
+	BeginChapterOpening(Mission);
+}
+
+void AHawkeyePlayerController::BeginChapterOpening(UMissionDefinition* Mission)
+{
+	if (!Mission)
+	{
+		return;
+	}
+	const UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+	UHawkeyeCampaignState* Campaign = Save ? Save->GetCampaignState() : nullptr;
+	const bool bSeen = Campaign && Campaign->SeenChapterTitles.Contains(Mission->GetFName());
+	if (!bSeen && !Mission->OpeningTitle.IsEmpty())
+	{
+		ShowChapterTitle(Mission);
+		if (Campaign)
+		{
+			Campaign->SeenChapterTitles.AddUnique(Mission->GetFName());
+		}
+	}
+	if (UDialogueSubsystem* Dialogue = UDialogueSubsystem::Get(this); Dialogue && !Mission->OpeningDialogueSequence.IsNone())
+	{
+		Dialogue->PlaySequence(Mission->OpeningDialogueSequence);
+	}
+}
+
+UChapterTitleWidget* AHawkeyePlayerController::ShowChapterTitle(UMissionDefinition* Mission)
+{
+	if (!Mission || !IsLocalController())
+	{
+		return nullptr;
+	}
+	if (!ChapterTitleWidget)
+	{
+		ChapterTitleWidget = CreateWidget<UChapterTitleWidget>(
+			this, ChapterTitleWidgetClass ? ChapterTitleWidgetClass.Get() : UChapterTitleWidget::StaticClass());
+	}
+	if (!ChapterTitleWidget)
+	{
+		return nullptr;
+	}
+	if (!ChapterTitleWidget->IsInViewport())
+	{
+		ChapterTitleWidget->AddToViewport(15);
+	}
+	ChapterTitleWidget->Play(Mission);
+	return ChapterTitleWidget;
+}
+
+bool AHawkeyePlayerController::IsChapterTitleShowing() const
+{
+	return ChapterTitleWidget && ChapterTitleWidget->IsPlaying();
 }
 
 void AHawkeyePlayerController::PerformCurrentFlowStep()
@@ -960,8 +1280,37 @@ void AHawkeyePlayerController::PerformCurrentFlowStep()
 
 	switch (MissionFlow->GetStep())
 	{
+	case EMissionFlowStep::CloseUp:
+		// The close-up is already running; FinishCloseUp moves the flow on. If it ended in the
+		// same frame, there is nothing to wait for.
+		if (!bCloseUpActive)
+		{
+			MissionFlow->Advance();
+			PerformCurrentFlowStep();
+		}
+		break;
+
 	case EMissionFlowStep::EndCard:
 		ShowEndCard(CompletedMission, /*bWaitForInput=*/false);
+		break;
+
+	case EMissionFlowStep::PlayableScene:
+	{
+		HideEndCard();
+		UFlashbackDefinition* Flashback = CompletedMission ? CompletedMission->FlashbackToPlay.LoadSynchronous() : nullptr;
+		UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+		if (!Save || !Save->EnterPlayableScene(Flashback))
+		{
+			UE_LOG(LogHawkeye, Warning, TEXT("%s: the flashback's playable scene could not be opened."), *GetName());
+			MissionFlow->Advance();
+			PerformCurrentFlowStep();
+		}
+		break;
+	}
+
+	case EMissionFlowStep::ReturnToRoaming:
+		ReturnToRoaming();
+		MissionFlow->Advance();
 		break;
 
 	case EMissionFlowStep::Flashback:

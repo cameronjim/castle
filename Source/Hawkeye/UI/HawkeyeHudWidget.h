@@ -222,6 +222,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Partner")
 	float PartnerTagHeight = 120.f;
 
+	// --- Phone badge ----------------------------------------------------------------------------
+
+	/** The unread count the phone badge shows (0 hides the number; the phone outline stays). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Phone")
+	int32 GetPhoneBadgeCount() const { return PhoneBadgeCount; }
+
 	// --- Movement debug -------------------------------------------------------------------------
 
 	/** The debug line's text, or empty while hawkeye.DebugMovement is 0 or there is no player. */
@@ -253,6 +259,12 @@ protected:
 
 	/** Shows or hides the debug line and repaints it. */
 	void RefreshMovementDebug();
+
+	/** A small phone outline bottom right with the unread count beside it. */
+	void BuildPhoneBadge(UOverlay* Root);
+
+	/** Reads UPhoneSubsystem's unread count and repaints the badge when it changed. */
+	void UpdatePhoneBadge();
 
 	/** Builds the name, partner line, subtitle and the name tag canvas. */
 	void BuildPartnerWidgets(UOverlay* Root);
@@ -484,6 +496,15 @@ protected:
 
 	UPROPERTY(Transient)
 	bool bPartnerTagVisible = false;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UBorder> PhoneIcon = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> PhoneBadgeText = nullptr;
+
+	UPROPERTY(Transient)
+	int32 PhoneBadgeCount = -1;
 
 	bool bBound = false;
 };

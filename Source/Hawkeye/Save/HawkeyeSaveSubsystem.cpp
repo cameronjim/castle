@@ -9,6 +9,7 @@
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "Flashback/FlashbackDefinition.h"
 #include "HAL/FileManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CommandLine.h"
@@ -118,6 +119,11 @@ FString UHawkeyeSaveSubsystem::GetSaveRefusal(UWorld* World) const
 	if (!Spud->IsIdle() || IsLoading())
 	{
 		return TEXT("a save or load is already under way");
+	}
+	if (SceneReturn.bInScene || SceneReturn.bReturnPending)
+	{
+		// The slot holds the district; a scene saved over it could never be returned from.
+		return TEXT("a playable scene is running");
 	}
 	const UMissionSubsystem* Missions = UMissionSubsystem::Get(World);
 	if (!Missions || !Missions->GetCurrentMission())
@@ -408,6 +414,85 @@ void UHawkeyeSaveSubsystem::FinishRestoredWorld(UWorld* World)
 	if (PC->PlayerCameraManager)
 	{
 		PC->PlayerCameraManager->StartCameraFade(1.f, 0.f, FadeInSeconds, FLinearColor::Black, false, false);
+	}
+	ApplyPendingSceneReturn(World);
+}
+
+// --- Playable scenes --------------------------------------------------------------------------------
+
+bool UHawkeyeSaveSubsystem::EnterPlayableScene(UFlashbackDefinition* Flashback)
+{
+	UWorld* World = GetGameWorld();
+	if (!World || !Flashback || !Flashback->HasPlayableScene())
+	{
+		return false;
+	}
+	SceneReturn = FHawkeyeSceneReturn();
+	SceneReturn.ReturnPointLabel = Flashback->ReturnPointLabel;
+	SceneReturn.ReturnMap = World->GetOutermost()->GetName();
+	SceneReturn.bSavedOnEntry = SaveCampaign(TEXT("playable scene"));
+	if (!SceneReturn.bSavedOnEntry)
+	{
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: the district could not be saved before %s; the way back opens it fresh."),
+			*GetName(), *Flashback->PlayableScene.ToString());
+	}
+	SceneReturn.bInScene = true;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: entering playable scene %s (back to %s at %s)."), *GetName(),
+		*Flashback->PlayableScene.ToString(), *SceneReturn.ReturnMap, *SceneReturn.ReturnPointLabel.ToString());
+	UGameplayStatics::OpenLevelBySoftObjectPtr(World, Flashback->PlayableScene);
+	return true;
+}
+
+void UHawkeyeSaveSubsystem::ReturnFromPlayableScene()
+{
+	if (!SceneReturn.bInScene)
+	{
+		return;
+	}
+	SceneReturn.bInScene = false;
+	SceneReturn.bReturnPending = true;
+
+	int32 SavedVersion = INDEX_NONE;
+	FString SavedMission;
+	const bool bExists = SceneReturn.bSavedOnEntry && HasSave() && ReadSaveHeader(SavedVersion, SavedMission);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: playable scene over; back to %s."), *GetName(), *SceneReturn.ReturnMap);
+	if (bExists && DecideLoad(true, SavedVersion, SavedMission) == EHawkeyeLoadDecision::Load && LoadCampaign())
+	{
+		return;
+	}
+	if (UWorld* World = GetGameWorld(); World && !SceneReturn.ReturnMap.IsEmpty())
+	{
+		UGameplayStatics::OpenLevel(World, FName(*SceneReturn.ReturnMap));
+	}
+}
+
+void UHawkeyeSaveSubsystem::ApplyPendingSceneReturn(UWorld* World)
+{
+	if (!SceneReturn.bReturnPending || !World || IsLoading())
+	{
+		return;
+	}
+	SceneReturn.bReturnPending = false;
+	AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(World->GetFirstPlayerController());
+	APawn* Pawn = PC ? PC->GetPawn() : nullptr;
+	const TArray<FHawkeyeReturnCandidate> Candidates = FHawkeyeSceneReturn::GatherCandidates(World);
+	const int32 Index = FHawkeyeSceneReturn::SelectReturnPoint(Candidates, SceneReturn.ReturnPointLabel);
+	if (Pawn && Index != INDEX_NONE)
+	{
+		const FTransform& Point = Candidates[Index].Transform;
+		const FRotator Facing(0.f, Point.Rotator().Yaw, 0.f);
+		Pawn->TeleportTo(Point.GetLocation(), Facing);
+		PC->SetControlRotation(FRotator(-10.f, Facing.Yaw, 0.f));
+		UE_LOG(LogHawkeye, Log, TEXT("%s: back from the scene at %s."), *GetName(), *SceneReturn.ReturnPointLabel.ToString());
+	}
+	else if (!SceneReturn.ReturnPointLabel.IsNone())
+	{
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: no actor labelled or tagged %s to return to; keeping the saved position."),
+			*GetName(), *SceneReturn.ReturnPointLabel.ToString());
+	}
+	if (PC)
+	{
+		PC->HandleReturnedFromScene();
 	}
 }
 

@@ -31,6 +31,11 @@
 #include "World/GrappleAnchor.h"
 #include "EngineUtils.h"
 #include "Partner/HawkeyePartnerController.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
+#include "Components/HorizontalBox.h"
+#include "Components/HorizontalBoxSlot.h"
+#include "Components/SizeBox.h"
+#include "Phone/PhoneSubsystem.h"
 
 TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 {
@@ -65,6 +70,7 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 		BuildReticle(Root);
 		BuildGrappleMarker(Root);
 		BuildPartnerWidgets(Root);
+		BuildPhoneBadge(Root);
 
 		// Under the objective marker and the hotbar: the thugs' glyphs and health bars.
 		ThugOverhead = WidgetTree->ConstructWidget<UHawkeyeThugOverheadWidget>(
@@ -111,6 +117,66 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 	}
 
 	return Super::RebuildWidget();
+}
+
+void UHawkeyeHudWidget::BuildPhoneBadge(UOverlay* Root)
+{
+	if (!WidgetTree || !Root)
+	{
+		return;
+	}
+	UHorizontalBox* Badge = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("PhoneBadge"));
+	if (UOverlaySlot* BadgeSlot = Cast<UOverlaySlot>(Root->AddChild(Badge)))
+	{
+		BadgeSlot->SetHorizontalAlignment(HAlign_Right);
+		BadgeSlot->SetVerticalAlignment(VAlign_Bottom);
+		BadgeSlot->SetPadding(FMargin(0.f, 0.f, 48.f, 96.f));
+	}
+
+	// The outline of a phone: a hollow rounded box, taller than wide.
+	USizeBox* IconSize = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), TEXT("PhoneIconSize"));
+	IconSize->SetWidthOverride(15.f);
+	IconSize->SetHeightOverride(25.f);
+	PhoneIcon = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("PhoneIcon"));
+	PhoneIcon->SetBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent, 3.f, FLinearColor::White, 1.5f));
+	IconSize->AddChild(PhoneIcon);
+	if (UHorizontalBoxSlot* IconSlot = Cast<UHorizontalBoxSlot>(Badge->AddChild(IconSize)))
+	{
+		IconSlot->SetVerticalAlignment(VAlign_Center);
+	}
+
+	PhoneBadgeText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("PhoneBadgeText"));
+	FSlateFontInfo Font = PhoneBadgeText->GetFont();
+	Font.Size = 16;
+	PhoneBadgeText->SetFont(Font);
+	PhoneBadgeText->SetColorAndOpacity(FSlateColor(ReticleColor));
+	if (UHorizontalBoxSlot* CountSlot = Cast<UHorizontalBoxSlot>(Badge->AddChild(PhoneBadgeText)))
+	{
+		CountSlot->SetVerticalAlignment(VAlign_Center);
+		CountSlot->SetPadding(FMargin(8.f, 0.f, 0.f, 0.f));
+	}
+	UpdatePhoneBadge();
+}
+
+void UHawkeyeHudWidget::UpdatePhoneBadge()
+{
+	const UPhoneSubsystem* Phone = UPhoneSubsystem::Get(this);
+	const int32 Count = Phone ? Phone->GetUnreadCount() : 0;
+	if (Count == PhoneBadgeCount)
+	{
+		return;
+	}
+	PhoneBadgeCount = Count;
+	if (PhoneBadgeText)
+	{
+		PhoneBadgeText->SetText(Count > 0 ? FText::AsNumber(Count) : FText::GetEmpty());
+	}
+	if (PhoneIcon)
+	{
+		// Dim until something is waiting, then Kate purple.
+		const FLinearColor Outline = Count > 0 ? ReticleColor : FLinearColor(1.f, 1.f, 1.f, 0.45f);
+		PhoneIcon->SetBrush(FSlateRoundedBoxBrush(FLinearColor::Transparent, 3.f, Outline, 1.5f));
+	}
 }
 
 void UHawkeyeHudWidget::SetQuiverWheelState(bool bOpen, int32 QuiverSlot)
@@ -463,6 +529,7 @@ void UHawkeyeHudWidget::NativeTick(const FGeometry& MyGeometry, float DeltaSecon
 	UpdateGrappleMarker();
 	RefreshMovementDebug();
 	UpdatePartnerWidgets(DeltaSeconds);
+	UpdatePhoneBadge();
 
 	if (HitFlashRemaining > 0.f)
 	{
