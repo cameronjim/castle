@@ -30,18 +30,21 @@ public class Hawkeye : ModuleRules
 			"GameplayStateTreeModule",
 			"GameplayTags",
 			// Campaign save: Plugins/SPUD (sinbad/SPUD, MIT) persists ISpudObject actors and globals.
-			"SPUD"
+			"SPUD",
+			// Effects: every particle system is Niagara, built headless by create_vfx.py.
+			"Niagara"
 		});
 
 		// Hawkeye.Audio.Smoke finds the MetaSounds through the asset registry.
 		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry" });
 
 		// UHawkeyePartnerTreeBuilder authors ST_Partner headless through the StateTree editor API;
-		// UHawkeyeBowIKGraphBuilder authors the bow hands AnimBlueprints through the anim graph nodes.
+		// UHawkeyeBowIKGraphBuilder authors the bow hands AnimBlueprints through the anim graph nodes;
+		// UHawkeyeVfxBuilder authors the Niagara systems through the Niagara editor's stack view model.
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeEditorModule", "PropertyBindingUtils", "UnrealEd",
-				"AnimGraph", "AnimGraphRuntime", "BlueprintGraph" });
+				"AnimGraph", "AnimGraphRuntime", "BlueprintGraph", "NiagaraEditor", "NiagaraCore" });
 		}
 	}
 }
