@@ -832,6 +832,122 @@ def apply_audio_defaults():
             c.log("exists", full, "sound already set")
 
 
+# --------------------------------------------------------------------------------------
+# effect defaults (Tools/Editor/create_vfx.py builds the systems; this points the classes at them)
+# --------------------------------------------------------------------------------------
+# Its own create_all step after create_vfx and every Blueprint and data asset. Children inherit.
+
+_BOW_VFX = [
+    ("release_vfx", "NS_BowRelease"),
+    ("arrow_trail_vfx", "NS_ArrowTrail"),
+    ("impact_stone_vfx", "NS_ArrowImpact_Stone"),
+    ("impact_wood_vfx", "NS_ArrowImpact_Wood"),
+    ("hit_spark_vfx", "NS_HitSpark"),
+]
+
+VFX_DEFAULTS = [
+    (PLAYER_PATH, "BP_HawkeyeCharacter", None, [
+        ("footstep_vfx", "NS_FootstepSnow"),
+        ("landing_vfx", "NS_LandingSnow"),
+        ("screen_pulse_material", "M_PP_EmpAberration"),
+    ]),
+    (PLAYER_PATH, "BP_HawkeyeCharacter", "bow_component", _BOW_VFX),
+    (PLAYER_PATH, "BP_HawkeyeCharacter", "grapple_component", [
+        ("zip_line_vfx", "NS_ZipLine"),
+        ("anchor_sparks_vfx", "NS_AnchorSparks"),
+    ]),
+    (AUDIO_AI_PATH, "BP_Thug", "weapon_component", [
+        ("muzzle_flash_vfx", "NS_MuzzleFlash"),
+        ("tracer_vfx", "NS_Tracer"),
+    ]),
+    (AUDIO_AI_PATH, "BP_Thug", "bow_component", _BOW_VFX),
+    (PLAYER_PATH, "BP_HawkeyePlayerController", "snowfall", [("snow_system", "NS_Snowfall")]),
+]
+
+# data asset -> [(property, asset)]
+VFX_ARROWS = {
+    "DA_Arrow_Putty": [("effect_vfx", "NS_PuttySplat")],
+    "DA_Arrow_Bola": [("flight_vfx", "NS_BolaTrail")],
+    "DA_Arrow_Smoke": [("effect_vfx", "NS_SmokeCloud")],
+    "DA_Arrow_EMP": [("effect_vfx", "NS_EmpPulse")],
+    "DA_Arrow_Explosive": [("effect_vfx", "NS_Explosion"), ("ground_decal", "M_Decal_Scorch")],
+}
+
+
+def _vfx_asset(name):
+    """A Niagara system by NS_ name, or a material from /Game/VFX/Materials."""
+    import create_vfx  # noqa: PLC0415 - only this step needs it
+
+    if name.startswith("NS_"):
+        return c.load_or_none(c.asset_path(create_vfx.VFX_PATH, name))
+    return c.load_or_none(c.asset_path(create_vfx.MATERIALS_PATH, name))
+
+
+def _apply_vfx_values(target, values, context):
+    """Sets each (property, name) on target that differs. Returns the properties changed."""
+    changed = []
+    for prop, name in values:
+        wanted = _vfx_asset(name)
+        if wanted is None:
+            c.log("skipped", context + "." + prop, name + " not built; run create_vfx")
+            continue
+        try:
+            current = target.get_editor_property(prop)
+        except Exception:  # noqa: BLE001 - set_props reports a missing property
+            current = None
+        if _asset_key(current) == _asset_key(wanted):
+            continue
+        if c.set_props(target, [(prop, wanted)], context):
+            changed.append(prop)
+    return changed
+
+
+def apply_vfx_defaults():
+    """Points every class that spawns an effect at its Niagara system. Saves only what changed."""
+    by_blueprint = {}
+    for path, name, component, values in VFX_DEFAULTS:
+        by_blueprint.setdefault((path, name), []).append((component, values))
+
+    for (path, name), entries in by_blueprint.items():
+        full = c.asset_path(path, name)
+        bp = c.load_or_none(full)
+        cdo = c.blueprint_cdo(bp) if bp is not None else None
+        if cdo is None:
+            c.log("skipped", full + " effects", "Blueprint not found")
+            continue
+        changed = []
+        for component, values in entries:
+            target = cdo
+            if component:
+                try:
+                    target = cdo.get_editor_property(component)
+                except Exception:  # noqa: BLE001
+                    target = None
+            if target is None:
+                c.log("skipped", "{0}.{1}".format(name, component), "no such component")
+                continue
+            changed += _apply_vfx_values(target, values, name + ("." + component if component else ""))
+        if changed:
+            c.compile_blueprint(bp)
+            c.save(bp)
+            c.log("updated", full, "effects: " + ", ".join(changed))
+        else:
+            c.log("exists", full, "effects already set")
+
+    for arrow, values in VFX_ARROWS.items():
+        full = c.asset_path(AUDIO_WEAPON_PATH, arrow)
+        asset = c.load_or_none(full)
+        if asset is None:
+            c.log("skipped", full + " effects", "data asset not found")
+            continue
+        changed = _apply_vfx_values(asset, values, arrow)
+        if changed:
+            c.save(asset)
+            c.log("updated", full, "effects: " + ", ".join(changed))
+        else:
+            c.log("exists", full, "effects already set")
+
+
 if __name__ == "__main__":
     run()
     c.print_summary("blueprints")

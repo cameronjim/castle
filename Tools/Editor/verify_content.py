@@ -833,6 +833,62 @@ def check_audio():
     say("  class sound defaults: {0} unset".format(unset))
 
 
+def check_vfx():
+    """Every system and material create_vfx.py lists exists, compiled, with the emitters its recipe
+    names and a material on every renderer, and each class and trick arrow points at its effects."""
+    say("---- effects ----")
+    import create_blueprints as cb  # noqa: PLC0415
+    import create_vfx  # noqa: PLC0415
+
+    builder = getattr(unreal, "HawkeyeVfxBuilder", None)
+    for name, _build, niagara in create_vfx.MATERIALS:
+        material = c.load_or_none(c.asset_path(create_vfx.MATERIALS_PATH, name))
+        if material is None:
+            fail("{0}/{1} is missing; run create_vfx".format(create_vfx.MATERIALS_PATH, name))
+            continue
+        if niagara and not prop(material, "used_with_niagara_sprites"):
+            fail(name + " is not marked used with Niagara sprites")
+    present = 0
+    emitters = 0
+    for name in sorted(create_vfx.EFFECTS):
+        system = c.load_or_none(c.asset_path(create_vfx.VFX_PATH, name))
+        if system is None:
+            fail("{0}/{1} is missing; run create_vfx".format(create_vfx.VFX_PATH, name))
+            continue
+        present += 1
+        wanted = [e.name for e in create_vfx.EFFECTS[name]]
+        got = [str(n) for n in builder.get_emitter_names(system)] if builder else wanted
+        if got != wanted:
+            fail("{0} has emitters {1}, expected {2}".format(name, got, wanted))
+        emitters += len(got)
+        if builder:
+            for emitter in got:
+                if builder.get_renderer_count(system, emitter) < 1:
+                    fail("{0}.{1} has no renderer".format(name, emitter))
+    say("  {0}/{1} systems present, {2} emitters".format(present, len(create_vfx.EFFECTS), emitters))
+
+    unset = 0
+    for path, bp_name, component, values in cb.VFX_DEFAULTS:
+        cls = unreal.load_class(None, "{0}/{1}.{1}_C".format(path, bp_name))
+        cdo = unreal.get_default_object(cls) if cls is not None else None
+        target = prop(cdo, component) if (cdo is not None and component) else cdo
+        if target is None:
+            fail("{0}{1} not found for the effects check".format(bp_name, "." + component if component else ""))
+            continue
+        for field, asset in values:
+            if name_of(prop(target, field)) != asset:
+                unset += 1
+                fail("{0}{1}.{2} is {3}, expected {4}".format(bp_name, "." + component if component else "", field,
+                                                           name_of(prop(target, field)), asset))
+    for arrow, values in cb.VFX_ARROWS.items():
+        data = c.load_or_none(c.asset_path(WEAPON_PATH, arrow))
+        for field, asset in values:
+            if data is None or name_of(prop(data, field)) != asset:
+                unset += 1
+                fail("{0}.{1} is not {2}".format(arrow, field, asset))
+    say("  class and arrow effect defaults: {0} unset".format(unset))
+
+
 def main():
     say("==== verifying starter content ====")
     check_existence()
@@ -848,6 +904,7 @@ def main():
     check_weapon_data()
     check_data_assets()
     check_audio()
+    check_vfx()
     if PROBLEMS:
         unreal.log_error("[Verify] FAIL: {0} problem(s)".format(len(PROBLEMS)))
         for problem in PROBLEMS:
