@@ -533,3 +533,27 @@ the last input came from a pad.
 - `bKilledWarden` changes the final skull decal material (`MI_Skull_Blood` vs
   `MI_Skull_Paint`).
 - Nothing else in the game reads these. Keep it that way.
+
+## Audio (built 2026-09-27, all synthesized, nothing downloaded)
+- 39 MetaSounds (33 one-shots, 6 loops) under `/Game/Audio`, authored headless by
+  `Tools/Editor/create_audio.py` through the MetaSound builder API. Nodes: Sine, Saw,
+  Noise, state-variable and one-pole filters, AD envelopes, Multiply/Add/Subtract,
+  RandomFloat, LFO, Trigger Delay/Repeat. Every sound has a `PitchVariation` input; the bow
+  creak takes `Draw`, the zip hum `Speed`, the landing `Intensity`. A changed recipe
+  deletes and rebuilds the asset at the same path.
+- Wired: bow draw loop, release, whistle, impacts by surface (wood, stone, flesh), pickup;
+  grapple fire, zip loop, landing; footsteps every 70 cm walking and 55 cm sprinting, a
+  landing scaled by fall height, roll, vault and mantle effort; melee hits and heavy hits;
+  thug telegraphs, bat swing, hurt, death, shield block, stagger; gunner shots; every
+  trick arrow effect with the smoke hiss looping for the cloud's life; menu hover and
+  click, objective chimes and toasts.
+- Ambience: `City_Ambience` crossfades street hum to rooftop wind above 10 m. The 20 lamps
+  nearest the park carry a 120 Hz buzz that the EMP silences with the light.
+- Sound classes `SCL_Master`, `SCL_SFX`, `SCL_Ambient`, `SCL_UI` and the mix `SMX_Settings`
+  drive Master, Sound effects, and Ambience sliders in Settings (settings version 4).
+  Attenuations: `ATT_World` 300 to 3000 cm, `ATT_Lamp` 50 to 400 cm. Naming: `MS_` for
+  MetaSounds, `SCL_` classes, `SMX_` mixes, `ATT_` attenuations.
+- Verification: `Hawkeye.Audio.Smoke` plays every sound in a `-game` run and checks it
+  plays; every trigger logs at Verbose as `Sound:`. Sound classes and the mix stay loaded
+  for the whole run (a map change once spammed thousands of missing-class warnings).
+- Open: the animation sample's own footstep events may double Kate's footsteps.
