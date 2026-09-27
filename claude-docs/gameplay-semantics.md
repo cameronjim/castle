@@ -10,7 +10,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 
 ## Third-person camera and look (built 2026-09-26)
 - Spring arm behind the character: hip length 350, socket offset (0, 70, 60), FOV 90.
-  Aim (right mouse) blends over 0.15 s to length 180, offset (0, 45, 55), FOV 70. The
+  Aim (right mouse) blends over 0.15 s to length 180, offset (0, 70, 65) (moved out past the bow arm on 2026-09-27), FOV 70. The
   70 cm lateral offset puts the character around 40% of screen width so the right side
   of the frame is open. Position lag 10, rotation lag 12. Sensitivity from the settings
   subsystem. `ComputeCameraTargets(bAiming)` is pure and tested.
@@ -464,7 +464,9 @@ the last input came from a pad.
   draw briefly after losing sight.
 - Squad alert: 1.5 s after a thug goes Alerted, thugs within 1500 cm with a line to him
   turn Suspicious toward the player's last seen position.
-- Heavy (shield) not built yet.
+- Heavy (built 2026-09-27): `BP_Thug_Heavy`, 200 HP, a 60 x 110 cm riot shield on the left forearm blocking arrows and light strikes in the front 120 degrees (arrows stick in it); staggered only by a heavy strike, bola, or explosive; putty holds him; shield bash with a 0.8 s telegraph, 30 damage, 250 cm knockback, plus a slow bat swing; walks at 300. One on his own 20 m patrol by the park corner, tagged StreetGroup.
+- Archer holds (built 2026-09-27): on losing line of sight mid-draw he holds up to 2.5 s and fires within 0.2 s of the player reappearing in his cone; a 0.6 s loose window after a shot leaves him open. Scripted duel: won with 1 hit taken.
+- Readability: a cream "!" for 0.6 s over a thug going Alerted, "?" for Suspicious; a thin health bar over damaged thugs within 1500 cm, fading after 3 s. Scripted street fight against bat, gunner, heavy: won, 0 hits, 0 untelegraphed hits, fairness metric 0% staggered time.
 
 ## Guard AI states (stage 2/3)
 - `Calm`: patrol. Hearing radius `CalmHearingRadius`, sight cone `SightHalfAngle`.
