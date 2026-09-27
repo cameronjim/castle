@@ -66,6 +66,22 @@ asset, and scripted beats. After this stage, building a chapter is content, not 
 Quiver and arrows first (they touch everything), then combat, then partner and switching,
 then streaming and save, then narrative plumbing, then the extended kit.
 
+## Status (2026-09-26, built ahead of schedule during unattended runs)
+- Quiver and trick arrows: built (putty, bola, smoke, EMP, explosive, radial wheel).
+  Effects are placeholder shapes; Niagara later.
+- Combat: light and heavy strikes, dodge, hit stop, low-health tint, gunners with cover
+  and bursts, archers with interruptible draws, squad alert. Not yet: combos, parry,
+  finishers, the heavy, lock-on.
+- Partner and switching: built on StateTree; banter from a data table.
+- Traversal: built through the sample's traversal plus our ledge, hang, drop, roll, and
+  grapple; fire escapes generated. Not yet: pipe climbs, wall runs, traversal challenges.
+- Save: built on SPUD, with a safehouse and a main menu. Not yet: fast travel, chapter
+  select (stubs), World Partition (single block, not needed yet).
+- Narrative plumbing: objective markers, compass, toasts, banter subtitles. Not yet: end
+  cards wired to chapters, the phone, flashbacks ending in playable scenes, dialogue audio.
+- Level kit: generated buildings, streets, facades, snow, clutter, lamps, fire escapes.
+  Not yet: interiors for chapters.
+
 ## Done when
 - [ ] Sandbox district has: every arrow type working, four enemy types, a melee fight
       that feels like Arkham-lite, Clint as partner doing useful things, a switch mid-fight
