@@ -34,6 +34,8 @@
 #include "Player/GrappleComponent.h"
 #include "Player/InventoryComponent.h"
 #include "Player/ParkourComponent.h"
+#include "Settings/DifficultySubsystem.h"
+#include "Settings/HawkeyeSettingsSubsystem.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/HawkeyeShots.h"
 #include "Tests/HawkeyeTestUtils.h"
@@ -108,6 +110,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapStreetFight, "Hawkeye.Lap.StreetFigh
 
 namespace HawkeyeLap
 {
+	/** The difficulty the fight ran on ("Normal"; -Difficulty= on the command line changes it). */
+	static FString DifficultyName(const UObject* WorldContext)
+	{
+		return UDifficultySubsystem::GetDifficultyName(UHawkeyeSettingsSubsystem::GetCurrentSettings(WorldContext).Difficulty).ToString();
+	}
+
 	static const TCHAR* MovePath = TEXT("/Game/Input/IA_Move.IA_Move");
 	static const TCHAR* SprintPath = TEXT("/Game/Input/IA_Sprint.IA_Sprint");
 	static const TCHAR* JumpPath = TEXT("/Game/Input/IA_Jump.IA_Jump");
@@ -2113,15 +2121,16 @@ void FHawkeyeRoofFightRunner::Finish(UWorld* World, APlayerController* PC, AHawk
 	}
 	const bool bWon = Dead == Pair.Num() && Pair.Num() == 2 && Health > 0.f;
 	const FString Json = FString::Printf(TEXT(
-		"{\n  \"test\": \"Hawkeye.Lap.RoofFight\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
+		"{\n  \"test\": \"Hawkeye.Lap.RoofFight\",\n  \"difficulty\": \"%s\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
 		"  \"kate_health\": %.1f,\n  \"kate_max_health\": %.1f,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n"
 		"  \"thugs_down\": %d,\n  \"arrows_loosed\": %d,\n  \"light_swings\": %d,\n"
 		"  \"heavy_swings\": %d,\n  \"dodges\": %d,\n  \"parries\": %d,\n  \"finishers\": %d,\n"
 		"  \"perfect_dodges\": %d,\n  \"max_combo\": %d,\n  \"average_frame_ms\": %.2f\n}\n"),
-		bWon ? TEXT("true") : TEXT("false"), *Why, DoneAt - FightStart, Health, Kate->GetHealthComponent()->GetMaxHealth(),
+		*HawkeyeLap::DifficultyName(Kate), bWon ? TEXT("true") : TEXT("false"), *Why, DoneAt - FightStart, Health, Kate->GetHealthComponent()->GetMaxHealth(),
 		HitsTaken, DamageTaken, Dead, ArrowsLoosed, LightSwings, HeavySwings, Dodges, Parries, Finishers,
 		Kate->GetPerfectDodgeCount(), MaxCombo, Meter.AverageMs());
 	HawkeyeLap::WriteText(TEXT("lap_roof_fight.json"), Json);
+	HawkeyeLap::WriteText(FString::Printf(TEXT("lap_roof_fight_%s.json"), *HawkeyeLap::DifficultyName(Kate).ToLower()), Json);
 	Test->AddInfo(TEXT("lap_roof_fight.json:\n") + Json);
 	UE_LOG(LogTemp, Display, TEXT("[Hawkeye] roof fight: %s"), *Json);
 	if (!bWon)
@@ -2633,13 +2642,14 @@ void FHawkeyeArcherDuelRunner::Finish(UWorld* World, APlayerController* PC, AHaw
 	const double Seconds = DoneAt - FightStart;
 	const bool bWon = Down == Archers.Num() && Archers.Num() == 2 && Health > 0.f && Seconds <= 60.0;
 	const FString Json = FString::Printf(TEXT(
-		"{\n  \"test\": \"Hawkeye.Lap.ArcherDuel\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
+		"{\n  \"test\": \"Hawkeye.Lap.ArcherDuel\",\n  \"difficulty\": \"%s\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
 		"  \"kate_health\": %.1f,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n  \"archers_down\": %d,\n"
 		"  \"arrows_used\": %d,\n  \"archer_arrows\": %d,\n  \"pops\": %d,\n  \"aborted_pops\": %d,\n  \"cover_moves\": %d,\n"
 		"  \"archer_holds\": %d,\n  \"hold_shots\": %d,\n  \"hold_guess_seconds\": %.2f,\n  \"cover\": \"%s\",\n  \"average_frame_ms\": %.2f\n}\n"),
-		bWon ? TEXT("true") : TEXT("false"), *Why, Seconds, Health, HitsTaken, DamageTaken, Down, ArrowsUsed, TheirArrows,
+		*HawkeyeLap::DifficultyName(Kate), bWon ? TEXT("true") : TEXT("false"), *Why, Seconds, Health, HitsTaken, DamageTaken, Down, ArrowsUsed, TheirArrows,
 		Pops, Aborts, Moves, Holds, HoldShots, HoldGuessSeconds, *CoverNote, Meter.AverageMs());
 	HawkeyeLap::WriteText(TEXT("lap_archer_duel.json"), Json);
+	HawkeyeLap::WriteText(FString::Printf(TEXT("lap_archer_duel_%s.json"), *HawkeyeLap::DifficultyName(Kate).ToLower()), Json);
 	Test->AddInfo(TEXT("lap_archer_duel.json:\n") + Json);
 	UE_LOG(LogTemp, Display, TEXT("[Hawkeye] archer duel: %s"), *Json);
 	if (!bWon)
@@ -3266,18 +3276,19 @@ void FHawkeyeStreetFightRunner::Finish(UWorld* World, APlayerController* PC, AHa
 		Untelegraphed += (Untelegraphed.IsEmpty() ? TEXT("") : TEXT("; ")) + Note;
 	}
 	const FString Json = FString::Printf(TEXT(
-		"{\n  \"test\": \"Hawkeye.Lap.StreetFight\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
+		"{\n  \"test\": \"Hawkeye.Lap.StreetFight\",\n  \"difficulty\": \"%s\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
 		"  \"kate_health\": %.1f,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n  \"thugs_down\": %d,\n"
 		"  \"arrows_used\": %d,\n  \"full_draw_shots\": %d,\n  \"quick_shots\": %d,\n  \"trick_arrows\": \"%s\",\n"
 		"  \"light_swings\": %d,\n  \"heavy_swings\": %d,\n  \"dodges\": %d,\n  \"parries\": %d,\n"
 		"  \"finishers\": %d,\n  \"perfect_dodges\": %d,\n  \"max_combo\": %d,\n  \"shield_blocks\": %s,\n"
 		"  \"staggered_or_down_seconds\": %.2f,\n  \"annoyance_percent\": %.1f,\n  \"untelegraphed_hits\": %d,\n"
 		"  \"untelegraphed_detail\": \"%s\",\n  \"average_frame_ms\": %.2f\n}\n"),
-		bWon ? TEXT("true") : TEXT("false"), *Why, Seconds, Health, Metrics.GetHits(), DamageTaken, Down, ArrowsUsed,
+		*HawkeyeLap::DifficultyName(Kate), bWon ? TEXT("true") : TEXT("false"), *Why, Seconds, Health, Metrics.GetHits(), DamageTaken, Down, ArrowsUsed,
 		FullShots, QuickShots, *FString::Join(TrickArrows, TEXT(", ")), LightSwings, HeavySwings, Dodges, Parries, Finishers,
 		Kate->GetPerfectDodgeCount(), MaxCombo, Blocks.IsEmpty() ? TEXT("0") : *Blocks, Metrics.GetDisabledSeconds(), Annoyance * 100.f, Metrics.GetUntelegraphedHits(),
 		*Untelegraphed, Meter.AverageMs());
 	HawkeyeLap::WriteText(TEXT("lap_street_fight.json"), Json);
+	HawkeyeLap::WriteText(FString::Printf(TEXT("lap_street_fight_%s.json"), *HawkeyeLap::DifficultyName(Kate).ToLower()), Json);
 	Test->AddInfo(TEXT("lap_street_fight.json:\n") + Json);
 	UE_LOG(LogTemp, Display, TEXT("[Hawkeye] street fight: %s"), *Json);
 	if (!bWon)
