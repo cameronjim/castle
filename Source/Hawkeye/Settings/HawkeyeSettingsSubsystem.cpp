@@ -7,9 +7,16 @@
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#include "Settings/DifficultySubsystem.h"
 #include "Settings/HawkeyeSettingsSave.h"
 
 const TCHAR* UHawkeyeSettingsSubsystem::DefaultSlotName = TEXT("HawkeyeSettings");
+
+namespace HawkeyeSettingsSubsystem
+{
+	/** What GetCurrentSettings answers in a world with no game instance, while a test holds one. */
+	static const FHawkeyeSettings* TestOverride = nullptr;
+}
 
 UHawkeyeSettingsSubsystem* UHawkeyeSettingsSubsystem::Get(const UObject* WorldContextObject)
 {
@@ -42,6 +49,12 @@ FString UHawkeyeSettingsSubsystem::GetSlotName() const
 	return SlotNameOverride.IsEmpty() ? FString(DefaultSlotName) : SlotNameOverride;
 }
 
+void UHawkeyeSettingsSubsystem::Commit()
+{
+	Save();
+	OnSettingsChanged.Broadcast(GetSettings());
+}
+
 void UHawkeyeSettingsSubsystem::SetLookSensitivity(float NewSensitivity)
 {
 	const float Clamped = ClampLookSensitivity(NewSensitivity);
@@ -54,8 +67,7 @@ void UHawkeyeSettingsSubsystem::SetLookSensitivity(float NewSensitivity)
 	}
 
 	Settings.LookSensitivity = Clamped;
-	Save();
-	OnSettingsChanged.Broadcast(Settings);
+	Commit();
 }
 
 void UHawkeyeSettingsSubsystem::SetStickSensitivity(float NewSensitivity)
@@ -68,32 +80,17 @@ void UHawkeyeSettingsSubsystem::SetStickSensitivity(float NewSensitivity)
 	}
 
 	Settings.StickSensitivity = Clamped;
-	Save();
-	OnSettingsChanged.Broadcast(Settings);
+	Commit();
 }
 
 void UHawkeyeSettingsSubsystem::SetInvertMouseY(bool bInvert)
 {
-	if (Settings.bInvertMouseY == bInvert)
-	{
-		return;
-	}
-
-	Settings.bInvertMouseY = bInvert;
-	Save();
-	OnSettingsChanged.Broadcast(Settings);
+	SetField(Settings.bInvertMouseY, bInvert);
 }
 
 void UHawkeyeSettingsSubsystem::SetInvertStickY(bool bInvert)
 {
-	if (Settings.bInvertStickY == bInvert)
-	{
-		return;
-	}
-
-	Settings.bInvertStickY = bInvert;
-	Save();
-	OnSettingsChanged.Broadcast(Settings);
+	SetField(Settings.bInvertStickY, bInvert);
 }
 
 void UHawkeyeSettingsSubsystem::SetVolume(float& Field, float Value)
@@ -104,8 +101,7 @@ void UHawkeyeSettingsSubsystem::SetVolume(float& Field, float Value)
 		return;
 	}
 	Field = Clamped;
-	Save();
-	OnSettingsChanged.Broadcast(Settings);
+	Commit();
 }
 
 void UHawkeyeSettingsSubsystem::SetMasterVolume(float NewVolume)
@@ -121,6 +117,116 @@ void UHawkeyeSettingsSubsystem::SetSfxVolume(float NewVolume)
 void UHawkeyeSettingsSubsystem::SetAmbientVolume(float NewVolume)
 {
 	SetVolume(Settings.AmbientVolume, NewVolume);
+}
+
+EHawkeyeDifficulty UHawkeyeSettingsSubsystem::GetDifficulty() const
+{
+	return UDifficultySubsystem::ResolveDifficulty(Settings.Difficulty);
+}
+
+void UHawkeyeSettingsSubsystem::SetDifficulty(EHawkeyeDifficulty NewDifficulty)
+{
+	SetField(Settings.Difficulty, NewDifficulty);
+}
+
+void UHawkeyeSettingsSubsystem::SetSubtitleSize(EHawkeyeSubtitleSize NewSize)
+{
+	SetField(Settings.SubtitleSize, NewSize);
+}
+
+void UHawkeyeSettingsSubsystem::SetSubtitleBackgroundOpacity(float NewOpacity)
+{
+	SetVolume(Settings.SubtitleBackgroundOpacity, NewOpacity);
+}
+
+void UHawkeyeSettingsSubsystem::SetToggleAim(bool bToggle)
+{
+	SetField(Settings.bToggleAim, bToggle);
+}
+
+void UHawkeyeSettingsSubsystem::SetToggleCrouch(bool bToggle)
+{
+	SetField(Settings.bToggleCrouch, bToggle);
+}
+
+void UHawkeyeSettingsSubsystem::SetColorPalette(EHawkeyeColorPalette NewPalette)
+{
+	SetField(Settings.ColorPalette, NewPalette);
+}
+
+void UHawkeyeSettingsSubsystem::SetReduceCameraShake(bool bReduce)
+{
+	SetField(Settings.bReduceCameraShake, bReduce);
+}
+
+void UHawkeyeSettingsSubsystem::SetReduceFlashing(bool bReduce)
+{
+	SetField(Settings.bReduceFlashing, bReduce);
+}
+
+void UHawkeyeSettingsSubsystem::SetHudScale(float NewScale)
+{
+	const float Clamped = ClampHudScale(NewScale);
+	if (FMath::IsNearlyEqual(Clamped, Settings.HudScale, UE_KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+	Settings.HudScale = Clamped;
+	Commit();
+}
+
+void UHawkeyeSettingsSubsystem::MarkFlashbackSeen(const FSoftObjectPath& Flashback)
+{
+	if (Flashback.IsNull() || Settings.SeenFlashbacks.Contains(Flashback))
+	{
+		return;
+	}
+	Settings.SeenFlashbacks.Add(Flashback);
+	Commit();
+}
+
+void UHawkeyeSettingsSubsystem::SetSettings(const FHawkeyeSettings& NewSettings)
+{
+	Settings = ClampSettings(NewSettings);
+	Commit();
+}
+
+FHawkeyeSettings UHawkeyeSettingsSubsystem::GetSettings() const
+{
+	FHawkeyeSettings InForce = Settings;
+	InForce.Difficulty = GetDifficulty();
+	return InForce;
+}
+
+FHawkeyeSettings UHawkeyeSettingsSubsystem::GetCurrentSettings(const UObject* WorldContextObject)
+{
+	if (const UHawkeyeSettingsSubsystem* Subsystem = Get(WorldContextObject))
+	{
+		return Subsystem->GetSettings();
+	}
+	FHawkeyeSettings Fallback = HawkeyeSettingsSubsystem::TestOverride ? *HawkeyeSettingsSubsystem::TestOverride
+		: FHawkeyeSettings();
+	Fallback.Difficulty = UDifficultySubsystem::ResolveDifficulty(Fallback.Difficulty);
+	return Fallback;
+}
+
+void UHawkeyeSettingsSubsystem::SetTestSettingsOverride(const FHawkeyeSettings* Override)
+{
+	HawkeyeSettingsSubsystem::TestOverride = Override;
+}
+
+FHawkeyeSettings UHawkeyeSettingsSubsystem::ClampSettings(const FHawkeyeSettings& InSettings)
+{
+	FHawkeyeSettings Out = InSettings;
+	Out.LookSensitivity = ClampLookSensitivity(Out.LookSensitivity);
+	Out.StickSensitivity = ClampStickSensitivity(Out.StickSensitivity);
+	Out.MasterVolume = ClampVolume(Out.MasterVolume);
+	Out.SfxVolume = ClampVolume(Out.SfxVolume);
+	Out.AmbientVolume = ClampVolume(Out.AmbientVolume);
+	Out.SubtitleBackgroundOpacity = ClampVolume(Out.SubtitleBackgroundOpacity);
+	Out.HudScale = ClampHudScale(Out.HudScale);
+	Out.Version = FHawkeyeSettings::CurrentVersion;
+	return Out;
 }
 
 void UHawkeyeSettingsSubsystem::Load()
@@ -150,12 +256,7 @@ void UHawkeyeSettingsSubsystem::Load()
 		return;
 	}
 
-	Settings = Loaded->Settings;
-	Settings.LookSensitivity = ClampLookSensitivity(Settings.LookSensitivity);
-	Settings.StickSensitivity = ClampStickSensitivity(Settings.StickSensitivity);
-	Settings.MasterVolume = ClampVolume(Settings.MasterVolume);
-	Settings.SfxVolume = ClampVolume(Settings.SfxVolume);
-	Settings.AmbientVolume = ClampVolume(Settings.AmbientVolume);
+	Settings = ClampSettings(Loaded->Settings);
 }
 
 bool UHawkeyeSettingsSubsystem::Save() const
@@ -179,4 +280,15 @@ bool UHawkeyeSettingsSubsystem::Save() const
 	}
 
 	return true;
+}
+
+FHawkeyeScopedSettingsOverride::FHawkeyeScopedSettingsOverride(const FHawkeyeSettings& Override)
+	: Held(Override)
+{
+	UHawkeyeSettingsSubsystem::SetTestSettingsOverride(&Held);
+}
+
+FHawkeyeScopedSettingsOverride::~FHawkeyeScopedSettingsOverride()
+{
+	UHawkeyeSettingsSubsystem::SetTestSettingsOverride(nullptr);
 }
