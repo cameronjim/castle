@@ -38,6 +38,9 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
   and none stands within reach of the thug patrol (its points, the line between them, the thugs),
   on or against a fire-escape landing at the landing's height, within 3 m of an objective beacon,
   or within the anchor clearance of a grapple anchor or its landing point on the same roof
+* the side challenges: three archery and three traversal definitions as create_challenges.py plans
+  them, a City_Challenge_<id> pedestal on each start holding its definition, every archery target
+  10 to 40 m out with a clear line, and every traversal ring reachable from the one before it
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
     UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
@@ -777,6 +780,145 @@ def check_safehouse(district, actors):
         spot["rec"]["id"], spot["address"] or "no address", loc.x, loc.y, loc.z, actor.get_actor_rotation().yaw))
 
 
+def _vec3(v):
+    return (v.x, v.y, v.z)
+
+
+def check_challenges(district, actors):
+    """The side challenges: three archery ranges and three traversal routes as create_challenges.py plans
+    them, a City_Challenge_<id> pedestal at each start holding its definition, and every target and
+    checkpoint in reach: targets 10 to 40 m from where she shoots with clear lines to their faces;
+    each ring within 2500 cm of the one before on foot, or at the landing point of an anchor in grapple
+    range with a clear line (the footprint rule of the lap's anchor survey), or at the foot of the fire
+    escape of the roof before it."""
+    import create_challenges as cc  # noqa: E402 - imports generate_city, already loaded
+    definitions = gen.challenge_definitions()
+    plans = {p["id"]: p for p in cc.plan_challenges(district)}
+    world = cc.planning_world(district)
+    kinds = [weapon_name(d.get_editor_property("type")) for d in definitions.values()]
+    archery_n = sum(1 for k in kinds if k.endswith("ARCHERY"))
+    check(archery_n == cc.ARCHERY_COUNT and len(definitions) - archery_n == cc.TRAVERSAL_COUNT,
+          "{0} archery and {1} traversal challenges".format(cc.ARCHERY_COUNT, cc.TRAVERSAL_COUNT),
+          "{0} and {1}: {2}".format(archery_n, len(definitions) - archery_n, ", ".join(sorted(definitions))))
+    check(sorted(definitions) == sorted(plans), "challenge assets match the plan of create_challenges",
+          "assets {0}, planned {1}".format(sorted(definitions), sorted(plans)))
+
+    pedestals = {l: a for l, a in actors.items() if l.startswith(gen.CHALLENGE_PREFIX)}
+    bad = []
+    for cid, definition in sorted(definitions.items()):
+        actor = pedestals.get(gen.CHALLENGE_PREFIX + cid)
+        start = definition.get_editor_property("start_location")
+        if actor is None or "ChallengeStart" not in c.class_name(actor.get_class()):
+            bad.append(cid + " missing")
+            continue
+        loc = actor.get_actor_location()
+        if actor.get_editor_property("definition") != definition:
+            bad.append(cid + " holds another definition")
+        if math.hypot(loc.x - start.x, loc.y - start.y) > 1.0 or abs(loc.z - start.z) > 30.0:
+            bad.append("{0} at ({1:.0f}, {2:.0f}, {3:.0f}), start ({4:.0f}, {5:.0f}, {6:.0f})".format(
+                cid, loc.x, loc.y, loc.z, start.x, start.y, start.z))
+        if abs(((actor.get_actor_rotation().yaw - definition.get_editor_property("start_yaw")) + 180.0) % 360.0 - 180.0) > 0.5:
+            bad.append(cid + " turned wrong")
+    check(len(pedestals) == len(definitions) and not bad,
+          "one City_Challenge_ pedestal per challenge, on its start, holding it",
+          "{0} pedestals; {1}".format(len(pedestals), "; ".join(bad) or "all placed"))
+
+    for cid, definition in sorted(definitions.items()):
+        if weapon_name(definition.get_editor_property("type")) == "ARCHERY":
+            _check_archery(cc, world, cid, definition)
+        else:
+            _check_traversal(cc, world, cid, definition)
+
+
+def _check_archery(cc, world, cid, definition):
+    start = definition.get_editor_property("start_location")
+    yaw = math.radians(definition.get_editor_property("start_yaw"))
+    stand = (start.x + math.cos(yaw) * cc.PEDESTAL_BACK, start.y + math.sin(yaw) * cc.PEDESTAL_BACK)
+    eye = (stand[0], stand[1], start.z + cc.BOW_HEIGHT)
+    tops = world.tops_near(eye[0], eye[1], cc.TARGET_MAX_DISTANCE + 500.0)
+    props = world.props_near(eye[0], eye[1], cc.TARGET_MAX_DISTANCE + 500.0)
+    landing_feet = [(x + out[0] * cc.LANDING_OUT, y + out[1] * cc.LANDING_OUT, z)
+                    for landings in world.escapes.values() for _f, (x, y, z), _yaw, out in landings]
+    targets = list(definition.get_editor_property("targets") or [])
+    moving, on_landings, problems, dists = 0, 0, [], []
+    for index, spawn in enumerate(targets):
+        xf = spawn.get_editor_property("transform")
+        foot = _vec3(xf.translation)
+        centre = (foot[0], foot[1], foot[2] + cc.TARGET_FACE)
+        d = math.hypot(foot[0] - eye[0], foot[1] - eye[1])
+        dists.append(d / 100.0)
+        if bool(spawn.get_editor_property("moving")):
+            moving += 1
+        if any(math.hypot(foot[0] - lf[0], foot[1] - lf[1]) < 60.0 and abs(foot[2] - lf[2]) < 5.0 for lf in landing_feet):
+            on_landings += 1
+        if not (cc.TARGET_MIN_DISTANCE - 1.0 <= d <= cc.TARGET_MAX_DISTANCE + 1.0):
+            problems.append("target {0} at {1:.0f} m".format(index, d / 100.0))
+        if not cc._target_lines_clear(world, eye, centre, tops, props):
+            problems.append("target {0} out of sight".format(index))
+    check(len(targets) == cc.ARCHERY_TARGETS and moving >= cc.ARCHERY_MIN_KIND and on_landings >= cc.ARCHERY_MIN_KIND and not problems,
+          "{0}: 12 targets 10 to 40 m out with clear lines, movers and landing targets".format(cid),
+          "{0} targets, {1} moving, {2} on landings, {3:.0f} to {4:.0f} m{5}".format(
+              len(targets), moving, on_landings, min(dists) if dists else 0.0, max(dists) if dists else 0.0,
+              "; " + "; ".join(problems[:4]) if problems else ""))
+
+
+def _check_traversal(cc, world, cid, definition):
+    start = definition.get_editor_property("start_location")
+    rings = [_vec3(t.translation) for t in definition.get_editor_property("checkpoints") or []]
+    legs = [weapon_name(l) for l in definition.get_editor_property("checkpoint_legs") or []]
+    problems = []
+    how = []
+    prev = (start.x, start.y, start.z + cc.CHECKPOINT_UP)
+    for index, (ring, leg) in enumerate(zip(rings, legs)):
+        feet = (ring[0], ring[1], ring[2] - cc.CHECKPOINT_UP)
+        prev_feet = (prev[0], prev[1], prev[2] - cc.CHECKPOINT_UP)
+        step = math.hypot(ring[0] - prev[0], ring[1] - prev[1])
+        if math.hypot(ring[0] - start.x, ring[1] - start.y) > cc.AREA_RADIUS:
+            problems.append("ring {0} outside the area".format(index + 1))
+        if leg.endswith("GRAPPLE"):
+            under = world.building_at((prev[0], prev[1]))
+            launch = (prev_feet[0], prev_feet[1], prev_feet[2] + cc.GRAPPLE_BOW_UP)
+            found = None
+            for ax, ay, az, lx, ly, lz, osm in world.anchors:
+                if math.hypot(lx - feet[0], ly - feet[1]) > 50.0 or abs(lz - feet[2]) > 5.0:
+                    continue
+                reach = math.sqrt((ax - prev_feet[0]) ** 2 + (ay - prev_feet[1]) ** 2 + (az - prev_feet[2] - 90.0) ** 2)
+                if reach <= cc.GRAPPLE_RANGE and cc.zip_clear(world, launch, (lx, ly, lz), osm, under[0]["id"] if under else None):
+                    found = (osm, reach)
+                    break
+            if found is None:
+                problems.append("ring {0}: no anchor in range with a clear line".format(index + 1))
+            else:
+                how.append("{0} zip {1:.0f} cm to {2}".format(index + 1, found[1], found[0]))
+        elif leg.endswith("DESCENT"):
+            under = world.building_at((prev[0], prev[1]))
+            escape = world.escapes.get(under[0]["id"]) if under else None
+            ok = False
+            if escape:
+                _f, (x, y, _z), _yaw, out = escape[-1]
+                foot = (x + out[0] * cc.DESCENT_OUT, y + out[1] * cc.DESCENT_OUT)
+                ok = math.hypot(foot[0] - ring[0], foot[1] - ring[1]) < 400.0 and feet[2] < 300.0
+            if not ok:
+                problems.append("ring {0}: not at the foot of the fire escape of the roof before it".format(index + 1))
+            else:
+                how.append("{0} down the escape of {1}".format(index + 1, under[0]["id"]))
+        else:
+            if step > cc.GRAPPLE_RANGE:
+                problems.append("ring {0} is {1:.0f} cm on foot from the one before".format(index + 1, step))
+            if leg.endswith("MANTLE"):
+                a, b = world.building_at((prev[0], prev[1])), world.building_at((ring[0], ring[1]))
+                rise = (world.roof_z(b) - world.roof_z(a)) if a and b else -1.0
+                if not (a and b and a is not b and cc.MANTLE_STEP[0] <= rise <= cc.MANTLE_STEP[1]):
+                    problems.append("ring {0}: no step up onto a neighbour".format(index + 1))
+                else:
+                    how.append("{0} mantle +{1:.0f} cm".format(index + 1, rise))
+        prev = ring
+    check(len(rings) == 8 and len(legs) == 8 and "GRAPPLE" in legs and "MANTLE" in legs and "DESCENT" in legs
+          and not problems,
+          "{0}: 8 rings, every one reachable (grapple, mantle and fire-escape legs)".format(cid),
+          "; ".join(problems[:4]) if problems else ", ".join(how))
+
+
 def run():
     if not gen.data_available():
         check(False, "OSM data present", "run Tools\\fetch-osm.ps1")
@@ -937,6 +1079,7 @@ def run():
     check_archers(district, actors)
     check_clint(district, actors)
     check_safehouse(district, actors)
+    check_challenges(district, actors)
 
     prison = [a.get_actor_label() for a in all_actors
               if not gen.is_chapter_actor(a.get_actor_label())
