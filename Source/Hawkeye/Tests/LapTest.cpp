@@ -8,7 +8,9 @@
 #include "Combat/BowDefinition.h"
 #include "Combat/FightMetrics.h"
 #include "Combat/HealthComponent.h"
+#include "Combat/FinisherComponent.h"
 #include "Combat/MeleeComponent.h"
+#include "Combat/MeleeRules.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/OverlapResult.h"
@@ -82,6 +84,11 @@
  * Hawkeye.Lap.StreetFight: Kate on the Avenue A sidewalk against the StreetGroup (bat, gunner, heavy)
  * with fists, strikes, arrows and two trick arrows; must win. Writes Saved/Automation/lap_street_fight.json
  * with the time, hits taken, arrows used, dodges, the annoyance share and the untelegraphed hits.
+ *
+ * In both melee fights she plays the melee as a player who has learnt it: a tap of V into a wind-up she
+ * can see in front of her (0.2 s after it starts, a reaction) parries it, F on anyone staggered or down
+ * within reach finishes him, and her lights chain. The JSON adds parries, finishers, perfect dodges and
+ * the highest combo count.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLapEastVillage, "Hawkeye.Lap.EastVillage",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
@@ -108,6 +115,7 @@ namespace HawkeyeLap
 	static const TCHAR* GrapplePath = TEXT("/Game/Input/IA_Grapple.IA_Grapple");
 	static const TCHAR* FirePath = TEXT("/Game/Input/IA_Fire.IA_Fire");
 	static const TCHAR* MeleePath = TEXT("/Game/Input/IA_Melee.IA_Melee");
+	static const TCHAR* TakedownPath = TEXT("/Game/Input/IA_Takedown.IA_Takedown");
 	static const TCHAR* BowAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Bow_Kate.DA_Bow_Kate");
 	static const TCHAR* StandardAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Standard.DA_Arrow_Standard");
 	static const TCHAR* GrappleAssetPath = TEXT("/Game/Blueprints/Weapons/DA_Arrow_Grapple.DA_Arrow_Grapple");
@@ -257,6 +265,46 @@ namespace HawkeyeLap
 		const FVector Lens = Kate->GetFollowCamera()->GetComponentLocation();
 		const FRotator Look = (Target - Lens).Rotation();
 		PC->SetControlRotation(FRotator(Kate->ClampCameraPitch(Look.Pitch), Look.Yaw, 0.f));
+	}
+
+	/**
+	 * A thug in front of her view within 240 cm whose telegraph a tap of V parries, seen for at least
+	 * ReactionSeconds (a swing's or bash's wind-up; a gunner's raised pistol). Null if none.
+	 */
+	static AThugCharacter* ParryChance(UWorld* World, const AHawkeyeCharacter* Kate, const APlayerController* PC,
+		float ReactionSeconds = 0.2f)
+	{
+		const FVector Forward = FRotator(0.f, PC->GetControlRotation().Yaw, 0.f).Vector();
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			const EHawkeyeParryKind Kind = UHawkeyeMeleeRules::ClassifyParry(*It);
+			if (Kind == EHawkeyeParryKind::None || FMath::Abs(It->GetActorLocation().Z - Kate->GetActorLocation().Z) > 150.f
+				|| !UHawkeyeMeleeRules::IsInFrontWithin(Kate->GetActorLocation(), Forward, It->GetActorLocation(), 240.f, 65.f))
+			{
+				continue;
+			}
+			const UMeleeComponent* Melee = It->GetMeleeComponent();
+			const bool bSeen = Kind == EHawkeyeParryKind::Burst
+				|| (Melee && Melee->GetCurrentAttack().WindupSeconds - Melee->GetPhaseRemaining() >= ReactionSeconds);
+			if (bSeen)
+			{
+				return *It;
+			}
+		}
+		return nullptr;
+	}
+
+	/** Kate can parry this frame: not in her own wind-up, a dodge, a stagger, a draw or a takedown. */
+	static bool CanParryNow(const AHawkeyeCharacter* Kate)
+	{
+		return Kate->GetMeleeComponent() && !Kate->GetMeleeComponent()->IsWindingUp() && !Kate->IsDodging()
+			&& !Kate->IsStaggered() && !Kate->IsDrawingBow() && !Kate->IsLockedOutByTakedown();
+	}
+
+	/** A staggered or knocked-down thug is within the finisher's reach. */
+	static bool CanFinish(const AHawkeyeCharacter* Kate)
+	{
+		return Kate->GetFinisherComponent() && Kate->GetFinisherComponent()->FindTarget() != nullptr;
 	}
 
 	static void EnsureQuiver(FAutomationTestBase* Test, UInventoryComponent* Inventory)
@@ -2003,6 +2051,10 @@ private:
 	int32 LightSwings = 0;
 	int32 HeavySwings = 0;
 	int32 Dodges = 0;
+	int32 Parries = 0;
+	int32 Finishers = 0;
+	int32 MaxCombo = 0;
+	double LastParryTap = -10.0;
 	bool bDrawing = false;
 	bool bMeleeHeld = false;
 	double MeleeHeldSince = 0.0;
@@ -2064,9 +2116,11 @@ void FHawkeyeRoofFightRunner::Finish(UWorld* World, APlayerController* PC, AHawk
 		"{\n  \"test\": \"Hawkeye.Lap.RoofFight\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
 		"  \"kate_health\": %.1f,\n  \"kate_max_health\": %.1f,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n"
 		"  \"thugs_down\": %d,\n  \"arrows_loosed\": %d,\n  \"light_swings\": %d,\n"
-		"  \"heavy_swings\": %d,\n  \"dodges\": %d,\n  \"average_frame_ms\": %.2f\n}\n"),
+		"  \"heavy_swings\": %d,\n  \"dodges\": %d,\n  \"parries\": %d,\n  \"finishers\": %d,\n"
+		"  \"perfect_dodges\": %d,\n  \"max_combo\": %d,\n  \"average_frame_ms\": %.2f\n}\n"),
 		bWon ? TEXT("true") : TEXT("false"), *Why, DoneAt - FightStart, Health, Kate->GetHealthComponent()->GetMaxHealth(),
-		HitsTaken, DamageTaken, Dead, ArrowsLoosed, LightSwings, HeavySwings, Dodges, Meter.AverageMs());
+		HitsTaken, DamageTaken, Dead, ArrowsLoosed, LightSwings, HeavySwings, Dodges, Parries, Finishers,
+		Kate->GetPerfectDodgeCount(), MaxCombo, Meter.AverageMs());
 	HawkeyeLap::WriteText(TEXT("lap_roof_fight.json"), Json);
 	Test->AddInfo(TEXT("lap_roof_fight.json:\n") + Json);
 	UE_LOG(LogTemp, Display, TEXT("[Hawkeye] roof fight: %s"), *Json);
@@ -2209,7 +2263,8 @@ bool FHawkeyeRoofFightRunner::Update()
 
 	// Look at whoever is nearest, at the chest.
 	AimAt(PC, Kate, Target->GetActorLocation() + FVector(0.f, 0.f, 30.f));
-	const bool bBusy = Kate->IsMeleeAttacking() || Kate->IsDodging() || Kate->IsStaggered();
+	MaxCombo = FMath::Max(MaxCombo, Kate->GetComboCount());
+	const bool bBusy = Kate->IsMeleeAttacking() || Kate->IsDodging() || Kate->IsStaggered() || Kate->IsLockedOutByTakedown();
 	const UMeleeComponent* ThugMelee = Target->GetMeleeComponent();
 
 	// A melee hold in progress: release after 0.45 s for the heavy.
@@ -2238,8 +2293,29 @@ bool FHawkeyeRoofFightRunner::Update()
 		return false;
 	}
 
+	// A wind-up in front of her: a tap of V parries it, even out of her own recovery.
+	if (Now - LastParryTap > 0.3 && CanParryNow(Kate) && ParryChance(World, Kate, PC))
+	{
+		Move(PC, FVector2D::ZeroVector);
+		Tap(PC, MeleePath);
+		LastParryTap = Now;
+		++Parries;
+		NextActionAt = Now + 0.25;
+		return false;
+	}
+
 	if (Now < NextActionAt || bBusy)
 	{
+		return false;
+	}
+
+	// Anyone staggered or down within reach: F finishes him.
+	if (CanFinish(Kate))
+	{
+		Move(PC, FVector2D::ZeroVector);
+		Tap(PC, TakedownPath);
+		++Finishers;
+		NextActionAt = Now + 0.3;
 		return false;
 	}
 
@@ -2883,6 +2959,10 @@ private:
 	int32 Dodges = 0;
 	int32 QuickShots = 0;
 	int32 FullShots = 0;
+	int32 Parries = 0;
+	int32 Finishers = 0;
+	int32 MaxCombo = 0;
+	double LastParryTap = -10.0;
 	TArray<FString> TrickArrows;
 	bool bBolaUsed = false;
 	bool bPuttyUsed = false;
@@ -3189,12 +3269,13 @@ void FHawkeyeStreetFightRunner::Finish(UWorld* World, APlayerController* PC, AHa
 		"{\n  \"test\": \"Hawkeye.Lap.StreetFight\",\n  \"won\": %s,\n  \"end\": \"%s\",\n  \"seconds\": %.2f,\n"
 		"  \"kate_health\": %.1f,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n  \"thugs_down\": %d,\n"
 		"  \"arrows_used\": %d,\n  \"full_draw_shots\": %d,\n  \"quick_shots\": %d,\n  \"trick_arrows\": \"%s\",\n"
-		"  \"light_swings\": %d,\n  \"heavy_swings\": %d,\n  \"dodges\": %d,\n  \"shield_blocks\": %s,\n"
+		"  \"light_swings\": %d,\n  \"heavy_swings\": %d,\n  \"dodges\": %d,\n  \"parries\": %d,\n"
+		"  \"finishers\": %d,\n  \"perfect_dodges\": %d,\n  \"max_combo\": %d,\n  \"shield_blocks\": %s,\n"
 		"  \"staggered_or_down_seconds\": %.2f,\n  \"annoyance_percent\": %.1f,\n  \"untelegraphed_hits\": %d,\n"
 		"  \"untelegraphed_detail\": \"%s\",\n  \"average_frame_ms\": %.2f\n}\n"),
 		bWon ? TEXT("true") : TEXT("false"), *Why, Seconds, Health, Metrics.GetHits(), DamageTaken, Down, ArrowsUsed,
-		FullShots, QuickShots, *FString::Join(TrickArrows, TEXT(", ")), LightSwings, HeavySwings, Dodges,
-		Blocks.IsEmpty() ? TEXT("0") : *Blocks, Metrics.GetDisabledSeconds(), Annoyance * 100.f, Metrics.GetUntelegraphedHits(),
+		FullShots, QuickShots, *FString::Join(TrickArrows, TEXT(", ")), LightSwings, HeavySwings, Dodges, Parries, Finishers,
+		Kate->GetPerfectDodgeCount(), MaxCombo, Blocks.IsEmpty() ? TEXT("0") : *Blocks, Metrics.GetDisabledSeconds(), Annoyance * 100.f, Metrics.GetUntelegraphedHits(),
 		*Untelegraphed, Meter.AverageMs());
 	HawkeyeLap::WriteText(TEXT("lap_street_fight.json"), Json);
 	Test->AddInfo(TEXT("lap_street_fight.json:\n") + Json);
@@ -3429,7 +3510,18 @@ bool FHawkeyeStreetFightRunner::Update()
 		return false;
 	}
 
-	const bool bBusy = Kate->IsMeleeAttacking() || Kate->IsDodging() || Kate->IsStaggered();
+	MaxCombo = FMath::Max(MaxCombo, Kate->GetComboCount());
+	// A wind-up (or a raised pistol) in front of her: a tap of V parries it, even out of her own recovery.
+	if (Now - LastParryTap > 0.3 && CanParryNow(Kate) && ParryChance(World, Kate, PC))
+	{
+		Move(PC, FVector2D::ZeroVector);
+		Tap(PC, MeleePath);
+		LastParryTap = Now;
+		++Parries;
+		NextActionAt = Now + 0.25;
+		return false;
+	}
+	const bool bBusy = Kate->IsMeleeAttacking() || Kate->IsDodging() || Kate->IsStaggered() || Kate->IsLockedOutByTakedown();
 	if (bBusy || Now < NextActionAt)
 	{
 		if (!bBusy && Now < NextActionAt)
@@ -3440,6 +3532,15 @@ bool FHawkeyeStreetFightRunner::Update()
 	}
 	if (TryDodgeSwings(Kate, Now))
 	{
+		return false;
+	}
+	// Anyone staggered or down within reach: F finishes him.
+	if (CanFinish(Kate))
+	{
+		Move(PC, FVector2D::ZeroVector);
+		Tap(PC, TakedownPath);
+		++Finishers;
+		NextActionAt = Now + 0.3;
 		return false;
 	}
 
