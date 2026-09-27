@@ -15,7 +15,10 @@ param(
     [int]$Runs = 3,
     [double]$WatchSeconds = 25,
     [string]$Engine = "C:\Program Files\Epic Games\UE_5.8",
-    [string]$Tag = "load"
+    [string]$Tag = "load",
+    # Seconds after the first playable mark to reopen the level once (a death with no save does
+    # that); the reload's own playable time is reported too. Negative: no reload.
+    [double]$ReloadAfter = -1
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,10 +34,11 @@ for ($i = 1; $i -le $Runs; $i++) {
     if (Test-Path $log) { Remove-Item $log -Force }
     $start = Get-Date
     & $Cmd $Proj /Game/Maps/L_District_EastVillage -game -windowed -ResX=1280 -ResY=720 -unattended -nosplash -log `
-        "-abslog=$log" "-HawkeyeQuitAfterPlayable=$WatchSeconds" | Out-Null
+        "-abslog=$log" "-HawkeyeQuitAfterPlayable=$WatchSeconds" "-HawkeyeReloadAfterPlayable=$ReloadAfter" | Out-Null
     $wall = ((Get-Date) - $start).TotalSeconds
     $text = if (Test-Path $log) { Get-Content $log -Raw } else { "" }
-    $playable = [regex]::Match($text, "Playable after ([0-9.]+) s")
+    $playable = [regex]::Match($text, "Playable after ([0-9.]+) s \(process start")
+    $reload = [regex]::Match($text, "Playable after ([0-9.]+) s \(level change")
     $loadMap = [regex]::Match($text, "Took ([0-9.]+) seconds to LoadMap\(/Game/Maps/L_District_EastVillage\)")
     $summary = [regex]::Match($text, "First [0-9]+ s after the playable mark: ([^\r\n]+)")
     $row = [pscustomobject]@{
@@ -42,10 +46,11 @@ for ($i = 1; $i -le $Runs; $i++) {
         ZenAlreadyUp = $zen
         PlayableS = if ($playable.Success) { [double]$playable.Groups[1].Value } else { $null }
         LoadMapS = if ($loadMap.Success) { [double]$loadMap.Groups[1].Value } else { $null }
+        ReloadS = if ($reload.Success) { [double]$reload.Groups[1].Value } else { $null }
         ProcessS = [math]::Round($wall, 1)
         Frames = if ($summary.Success) { $summary.Groups[1].Value } else { "(no summary)" }
     }
     $rows += $row
-    Write-Host ("run {0}: playable {1} s, LoadMap {2} s, zen already up {3}; {4}" -f $row.Run, $row.PlayableS, $row.LoadMapS, $row.ZenAlreadyUp, $row.Frames)
+    Write-Host ("run {0}: playable {1} s, LoadMap {2} s, reload {3} s, zen already up {4}; {5}" -f $row.Run, $row.PlayableS, $row.LoadMapS, $row.ReloadS, $row.ZenAlreadyUp, $row.Frames)
 }
 $rows | Format-Table -AutoSize | Out-String -Width 400 | Write-Host
