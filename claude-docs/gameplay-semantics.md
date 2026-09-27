@@ -629,3 +629,23 @@ the last input came from a pad.
   and back over 0.2 s; heavy both hands over 0.25 s; bow finisher sweeps the bow hand.
 - Soft lock: strikes and dodges turn toward the nearest thug within 400 cm in front over
   0.1 s. A dodge during a telegraph within 300 cm gives 0.1 s of slow motion.
+
+## Side challenges (built 2026-09-27; names are placeholders)
+- `AChallengeStart` pedestals (purple-lit, E to start) and one `UChallengeDefinition` per
+  challenge under `/Game/Challenges`, planned by `create_challenges.py` and placed by the
+  generator. Three archery ranges on rooftops 133 to 178 m from the start; three traversal
+  routes from street corners (the third is 331 m out because routes needing a mantle are
+  rare).
+- Archery: 12 ringed glowing targets 12 to 40 m out on other roofs and fire-escape
+  landings with clear lines, 3 or 4 moving on a 6 m track. Score 10 / 5 / 2 at radii 8 /
+  18 / 30 cm, 60 s, medals at 36 / 60 / 84, reward an arrow refill.
+- Traversal: 8 floating 200 cm checkpoint rings across roofs using grapple, mantle, and a
+  fire-escape descent; 150 s limit; gold under 60 s, silver under 90, bronze under 120.
+  Every planned grapple leg passes the grapple's own clearance check.
+- A run fails on time-out, on leaving a 100 m radius, or if the player goes down. Thugs
+  within 60 m go Calm for the run. Best score or time and medal per challenge are saved.
+  HUD panel during a run; results card with Retry and Leave; next checkpoint or remaining
+  targets use secondary objective markers.
+- Scripted: archery clears 12 of 12 in about 17 s (bronze by score); traversal in 18 to
+  19 s (gold). Distant targets are small at 30 to 40 m. The pedestal light was too strong
+  and is being dimmed.
