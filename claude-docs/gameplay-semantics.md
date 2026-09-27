@@ -431,6 +431,29 @@ the last input came from a pad.
   (bat, gunner) patrolling 40 m of the Avenue A sidewalk by the park. Verify projects every
   thug's feet onto the navmesh.
 
+## Thug variety and squad alert (built 2026-09-26)
+- Thugs run `ST_Thug`, a headless-built StateTree with states Stunned, Reposition, Cover,
+  Attack, Investigate, Patrol in priority order; the C++ mode picker remains the fallback
+  (tests). Cover points come from `EQS_CoverPoints`, an EnvQuery authored in C++ (never
+  save it from the editor), with the C++ candidate ring as fallback.
+- Gunner: 0.8 s telegraph (pistol raised, glint, log line), then a burst of 3 shots of 12
+  damage 0.25 s apart at 4 degrees spread. Takes cover after a burst or when aimed at
+  within 6 degrees: nearest blocked point within 800 cm on his level, hides 1.2 s, peeks,
+  new cover every 6 s. Backs off to 600 cm if the player closes inside 300 cm. EMP jam
+  holds fire. Any hit breaks the burst.
+- Archer (`BP_Archer`, `EThugWeapon::Bow`, Barney's people): 1.2 s draw with a purple
+  glint, 30 damage, 5000 cm/s, leads the chest (or the centre when she crouches, so a
+  parapet covers her); keeps 1500 to 2500 cm, zips to an anchor when the player closes
+  inside 800 cm, aggressive only within 3000 cm with a clear line; any hit breaks the draw.
+  Arrows leave from cheek height. His purple arrows are picked up as standard, with a
+  one-time "Trickshot's arrow" toast. Two on the roofs facing `find_arrow` (OSM W248142394
+  and W248142314), tagged ArcherPair; their sightlines are kept clear of rooftop clutter.
+  The scripted duel shows a ducking player breaks every draw; archers may need to hold a
+  draw briefly after losing sight.
+- Squad alert: 1.5 s after a thug goes Alerted, thugs within 1500 cm with a line to him
+  turn Suspicious toward the player's last seen position.
+- Heavy (shield) not built yet.
+
 ## Guard AI states (stage 2/3)
 - `Calm`: patrol. Hearing radius `CalmHearingRadius`, sight cone `SightHalfAngle`.
 - `Suspicious`: heard something or saw something briefly. Walks to the stimulus,
