@@ -75,6 +75,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Bow")
 	float GetDrawElapsed() const;
 
+	/**
+	 * How fast the draw counts: 1 for Kate; an archer's is set from the difficulty so his full draw
+	 * takes 1.5 / 1.2 / 1.0 s. GetDrawElapsed is real draw time times this.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bow", meta = (ClampMin = "0.1"))
+	float DrawRate = 1.f;
+
 	/** Cone half-angle a release now would get, degrees. The bow's MaxSpread while not drawing. */
 	UFUNCTION(BlueprintPure, Category = "Bow")
 	float GetCurrentSpreadDegrees() const;

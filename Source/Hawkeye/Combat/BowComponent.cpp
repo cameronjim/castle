@@ -202,7 +202,7 @@ UBowDefinition* UBowComponent::GetBow() const
 
 float UBowComponent::GetDrawElapsed() const
 {
-	return bDrawing ? static_cast<float>(FMath::Max(0.0, GetNowSeconds() - DrawStartSeconds)) : 0.f;
+	return bDrawing ? static_cast<float>(FMath::Max(0.0, GetNowSeconds() - DrawStartSeconds)) * FMath::Max(DrawRate, 0.1f) : 0.f;
 }
 
 float UBowComponent::GetDrawFraction() const

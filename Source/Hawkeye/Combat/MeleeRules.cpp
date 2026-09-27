@@ -120,6 +120,30 @@ EHawkeyeParryKind UHawkeyeMeleeRules::ClassifyParry(const AThugCharacter* Thug)
 	return Thug->IsHeavy() && Melee->GetCurrentAttack().KnockbackDistance > 0.f ? EHawkeyeParryKind::Bash : EHawkeyeParryKind::Swing;
 }
 
+float UHawkeyeMeleeRules::GetTelegraphElapsed(const AThugCharacter* Thug)
+{
+	if (!Thug)
+	{
+		return -1.f;
+	}
+	if (Thug->IsGunner())
+	{
+		const AThugAIController* Brain = Cast<AThugAIController>(Thug->GetController());
+		return Brain ? Brain->GetTelegraphElapsed() : -1.f;
+	}
+	const UMeleeComponent* Melee = Thug->GetMeleeComponent();
+	if (!Melee || !Melee->IsWindingUp())
+	{
+		return -1.f;
+	}
+	return FMath::Max(0.f, Melee->GetCurrentAttack().WindupSeconds - Melee->GetPhaseRemaining());
+}
+
+bool UHawkeyeMeleeRules::IsInParryWindow(float TelegraphElapsed, float WindowDelta)
+{
+	return TelegraphElapsed >= 0.f && TelegraphElapsed + KINDA_SMALL_NUMBER >= FMath::Max(0.f, -WindowDelta);
+}
+
 bool UHawkeyeMeleeRules::IsFinisherTarget(const AThugCharacter* Thug, const FVector& From, float Range)
 {
 	const UHealthComponent* Health = Thug ? Thug->GetHealthComponent() : nullptr;

@@ -32,6 +32,7 @@
 #include "StateTree.h"
 #include "TimerManager.h"
 #include "World/GrappleAnchor.h"
+#include "Settings/DifficultySubsystem.h"
 
 namespace HawkeyeThugBrain
 {
@@ -1453,11 +1454,14 @@ void AThugAIController::TickArcher(float DeltaSeconds, const FVector& ToTarget)
 		{
 			return;
 		}
+		// The difficulty sets how long the draw takes; the bow's own numbers stay as they are.
+		const float DrawSeconds = UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::ArcherDrawSeconds);
+		Bow->DrawRate = ComputeArcherDrawRate(BowDef->FullDrawSeconds, DrawSeconds);
 		if (Bow->StartDraw())
 		{
 			Thug->SetTelegraphGlint(true);
 			UE_LOG(LogHawkeye, Log, TEXT("%s: the bowstring creaks: drawing on %s at %.0f cm (%.1f s)."), *Thug->GetName(),
-				*GetNameSafe(TargetActor), ToTarget.Size(), BowDef->FullDrawSeconds);
+				*GetNameSafe(TargetActor), ToTarget.Size(), DrawSeconds);
 		}
 		return;
 	}
@@ -1701,7 +1705,7 @@ void AThugAIController::TickMeleeRush(float DeltaSeconds, const FVector& ToTarge
 	const float Distance = ToTarget.Size2D();
 	if (!bSwinging && MeleeCooldownRemaining <= 0.f && Distance <= MeleeEngageRange)
 	{
-		const FHawkeyeMeleeAttack Attack = Thug->GetMeleeAttack(SwingsStarted);
+		const FHawkeyeMeleeAttack Attack = ScaleAttackForDifficulty(Thug->GetMeleeAttack(SwingsStarted));
 		UE_LOG(LogHawkeye, Log, TEXT("%s: telegraphs a %s swing at %s from %.0f cm."), *Thug->GetName(),
 			*Attack.Name.ToString(), *GetNameSafe(TargetActor), Distance);
 		bWasSwinging = Melee->StartAttack(Attack);
@@ -1802,7 +1806,18 @@ void AThugAIController::FireAtTarget()
 	AimRotation.Roll = 0.f;
 	SetControlRotation(AimRotation);
 
+	// The difficulty scales the shot, not the weapon: the pistol keeps its own number.
+	const float BaseDamage = Weapon->Damage;
+	Weapon->Damage = BaseDamage * UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::ThugDamage);
 	Weapon->Fire();
+	Weapon->Damage = BaseDamage;
+}
+
+FHawkeyeMeleeAttack AThugAIController::ScaleAttackForDifficulty(const FHawkeyeMeleeAttack& Attack) const
+{
+	FHawkeyeMeleeAttack Scaled = Attack;
+	Scaled.Damage *= UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::ThugDamage);
+	return Scaled;
 }
 
 // --- Trick arrow states ---------------------------------------------------------------------------

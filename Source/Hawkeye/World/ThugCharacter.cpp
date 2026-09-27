@@ -26,6 +26,7 @@
 #include "Player/LocomotionAnim.h"
 #include "World/PickupActor.h"
 #include "World/ThugAIController.h"
+#include "Settings/DifficultySubsystem.h"
 
 AThugCharacter::AThugCharacter()
 {
@@ -215,6 +216,13 @@ void AThugCharacter::BeginPlay()
 	RefreshHeldWeapon();
 	CreateBodyMaterials();
 	UpdateLocomotionAnimation();
+
+	// The difficulty's toughness, on whatever the class gave him (100, the heavy's 200).
+	const float HealthScale = UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::ThugHealth);
+	if (HealthComponent && !FMath::IsNearlyEqual(HealthScale, 1.f))
+	{
+		HealthComponent->SetMaxHealth(HealthComponent->GetMaxHealth() * HealthScale, /*bResetCurrent=*/true);
+	}
 }
 
 void AThugCharacter::Tick(float DeltaSeconds)

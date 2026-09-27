@@ -368,6 +368,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
 	bool IsTelegraphing() const { return Burst.IsTelegraphing(); }
 
+	/** Seconds the raised pistol has been up, below 0 when it is not raised. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	float GetTelegraphElapsed() const { return Burst.IsTelegraphing() ? Burst.GetElapsed() : -1.f; }
+
+	/**
+	 * The rate an archer's bow counts its draw at so that a bow whose full draw is FullDrawSeconds
+	 * reaches it in WantedSeconds (the difficulty's 1.5 / 1.2 / 1.0). Pure.
+	 */
+	static float ComputeArcherDrawRate(float FullDrawSeconds, float WantedSeconds)
+	{
+		return FullDrawSeconds > 0.f ? FullDrawSeconds / FMath::Max(WantedSeconds, 0.1f) : 1.f;
+	}
+
+	/** A copy of Attack with the difficulty's thug damage multiplier on it. */
+	FHawkeyeMeleeAttack ScaleAttackForDifficulty(const FHawkeyeMeleeAttack& Attack) const;
+
 	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
 	bool IsBursting() const { return Burst.IsActive(); }
 

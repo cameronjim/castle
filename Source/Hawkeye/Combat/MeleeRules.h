@@ -79,6 +79,22 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
 	static bool IsFinisherTarget(const AThugCharacter* Thug, const FVector& From, float Range);
 
+	/**
+	 * Seconds Thug has been telegraphing: into his swing's or bash's wind-up, or into a gunner's raised
+	 * pistol. Below 0 when he is not telegraphing.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	static float GetTelegraphElapsed(const AThugCharacter* Thug);
+
+	/**
+	 * Whether a tap TelegraphElapsed seconds into a telegraph parries it, with the difficulty's
+	 * WindowDelta: at 0 or above, the whole telegraph counts; below 0 its first -WindowDelta seconds do
+	 * not (Hard's -0.1: read it, do not mash). A positive delta widens it before the start instead
+	 * (AHawkeyeCharacter's early tap). Not telegraphing (below 0) is never in the window.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	static bool IsInParryWindow(float TelegraphElapsed, float WindowDelta);
+
 	/** Wind-ups at least this long are telegraphs a parry answers (the thugs' 0.6 s and up; not Kate's jab). */
 	static constexpr float MinTelegraphSeconds = 0.3f;
 };
