@@ -86,8 +86,15 @@ protected:
 	/** Asks the controller to close (it owns the pause). */
 	void RequestClose();
 
+	/** Swaps the footer between keyboard and gamepad key names. */
+	void RefreshHint();
+
 	/** A text block in the panel's style. */
 	UTextBlock* MakeText(const FText& Text, int32 Size, const FLinearColor& Color) const;
+
+	/** "[P] [Close]", or the gamepad equivalent. */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> HintText = nullptr;
 
 	UPROPERTY(Transient)
 	TObjectPtr<USizeBox> Panel = nullptr;

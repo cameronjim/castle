@@ -75,7 +75,8 @@ TSharedRef<SWidget> UPhoneWidget::RebuildWidget()
 		ThreadScroll->AddChild(ThreadList);
 		AddToStack(ThreadScroll, 12.f, true);
 
-		AddToStack(MakeText(NSLOCTEXT("Hawkeye", "PhoneHint", "[P] [Close]"), 13, Dim), 0.f, false);
+		HintText = MakeText(NSLOCTEXT("Hawkeye", "PhoneHint", "[P] [Close]"), 13, Dim);
+		AddToStack(HintText, 0.f, false);
 	}
 	return Super::RebuildWidget();
 }
@@ -84,6 +85,7 @@ void UPhoneWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
 	SetIsFocusable(true);
+	RefreshHint();
 }
 
 UTextBlock* UPhoneWidget::MakeText(const FText& Text, int32 Size, const FLinearColor& Color) const
@@ -230,6 +232,19 @@ void UPhoneWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 	{
 		RemoveFromParent();
 	}
+	RefreshHint();
+}
+
+void UPhoneWidget::RefreshHint()
+{
+	if (!HintText)
+	{
+		return;
+	}
+	const AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetOwningPlayer());
+	HintText->SetText(PC && PC->IsUsingGamepad()
+		? NSLOCTEXT("Hawkeye", "PhoneHintGamepad", "[Menu] Close   [B] Close")
+		: NSLOCTEXT("Hawkeye", "PhoneHint", "[P] [Close]"));
 }
 
 FReply UPhoneWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
