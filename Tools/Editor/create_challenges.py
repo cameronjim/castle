@@ -44,7 +44,8 @@ CHALLENGE_PATH = "/Game/Challenges"
 ASSET_PREFIX = "DA_Challenge_"
 PEDESTAL_PREFIX = "City_Challenge_"
 
-SEARCH_RADIUS = 25000.0         # cm from the PlayerStart a challenge may start: the block and its streets
+SEARCH_RADIUS = 25000.0         # cm from the PlayerStart an archery range may start: the block and its streets
+TRAVERSAL_SEARCH_RADIUS = 45000.0  # cm; routes with a mantle are rarer, so the whole district is searched
 AREA_RADIUS = 10000.0           # cm; leaving this far from the start fails a run
 CALM_RADIUS = 6000.0            # cm; thugs this close to the start go calm for the run
 
@@ -91,7 +92,15 @@ CHECKPOINT_RADIUS = 150.0
 GRAPPLE_RANGE = 2500.0          # cm, UGrappleComponent::Range
 GRAPPLE_MIN = 700.0             # cm; shorter zips are not worth a checkpoint
 GRAPPLE_SLACK = 300.0           # cm under the range a planned zip stays: she fires from anywhere in the ring
-GRAPPLE_BOW_UP = 120.0          # the zip leaves from 120 cm above her feet
+ZIP_LAUNCH = 120.0              # cm the 0.15 s hop lifts her feet before the straight line (ZipLaunchHeight)
+ZIP_CAPSULE_RADIUS = 34.0       # Kate's capsule
+ZIP_START_RELEASE = 284.0       # cm from where she stood her own roof counts again (ZipStartIgnoreRadius + radius)
+ZIP_FEET_CLEAR = 10.0           # cm her feet clear a parapet by on a planned zip
+CAMERA_BACK = 330.0             # cm behind her the lens is when she looks at an anchor (the 350 cm arm, pulled in a little)
+CAMERA_UP = 160.0               # cm above her feet
+CAMERA_SIGHT_TOLERANCE = 60.0   # cm short of the marker a hit still counts as seeing it
+GRAPPLE_MAX_PITCH = 55.0        # degrees up to an anchor, at most: steeper and the camera cannot hold it in view
+LANDING_RADIUS = 130.0          # cm; a fire-escape landing (240 x 90 cm) as a column for the line checks
 RUN_MIN = 600.0
 RUN_MAX = 2000.0
 STREET_RUN = (900.0, 1800.0)    # cm along the sidewalk to the first ring
@@ -108,9 +117,13 @@ STREET_HUG = 450.0              # cm from a building's outline a street spot sta
 STREET_INTO_ROAD = 600.0        # cm into a carriageway (past its kerb) a street spot may stand
 CORNER_ROADS = 3000.0           # cm from the corner to two different roads' centre lines, at most (an avenue is 12.5 m to its kerb)
 TRAVERSAL_START_APART = 5000.0  # cm between two traversal pedestals
+ARCHERY_TRAVERSAL_APART = 3000.0  # cm between a traversal pedestal and an archery one
 ROUTE_REACH = 8000.0            # cm from the pedestal every ring stays within (the area is 100 m)
+ROUTE_BRANCH = 8                # anchors tried from each spot while searching for a route
+ROUTE_OPTIONS = 20              # spots with a grapple tried per roof leg
 
 LEGS = ("Run", "Grapple", "Mantle", "Descent")
+GRID_CELL = 2000.0              # cm; the buildings are bucketed this coarse for point lookups
 
 
 # --------------------------------------------------------------------------------------------------
@@ -127,6 +140,7 @@ class World(object):
         self.start = (start.x, start.y)
         self.tops = gen._building_tops(district)            # (rec, ring, bounds, top z)
         self.by_id = {t[0]["id"]: t for t in self.tops}
+        self._index()
         taken = {rec["id"] for rec in gen.objective_roofs(district).values()}
         taken |= {p[5] for p in gen.archer_placements(district)}
         safehouse = gen.safehouse_spot(district)
@@ -155,7 +169,21 @@ class World(object):
                 radius = 160.0
             for x, y, z, _yaw, scale in plan[kind]:
                 self.props.append((x, y, z, z + height * scale, radius * scale, kind))
+        # Every fire escape, its landings and the ladders between them, as one column the zips and the
+        # camera must miss: from under the lowest slab to the top landing's rail.
+        self.landings = []
+        for landings in self.escapes.values():
+            _floor, (x, y, _z), _yaw, out = landings[0]
+            cx, cy = x + out[0] * LANDING_OUT, y + out[1] * LANDING_OUT
+            low = min(l[1][2] for l in landings) - gen.FIRE_ESCAPE_SLAB[2]
+            high = max(l[1][2] for l in landings) + gen.FIRE_ESCAPE_RAIL
+            self.landings.append((cx, cy, low, high, LANDING_RADIUS, "FireEscape"))
         self.lamps = [(x, y) for x, y, _yaw, _s in gen.lamp_spots(district)]
+        # The lamps' poles and heads block a line from the street as the clutter does.
+        for x, y, yaw, _s in gen.lamp_spots(district):
+            hx, hy = x + math.cos(math.radians(yaw)) * gen.LAMP_ARM, y + math.sin(math.radians(yaw)) * gen.LAMP_ARM
+            self.props.append((x, y, 0.0, gen.LAMP_POLE_HEIGHT + 30.0, 20.0, "LampPole"))
+            self.props.append((hx, hy, gen.LAMP_POLE_HEIGHT - 40.0, gen.LAMP_POLE_HEIGHT + 30.0, 40.0, "LampHead"))
         self.roads = []     # (a, b, half width, street name)
         for rec, paths in gen.road_paths(district):
             for path in paths:
@@ -167,17 +195,29 @@ class World(object):
                                              or t[2][1] > y + reach or t[2][3] < y - reach)]
 
     def building_at(self, pt):
-        for t in self.tops:
+        cell = (int(math.floor(pt[0] / GRID_CELL)), int(math.floor(pt[1] / GRID_CELL)))
+        for t in self.grid.get(cell, ()):
             b = t[2]
             if b[0] <= pt[0] <= b[2] and b[1] <= pt[1] <= b[3] and geo.point_in_polygon(pt, t[1]):
                 return t
         return None
+
+    def _index(self):
+        self.grid = {}
+        for t in self.tops:
+            b = t[2]
+            for gx in range(int(math.floor(b[0] / GRID_CELL)), int(math.floor(b[2] / GRID_CELL)) + 1):
+                for gy in range(int(math.floor(b[1] / GRID_CELL)), int(math.floor(b[3] / GRID_CELL)) + 1):
+                    self.grid.setdefault((gx, gy), []).append(t)
 
     def roof_z(self, top):
         return top[0]["height_m"] * 100.0
 
     def props_near(self, x, y, reach):
         return [p for p in self.props if abs(p[0] - x) <= reach and abs(p[1] - y) <= reach]
+
+    def landings_near(self, x, y, reach):
+        return [p for p in self.landings if abs(p[0] - x) <= reach and abs(p[1] - y) <= reach]
 
 
 def _dist2(a, b):
@@ -203,7 +243,8 @@ def line_blocked(world, a3, b3, tops, ignore_ids=(), props=None):
             continue
         span = _dist2(a3, b3)
         t = _dist2(a3, q) / span if span > 1.0 else 0.0
-        if a3[2] + (b3[2] - a3[2]) * t < z1 + LINE_MARGIN:
+        h = a3[2] + (b3[2] - a3[2]) * t
+        if z0 - LINE_MARGIN < h < z1 + LINE_MARGIN:
             return True
     return False
 
@@ -255,8 +296,12 @@ def _face_pitch(eye, centre):
 
 
 def _target_lines_clear(world, eye, centre, tops, props):
+    """The bow at eye sees the face's centre and its bottom edge past every building, prop and fire-escape
+    landing (bar the one the target stands on)."""
     bottom = (centre[0], centre[1], centre[2] - TARGET_RADIUS * 0.8)
-    return not line_blocked(world, eye, centre, tops, props=props) and not line_blocked(world, eye, bottom, tops, props=props)
+    near = world.landings_near((eye[0] + centre[0]) * 0.5, (eye[1] + centre[1]) * 0.5, _dist2(eye, centre) * 0.5 + 300.0)
+    others = props + [l for l in near if math.hypot(l[0] - centre[0], l[1] - centre[1]) > 150.0]
+    return not line_blocked(world, eye, centre, tops, props=others) and not line_blocked(world, eye, bottom, tops, props=others)
 
 
 def archery_candidates(world, eye, own_id):
@@ -496,23 +541,64 @@ def roof_path_clear(world, a, b, roofs, props):
     return True
 
 
-def zip_clear(world, launch, landing3, anchor_osm, start_osm):
-    """The footprint rule for a zip: nothing but the start and anchor buildings in the way."""
-    end = (landing3[0], landing3[1], landing3[2] + 90.0)
-    tops = world.tops_near((launch[0] + end[0]) * 0.5, (launch[1] + end[1]) * 0.5, _dist2(launch, end) * 0.5 + 500.0)
-    props = world.props_near((launch[0] + end[0]) * 0.5, (launch[1] + end[1]) * 0.5, _dist2(launch, end) * 0.5 + 500.0)
-    ignore = {anchor_osm}
-    if start_osm:
-        ignore.add(start_osm)
-    # Props on the start and anchor roofs are the grapple's supports too: only those in between count.
-    between = [p for p in props if world.building_at((p[0], p[1])) is None
-               or world.building_at((p[0], p[1]))[0]["id"] not in ignore]
-    return not line_blocked(world, launch, end, tops, ignore_ids=ignore, props=between)
+def _lines_clear(world, a3, b3, ignore_ids, margin, offsets=(0.0,)):
+    """Whether the straight line a3 -> b3 (and its copies offsets cm to either side) clears every building
+    not in ignore_ids and every prop, by margin cm."""
+    mid = ((a3[0] + b3[0]) * 0.5, (a3[1] + b3[1]) * 0.5)
+    reach = _dist2(a3, b3) * 0.5 + 500.0
+    tops = [t for t in world.tops_near(mid[0], mid[1], reach) if t[0]["id"] not in ignore_ids]
+    props = [p for p in world.props_near(mid[0], mid[1], reach)
+             if (world.building_at((p[0], p[1])) or ({"id": None},))[0]["id"] not in ignore_ids]
+    props += world.landings_near(mid[0], mid[1], reach)
+    span = _dist2(a3, b3)
+    if span < 1.0:
+        return True
+    sx, sy = -(b3[1] - a3[1]) / span, (b3[0] - a3[0]) / span
+    for off in offsets:
+        a = (a3[0] + sx * off, a3[1] + sy * off, a3[2] - margin + LINE_MARGIN)
+        b = (b3[0] + sx * off, b3[1] + sy * off, b3[2] - margin + LINE_MARGIN)
+        if line_blocked(world, a, b, tops, props=props):
+            return False
+    return True
+
+
+def zip_clear(world, feet3, landing3, anchor_osm, start_osm):
+    """UGrappleComponent::IsZipClear by footprints: the capsule's feet run in a straight line from
+    ZIP_LAUNCH above where she stood to the landing point, the capsule ZIP_CAPSULE_RADIUS wide. The
+    anchor's building never blocks it; her own only past ZIP_START_RELEASE from where she stood."""
+    launch = (feet3[0], feet3[1], feet3[2] + ZIP_LAUNCH)
+    end = (landing3[0], landing3[1], landing3[2])
+    sides = (-ZIP_CAPSULE_RADIUS, 0.0, ZIP_CAPSULE_RADIUS)
+    if not _lines_clear(world, launch, end, {anchor_osm, start_osm}, ZIP_FEET_CLEAR, sides):
+        return False
+    if not start_osm:
+        return True
+    span = _dist3(launch, end)
+    if span <= ZIP_START_RELEASE:
+        return True
+    t = ZIP_START_RELEASE / span
+    release = tuple(launch[k] + (end[k] - launch[k]) * t for k in range(3))
+    return _lines_clear(world, release, end, {anchor_osm}, ZIP_FEET_CLEAR, sides)
+
+
+def camera_sees(world, feet3, marker3, anchor_osm):
+    """The grapple only targets what the camera sees: a lens CAMERA_BACK behind her, CAMERA_UP above her
+    feet, looking at the anchor's marker, with nothing but the anchor's building in the way."""
+    dx, dy = marker3[0] - feet3[0], marker3[1] - feet3[1]
+    d = math.hypot(dx, dy) or 1.0
+    lens = (feet3[0] - dx / d * CAMERA_BACK, feet3[1] - dy / d * CAMERA_BACK, feet3[2] + CAMERA_UP)
+    if world.building_at((lens[0], lens[1])) is not None and world.roof_z(world.building_at((lens[0], lens[1]))) > lens[2]:
+        return False
+    # The anchor's own building counts too, all but the stone right under the marker
+    # (UGrappleComponent::HasLineOfSight's SightTolerance): an anchor on the far side of a roof is hidden.
+    span = _dist3(lens, marker3)
+    t = max(0.0, 1.0 - CAMERA_SIGHT_TOLERANCE / max(span, 1.0))
+    short = tuple(lens[k] + (marker3[k] - lens[k]) * t for k in range(3))
+    return _lines_clear(world, lens, short, set(), 0.0)
 
 
 def grapples_from(world, here3, here_osm, exclude):
     """Anchors on other roofs a grapple from here3 (her feet) reaches with a clear line: [(anchor, top)]."""
-    launch = (here3[0], here3[1], here3[2] + GRAPPLE_BOW_UP)
     out = []
     for anchor in world.anchors:
         ax, ay, az, lx, ly, lz, osm = anchor
@@ -521,7 +607,10 @@ def grapples_from(world, here3, here_osm, exclude):
         reach = _dist3((here3[0], here3[1], here3[2] + 90.0), (ax, ay, az))
         if reach > GRAPPLE_RANGE - GRAPPLE_SLACK or _dist2(here3, (lx, ly)) < GRAPPLE_MIN:
             continue
-        if not zip_clear(world, launch, (lx, ly, lz), osm, here_osm):
+        pitch = math.degrees(math.atan2(az - here3[2] - CAMERA_UP, max(_dist2(here3, (ax, ay)), 1.0)))
+        if pitch > GRAPPLE_MAX_PITCH:
+            continue
+        if not zip_clear(world, here3, (lx, ly, lz), osm, here_osm) or not camera_sees(world, here3, (ax, ay, az), osm):
             continue
         out.append((reach, anchor, world.by_id[osm]))
     out.sort(key=lambda e: (e[0], e[1][6]))
@@ -586,9 +675,9 @@ def roof_leg(world, top, frm, want_escape_next, exclude, depth_left):
         grapples = grapples_from(world, here3, spot_top[0]["id"], exclude | {top[0]["id"]})
         if want_escape_next:
             grapples = [g for g in grapples if g[1][0]["id"] in world.escapes]
-        for grapple in grapples[:6]:
+        for grapple in grapples[:ROUTE_BRANCH]:
             results.append((leg, spot_top, pt, grapple))
-            if len(results) >= 12:
+            if len(results) >= ROUTE_OPTIONS:
                 return results
     return results
 
@@ -615,7 +704,7 @@ def street_corners(world):
     corners = []
     for top in world.tops:
         rec, ring = top[0], top[1]
-        if gen.ring_distance(world.start, ring) > SEARCH_RADIUS or rec["height_m"] < 8.0:
+        if gen.ring_distance(world.start, ring) > TRAVERSAL_SEARCH_RADIUS or rec["height_m"] < 8.0:
             continue
         n = len(ring)
         inward = 1.0 if geo.is_ccw(ring) else -1.0
@@ -650,44 +739,59 @@ def _checkpoint(point3, towards3, leg):
     return {"at": (point3[0], point3[1], point3[2] + CHECKPOINT_UP), "towards": towards3, "leg": leg}
 
 
+def _final_legs(world, roof3, landing3, used):
+    """Ways from a zip's landing on roof3 to the spot over a fire escape's top landing: a run on roof3 if
+    it has an escape, or a mantle onto a neighbour a step up that has one. [(leg, roof, stand, street)]."""
+    out = []
+    options = [("Run", roof3, [roof3])]
+    for other in neighbours(world, roof3):
+        step = world.roof_z(other) - world.roof_z(roof3)
+        if MANTLE_STEP[0] <= step <= MANTLE_STEP[1] and other[0]["id"] not in world.taken and other[0]["id"] not in used:
+            options.append(("Mantle", other, [roof3, other]))
+    for leg, roof, roofs in options:
+        descent = descent_spots(world, roof)
+        if descent is None:
+            continue
+        stand, street, _floor = descent
+        run = _dist2(landing3, stand)
+        props = world.props_near(landing3[0], landing3[1], run + 300.0)
+        if 300.0 <= run <= 2500.0 and roof_path_clear(world, landing3, stand, roofs, props):
+            out.append((leg, roof, stand, street))
+    return out
+
+
 def plan_route(world, spot, corner_top, need_mantle):
     """The eight rings from a street-corner pedestal, or None. With need_mantle, only a route that
     steps up onto a neighbour's roof somewhere."""
     ground = gen.SIDEWALK_TOP
     for first_run in _street_runs(world, spot, corner_top):
         cp1 = (first_run[0], first_run[1], ground)
-        for anchor1, roof1 in grapples_from(world, cp1, None, set())[:6]:
+        for anchor1, roof1 in grapples_from(world, cp1, None, set())[:ROUTE_BRANCH]:
             l1 = (anchor1[3], anchor1[4], anchor1[5])
             for leg3, top3, pt3, (anchor2, roof2) in roof_leg(world, roof1, l1, False, set(), 2):
                 l2 = (anchor2[3], anchor2[4], anchor2[5])
                 cp3 = (pt3[0], pt3[1], world.roof_z(top3))
                 used = {roof1[0]["id"], top3[0]["id"]}
-                for leg5, top5, pt5, (anchor3, roof3) in roof_leg(world, roof2, l2, True, used, 1):
+                for leg5, top5, pt5, (anchor3, roof3) in roof_leg(world, roof2, l2, False, used, 1):
                     l3 = (anchor3[3], anchor3[4], anchor3[5])
-                    descent = descent_spots(world, roof3)
-                    if descent is None:
-                        continue
-                    stand, street, _floor = descent
-                    run7 = _dist2(l3, stand)
-                    props = world.props_near(l3[0], l3[1], run7 + 300.0)
-                    if run7 < 300.0 or run7 > 2500.0 or not roof_path_clear(world, l3, stand, [roof3], props):
-                        continue
-                    cp5 = (pt5[0], pt5[1], world.roof_z(top5))
-                    cp7 = (stand[0], stand[1], world.roof_z(roof3))
-                    cp8 = (street[0], street[1], ground)
-                    points = [cp1, l1, cp3, l2, cp5, l3, cp7, cp8]
-                    if any(_dist2(spot, p) > ROUTE_REACH for p in points):
-                        continue
-                    legs = ["Run", "Grapple", leg3, "Grapple", leg5, "Grapple", "Run", "Descent"]
-                    if need_mantle and "Mantle" not in legs:
-                        continue
-                    rings = []
-                    prev = (spot[0], spot[1], ground)
-                    for p, leg in zip(points, legs):
-                        rings.append(_checkpoint(p, prev, leg))
-                        prev = p
-                    return {"rings": rings, "roofs": [roof1[0]["id"], top3[0]["id"], roof2[0]["id"], top5[0]["id"], roof3[0]["id"]],
-                            "first": first_run}
+                    for leg7, roof7, stand, street in _final_legs(world, roof3, l3, used | {roof2[0]["id"], top5[0]["id"]}):
+                        cp5 = (pt5[0], pt5[1], world.roof_z(top5))
+                        cp7 = (stand[0], stand[1], world.roof_z(roof7))
+                        cp8 = (street[0], street[1], ground)
+                        points = [cp1, l1, cp3, l2, cp5, l3, cp7, cp8]
+                        if any(_dist2(spot, p) > ROUTE_REACH for p in points):
+                            continue
+                        legs = ["Run", "Grapple", leg3, "Grapple", leg5, "Grapple", leg7, "Descent"]
+                        if need_mantle and "Mantle" not in legs:
+                            continue
+                        rings = []
+                        prev = (spot[0], spot[1], ground)
+                        for p, leg in zip(points, legs):
+                            rings.append(_checkpoint(p, prev, leg))
+                            prev = p
+                        return {"rings": rings, "roofs": [roof1[0]["id"], top3[0]["id"], roof2[0]["id"], top5[0]["id"],
+                                                          roof3[0]["id"], roof7[0]["id"]],
+                                "first": first_run}
     return None
 
 
@@ -715,7 +819,7 @@ def plan_traversal(world, archery):
     mantle before any without. None crosses an archery pedestal's roof or starts beside one."""
     world.taken = world.taken | {p["osm"] for p in archery}
     corners = [(spot, top) for spot, top, _out in street_corners(world)
-               if all(_dist2(spot, p["start"]) >= TRAVERSAL_START_APART for p in archery)]
+               if all(_dist2(spot, p["start"]) >= ARCHERY_TRAVERSAL_APART for p in archery)]
     found = []
     for need_mantle in (True, False):
         for spot, top in corners:
