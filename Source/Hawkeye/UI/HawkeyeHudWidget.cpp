@@ -25,6 +25,7 @@
 #include "Player/HawkeyeCharacter.h"
 #include "Player/GrappleComponent.h"
 #include "UI/ChallengePanelWidget.h"
+#include "UI/CrimePanelWidget.h"
 #include "UI/HawkeyeHotbarWidget.h"
 #include "UI/HawkeyeObjectiveWidget.h"
 #include "UI/HawkeyeThugOverheadWidget.h"
@@ -83,6 +84,16 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 			PanelSlot->SetHorizontalAlignment(HAlign_Right);
 			PanelSlot->SetVerticalAlignment(VAlign_Top);
 			PanelSlot->SetPadding(FMargin(0.f, 48.f, 48.f, 0.f));
+		}
+
+		// Under the challenge panel's place: a crime pauses while a challenge runs, so they rarely share.
+		CrimePanel = WidgetTree->ConstructWidget<UCrimePanelWidget>(UCrimePanelWidget::StaticClass(), TEXT("CrimePanelHud"));
+		CrimePanel->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UOverlaySlot* CrimeSlot = Cast<UOverlaySlot>(Root->AddChild(CrimePanel)))
+		{
+			CrimeSlot->SetHorizontalAlignment(HAlign_Right);
+			CrimeSlot->SetVerticalAlignment(VAlign_Top);
+			CrimeSlot->SetPadding(FMargin(0.f, 190.f, 48.f, 0.f));
 		}
 
 		// Under the objective marker and the hotbar: the thugs' glyphs and health bars.
@@ -1157,6 +1168,7 @@ void UHawkeyeHudWidget::ApplyHudScale(float Scale)
 	ScaleAbout(PhoneBadge, FVector2D(1.f, 1.f));
 	ScaleAbout(ComboText, FVector2D(1.f, 0.5f));
 	ScaleAbout(ChallengePanel, FVector2D(1.f, 0.f));
+	ScaleAbout(CrimePanel, FVector2D(1.f, 0.f));
 	ScaleAbout(Hotbar, FVector2D(0.5f, 1.f));
 	ScaleAbout(GrappleMarker, FVector2D(0.5f, 0.5f));
 	if (ObjectiveMarker)

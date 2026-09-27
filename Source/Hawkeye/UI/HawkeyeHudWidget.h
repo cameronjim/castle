@@ -11,6 +11,7 @@
 class UBorder;
 class UBowComponent;
 class UChallengePanelWidget;
+class UCrimePanelWidget;
 class UCanvasPanel;
 class UHawkeyeHotbarWidget;
 class UHawkeyeObjectiveWidget;
@@ -110,6 +111,10 @@ public:
 	/** The side-challenge panel (timer, score or checkpoint, best), top right while a run is on. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Challenge")
 	UChallengePanelWidget* GetChallengePanel() const { return ChallengePanel; }
+
+	/** The street crime's line ("[Crime: mugging] 38 m") and its state, top right while a crime is on. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Crime")
+	UCrimePanelWidget* GetCrimePanel() const { return CrimePanel; }
 
 	/** The thugs' "!" / "?" glyphs and health bars. */
 	UFUNCTION(BlueprintPure, Category = "HUD")
@@ -523,6 +528,9 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UChallengePanelWidget> ChallengePanel = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCrimePanelWidget> CrimePanel = nullptr;
 
 	/** The hotbar along the bottom of the screen. Built into the HUD's own overlay. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hotbar")
