@@ -13,18 +13,15 @@
 AHawkeyeAmbience::AHawkeyeAmbience()
 {
 	PrimaryActorTick.bCanEverTick = true;
+	// The main menu pauses the district under it on a fresh boot; the city still hums behind it.
+	PrimaryActorTick.bTickEvenWhenPaused = true;
 	RootComponent = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 }
 
 void AHawkeyeAmbience::BeginPlay()
 {
 	Super::BeginPlay();
-
-	// Non-spatial beds: attached for their lifetime, but the sounds carry no attenuation.
-	Wind = UHawkeyeAudioSubsystem::PlayAttached(WindSound, RootComponent, TEXT("ambience wind"));
-	Street = UHawkeyeAudioSubsystem::PlayAttached(StreetSound, RootComponent, TEXT("ambience street"));
-	SinceUpdate = UpdateSeconds;
-	UpdateMix();
+	bBedsStarted = false;
 }
 
 void AHawkeyeAmbience::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -37,6 +34,14 @@ void AHawkeyeAmbience::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void AHawkeyeAmbience::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	if (!bBedsStarted)
+	{
+		bBedsStarted = true;
+		// Non-spatial beds: attached for their lifetime, but the sounds carry no attenuation.
+		Wind = UHawkeyeAudioSubsystem::PlayAttached(WindSound, RootComponent, TEXT("ambience wind"));
+		Street = UHawkeyeAudioSubsystem::PlayAttached(StreetSound, RootComponent, TEXT("ambience street"));
+		SinceUpdate = UpdateSeconds;
+	}
 	SinceUpdate += DeltaSeconds;
 	if (SinceUpdate >= UpdateSeconds)
 	{

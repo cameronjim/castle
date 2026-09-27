@@ -59,4 +59,7 @@ protected:
 
 	float ListenerHeight = 0.f;
 	float SinceUpdate = 0.f;
+
+	/** The beds start on the first tick, after the first frame, not inside the map load. */
+	bool bBedsStarted = false;
 };
