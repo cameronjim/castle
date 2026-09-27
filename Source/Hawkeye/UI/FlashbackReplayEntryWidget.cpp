@@ -18,6 +18,19 @@ void UFlashbackReplayEntryWidget::Setup(int32 InIndex, const FText& InLabel)
 	}
 }
 
+void UFlashbackReplayEntryWidget::SetEntryEnabled(bool bEnabled)
+{
+	bEntryEnabled = bEnabled;
+	if (Button)
+	{
+		Button->SetIsEnabled(bEnabled);
+	}
+	if (LabelText)
+	{
+		LabelText->SetColorAndOpacity(FSlateColor(bEnabled ? FLinearColor::White : FLinearColor(0.45f, 0.45f, 0.45f, 1.f)));
+	}
+}
+
 TSharedRef<SWidget> UFlashbackReplayEntryWidget::RebuildWidget()
 {
 	if (WidgetTree && !WidgetTree->RootWidget)
@@ -31,6 +44,7 @@ TSharedRef<SWidget> UFlashbackReplayEntryWidget::RebuildWidget()
 			TextSlot->SetHorizontalAlignment(HAlign_Center);
 			TextSlot->SetPadding(FMargin(48.f, 12.f));
 		}
+		SetEntryEnabled(bEntryEnabled);
 	}
 	return Super::RebuildWidget();
 }
@@ -57,6 +71,10 @@ void UFlashbackReplayEntryWidget::NativeDestruct()
 
 void UFlashbackReplayEntryWidget::HandleClicked()
 {
+	if (!bEntryEnabled)
+	{
+		return;
+	}
 	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
 	OnPicked.Broadcast(Index);
 }

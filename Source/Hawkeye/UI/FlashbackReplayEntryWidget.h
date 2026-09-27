@@ -29,6 +29,11 @@ public:
 
 	FText GetLabel() const { return Label; }
 
+	/** Greys the row out and stops it reporting clicks (a locked chapter, an undiscovered safehouse). */
+	void SetEntryEnabled(bool bEnabled);
+
+	bool IsEntryEnabled() const { return bEntryEnabled; }
+
 	UButton* GetButton() const { return Button; }
 
 protected:
@@ -51,4 +56,5 @@ private:
 	int32 Index = INDEX_NONE;
 	FText Label;
 	bool bBound = false;
+	bool bEntryEnabled = true;
 };
