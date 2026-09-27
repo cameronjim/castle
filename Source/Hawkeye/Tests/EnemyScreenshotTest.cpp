@@ -312,12 +312,13 @@ namespace HawkeyeEnemyShots
 	}
 }
 
-using namespace HawkeyeEnemyShots;
-
 DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeEnemyShot, FAutomationTestBase*, Test, uint8, Shot);
 
 bool FHawkeyeEnemyShot::Update()
 {
+	// Inside each body, not at file scope: the unity build puts this file beside the Kate pass's own
+	// FindWorld and EShot.
+	using namespace HawkeyeEnemyShots;
 	UWorld* World = FindWorld();
 	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
 	AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
@@ -637,6 +638,7 @@ public:
 
 	virtual bool Update() override
 	{
+		using namespace HawkeyeEnemyShots;
 		UWorld* World = FindWorld();
 		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
 		AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
@@ -780,6 +782,7 @@ DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeEnemyTakeShot, FAutomatio
 
 bool FHawkeyeEnemyTakeShot::Update()
 {
+	using namespace HawkeyeEnemyShots;
 	const FString FullPath = ShotPath(FileName);
 	FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
 	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
@@ -789,6 +792,7 @@ bool FHawkeyeEnemyTakeShot::Update()
 
 void HawkeyeAddEnemyShots(FAutomationTestBase* Test)
 {
+	using namespace HawkeyeEnemyShots;
 	auto Shot = [Test](EShot Which) { ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeEnemyShot(Test, static_cast<uint8>(Which))); };
 	auto Wait = [Test](const TCHAR* Label, float Timeout) { ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeEnemyWait(Test, FString(Label), Timeout)); };
 	auto Take = [Test](const TCHAR* File) { ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeEnemyTakeShot(Test, FString(File))); };
