@@ -4,6 +4,7 @@
 
 #include "Hawkeye.h"
 #include "Combat/HealthComponent.h"
+#include "Dialogue/DialogueSubsystem.h"
 #include "Engine/DataTable.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -58,6 +59,12 @@ int32 UBanterComponent::PickLineIndex(const TArray<FHawkeyeDialogueLine>& InLine
 
 bool UBanterComponent::PlaySituation(EHawkeyeBanterSituation Situation)
 {
+	// A scripted line or a walk-and-talk sequence has the floor; banter would talk over it.
+	UDialogueSubsystem* Dialogue = UDialogueSubsystem::Get(this);
+	if (Dialogue && Dialogue->IsBusy())
+	{
+		return false;
+	}
 	FName Speaker = NextSpeaker.IsNone() ? FirstSpeaker : NextSpeaker;
 	int32 Index = PickLineIndex(Lines, Situation, Speaker, LastIndex, Stream);
 	if (Index == INDEX_NONE)
@@ -81,10 +88,16 @@ bool UBanterComponent::PlaySituation(EHawkeyeBanterSituation Situation)
 
 	UE_LOG(LogHawkeye, Log, TEXT("Banter (%s) %s: \"%s\""), *UEnum::GetValueAsString(Situation), *Speaker.ToString(),
 		*LastText.ToString());
-	const AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetOwner());
-	if (UHawkeyeHudWidget* Hud = PC ? PC->GetHawkeyeHud() : nullptr)
+	if (Dialogue)
 	{
-		Hud->ShowSubtitle(FText::FromName(Speaker), LastText, SubtitleSeconds);
+		Dialogue->PresentLine(Speaker, LastText, SubtitleSeconds, Lines[Index].Audio.LoadSynchronous());
+	}
+	else if (const AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetOwner()))
+	{
+		if (UHawkeyeHudWidget* Hud = PC->GetHawkeyeHud())
+		{
+			Hud->ShowSubtitle(FText::FromName(Speaker), LastText, SubtitleSeconds);
+		}
 	}
 	OnBanterLine.Broadcast(Speaker, Situation, LastText);
 	return true;
