@@ -576,3 +576,29 @@ the last input came from a pad.
 - Chimney smoke on the 6 chimneys nearest the player at load. Frame time 7.4 to 7.7 ms.
 - Open: the explosion still reads washed out (its light plus camera-shake blur); the hit
   spark competes with the thug's hit flash; the footstep kick is faint.
+
+## Narrative plumbing (built 2026-09-27; placeholder text only, story is written with Cameron)
+- Phone (`UPhoneWidget`, P or hold D-pad down 0.4 s): contacts and threads from
+  `DT_Messages` (Id, Sender, Text, Trigger: ObjectiveCompleted / ObjectiveStarted /
+  ChapterStart / Event, TriggerObjectiveId, TriggerEvent, ChapterId, DelaySeconds,
+  bRead). A message arrives when its trigger fires, with a 2 s HUD notification and an
+  unread badge. Read state is saved. CH01 has four placeholder rows.
+- Chapter title card (`UChapterTitleWidget`): number, `OpeningTitle`, `OpeningSubtitle`
+  from the mission definition, 3 s hold then fade, skippable, input live. Seen-state saved.
+- Chapter end: `AChapterEndInteractable` completes an objective on examine, plays a 2 s
+  close-up camera push, then the end card (`EndCardLine` from the mission), then the
+  flashback if set, then back to roaming with a "[Chapter complete]" toast. CH01's is the
+  purple-fletched arrow in `City_ChapterEndTower`; the find_arrow trigger volume is gone.
+- Flashback playable scene: `PlayableScene` and `ReturnPointLabel` on the definition.
+  After the slides the scene map loads; the district is saved first, saves are refused
+  inside the scene, and its mission completion returns to `City_SceneReturn_<id>` with
+  state restored. `DA_FB00_Placeholder` with three "[Slide N]" slides leads to
+  `L_Scene_Placeholder`, a 20 x 20 m room; CH01 currently plays it.
+- `UDialogueSubsystem`: `PlayLine(Row)` shows speaker and subtitle and plays audio if set;
+  a queue; `PlaySequence(Name)` from `DT_DialogueSequences` (Sequence, Order, Line,
+  GapSeconds) survives traversal and pauses in combat. Banter routes through it.
+  `DT_Dialogue` gained Audio, DurationSeconds, and a Scripted situation banter never picks.
+  One placeholder sequence `seq_ch01_open` with three "[line]" rows.
+- All CH01 text is bracketed placeholders: "[CH01 title]", "[CH01 subtitle]",
+  "[End card line]", "[Grills text 1]" and so on. The 48 banter lines are the only
+  written lines in the game.
