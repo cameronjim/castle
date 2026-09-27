@@ -105,6 +105,17 @@ public:
 		return Secondary.IsValidIndex(Index) ? Secondary[Index].Placement : FObjectiveMarkerPlacement();
 	}
 
+	/** Discovered safehouses drawn on the compass this frame (a small house each). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Compass")
+	int32 GetCompassSafehouseCount() const { return SafehouseIcons.Num(); }
+
+	/** Offset from the strip's centre of safehouse icon Index, px. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Compass")
+	float GetCompassSafehouseOffset(int32 Index) const
+	{
+		return SafehouseIcons.IsValidIndex(Index) ? SafehouseIcons[Index].Offset : 0.f;
+	}
+
 protected:
 	//~ Begin UUserWidget interface
 	virtual TSharedRef<SWidget> RebuildWidget() override;
@@ -126,6 +137,11 @@ protected:
 	bool UpdateSecondaryMarkers(APlayerController* PC, const FVector& PawnLocation, const FVector& CameraLocation);
 
 	void PaintSecondary(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
+
+	/** Puts every discovered safehouse on the compass strip. */
+	void UpdateSafehouseIcons(const FVector& PawnLocation, const FVector& CameraLocation);
+
+	void PaintSafehouseIcons(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
 
 	void PaintMarker(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
 	void PaintCompass(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
@@ -223,6 +239,15 @@ private:
 		bool bCompassClamped = false;
 		float Distance = 0.f;
 	};
+
+	struct FSafehouseIcon
+	{
+		float Offset = 0.f;
+		bool bClamped = false;
+	};
+
+	/** This frame's safehouse houses on the compass. */
+	TArray<FSafehouseIcon> SafehouseIcons;
 
 	/** This frame's secondary markers; the nearest one carries the distance. */
 	TArray<FSecondaryMark> Secondary;

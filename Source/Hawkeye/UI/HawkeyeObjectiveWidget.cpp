@@ -19,6 +19,7 @@
 #include "Rendering/SlateRenderer.h"
 #include "SceneView.h"
 #include "Styling/CoreStyle.h"
+#include "World/SafehouseSubsystem.h"
 
 namespace HawkeyeObjectiveHud
 {
@@ -226,6 +227,11 @@ void UHawkeyeObjectiveWidget::UpdateMarker(const FGeometry& /*MyGeometry*/)
 
 	Secondary.Reset();
 	NearestSecondary = INDEX_NONE;
+	SafehouseIcons.Reset();
+	if (Pawn)
+	{
+		UpdateSafehouseIcons(Pawn->GetActorLocation(), CameraLocation);
+	}
 	if (Pawn && UpdateSecondaryMarkers(PC, Pawn->GetActorLocation(), CameraLocation))
 	{
 		// A challenge's markers take the objective's place until it ends.
@@ -304,6 +310,50 @@ bool UHawkeyeObjectiveWidget::UpdateSecondaryMarkers(APlayerController* PC, cons
 	return true;
 }
 
+void UHawkeyeObjectiveWidget::UpdateSafehouseIcons(const FVector& PawnLocation, const FVector& CameraLocation)
+{
+	const USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this);
+	if (!Safehouses)
+	{
+		return;
+	}
+	for (const FHawkeyeSafehouseEntry& Entry : Safehouses->GetEntries())
+	{
+		if (!Entry.bDiscovered || FVector::Dist(PawnLocation, Entry.Location) < HideWithinDistance)
+		{
+			continue;
+		}
+		FSafehouseIcon& Icon = SafehouseIcons.AddDefaulted_GetRef();
+		Icon.Offset = UObjectiveMarkerMath::CompassOffset(UObjectiveMarkerMath::BearingBetween(CameraLocation, Entry.Location,
+			NorthYawDegrees), ViewBearing, CompassWidth, CompassSpanDegrees, Icon.bClamped);
+	}
+}
+
+void UHawkeyeObjectiveWidget::PaintSafehouseIcons(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
+{
+	// A house 12 px wide: a square body under a pitched roof, in the marker's cream.
+	const float CentreX = Geometry.GetLocalSize().X * 0.5f;
+	const float Mid = CompassTop + HawkeyeObjectiveHud::CompassHeight * 0.5f;
+	for (const FSafehouseIcon& Icon : SafehouseIcons)
+	{
+		const float X = CentreX + Icon.Offset;
+		FLinearColor Color = MarkerColor;
+		Color.A = Icon.bClamped ? 0.45f : 0.95f;
+		const TArray<FVector2D> House{ FVector2D(X - 5.f, Mid + 6.f), FVector2D(X - 5.f, Mid - 1.f), FVector2D(X - 7.f, Mid - 1.f),
+			FVector2D(X, Mid - 7.f), FVector2D(X + 7.f, Mid - 1.f), FVector2D(X + 5.f, Mid - 1.f), FVector2D(X + 5.f, Mid + 6.f),
+			FVector2D(X - 5.f, Mid + 6.f) };
+		FLinearColor ShadowColor = HawkeyeObjectiveHud::Shadow;
+		ShadowColor.A *= Color.A;
+		TArray<FVector2D> ShadowPoints;
+		for (const FVector2D& Point : House)
+		{
+			ShadowPoints.Add(Point + FVector2D(1.f, 1.f));
+		}
+		FSlateDrawElement::MakeLines(Out, LayerId, Geometry.ToPaintGeometry(), ShadowPoints, ESlateDrawEffect::None, ShadowColor, true, 2.f);
+		FSlateDrawElement::MakeLines(Out, LayerId + 1, Geometry.ToPaintGeometry(), House, ESlateDrawEffect::None, Color, true, 2.f);
+	}
+}
+
 void UHawkeyeObjectiveWidget::PaintSecondary(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
 {
 	using namespace HawkeyeObjectiveHud;
@@ -357,10 +407,11 @@ int32 UHawkeyeObjectiveWidget::NativePaint(const FPaintArgs& Args, const FGeomet
 	const float Scale = FMath::Max(HudScale, 0.1f);
 	const FGeometry Scaled = AllottedGeometry.MakeChild(AllottedGeometry.GetLocalSize() / Scale, FSlateLayoutTransform(Scale));
 	PaintCompass(Scaled, OutDrawElements, Layer + 1);
+	PaintSafehouseIcons(Scaled, OutDrawElements, Layer + 3);
 	PaintMarker(Scaled, OutDrawElements, Layer + 1);
 	PaintSecondary(Scaled, OutDrawElements, Layer + 1);
 	PaintToast(Scaled, OutDrawElements, Layer + 1);
-	return Layer + 4;
+	return Layer + 5;
 }
 
 void UHawkeyeObjectiveWidget::PaintMarker(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
