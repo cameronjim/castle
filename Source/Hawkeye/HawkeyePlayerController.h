@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "Audio/HawkeyeAudioTypes.h"
+#include "Settings/HawkeyeSettings.h"
 #include "HawkeyePlayerController.generated.h"
 
 class SWidget;
@@ -24,6 +26,9 @@ class UInputMappingContext;
 class UMissionDefinition;
 class UMissionEndCardWidget;
 class UMissionFlowController;
+class USoundBase;
+class USoundClass;
+class USoundMix;
 struct FInputActionValue;
 struct FInputKeyEventArgs;
 
@@ -320,6 +325,56 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Partner")
 	bool bAllowSwitchingOverride = false;
 
+	// --- Audio -------------------------------------------------------------------------------------
+
+	/** Plays one of the interface sounds below, 2D and through pause. Nothing when it is unset. */
+	UFUNCTION(BlueprintCallable, Category = "Audio")
+	void PlayUISound(EHawkeyeUISound Sound);
+
+	/** Pushes VolumeMix and overrides each sound class with the gains Settings asks for. */
+	UFUNCTION(BlueprintCallable, Category = "Audio")
+	void ApplyVolumeSettings(const FHawkeyeSettings& Settings);
+
+	/** The gains the last ApplyVolumeSettings used (tests and the log read them). */
+	UFUNCTION(BlueprintPure, Category = "Audio")
+	FHawkeyeClassVolumes GetAppliedVolumes() const { return AppliedVolumes; }
+
+	/** A menu button under the cursor or the pad's focus (MS_UI_Hover). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|UI")
+	TSoftObjectPtr<USoundBase> UIHoverSound;
+
+	/** A menu button pressed (MS_UI_Click). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|UI")
+	TSoftObjectPtr<USoundBase> UIClickSound;
+
+	/** The two-note chime when an objective completes (MS_UI_ObjectiveComplete). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|UI")
+	TSoftObjectPtr<USoundBase> ObjectiveCompleteSound;
+
+	/** The tick when a new objective is shown (MS_UI_NewObjective). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|UI")
+	TSoftObjectPtr<USoundBase> NewObjectiveSound;
+
+	/** Any other toast (a pickup) (MS_UI_Toast). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|UI")
+	TSoftObjectPtr<USoundBase> ToastSound;
+
+	/** The mix the volume sliders drive (SMX_Settings). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|Volume")
+	TSoftObjectPtr<USoundMix> VolumeMix;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|Volume")
+	TSoftObjectPtr<USoundClass> MasterSoundClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|Volume")
+	TSoftObjectPtr<USoundClass> SfxSoundClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|Volume")
+	TSoftObjectPtr<USoundClass> AmbientSoundClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|Volume")
+	TSoftObjectPtr<USoundClass> UISoundClass;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
@@ -340,6 +395,26 @@ protected:
 
 	/** Adds PauseMappingContext to the local player's Enhanced Input subsystem. */
 	void AddPauseMappingContext();
+
+	/** A slider moved: the new volumes apply at once, before the screen closes. */
+	UFUNCTION()
+	void HandleSettingsChanged(FHawkeyeSettings Settings);
+
+	UPROPERTY(Transient)
+	FHawkeyeClassVolumes AppliedVolumes;
+
+	/**
+	 * The mix and classes, held while the mix is pushed: the audio device keeps raw pointers to them,
+	 * and a class collected under a pushed override is warned about every frame.
+	 */
+	UPROPERTY(Transient)
+	TObjectPtr<USoundMix> PushedMix = nullptr;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<USoundClass>> OverriddenClasses;
+
+	/** Takes the mix back off the device (EndPlay), so nothing outlives this controller. */
+	void PopVolumeMix();
 
 	UFUNCTION()
 	void HandlePauseResumeClicked();

@@ -4,6 +4,9 @@
 
 #include "Blueprint/UserWidget.h"
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioMath.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
+#include "Audio/HawkeyeVolumeSubsystem.h"
 #include "HawkeyeGameMode.h"
 #include "Combat/HealthComponent.h"
 #include "EnhancedInputComponent.h"
@@ -34,6 +37,9 @@
 #include "Player/HawkeyeCharacter.h"
 #include "Player/InventoryComponent.h"
 #include "Save/HawkeyeSaveSubsystem.h"
+#include "Settings/HawkeyeSettingsSubsystem.h"
+#include "Sound/SoundClass.h"
+#include "Sound/SoundMix.h"
 #include "UI/HawkeyeMainMenuWidget.h"
 #include "UI/HawkeyeSafehouseWidget.h"
 #include "World/Safehouse.h"
@@ -64,6 +70,15 @@ void AHawkeyePlayerController::BeginPlay()
 
 	AddPauseMappingContext();
 	CreateHud();
+
+	if (IsLocalController())
+	{
+		if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
+		{
+			SettingsSubsystem->OnSettingsChanged.AddDynamic(this, &AHawkeyePlayerController::HandleSettingsChanged);
+			ApplyVolumeSettings(SettingsSubsystem->GetSettings());
+		}
+	}
 
 	// First boot: the district is already loaded behind the menu, so there is no separate map.
 	if (UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this); Save && IsLocalController() && Save->ConsumeBootMenu())
@@ -747,6 +762,12 @@ UHawkeyeHudWidget* AHawkeyePlayerController::GetHawkeyeHudFor(const UObject* Wor
 
 void AHawkeyePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		SettingsSubsystem->OnSettingsChanged.RemoveDynamic(this, &AHawkeyePlayerController::HandleSettingsChanged);
+	}
+	PopVolumeMix();
+
 	if (UMissionSubsystem* MissionSubsystem = UMissionSubsystem::Get(this))
 	{
 		MissionSubsystem->OnMissionComplete.RemoveDynamic(this, &AHawkeyePlayerController::HandleMissionComplete);
@@ -1236,4 +1257,93 @@ bool AHawkeyePlayerController::MarkPoint()
 	}
 	Partner->CommandMoveTo(Point);
 	return true;
+}
+
+// --- Audio ---------------------------------------------------------------------------------------
+
+void AHawkeyePlayerController::PlayUISound(EHawkeyeUISound Sound)
+{
+	const TSoftObjectPtr<USoundBase>* Chosen = nullptr;
+	const TCHAR* Event = TEXT("ui");
+	switch (Sound)
+	{
+	case EHawkeyeUISound::Hover:
+		Chosen = &UIHoverSound;
+		Event = TEXT("ui hover");
+		break;
+	case EHawkeyeUISound::Click:
+		Chosen = &UIClickSound;
+		Event = TEXT("ui click");
+		break;
+	case EHawkeyeUISound::ObjectiveComplete:
+		Chosen = &ObjectiveCompleteSound;
+		Event = TEXT("objective complete");
+		break;
+	case EHawkeyeUISound::NewObjective:
+		Chosen = &NewObjectiveSound;
+		Event = TEXT("new objective");
+		break;
+	default:
+		Chosen = &ToastSound;
+		Event = TEXT("toast");
+		break;
+	}
+	UHawkeyeAudioSubsystem::Play2D(this, *Chosen, Event);
+}
+
+void AHawkeyePlayerController::PopVolumeMix()
+{
+	if (!PushedMix)
+	{
+		return;
+	}
+	for (USoundClass* Class : OverriddenClasses)
+	{
+		UGameplayStatics::ClearSoundMixClassOverride(this, PushedMix, Class, 0.f);
+	}
+	UGameplayStatics::PopSoundMixModifier(this, PushedMix);
+	PushedMix = nullptr;
+	OverriddenClasses.Reset();
+}
+
+void AHawkeyePlayerController::HandleSettingsChanged(FHawkeyeSettings Settings)
+{
+	ApplyVolumeSettings(Settings);
+}
+
+void AHawkeyePlayerController::ApplyVolumeSettings(const FHawkeyeSettings& Settings)
+{
+	AppliedVolumes = HawkeyeAudioMath::ComputeClassVolumes(Settings);
+	USoundMix* Mix = PushedMix ? PushedMix.Get() : VolumeMix.LoadSynchronous();
+	UHawkeyeVolumeSubsystem* Keeper = UHawkeyeVolumeSubsystem::Get(this);
+	if (!Mix || !Keeper)
+	{
+		// No mix set (tests), or no game instance to keep it alive under the audio device.
+		return;
+	}
+	Keeper->Hold(Mix);
+	// Each class gets its full product, not applied to children: the class tree must not multiply
+	// the master in a second time.
+	const TPair<const TSoftObjectPtr<USoundClass>*, float> Classes[] = {
+		{ &MasterSoundClass, AppliedVolumes.Master },
+		{ &SfxSoundClass, AppliedVolumes.Sfx },
+		{ &AmbientSoundClass, AppliedVolumes.Ambient },
+		{ &UISoundClass, AppliedVolumes.UI },
+	};
+	for (const TPair<const TSoftObjectPtr<USoundClass>*, float>& Entry : Classes)
+	{
+		if (USoundClass* Class = Entry.Key->LoadSynchronous())
+		{
+			Keeper->Hold(Class);
+			OverriddenClasses.AddUnique(Class);
+			UGameplayStatics::SetSoundMixClassOverride(this, Mix, Class, Entry.Value, 1.f, 0.f, false);
+		}
+	}
+	if (!PushedMix)
+	{
+		PushedMix = Mix;
+		UGameplayStatics::PushSoundMixModifier(this, Mix);
+	}
+	UE_LOG(LogHawkeye, Verbose, TEXT("%s: volumes master %.2f, sfx %.2f, ambient %.2f, ui %.2f."), *GetName(),
+		AppliedVolumes.Master, AppliedVolumes.Sfx, AppliedVolumes.Ambient, AppliedVolumes.UI);
 }
