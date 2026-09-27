@@ -663,6 +663,175 @@ def run():
     }
 
 
+# --------------------------------------------------------------------------------------
+# audio defaults (Tools/Editor/create_audio.py builds the sounds; this points the classes at them)
+# --------------------------------------------------------------------------------------
+# Runs as its own create_all step after every Blueprint and data asset exists. Children (BP_Kate,
+# BP_Clint, BP_Archer, BP_Thug_Heavy) inherit from the parents set here.
+
+AUDIO_AI_PATH = "/Game/Blueprints/AI"
+AUDIO_WEAPON_PATH = "/Game/Blueprints/Weapons"
+
+_BOW_SOUNDS = [
+    ("draw_sound", "MS_Bow_Draw"),
+    ("release_sound", "MS_Bow_Release"),
+    ("whistle_sound", "MS_Arrow_Whistle"),
+    ("impact_stone_sound", "MS_Arrow_Impact_Stone"),
+    ("impact_wood_sound", "MS_Arrow_Impact_Wood"),
+    ("impact_flesh_sound", "MS_Arrow_Impact_Flesh"),
+    ("pickup_sound", "MS_Arrow_Pickup"),
+]
+
+# (Blueprint folder, Blueprint, component or None for the CDO, [(property, sound name or [names])])
+AUDIO_DEFAULTS = [
+    (PLAYER_PATH, "BP_HawkeyeCharacter", None, [
+        ("footstep_sounds", ["MS_Foot_Snow_01", "MS_Foot_Snow_02", "MS_Foot_Snow_03", "MS_Foot_Snow_04"]),
+        ("land_sound", "MS_Land"),
+        ("roll_sound", "MS_Roll_Thump"),
+        ("stagger_sound", "MS_Melee_Stagger"),
+    ]),
+    (PLAYER_PATH, "BP_HawkeyeCharacter", "bow_component", _BOW_SOUNDS),
+    (PLAYER_PATH, "BP_HawkeyeCharacter", "grapple_component", [
+        ("fire_sound", "MS_Grapple_Fire"),
+        ("zip_sound", "MS_Grapple_Zip"),
+        ("land_sound", "MS_Grapple_Land"),
+    ]),
+    (PLAYER_PATH, "BP_HawkeyeCharacter", "parkour_component", [("effort_sound", "MS_Vault_Grunt")]),
+    (PLAYER_PATH, "BP_HawkeyeCharacter", "melee_component", [
+        ("hit_sound", "MS_Melee_Punch"),
+        ("heavy_hit_sound", "MS_Melee_Heavy"),
+    ]),
+    (AUDIO_AI_PATH, "BP_Thug", None, [
+        ("telegraph_sound", "MS_Thug_Telegraph"),
+        ("hurt_sound", "MS_Thug_Hurt"),
+        ("death_sound", "MS_Thug_Death"),
+        ("block_sound", "MS_Melee_Block"),
+        ("stagger_sound", "MS_Melee_Stagger"),
+    ]),
+    (AUDIO_AI_PATH, "BP_Thug", "melee_component", [
+        ("windup_sound", "MS_Thug_Telegraph"),
+        ("swing_sound", "MS_Thug_BatSwing"),
+        ("hit_sound", "MS_Melee_Punch"),
+    ]),
+    (AUDIO_AI_PATH, "BP_Thug", "weapon_component", [("fire_sound", "MS_Thug_Gunshot")]),
+    (AUDIO_AI_PATH, "BP_Thug", "bow_component", _BOW_SOUNDS),
+    (PLAYER_PATH, "BP_HawkeyePlayerController", None, [
+        ("ui_hover_sound", "MS_UI_Hover"),
+        ("ui_click_sound", "MS_UI_Click"),
+        ("objective_complete_sound", "MS_UI_ObjectiveComplete"),
+        ("new_objective_sound", "MS_UI_NewObjective"),
+        ("toast_sound", "MS_UI_Toast"),
+        ("volume_mix", "@SMX_Settings"),
+        ("master_sound_class", "@SCL_Master"),
+        ("sfx_sound_class", "@SCL_SFX"),
+        ("ambient_sound_class", "@SCL_Ambient"),
+        ("ui_sound_class", "@SCL_UI"),
+    ]),
+]
+
+# data asset -> (sound, follows the effect)
+AUDIO_ARROWS = {
+    "DA_Arrow_Putty": ("MS_Trick_Putty", False),
+    "DA_Arrow_Bola": ("MS_Trick_Bola", False),
+    "DA_Arrow_Smoke": ("MS_Trick_Smoke", True),
+    "DA_Arrow_EMP": ("MS_Trick_Emp", False),
+    "DA_Arrow_Explosive": ("MS_Trick_Explosion", False),
+}
+
+
+def _audio_asset(name):
+    """A sound by MS_ name, or a mix/class by @name."""
+    import create_audio  # noqa: PLC0415 - only this step needs it
+
+    if name.startswith("@"):
+        return c.load_or_none(c.asset_path(create_audio.CLASSES_PATH, name[1:]))
+    return c.load_or_none(create_audio.sound_path(name))
+
+
+def _asset_key(value):
+    """Package path of an object or soft reference (or a list of them), so reads compare with writes."""
+    if isinstance(value, (list, tuple, unreal.Array)):
+        return [_asset_key(v) for v in value]
+    if value is None:
+        return ""
+    for getter in ("get_path_name", "export_text"):
+        method = getattr(value, getter, None)
+        if method is not None:
+            try:
+                return str(method()).split(".")[0]
+            except Exception:  # noqa: BLE001
+                pass
+    return str(value).split(".")[0]
+
+
+def _apply_sound_values(target, values, context):
+    """Sets each (property, name) on target that differs. Returns the properties changed."""
+    changed = []
+    for prop, names in values:
+        wanted = [_audio_asset(n) for n in names] if isinstance(names, list) else _audio_asset(names)
+        if wanted is None or (isinstance(wanted, list) and any(w is None for w in wanted)):
+            c.log("skipped", context + "." + prop, "sound not built; run create_audio")
+            continue
+        try:
+            current = target.get_editor_property(prop)
+        except Exception:  # noqa: BLE001 - set_props reports a missing property
+            current = None
+        if _asset_key(current) == _asset_key(wanted):
+            continue
+        if c.set_props(target, [(prop, wanted)], context):
+            changed.append(prop)
+    return changed
+
+
+def apply_audio_defaults():
+    """Points every class that plays a sound at its MetaSound. Saves only what changed."""
+    by_blueprint = {}
+    for path, name, component, values in AUDIO_DEFAULTS:
+        by_blueprint.setdefault((path, name), []).append((component, values))
+
+    for (path, name), entries in by_blueprint.items():
+        full = c.asset_path(path, name)
+        bp = c.load_or_none(full)
+        cdo = c.blueprint_cdo(bp) if bp is not None else None
+        if cdo is None:
+            c.log("skipped", full + " audio", "Blueprint not found")
+            continue
+        changed = []
+        for component, values in entries:
+            target = cdo
+            if component:
+                try:
+                    target = cdo.get_editor_property(component)
+                except Exception:  # noqa: BLE001
+                    target = None
+            if target is None:
+                c.log("skipped", "{0}.{1}".format(name, component), "no such component")
+                continue
+            changed += _apply_sound_values(target, values, name + ("." + component if component else ""))
+        if changed:
+            c.compile_blueprint(bp)
+            c.save(bp)
+            c.log("updated", full, "sounds: " + ", ".join(changed))
+        else:
+            c.log("exists", full, "sounds already set")
+
+    for arrow, (sound, follows) in AUDIO_ARROWS.items():
+        full = c.asset_path(AUDIO_WEAPON_PATH, arrow)
+        asset = c.load_or_none(full)
+        if asset is None:
+            c.log("skipped", full + " audio", "data asset not found")
+            continue
+        changed = _apply_sound_values(asset, [("effect_sound", sound)], arrow)
+        if bool(asset.get_editor_property("effect_sound_follows_effect")) != follows:
+            c.set_props(asset, [("effect_sound_follows_effect", follows)], arrow)
+            changed.append("effect_sound_follows_effect")
+        if changed:
+            c.save(asset)
+            c.log("updated", full, "sounds: " + ", ".join(changed))
+        else:
+            c.log("exists", full, "sound already set")
+
+
 if __name__ == "__main__":
     run()
     c.print_summary("blueprints")

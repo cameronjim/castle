@@ -793,6 +793,46 @@ def check_skeletal_material_usage():
                              name, component_name, slot, name_of(material)))
 
 
+def check_audio():
+    """Every MetaSound create_audio.py lists exists, and each class that plays sounds points at them."""
+    say("---- audio ----")
+    import create_audio  # noqa: PLC0415
+    import create_blueprints as cb  # noqa: PLC0415
+
+    # Soft references read back as None until their target is loaded, so load everything first.
+    for name, _parent in create_audio.SOUND_CLASSES:
+        c.load_or_none(c.asset_path(create_audio.CLASSES_PATH, name))
+    c.load_or_none(c.asset_path(create_audio.CLASSES_PATH, create_audio.MIX_NAME))
+    present = 0
+    for entry in create_audio.SOUNDS:
+        path = create_audio.sound_path(entry[0])
+        sound = unreal.EditorAssetLibrary.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
+        if sound is None:
+            fail(path + " is missing; run create_audio")
+            continue
+        present += 1
+        wanted_class = entry[4]
+        if name_of(prop(sound, "sound_class_object")) != wanted_class:
+            fail("{0} is in sound class {1}, expected {2}".format(entry[0], name_of(prop(sound, "sound_class_object")),
+                                                                  wanted_class))
+    say("  {0}/{1} MetaSounds present".format(present, len(create_audio.SOUNDS)))
+
+    unset = 0
+    for path, bp_name, component, values in cb.AUDIO_DEFAULTS:
+        cls = unreal.load_class(None, "{0}/{1}.{1}_C".format(path, bp_name))
+        cdo = unreal.get_default_object(cls) if cls is not None else None
+        target = prop(cdo, component) if (cdo is not None and component) else cdo
+        if target is None:
+            fail("{0}{1} not found for the audio check".format(bp_name, "." + component if component else ""))
+            continue
+        for field, _names in values:
+            value = prop(target, field)
+            if value is None or (isinstance(value, (list, unreal.Array)) and len(value) == 0):
+                unset += 1
+                fail("{0}{1}.{2} has no sound".format(bp_name, "." + component if component else "", field))
+    say("  class sound defaults: {0} unset".format(unset))
+
+
 def main():
     say("==== verifying starter content ====")
     check_existence()
@@ -807,6 +847,7 @@ def main():
     check_skeletal_material_usage()
     check_weapon_data()
     check_data_assets()
+    check_audio()
     if PROBLEMS:
         unreal.log_error("[Verify] FAIL: {0} problem(s)".format(len(PROBLEMS)))
         for problem in PROBLEMS:
