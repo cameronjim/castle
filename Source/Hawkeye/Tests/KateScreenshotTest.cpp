@@ -53,6 +53,8 @@
 #include "Tests/SaveScreenshots.h"
 #include "Tests/VfxScreenshots.h"
 
+#include "Tests/HawkeyeShots.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
@@ -921,10 +923,8 @@ DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeKateTakeShot, FAutomation
 bool FHawkeyeKateTakeShot::Update()
 {
 	const FString FullPath = HawkeyeKateShots::ShotPath(FileName);
-	FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
 	// With UI, so the aim shot shows the reticle and the hip shots show there is none.
-	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-	Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+	HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	return true;
 }
 
@@ -2842,6 +2842,8 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	// The phone, the title card, a scripted line, and chapter 1's end played through its playable
 	// scene and back. Last of all: it completes the chapter and travels twice.
 	HawkeyeAddNarrativeShots(this);
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 

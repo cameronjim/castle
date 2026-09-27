@@ -25,6 +25,8 @@
 #include "World/Safehouse.h"
 #include "World/ThugCharacter.h"
 
+#include "Tests/HawkeyeShots.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace HawkeyeSaveRoundTrip
@@ -100,9 +102,7 @@ namespace HawkeyeSaveRoundTrip
 	static void TakeShot(FAutomationTestBase* Test, const FString& FileName)
 	{
 		const FString FullPath = ShotPath(FileName);
-		FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
-		FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-		Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+		HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	}
 
 	static TArray<int32> ReadArrowCounts(const UInventoryComponent* Inventory)
@@ -280,6 +280,8 @@ bool FHawkeyeSaveRoundTrip::RunTest(const FString& Parameters)
 		Save->SlotNameOverride.Reset();
 		return true;
 	}));
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 

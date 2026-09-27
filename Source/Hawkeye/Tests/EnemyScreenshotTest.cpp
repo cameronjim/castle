@@ -28,6 +28,8 @@
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
+#include "Tests/HawkeyeShots.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
@@ -784,9 +786,7 @@ bool FHawkeyeEnemyTakeShot::Update()
 {
 	using namespace HawkeyeEnemyShots;
 	const FString FullPath = ShotPath(FileName);
-	FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
-	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-	Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+	HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	return true;
 }
 

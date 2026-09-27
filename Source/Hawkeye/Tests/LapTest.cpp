@@ -33,6 +33,7 @@
 #include "Player/InventoryComponent.h"
 #include "Player/ParkourComponent.h"
 #include "Tests/AutomationCommon.h"
+#include "Tests/HawkeyeShots.h"
 #include "Tests/HawkeyeTestUtils.h"
 #include "Tests/PartnerScreenshots.h"
 #include "UObject/StrongObjectPtr.h"
@@ -133,9 +134,7 @@ namespace HawkeyeLap
 	static void Shot(FAutomationTestBase* Test, const FString& FileName)
 	{
 		const FString FullPath = ShotPath(FileName);
-		FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
-		FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-		Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+		HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	}
 
 	static UWorld* FindWorld()
@@ -319,8 +318,18 @@ namespace HawkeyeLap
 		bool bBlockedLatched = false;
 		TArray<FString> BlockedWhere;
 
+		/** Frames that paid for a screenshot read-back: the test's cost, not the game's. */
+		int32 CaptureFrames = 0;
+		int32 FramesOver100 = 0;
+
 		void Frame(float DeltaSeconds)
 		{
+			if (HawkeyeShots::DidCaptureLastFrame())
+			{
+				++CaptureFrames;
+				return;
+			}
+			FramesOver100 += DeltaSeconds >= 0.1f ? 1 : 0;
 			FrameSeconds += DeltaSeconds;
 			if (DeltaSeconds > WorstFrame)
 			{
@@ -1265,7 +1274,7 @@ void FHawkeyeLapRunner::Finish(UWorld* World, APlayerController* PC, AHawkeyeCha
 		"  \"moves\": [\n    %s\n  ],\n  \"roofs\": [%s],\n  \"longest_chain_zips\": %d,\n"
 		"  \"chain_midair_redirects\": %d,\n  \"chain_touch_and_go\": %d,\n  \"chain_longest_touch_seconds\": %.2f,\n"
 		"  \"chain_touchdowns\": %d,\n  \"chain_legs\": [%s],\n"
-		"  \"frames\": %d,\n  \"excluded_script_frames\": %d,\n  \"average_frame_ms\": %.2f,\n  \"worst_frame_ms\": %.2f,\n  \"worst_frame_index\": %d,\n  \"frames_over_33ms\": %d,\n"
+		"  \"frames\": %d,\n  \"excluded_script_frames\": %d,\n  \"excluded_capture_frames\": %d,\n  \"average_frame_ms\": %.2f,\n  \"worst_frame_ms\": %.2f,\n  \"worst_frame_index\": %d,\n  \"frames_over_33ms\": %d,\n  \"frames_over_100ms\": %d,\n"
 		"  \"ledge_spawn_load_ms\": %.1f,\n  \"ledge_spawn_total_ms\": %.1f,\n  \"anchor_spawn_ms\": %.1f,\n"
 		"  \"street_grapple_note\": \"%s\",\n  \"kate_health\": %.1f,\n  \"survey_roofs\": %d,\n  \"survey_roofs_with_clear_roof_grapple\": %d\n}\n"),
 		bCompleted ? TEXT("true") : TEXT("false"), bDescentScripted ? TEXT("true") : TEXT("false"),
@@ -1274,8 +1283,8 @@ void FHawkeyeLapRunner::Finish(UWorld* World, APlayerController* PC, AHawkeyeCha
 		*FailReason.ReplaceCharWithEscapedChar(), Seconds, StreetMetres,
 		Meter.BlockedEvents, *FString::Join(Blocked, TEXT(", ")), MaxAttempts, bAllFirst ? TEXT("true") : TEXT("false"),
 		*FString::Join(MoveLines, TEXT(",\n    ")), *FString::Join(Roofs, TEXT(", ")), LongestChain, ChainMidAir, ChainTouchAndGo, LongestTouch,
-		ChainTouchDowns, *FString::Join(ChainLegs, TEXT(", ")), Meter.Frames, ExcludedFrames,
-		Meter.AverageMs(), Meter.WorstFrame * 1000.0, Meter.WorstFrameIndex, Meter.FramesOver33, Spawner ? Spawner->GetLoadLedgeSpawnSeconds() * 1000.f : -1.f,
+		ChainTouchDowns, *FString::Join(ChainLegs, TEXT(", ")), Meter.Frames, ExcludedFrames, Meter.CaptureFrames,
+		Meter.AverageMs(), Meter.WorstFrame * 1000.0, Meter.WorstFrameIndex, Meter.FramesOver33, Meter.FramesOver100, Spawner ? Spawner->GetLoadLedgeSpawnSeconds() * 1000.f : -1.f,
 		Spawner ? Spawner->GetTotalLedgeSpawnSeconds() * 1000.f : -1.f, Spawner ? Spawner->GetAnchorSpawnSeconds() * 1000.f : -1.f,
 		*StreetGrappleNote.ReplaceCharWithEscapedChar(), Kate->GetHealthComponent()->GetCurrentHealth(), SurveyRoofs, SurveyRoofsWithExit);
 	HawkeyeLap::WriteText(TEXT("lap_eastvillage.json"), Json);
@@ -3482,6 +3491,8 @@ bool FHawkeyeLapEastVillage::RunTest(const FString& Parameters)
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeLapRunner(this));
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 
@@ -3495,6 +3506,8 @@ bool FHawkeyeLapRoofFight::RunTest(const FString& Parameters)
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeRoofFightRunner(this));
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 
@@ -3508,6 +3521,8 @@ bool FHawkeyeLapArcherDuel::RunTest(const FString& Parameters)
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeArcherDuelRunner(this));
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 
@@ -3521,6 +3536,8 @@ bool FHawkeyeLapStreetFight::RunTest(const FString& Parameters)
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(4.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeStreetFightRunner(this));
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 

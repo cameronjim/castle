@@ -32,6 +32,8 @@
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
+#include "Tests/HawkeyeShots.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
@@ -507,9 +509,7 @@ DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeTrickTakeShot, FAutomatio
 bool FHawkeyeTrickTakeShot::Update()
 {
 	const FString FullPath = HawkeyeTrickShots::ShotPath(FileName);
-	FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
-	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-	Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+	HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	return true;
 }
 
@@ -557,6 +557,8 @@ bool FHawkeyeScreenshotKateTrickArrows::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeTrickShot(this, static_cast<uint8>(EShot::WheelClose)));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeTrickShot(this, static_cast<uint8>(EShot::Cleanup)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 

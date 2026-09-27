@@ -32,6 +32,8 @@
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
+#include "Tests/HawkeyeShots.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
@@ -720,9 +722,7 @@ DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeCombatTakeShot, FAutomati
 bool FHawkeyeCombatTakeShot::Update()
 {
 	const FString FullPath = HawkeyeCombatShots::ShotPath(FileName);
-	FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
-	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-	Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+	HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	return true;
 }
 
@@ -788,6 +788,8 @@ bool FHawkeyeScreenshotCombat::RunTest(const FString& Parameters)
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(6.f));
 	HawkeyeAddCombatShots(this);
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 

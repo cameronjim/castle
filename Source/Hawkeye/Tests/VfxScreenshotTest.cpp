@@ -28,6 +28,8 @@
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
+#include "Tests/HawkeyeShots.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
@@ -366,9 +368,7 @@ DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeVfxTakeShot, FAutomationT
 bool FHawkeyeVfxTakeShot::Update()
 {
 	const FString FullPath = HawkeyeVfxShots::ShotPath(FileName);
-	FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
-	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-	Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+	HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	return true;
 }
 

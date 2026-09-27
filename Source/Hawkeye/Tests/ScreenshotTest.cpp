@@ -10,6 +10,8 @@
 #include "Tests/AutomationCommon.h"
 #include "UnrealClient.h"
 
+#include "Tests/HawkeyeShots.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
@@ -85,10 +87,7 @@ DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(
 bool FHawkeyeTakeUiShot::Update()
 {
 	const FString FullPath = UiScreenshotPath(FileName);
-	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	PlatformFile.CreateDirectoryTree(*FPaths::GetPath(FullPath));
-	FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-	Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+	HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	return true;
 }
 
@@ -122,6 +121,8 @@ bool FHawkeyeScreenshotSettings::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeTakeUiShot(this, TEXT("settings.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
 
+	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
 

@@ -31,6 +31,8 @@
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
+#include "Tests/HawkeyeShots.h"
+
 #if WITH_DEV_AUTOMATION_TESTS
 
 namespace HawkeyeNarrativeShots
@@ -76,9 +78,7 @@ namespace HawkeyeNarrativeShots
 	static void TakeShot(FAutomationTestBase* Test, const FString& FileName)
 	{
 		const FString FullPath = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Screenshots") / TEXT("Kate") / FileName);
-		FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*FPaths::GetPath(FullPath));
-		FScreenshotRequest::RequestScreenshot(FullPath, /*bInShowUI=*/true, /*bAddFilenameSuffix=*/false);
-		Test->AddInfo(FString::Printf(TEXT("Requested %s"), *FullPath));
+		HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	}
 
 	/** Kate at Location facing Yaw with the camera pitched Pitch, safe from everything. */
