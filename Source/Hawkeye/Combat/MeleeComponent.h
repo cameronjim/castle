@@ -77,6 +77,7 @@ enum class EMeleePhase : uint8
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnMeleeWindupSignature, FName, AttackName, float, WindupSeconds);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnMeleeLandedSignature, AActor*, HitActor, float, DamageDealt, FName, AttackName);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMeleeMissedSignature, FName, AttackName);
 
 /**
  * A swing: wind-up, one sphere sweep in front of the owner at the end of it, recovery. Shared by
@@ -99,6 +100,18 @@ public:
 	/** Starts Attack. Refused (false) while another swing is winding up or recovering. */
 	UFUNCTION(BlueprintCallable, Category = "Melee")
 	bool StartAttack(const FHawkeyeMeleeAttack& Attack);
+
+	/**
+	 * The next StartAttack lunges and sweeps along Direction (flattened) instead of the owner's forward,
+	 * for the whole swing: the soft lock turns the body over 0.1 s, but the blow goes at the target at once.
+	 * Zero clears it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Melee")
+	void SetNextAttackDirection(FVector Direction) { PendingDirection = Direction.GetSafeNormal2D(); }
+
+	/** The way the current swing goes: the direction it was given, else the owner's forward. */
+	UFUNCTION(BlueprintPure, Category = "Melee")
+	FVector GetSwingDirection() const;
 
 	/** Drops the current swing without a hit: a stagger or a knockdown interrupts the wind-up. */
 	UFUNCTION(BlueprintCallable, Category = "Melee")
@@ -180,6 +193,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Melee")
 	FOnMeleeLandedSignature OnAttackLanded;
 
+	/** Fired when the sweep found nobody, or a shield took it. */
+	UPROPERTY(BlueprintAssignable, Category = "Melee")
+	FOnMeleeMissedSignature OnAttackMissed;
+
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
@@ -199,4 +216,8 @@ protected:
 	float PhaseRemaining = 0.f;
 
 	int32 BlockedCount = 0;
+
+	/** SetNextAttackDirection's value, waiting for the next swing, and the one the current swing took. */
+	FVector PendingDirection = FVector::ZeroVector;
+	FVector SwingDirection = FVector::ZeroVector;
 };

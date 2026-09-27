@@ -30,6 +30,8 @@ bool UMeleeComponent::StartAttack(const FHawkeyeMeleeAttack& Attack)
 	}
 
 	CurrentAttack = Attack;
+	SwingDirection = PendingDirection;
+	PendingDirection = FVector::ZeroVector;
 	Phase = EMeleePhase::Windup;
 	PhaseRemaining = Attack.WindupSeconds;
 
@@ -84,6 +86,15 @@ void UMeleeComponent::AdvanceAttack(float DeltaSeconds)
 	}
 }
 
+FVector UMeleeComponent::GetSwingDirection() const
+{
+	if (!SwingDirection.IsNearlyZero())
+	{
+		return SwingDirection;
+	}
+	return GetOwner() ? GetOwner()->GetActorForwardVector().GetSafeNormal2D() : FVector::ForwardVector;
+}
+
 AActor* UMeleeComponent::FindTarget(const FHawkeyeMeleeAttack& Attack) const
 {
 	AActor* Owner = GetOwner();
@@ -94,7 +105,7 @@ AActor* UMeleeComponent::FindTarget(const FHawkeyeMeleeAttack& Attack) const
 	}
 
 	const FVector Start = Owner->GetActorLocation();
-	const FVector End = Start + Owner->GetActorForwardVector().GetSafeNormal2D() * Attack.Range;
+	const FVector End = Start + GetSwingDirection() * Attack.Range;
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(HawkeyeMelee), /*bTraceComplex=*/false, Owner);
 	FCollisionObjectQueryParams Objects;
@@ -132,6 +143,7 @@ void UMeleeComponent::Strike()
 	if (!Health)
 	{
 		UE_LOG(LogHawkeye, Verbose, TEXT("%s: %s swing hit nothing."), *GetNameSafe(Owner), *CurrentAttack.Name.ToString());
+		OnAttackMissed.Broadcast(CurrentAttack.Name);
 		return;
 	}
 
@@ -142,6 +154,7 @@ void UMeleeComponent::Strike()
 		&& Thug->TryBlock(Owner, Owner->GetActorLocation() - Thug->GetActorLocation(), CurrentAttack.Name.ToString()))
 	{
 		++BlockedCount;
+		OnAttackMissed.Broadcast(CurrentAttack.Name);
 		return;
 	}
 	const bool bKnockdown = CurrentAttack.bKnockdown && Thug;
@@ -150,6 +163,7 @@ void UMeleeComponent::Strike()
 	{
 		UE_LOG(LogHawkeye, Log, TEXT("%s: %s swing on %s did nothing (invulnerable or dead)."),
 			*GetNameSafe(Owner), *CurrentAttack.Name.ToString(), *GetNameSafe(Target));
+		OnAttackMissed.Broadcast(CurrentAttack.Name);
 		return;
 	}
 
@@ -185,7 +199,7 @@ void UMeleeComponent::ApplyLunge(const FHawkeyeMeleeAttack& Attack) const
 	Lunge->InstanceName = FName(TEXT("MeleeLunge"));
 	Lunge->AccumulateMode = ERootMotionAccumulateMode::Override;
 	Lunge->Priority = 4;
-	Lunge->Force = Character->GetActorForwardVector().GetSafeNormal2D() * (Attack.LungeDistance / Attack.LungeSeconds);
+	Lunge->Force = GetSwingDirection() * (Attack.LungeDistance / Attack.LungeSeconds);
 	Lunge->Duration = Attack.LungeSeconds;
 	Lunge->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::SetVelocity;
 	Lunge->FinishVelocityParams.SetVelocity = FVector::ZeroVector;
