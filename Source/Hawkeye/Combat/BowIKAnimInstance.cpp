@@ -3,6 +3,7 @@
 #include "Combat/BowIKAnimInstance.h"
 
 #include "Combat/BowComponent.h"
+#include "Combat/MeleeRules.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Actor.h"
 
@@ -55,9 +56,63 @@ void UHawkeyeBowIKAnimInstance::UpdateFromBow(const UBowComponent* Bow, float De
 	{
 		SpineTwist = FRotator::ZeroRotator;
 		NeckTwist = FRotator::ZeroRotator;
-		return;
 	}
-	UpdateTargets(*Bow);
+	else
+	{
+		UpdateTargets(*Bow);
+	}
+	ComposeOutputs();
+}
+
+void UHawkeyeBowIKAnimInstance::ComposeOutputs()
+{
+	LeftArmAlpha = BowAlpha;
+	RightArmAlpha = DrawAlpha;
+	// A strike owns a hand outright while it is on: the fist goes where the strike says, not the string.
+	if (StrikeRightHandAlpha > 0.f)
+	{
+		RightHandTarget = StrikeRightHandTarget;
+		RightElbowTarget = StrikeRightElbowTarget;
+		RightArmAlpha = FMath::Clamp(StrikeRightHandAlpha, 0.f, 1.f);
+	}
+	if (StrikeLeftHandAlpha > 0.f)
+	{
+		LeftHandTarget = StrikeLeftHandTarget;
+		LeftElbowTarget = StrikeLeftElbowTarget;
+		LeftArmAlpha = FMath::Clamp(StrikeLeftHandAlpha, 0.f, 1.f);
+	}
+	HitLean = UHawkeyeMeleeRules::ComputeHitLeanRotation(HitLeanDirection, HitLeanAlpha, HitLeanDegrees);
+}
+
+void UHawkeyeBowIKAnimInstance::SetStrikePose(const FHawkeyeStrikePoseSample& Sample, const FTransform& ActorFrame)
+{
+	const USkeletalMeshComponent* Mesh = GetSkelMeshComponent();
+	const FTransform Component = Mesh ? Mesh->GetComponentTransform() : FTransform::Identity;
+	const FTransform Frame(ActorFrame.GetRotation(), ActorFrame.GetLocation());
+	auto ToComponent = [&Component, &Frame](const FVector& Local)
+	{
+		return Component.InverseTransformPosition(Frame.TransformPosition(Local));
+	};
+	StrikeRightHandAlpha = Sample.RightAlpha;
+	StrikeLeftHandAlpha = Sample.LeftAlpha;
+	if (Sample.RightAlpha > 0.f)
+	{
+		StrikeRightHandTarget = ToComponent(Sample.RightHand);
+		StrikeRightElbowTarget = ToComponent(Sample.RightElbow);
+	}
+	if (Sample.LeftAlpha > 0.f)
+	{
+		StrikeLeftHandTarget = ToComponent(Sample.LeftHand);
+		StrikeLeftElbowTarget = ToComponent(Sample.LeftElbow);
+	}
+}
+
+void UHawkeyeBowIKAnimInstance::SetHitLean(const FVector& WorldDirection, float Alpha)
+{
+	const USkeletalMeshComponent* Mesh = GetSkelMeshComponent();
+	HitLeanAlpha = FMath::Clamp(Alpha, 0.f, 1.f);
+	HitLeanDirection = Mesh ? Mesh->GetComponentTransform().InverseTransformVectorNoScale(WorldDirection.GetSafeNormal2D())
+		: WorldDirection.GetSafeNormal2D();
 }
 
 void UHawkeyeBowIKAnimInstance::UpdateTargets(const UBowComponent& Bow)

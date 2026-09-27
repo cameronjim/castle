@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
 #include "Combat/BowHandIKTypes.h"
+#include "Combat/StrikePose.h"
 #include "BowIKAnimInstance.generated.h"
 
 class UBowComponent;
@@ -21,6 +22,11 @@ class UBowComponent;
  * UBowComponent: the targets in component space from the head bone and the aim, and the two alphas
  * blended over the settings' BlendSeconds. It has no graph of its own; used directly it would pass
  * no pose through, so it is never set as an override by itself.
+ *
+ * The same graph poses strikes and hit reactions, since there are no attack or flinch clips: the owner
+ * hands it a strike pose (SetStrikePose), whose hand targets win over the bow's while their alphas are
+ * above 0, and a hit lean (SetHitLean), a few degrees on spine_01 away from the hit. The graph reads
+ * LeftArmAlpha and RightArmAlpha (the bow's or the strike's) and HitLean.
  */
 UCLASS(Transient, Blueprintable)
 class HAWKEYE_API UHawkeyeBowIKAnimInstance : public UAnimInstance
@@ -55,6 +61,18 @@ public:
 	float GetBowAlpha() const { return BowAlpha; }
 	float GetDrawAlpha() const { return DrawAlpha; }
 
+	/**
+	 * This frame's strike override: Sample's hands (in ActorFrame, the striker's actor transform) as
+	 * component-space targets. A hand whose alpha is 0 leaves the bow's target alone.
+	 */
+	void SetStrikePose(const FHawkeyeStrikePoseSample& Sample, const FTransform& ActorFrame);
+
+	/** This frame's hit lean: WorldDirection (flat, the way to lean) at Alpha (0..1). */
+	void SetHitLean(const FVector& WorldDirection, float Alpha);
+
+	/** Writes the graph's inputs from the bow targets, the strike override and the hit lean. */
+	void ComposeOutputs();
+
 	/** hand_l's target, component space. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
 	FVector LeftHandTarget = FVector::ZeroVector;
@@ -86,6 +104,50 @@ public:
 	/** Added to the neck bone, component space: the side-on turn taken back so the head stays on the aim. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
 	FRotator NeckTwist = FRotator::ZeroRotator;
+
+	/** hand_l's IK alpha as the graph reads it: the bow hand's, or a strike's while one is on. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
+	float LeftArmAlpha = 0.f;
+
+	/** hand_r's IK alpha as the graph reads it: the string hand's, or a strike's while one is on. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
+	float RightArmAlpha = 0.f;
+
+	/** Added to spine_01, component space: the lean away from a hit. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
+	FRotator HitLean = FRotator::ZeroRotator;
+
+	/** The way the upper body leans, component space, flat. Zero for none. */
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Bow IK|Hit Lean")
+	FVector HitLeanDirection = FVector::ZeroVector;
+
+	/** 0..1, how far into the lean. */
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Bow IK|Hit Lean")
+	float HitLeanAlpha = 0.f;
+
+	/** The lean at full alpha, degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bow IK|Hit Lean")
+	float HitLeanDegrees = 5.f;
+
+	/** A strike's right hand target, component space; wins over the string hand while its alpha is above 0. */
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Bow IK|Strike")
+	FVector StrikeRightHandTarget = FVector::ZeroVector;
+
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Bow IK|Strike")
+	FVector StrikeRightElbowTarget = FVector::ZeroVector;
+
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Bow IK|Strike")
+	float StrikeRightHandAlpha = 0.f;
+
+	/** A strike's left hand target, component space; wins over the bow hand while its alpha is above 0. */
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Bow IK|Strike")
+	FVector StrikeLeftHandTarget = FVector::ZeroVector;
+
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Bow IK|Strike")
+	FVector StrikeLeftElbowTarget = FVector::ZeroVector;
+
+	UPROPERTY(Transient, BlueprintReadWrite, Category = "Bow IK|Strike")
+	float StrikeLeftHandAlpha = 0.f;
 
 protected:
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;

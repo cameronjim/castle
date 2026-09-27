@@ -16,9 +16,10 @@ class USkeleton;
  * whose variables the graph reads through variable-get nodes. The anim graph:
  *
  *   Input Pose -> [the mesh's own post-process AnimBP, as a linked anim graph] -> to component space
- *   -> ModifyBone SpineBone (add SpineTwist) -> ModifyBone NeckBone (add NeckTwist)
- *   -> TwoBoneIK hand_l to LeftHandTarget, elbow to LeftElbowTarget, alpha BowAlpha
- *   -> TwoBoneIK hand_r to RightHandTarget, elbow to RightElbowTarget, alpha DrawAlpha
+ *   -> ModifyBone spine_01 (add HitLean) -> ModifyBone SpineBone (add SpineTwist)
+ *   -> ModifyBone NeckBone (add NeckTwist)
+ *   -> TwoBoneIK hand_l to LeftHandTarget, elbow to LeftElbowTarget, alpha LeftArmAlpha
+ *   -> TwoBoneIK hand_r to RightHandTarget, elbow to RightElbowTarget, alpha RightArmAlpha
  *   -> to local space -> Output Pose
  *
  * The spine turns before the IK so the shoulders are where they end up when the arms reach. Both

@@ -29,6 +29,9 @@
 
 namespace HawkeyeBowIKGraph
 {
+	/** Where the hit lean bends: the lowest spine bone, on both mannequins. */
+	static const FName HitLeanBone(TEXT("spine_01"));
+
 	static UEdGraph* FindAnimGraph(UAnimBlueprint& Blueprint)
 	{
 		for (UEdGraph* Graph : Blueprint.FunctionGraphs)
@@ -216,18 +219,21 @@ namespace HawkeyeBowIKGraph
 			[](UAnimGraphNode_LocalToComponentSpace&) {});
 		Wiring.Pose(Last, ToComponent, TEXT("to component space"));
 
+		// The lean from a hit tips the whole upper body from the lower spine, before the aim's turn.
+		UEdGraphNode* Lean = AddTwist(Wiring, HitLeanBone, GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, HitLean), -1275);
+		Wiring.Pose(ToComponent, Lean, TEXT("hit lean"));
 		UEdGraphNode* Spine = AddTwist(Wiring, SpineBone, GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, SpineTwist), -1150);
-		Wiring.Pose(ToComponent, Spine, TEXT("spine twist"));
+		Wiring.Pose(Lean, Spine, TEXT("spine twist"));
 		UEdGraphNode* Neck = AddTwist(Wiring, NeckBone, GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, NeckTwist), -900);
 		Wiring.Pose(Spine, Neck, TEXT("neck twist"));
 
 		UEdGraphNode* Left = AddArm(Wiring, TEXT("hand_l"), GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, LeftHandTarget),
 			GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, LeftElbowTarget),
-			GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, BowAlpha), -650);
+			GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, LeftArmAlpha), -650);
 		Wiring.Pose(Neck, Left, TEXT("bow arm IK"));
 		UEdGraphNode* Right = AddArm(Wiring, TEXT("hand_r"), GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, RightHandTarget),
 			GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, RightElbowTarget),
-			GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, DrawAlpha), -400);
+			GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, RightArmAlpha), -400);
 		Wiring.Pose(Left, Right, TEXT("draw arm IK"));
 
 		UEdGraphNode* ToLocal = AddNode<UAnimGraphNode_ComponentToLocalSpace>(Graph, -150, 0,
