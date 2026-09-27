@@ -740,7 +740,7 @@ private:
 		const bool bBlocked = World->LineTraceSingleByChannel(Hit, Lens, Marker, ECC_Visibility, Params);
 		Test->AddInfo(FString::Printf(
 			TEXT("Candidate %s not targeted: %.1f deg off the camera, %.0f cm from Kate, sight %s %s at %.0f of %.0f cm"),
-			*Anchor->GetActorLabel(), Angle, FVector::Dist(Kate->GetActorLocation(), Marker),
+			*Anchor->GetActorNameOrLabel(), Angle, FVector::Dist(Kate->GetActorLocation(), Marker),
 			bBlocked ? TEXT("hits") : TEXT("clear"), *GetNameSafe(Hit.GetActor()), Hit.Distance,
 			FVector::Dist(Lens, Marker)));
 	}
@@ -755,7 +755,7 @@ private:
 			FMath::Clamp(FVector::DotProduct(Camera->GetForwardVector(), ToAnchor), -1.f, 1.f)));
 		Test->AddInfo(FString::Printf(
 			TEXT("Grapple target %s (%s): %.0f cm from Kate, %.0f cm above her, %.1f deg off the camera"),
-			*GetNameSafe(Target), *Target->GetActorLabel(),
+			*GetNameSafe(Target), *Target->GetActorNameOrLabel(),
 			FVector::Dist(Kate->GetActorLocation(), Target->GetMarkerLocation()),
 			Target->GetMarkerLocation().Z - Kate->GetActorLocation().Z, Angle));
 	}
