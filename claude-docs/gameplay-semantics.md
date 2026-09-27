@@ -361,7 +361,8 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 | View | Quiver and inventory |
 | Menu | Pause |
 
-Mouse look uses `LookSensitivity`; stick look uses `StickSensitivity` (default 1.0, clamp
+Stick up looks up by default (a double negation once inverted it; fixed 2026-09-27). `bInvertMouseY`
+and `bInvertStickY` toggles live in Settings. Mouse look uses `LookSensitivity`; stick look uses `StickSensitivity` (default 1.0, clamp
 0.2 to 3.0), both in the settings save. On-screen key hints switch to gamepad names when
 the last input came from a pad.
 
