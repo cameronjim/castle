@@ -8,6 +8,7 @@ skeleton and physics asset, the pose-search chooser, IMC_Sandbox and BP_Kate, th
     IMC_Sandbox has no mappings                                    (Hawkeye input owns every key)
     SandboxCharacter_CMC has CharacterInputState                   (what AHawkeyeCharacter writes)
     AC_TraversalLogic, CHT_TraversalMontages_CMC, LevelBlock_Traversable and the parkour clips load
+    BP_Kate and BP_Clint run ABP_BowIK_Post (bow hands), which targets SK_UEFN_Mannequin
 
 Load warnings ("Failed to load", "Can't find file") go to the log, not to Python; read them
 from the log of this run:
@@ -169,11 +170,30 @@ def check_imc():
         fail("IMC_Sandbox still maps {0} key(s); run create-content".format(count))
 
 
+def check_bow_hands():
+    say("---- bow hands ----")
+    hands = c.load_or_none("/Game/Blueprints/Animation/ABP_BowIK_Post")
+    skeleton = hands.get_editor_property("target_skeleton") if hands is not None else None
+    say("  ABP_BowIK_Post skeleton = {0}".format(name_of(skeleton)))
+    if hands is None or name_of(skeleton) != "SK_UEFN_Mannequin":
+        fail("ABP_BowIK_Post missing or not on SK_UEFN_Mannequin; run create-content")
+        return
+    for name in ("BP_Kate", "BP_Clint"):
+        bp = c.load_or_none(c.asset_path(PLAYER_PATH, name))
+        cdo = c.blueprint_cdo(bp) if bp is not None else None
+        bow = cdo.get_editor_property("bow_component") if cdo is not None else None
+        cls = bow.get_editor_property("hands_ik_class") if bow is not None else None
+        say("  {0}.BowComponent.HandsIKClass = {1}".format(name, name_of(cls)))
+        if name_of(cls) != "ABP_BowIK_Post_C":
+            fail("{0} does not run ABP_BowIK_Post for its bow hands".format(name))
+
+
 def main():
     say("==== verifying the Game Animation Sample import ====")
     check_assets()
     check_kate()
     check_imc()
+    check_bow_hands()
     if PROBLEMS:
         unreal.log_error("[Gasp] FAIL: {0} problem(s)".format(len(PROBLEMS)))
         for problem in PROBLEMS:
