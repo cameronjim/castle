@@ -28,6 +28,9 @@
     5b. create_narrative          DT_Messages, DT_DialogueSequences, L_Scene_Placeholder and its game
                                   mode, DA_FB00_Placeholder (after the mission data and the partner's
                                   DT_Dialogue); it opens its own map, so it runs just before the city
+    5c. create_challenges         the side challenges (DA_Challenge_*) under /Game/Challenges, planned
+                                  from the same OpenStreetMap records the city is (skipped, like the
+                                  city, until the records exist); generate_city places their pedestals
     6. generate_city              L_District_EastVillage from OpenStreetMap, after everything
                                   else and only when Tools/Data/osm/east_village.buildings.json
                                   exists (Tools/fetch-osm.ps1 writes it)
@@ -67,6 +70,7 @@ STEPS = [
     ("vfx defaults", "create_blueprints", "apply_vfx_defaults"),
     ("fix up redirectors", "fixup_redirectors"),
     ("narrative", "create_narrative"),
+    ("challenges", "create_challenges"),
     ("city", "generate_city"),
 ]
 
@@ -75,10 +79,11 @@ SKIP_STEPS = set(
     name.strip() for name in os.environ.get("HAWKEYE_SKIP_STEPS", "").split(",") if name.strip())
 
 # Steps that need downloaded data: skipped (not failed) until the file exists.
+_OSM_RECORDS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "Data", "osm", "east_village.buildings.json")
 STEP_REQUIRES = {
-    "generate_city": os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-        "Data", "osm", "east_village.buildings.json"),
+    "create_challenges": _OSM_RECORDS,
+    "generate_city": _OSM_RECORDS,
 }
 
 
