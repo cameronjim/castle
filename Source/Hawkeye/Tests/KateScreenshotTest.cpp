@@ -49,6 +49,7 @@
 #include "Tests/BowIKScreenshots.h"
 #include "Tests/ChallengeScreenshots.h"
 #include "Tests/CombatScreenshots.h"
+#include "Tests/CrimeScreenshots.h"
 #include "Tests/EnemyScreenshots.h"
 #include "Tests/MeleeScreenshots.h"
 #include "Tests/NarrativeScreenshots.h"
@@ -131,6 +132,7 @@
  *                           (MeleeScreenshotTest.cpp)
  *   challenge_pedestal.png, archery_targets.png, challenge_results.png, traversal_checkpoint.png: the
  *                           side-challenge pass (ChallengeScreenshotTest.cpp)
+ *   crime_marker.png, crime_mugging.png, crime_results.png: the street crime pass (CrimeScreenshotTest.cpp)
  *   settings_full.png, difficulty_prompt.png, subtitles_large.png, palette_deuteranopia.png,
  *   pedestal_dimmer.png: the difficulty and accessibility pass (AccessibilityScreenshotTest.cpp)
  *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass
@@ -2850,6 +2852,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 
 	// The side challenges: a pedestal, the archery range and its results card, a traversal ring ahead.
 	HawkeyeAddChallengeShots(this);
+
+	// A street crime: the HUD line and marker toward a mugging, the thugs over the victim, the toast.
+	HawkeyeAddCrimeShots(this);
 
 	// Difficulty and accessibility: the settings screen, the New Game prompt, large subtitles, a palette,
 	// and the dimmer pedestal. The player's settings are put back.
