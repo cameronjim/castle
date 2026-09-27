@@ -24,7 +24,11 @@ struct HAWKEYE_API FHawkeyeReturnCandidate
 	FTransform Transform;
 };
 
-/** A flashback's playable scene in progress: where to come back to (claude-docs/gameplay-semantics.md, "Flashback"). */
+/**
+ * A flashback's playable scene or an interior (L_Int_*) in progress: where to come back to
+ * (claude-docs/gameplay-semantics.md, "Flashback"). An interior is left through an AInteriorExit door
+ * rather than by completing a mission, and coming back does not move the chapter on.
+ */
 USTRUCT(BlueprintType)
 struct HAWKEYE_API FHawkeyeSceneReturn
 {
@@ -48,6 +52,28 @@ struct HAWKEYE_API FHawkeyeSceneReturn
 	/** The district map's package, opened fresh if the save cannot be loaded. */
 	UPROPERTY(BlueprintReadOnly, Category = "Save|Scene")
 	FString ReturnMap;
+
+	/** An interior entered through a door, not a flashback's scene: the way back leaves the mission flow alone. */
+	UPROPERTY(BlueprintReadOnly, Category = "Save|Scene")
+	bool bInterior = false;
+
+	/** Set on entering an interior: its first playable frame fades in from black. */
+	UPROPERTY(BlueprintReadOnly, Category = "Save|Scene")
+	bool bFadeInOnArrival = false;
+
+	/** Starts an interior: in it, coming back to ReturnPoint in InReturnMap. bSaved: the district was saved on the way in. */
+	void BeginInterior(const FString& InReturnMap, FName InReturnPoint, bool bSaved);
+
+	/**
+	 * Leaves the scene or interior: from here the district is on its way back. A ReturnPointOverride that
+	 * is not None replaces the return point (an interior's roof door comes out on the roof, not the
+	 * doorstep). False, and nothing changes, when no scene or interior is running.
+	 */
+	bool Leave(FName ReturnPointOverride = NAME_None);
+
+	/** Whether coming back resumes the chapter's end sequence (a flashback's scene) or not (an interior). */
+	bool ShouldResumeMissionFlow() const { return !bInterior; }
+
 
 	/**
 	 * Which candidate the player goes back to: the one labelled ReturnPointLabel, else the first

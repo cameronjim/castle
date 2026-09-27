@@ -404,7 +404,13 @@ void UHawkeyeSaveSubsystem::HandleSpudPostLoad(const FString& SlotName, bool bSu
 		return;
 	}
 
+	// Dying inside an interior loads the entry save: the district is back and the interior is over.
+	if (SceneReturn.bInScene && SceneReturn.bInterior)
+	{
+		SceneReturn = FHawkeyeSceneReturn();
+	}
 	// The map had no game mode to hand the objectives to (a test map, say): apply them here.
+
 	ApplyPendingRestore(World);
 	FinishRestoredWorld(World);
 	UE_LOG(LogHawkeye, Log, TEXT("%s: loaded %s."), *GetName(), *SlotName);
@@ -464,17 +470,69 @@ bool UHawkeyeSaveSubsystem::EnterPlayableScene(UFlashbackDefinition* Flashback)
 
 void UHawkeyeSaveSubsystem::ReturnFromPlayableScene()
 {
-	if (!SceneReturn.bInScene)
+	if (!SceneReturn.Leave())
 	{
 		return;
 	}
-	SceneReturn.bInScene = false;
-	SceneReturn.bReturnPending = true;
+	TravelBackFromScene();
+}
 
+bool UHawkeyeSaveSubsystem::EnterInterior(const TSoftObjectPtr<UWorld>& Interior, FName ReturnPointLabel)
+{
+	UWorld* World = GetGameWorld();
+	if (!World || Interior.IsNull())
+	{
+		return false;
+	}
+	const FString District = World->GetOutermost()->GetName();
+	const bool bSaved = SaveCampaign(TEXT("interior"));
+	if (!bSaved)
+	{
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: the district could not be saved before %s; the way out opens it fresh."),
+			*GetName(), *Interior.ToString());
+	}
+	SceneReturn.BeginInterior(District, ReturnPointLabel, bSaved);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: entering interior %s (back to %s at %s)."), *GetName(), *Interior.ToString(),
+		*SceneReturn.ReturnMap, *SceneReturn.ReturnPointLabel.ToString());
+	UGameplayStatics::OpenLevelBySoftObjectPtr(World, Interior);
+	return true;
+}
+
+bool UHawkeyeSaveSubsystem::ReturnFromInterior(FName ReturnPointOverride)
+{
+	if (!IsInInterior() || !SceneReturn.Leave(ReturnPointOverride))
+	{
+		return false;
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: leaving the interior for %s."), *GetName(), *SceneReturn.ReturnPointLabel.ToString());
+	TravelBackFromScene();
+	return true;
+}
+
+void UHawkeyeSaveSubsystem::BeginInteriorWithoutEntry(const FString& District, FName ReturnPointLabel)
+{
+	SceneReturn.BeginInterior(District, ReturnPointLabel, /*bSaved=*/false);
+	SceneReturn.bFadeInOnArrival = false;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: interior opened directly; its exits lead to %s at %s."), *GetName(), *District,
+		*ReturnPointLabel.ToString());
+}
+
+bool UHawkeyeSaveSubsystem::ConsumeInteriorArrivalFade()
+
+{
+	const bool bFade = SceneReturn.bInScene && SceneReturn.bFadeInOnArrival;
+	SceneReturn.bFadeInOnArrival = false;
+	return bFade;
+}
+
+void UHawkeyeSaveSubsystem::TravelBackFromScene()
+{
 	int32 SavedVersion = INDEX_NONE;
 	FString SavedMission;
 	const bool bExists = SceneReturn.bSavedOnEntry && HasSave() && ReadSaveHeader(SavedVersion, SavedMission);
-	UE_LOG(LogHawkeye, Log, TEXT("%s: playable scene over; back to %s."), *GetName(), *SceneReturn.ReturnMap);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s over; back to %s."), *GetName(),
+		SceneReturn.bInterior ? TEXT("interior") : TEXT("playable scene"), *SceneReturn.ReturnMap);
+
 	if (bExists && DecideLoad(true, SavedVersion, SavedMission) == EHawkeyeLoadDecision::Load && LoadCampaign())
 	{
 		return;
@@ -509,11 +567,15 @@ void UHawkeyeSaveSubsystem::ApplyPendingSceneReturn(UWorld* World)
 		UE_LOG(LogHawkeye, Warning, TEXT("%s: no actor labelled or tagged %s to return to; keeping the saved position."),
 			*GetName(), *SceneReturn.ReturnPointLabel.ToString());
 	}
-	if (PC)
+	// A flashback's scene hands the chapter's end sequence back to the controller; an interior does not.
+	const bool bResume = SceneReturn.ShouldResumeMissionFlow();
+	SceneReturn.bInterior = false;
+	if (PC && bResume)
 	{
 		PC->HandleReturnedFromScene();
 	}
 }
+
 
 // --- Safehouses -------------------------------------------------------------------------------------
 

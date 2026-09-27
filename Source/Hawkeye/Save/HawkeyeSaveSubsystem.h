@@ -162,6 +162,38 @@ public:
 	 */
 	void ApplyPendingSceneReturn(UWorld* World);
 
+	// --- Interiors ---------------------------------------------------------------------------------
+
+	/**
+	 * Goes into an interior map through its door (AInteriorEntrance): the same plumbing as a playable
+	 * scene. Saves the district (reason "interior"), remembers ReturnPointLabel and opens Interior.
+	 * Saves are refused inside. False when Interior is unset or there is no game world.
+	 */
+	bool EnterInterior(const TSoftObjectPtr<UWorld>& Interior, FName ReturnPointLabel);
+
+	/** True between EnterInterior and leaving through an AInteriorExit. */
+	UFUNCTION(BlueprintPure, Category = "Save|Scene")
+	bool IsInInterior() const { return SceneReturn.bInScene && SceneReturn.bInterior; }
+
+	/**
+	 * Leaves the interior: loads the save made on the way in (or opens the district fresh) and puts the
+	 * player at ReturnPointOverride, or at the entrance's return point when that is None. The chapter's
+	 * flow is left alone. False when no interior is running.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Save|Scene")
+	bool ReturnFromInterior(FName ReturnPointOverride);
+
+	/**
+	 * An interior map opened directly (a test, -game into it) has no entry to return to: records one
+	 * from District's ReturnPointLabel with no save, so its exits still lead somewhere.
+	 */
+	void BeginInteriorWithoutEntry(const FString& District, FName ReturnPointLabel);
+
+	/** True once, on an interior's first playable frame: the screen should come back from black. */
+
+	bool ConsumeInteriorArrivalFade();
+
+
 	const FHawkeyeSceneReturn& GetSceneReturn() const { return SceneReturn; }
 
 	// --- Main menu --------------------------------------------------------------------------------
@@ -209,7 +241,11 @@ private:
 	UFUNCTION()
 	void HandleSpudPostSave(const FString& SlotName, bool bSuccess);
 
+	/** The second half of leaving a scene or interior: load the entry save, else open the district fresh. */
+	void TravelBackFromScene();
+
 	/** After a load: hand control to whoever was being played, and bring the picture back. */
+
 	void FinishRestoredWorld(UWorld* World);
 
 	UPROPERTY(Transient)

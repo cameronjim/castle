@@ -6,7 +6,35 @@
 #include "EngineUtils.h"
 #include "GameFramework/Actor.h"
 
-int32 FHawkeyeSceneReturn::SelectReturnPoint(const TArray<FHawkeyeReturnCandidate>& Candidates, FName ReturnPointLabel)
+void FHawkeyeSceneReturn::BeginInterior(const FString& InReturnMap, FName InReturnPoint, bool bSaved)
+{
+	*this = FHawkeyeSceneReturn();
+	ReturnMap = InReturnMap;
+	ReturnPointLabel = InReturnPoint;
+	bSavedOnEntry = bSaved;
+	bInterior = true;
+	bFadeInOnArrival = true;
+	bInScene = true;
+}
+
+bool FHawkeyeSceneReturn::Leave(FName ReturnPointOverride)
+{
+	if (!bInScene)
+	{
+		return false;
+	}
+	bInScene = false;
+	bReturnPending = true;
+	bFadeInOnArrival = false;
+	if (!ReturnPointOverride.IsNone())
+	{
+		ReturnPointLabel = ReturnPointOverride;
+	}
+	return true;
+}
+
+int32 FHawkeyeSceneReturn::SelectReturnPoint(
+const TArray<FHawkeyeReturnCandidate>& Candidates, FName ReturnPointLabel)
 {
 	if (ReturnPointLabel.IsNone())
 	{
