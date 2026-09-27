@@ -60,6 +60,20 @@ public:
 	void SetStickSensitivity(float NewSensitivity);
 
 	UFUNCTION(BlueprintPure, Category = "Settings")
+	bool GetInvertMouseY() const { return Settings.bInvertMouseY; }
+
+	/** Stores, saves and broadcasts. A value that changes nothing does nothing. */
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void SetInvertMouseY(bool bInvert);
+
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	bool GetInvertStickY() const { return Settings.bInvertStickY; }
+
+	/** Stores, saves and broadcasts. A value that changes nothing does nothing. */
+	UFUNCTION(BlueprintCallable, Category = "Settings")
+	void SetInvertStickY(bool bInvert);
+
+	UFUNCTION(BlueprintPure, Category = "Settings")
 	FHawkeyeSettings GetSettings() const { return Settings; }
 
 	/** Reads the slot. A missing file or a version mismatch leaves defaults in place. */

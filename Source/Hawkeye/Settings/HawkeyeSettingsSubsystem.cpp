@@ -72,6 +72,30 @@ void UHawkeyeSettingsSubsystem::SetStickSensitivity(float NewSensitivity)
 	OnSettingsChanged.Broadcast(Settings);
 }
 
+void UHawkeyeSettingsSubsystem::SetInvertMouseY(bool bInvert)
+{
+	if (Settings.bInvertMouseY == bInvert)
+	{
+		return;
+	}
+
+	Settings.bInvertMouseY = bInvert;
+	Save();
+	OnSettingsChanged.Broadcast(Settings);
+}
+
+void UHawkeyeSettingsSubsystem::SetInvertStickY(bool bInvert)
+{
+	if (Settings.bInvertStickY == bInvert)
+	{
+		return;
+	}
+
+	Settings.bInvertStickY = bInvert;
+	Save();
+	OnSettingsChanged.Broadcast(Settings);
+}
+
 void UHawkeyeSettingsSubsystem::Load()
 {
 	const FString Slot = GetSlotName();

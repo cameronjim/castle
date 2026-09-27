@@ -27,10 +27,18 @@ struct HAWKEYE_API FHawkeyeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
 	float StickSensitivity = 1.0f;
 
+	/** Flips mouse look pitch: on, pushing the mouse forward looks down instead of up. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	bool bInvertMouseY = false;
+
+	/** Flips gamepad look pitch: on, pushing the stick up looks down instead of up. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+	bool bInvertStickY = false;
+
 	/** Bumped whenever the meaning of a field changes. A mismatch on load yields defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-	int32 Version = 2;
+	int32 Version = 3;
 
 	/** The version this build writes and accepts. A save from an older version yields defaults. */
-	static constexpr int32 CurrentVersion = 2;
+	static constexpr int32 CurrentVersion = 3;
 };
