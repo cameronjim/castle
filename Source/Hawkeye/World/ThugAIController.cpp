@@ -950,6 +950,7 @@ void AThugAIController::CancelBurst(const TCHAR* Why)
 			Burst.GetShotsFired());
 	}
 	Burst.Cancel();
+	bDeflectNextShot = false;
 	if (Thug)
 	{
 		Thug->SetTelegraphGlint(false);
@@ -958,6 +959,17 @@ void AThugAIController::CancelBurst(const TCHAR* Why)
 			Thug->SetWeaponRaised(false, FVector::ZeroVector);
 		}
 	}
+}
+
+bool AThugAIController::DeflectFirstShot()
+{
+	if (!Burst.IsTelegraphing())
+	{
+		return false;
+	}
+	bDeflectNextShot = true;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: raised pistol parried; the first shot will be deflected."), *GetNameSafe(GetPawn()));
+	return true;
 }
 
 void AThugAIController::TickGunner(float DeltaSeconds, const FVector& ToTarget)
@@ -1737,6 +1749,15 @@ void AThugAIController::FireAtTarget()
 	if (IsJammed())
 	{
 		UE_LOG(LogHawkeye, Verbose, TEXT("%s: pistol jammed (%.1f s left), no shot."), *GetName(), JamRemaining);
+		return;
+	}
+
+	if (bDeflectNextShot)
+	{
+		bDeflectNextShot = false;
+		++DeflectedShots;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: first shot of the burst deflected by %s's parry."), *GetNameSafe(Thug),
+			*GetNameSafe(TargetActor));
 		return;
 	}
 

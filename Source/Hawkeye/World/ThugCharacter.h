@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Combat/MeleeComponent.h"
+#include "Combat/StrikePose.h"
 #include "Combat/Takedownable.h"
 #include "GameFramework/Character.h"
 #include "ISpudObject.h"
@@ -333,6 +334,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug")
 	bool IsStaggered() const { return StaggerRemaining > 0.f; }
 
+	/** Seconds of stagger left. */
+	UFUNCTION(BlueprintPure, Category = "Thug")
+	float GetStaggerRemaining() const { return StaggerRemaining; }
+
 	/**
 	 * Kate's heavy: he goes over (a ragdoll when the mesh can, otherwise only the state), stays down
 	 * KnockdownSeconds, then stands back up where his body landed: the capsule moves under the
@@ -367,6 +372,44 @@ public:
 	/** Counts a knockdown down and stands him up at the end. Called from Tick; public for tests. */
 	UFUNCTION(BlueprintCallable, Category = "Thug")
 	void UpdateKnockdown(float DeltaSeconds);
+
+	/**
+	 * A HitReaction held for Seconds instead of StaggerSeconds. Unlike a plain stagger it moves the heavy
+	 * too (his guard is open for it). Nothing while he is down or dead.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void StaggerFor(AActor* By, float Seconds);
+
+	/**
+	 * Kate parried his swing or bash: the wind-up is dropped without landing and he is staggered for
+	 * Seconds (her ParryStaggerSeconds, 1.5).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void Parried(AActor* By, float Seconds);
+
+	/** Stretches a stagger he is already in to at least Seconds, quietly (a finisher closing in). */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	void HoldStagger(float Seconds);
+
+	/**
+	 * A finisher's blow: lethal damage from By whatever his shield or health, then his ragdoll thrown at
+	 * Velocity (cm/s) if it is simulating. True when this killed him.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug")
+	bool ReceiveFinisher(AActor* By, FVector Velocity);
+
+	/** The short lean away from the last hit (the bow-IK graph's spine_01). */
+	const FHawkeyeHitLeanClock& GetHitLean() const { return HitLean; }
+
+	/** Where the last hit that cost him health came from. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Hit")
+	EHawkeyeHitDirection GetLastHitDirection() const { return LastHitDirection; }
+
+	/** Starts the lean from a hit by HitBy (from in front, behind, left or right of him). */
+	void StartHitLean(const AActor* HitBy);
+
+	/** Advances the hit lean and hands it to the bow-IK anim instance, if the mesh runs one. */
+	void UpdateHitLean(float DeltaSeconds);
 
 	/** How long a hit reaction holds him, seconds. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Hit", meta = (ClampMin = "0.0"))
@@ -656,6 +699,10 @@ protected:
 private:
 	/** Seconds of stagger left. */
 	float StaggerRemaining = 0.f;
+
+	/** The lean from the last hit, and where that hit came from. */
+	FHawkeyeHitLeanClock HitLean;
+	EHawkeyeHitDirection LastHitDirection = EHawkeyeHitDirection::Front;
 
 	/** Hits the shield took. */
 	int32 BlockCount = 0;

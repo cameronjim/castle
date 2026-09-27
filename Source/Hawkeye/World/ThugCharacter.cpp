@@ -8,8 +8,10 @@
 #include "Audio/HawkeyeAudioSubsystem.h"
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowComponent.h"
+#include "Combat/BowIKAnimInstance.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
+#include "Combat/MeleeRules.h"
 #include "Combat/WeaponComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/PointLightComponent.h"
@@ -237,6 +239,7 @@ void AThugCharacter::Tick(float DeltaSeconds)
 	UpdateShieldPose();
 
 	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
+	UpdateHitLean(DeltaSeconds);
 	UpdateKnockdown(DeltaSeconds);
 	UpdateGetUp(DeltaSeconds);
 	if (!bKnockedDown)
@@ -377,6 +380,7 @@ void AThugCharacter::HandleHealthChanged(UHealthComponent* Health, float /*NewHe
 		return;
 	}
 	FlashHit();
+	StartHitLean(DamageInstigator);
 	if (const UWorld* World = GetWorld())
 	{
 		LastDamagedSeconds = World->GetTimeSeconds();
@@ -672,6 +676,80 @@ void AThugCharacter::UpdateKnockdown(float DeltaSeconds)
 	if (KnockdownRemaining <= 0.f)
 	{
 		StandUp();
+	}
+}
+
+void AThugCharacter::StaggerFor(AActor* By, float Seconds)
+{
+	const float Normal = StaggerSeconds;
+	StaggerSeconds = FMath::Max(Seconds, 0.f);
+	HitReaction(By);
+	StaggerSeconds = Normal;
+}
+
+void AThugCharacter::Parried(AActor* By, float Seconds)
+{
+	if (bLimp || bKnockedDown || !HealthComponent || !HealthComponent->IsAlive())
+	{
+		return;
+	}
+	const FName Swing = MeleeComponent ? MeleeComponent->GetCurrentAttack().Name : NAME_None;
+	if (MeleeComponent)
+	{
+		MeleeComponent->CancelAttack();
+	}
+	StaggerFor(By, Seconds);
+	StartHitLean(By);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s parried by %s, staggered %.1f s."), *GetName(), *Swing.ToString(), *GetNameSafe(By),
+		Seconds);
+}
+
+void AThugCharacter::HoldStagger(float Seconds)
+{
+	if (!bKnockedDown && !bLimp)
+	{
+		StaggerRemaining = FMath::Max(StaggerRemaining, Seconds);
+	}
+}
+
+bool AThugCharacter::ReceiveFinisher(AActor* By, FVector Velocity)
+{
+	if (bLimp || !HealthComponent || !HealthComponent->IsAlive())
+	{
+		return false;
+	}
+	// Straight to the health, round the shield: the finisher is the answer to a guard already broken.
+	HealthComponent->ApplyDamage(HealthComponent->GetCurrentHealth() + HealthComponent->GetMaxHealth(), By);
+	const bool bKilled = !HealthComponent->IsAlive();
+	if (bKilled && IsRagdolling())
+	{
+		GetMesh()->SetAllPhysicsLinearVelocity(Velocity, /*bAddToCurrent=*/false);
+	}
+	return bKilled;
+}
+
+void AThugCharacter::StartHitLean(const AActor* HitBy)
+{
+	if (!HitBy || HitBy == this || bLimp)
+	{
+		return;
+	}
+	const FVector ToAttacker = HitBy->GetActorLocation() - GetActorLocation();
+	LastHitDirection = UHawkeyeMeleeRules::ClassifyHitDirection(GetActorForwardVector(), ToAttacker);
+	HitLean.Start(UHawkeyeMeleeRules::ComputeLeanDirection(GetActorForwardVector(), LastHitDirection));
+}
+
+void AThugCharacter::UpdateHitLean(float DeltaSeconds)
+{
+	const bool bWasLeaning = HitLean.IsActive();
+	HitLean.Advance(DeltaSeconds);
+	if (!bWasLeaning && !HitLean.IsActive())
+	{
+		return;
+	}
+	if (UHawkeyeBowIKAnimInstance* Hands = BowComponent ? BowComponent->GetHandsIKInstance() : nullptr)
+	{
+		Hands->SetHitLean(HitLean.GetDirection(), HitLean.GetAlpha());
 	}
 }
 

@@ -361,6 +361,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
 	bool IsBursting() const { return Burst.IsActive(); }
 
+	/**
+	 * Kate parried the raised pistol: the burst's first shot is deflected (fires nothing). Only while the
+	 * telegraph is showing; false otherwise. The rest of the burst comes as usual.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Gunner")
+	bool DeflectFirstShot();
+
+	/** A parry is waiting to take the burst's first shot. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	bool IsFirstShotDeflected() const { return bDeflectNextShot; }
+
+	/** Shots a parry has deflected. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
+	int32 GetDeflectedShots() const { return DeflectedShots; }
+
 	UFUNCTION(BlueprintPure, Category = "Thug|Gunner")
 	bool HasCoverPoint() const { return bHasCover; }
 
@@ -623,6 +638,8 @@ private:
 	float HideElapsed = 0.f;
 	bool bAimedAt = false;
 	bool bLoggedJamHold = false;
+	bool bDeflectNextShot = false;
+	int32 DeflectedShots = 0;
 	/** A failed cover search is not repeated before this world time. */
 	double NextCoverSearchSeconds = -1.0;
 	bool bRetreating = false;
