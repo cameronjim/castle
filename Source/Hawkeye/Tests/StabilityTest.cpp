@@ -1,5 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Engine/GameInstance.h"
 #include "HawkeyeGameMode.h"
 #include "Misc/AutomationTest.h"
 #include "Phone/PhoneInbox.h"
@@ -200,7 +201,9 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLoadResidentAssets, "Hawkeye.Load.Resid
 
 bool FHawkeyeLoadResidentAssets::RunTest(const FString& Parameters)
 {
-	UHawkeyeResidentAssets* Resident = NewObject<UHawkeyeResidentAssets>();
+	// A game instance subsystem must live in a game instance; a bare one will do (no world).
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UHawkeyeResidentAssets* Resident = NewObject<UHawkeyeResidentAssets>(GameInstance);
 	UObject* Thing = NewObject<UHawkeyeTestListener>();
 	Resident->Keep(nullptr);
 	TestEqual(TEXT("Null is ignored"), Resident->GetKeptCount(), 0);
