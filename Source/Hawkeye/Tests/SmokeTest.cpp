@@ -39,8 +39,8 @@ namespace HawkeyeSmoke
 	static const TCHAR* ExpectedObjectives[] = {
 		TEXT("reach_roof"), TEXT("cross_block"), TEXT("clear_roof"), TEXT("find_arrow") };
 
-	/** Two patrolling the street, the RoofPair on the cross_block roof. */
-	static constexpr int32 ExpectedThugs = 4;
+	/** Two patrolling the street, the heavy on his own patrol, the RoofPair on the cross_block roof. */
+	static constexpr int32 ExpectedThugs = 5;
 	static constexpr int32 ExpectedArchers = 2;
 
 	/** The game world the map was opened into, or null. */
@@ -104,10 +104,10 @@ bool FHawkeyeAssertEastVillagePlayable::Update()
 	int32 ArcherCount = 0;
 	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
-		// Barney's archers (BP_Archer, tag ArcherPair) are placed beside chapter 1's four.
+		// Barney's archers (BP_Archer, tag ArcherPair) are placed beside chapter 1's five (the heavy is the fifth).
 		(It->ActorHasTag(FName(TEXT("ArcherPair"))) ? ArcherCount : ThugCount)++;
 	}
-	Test->TestEqual(TEXT("Four thugs are placed"), ThugCount, HawkeyeSmoke::ExpectedThugs);
+	Test->TestEqual(TEXT("Five thugs are placed"), ThugCount, HawkeyeSmoke::ExpectedThugs);
 	Test->TestEqual(TEXT("And the two archers facing the find_arrow roof"), ArcherCount, HawkeyeSmoke::ExpectedArchers);
 
 	int32 PlayerStartCount = 0;
