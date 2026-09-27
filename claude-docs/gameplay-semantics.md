@@ -557,3 +557,22 @@ the last input came from a pad.
   plays; every trigger logs at Verbose as `Sound:`. Sound classes and the mix stay loaded
   for the whole run (a map change once spammed thousands of missing-class warnings).
 - Open: the animation sample's own footstep events may double Kate's footsteps.
+
+## Effects (built 2026-09-27, engine Niagara templates, nothing downloaded)
+- 18 Niagara systems (33 emitters, 7 materials) under `/Game/VFX`, each a copy of one of
+  the Niagara plugin's template emitters (`/Niagara/DefaultAssets/Templates/Emitters/`)
+  with module settings changed headless by an editor-only C++ builder
+  (`Source/Hawkeye/Vfx/HawkeyeVfxBuilder`) driven by `Tools/Editor/create_vfx.py` recipes.
+  Python alone can copy templates but cannot edit module values, which is why the builder
+  exists. The old placeholder shapes show only if a system is missing.
+- Templates per effect: OmnidirectionalBurst for smoke, EMP ring, fireball and explosion
+  smoke, putty splat, impact dust, landing snow, bow puff, muzzle smoke (and as a steady
+  stream for the smoke cloud's 6 s tail, the bola whirl, chimney wisps); DirectionalBurst
+  for every spark, stone chips, wood splinters, footstep kick; SimpleSpriteBurst for
+  flashes; Fountain with a ribbon renderer for arrow and bola trails; DynamicBeam for the
+  zip line and gunshot tracer; RecycleParticlesInView (GPU) for snowfall, 800 flakes
+  following the camera. Scorch decal placed by a ground trace; EMP chromatic aberration is
+  a post-process material.
+- Chimney smoke on the 6 chimneys nearest the player at load. Frame time 7.4 to 7.7 ms.
+- Open: the explosion still reads washed out (its light plus camera-shake blur); the hit
+  spark competes with the thug's hit flash; the footstep kick is faint.
