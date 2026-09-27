@@ -669,3 +669,21 @@ the last input came from a pad.
 - HUD scale 0.8 to 1.4 applies to HUD text, hotbar, markers, and compass.
 - Challenge pedestal light 135 lm over 400 cm with a stronger emissive; the cap and icon
   still read white rather than purple.
+
+## Street crimes (built 2026-09-27; names are placeholders; rules also in Source/Hawkeye/Crime/CrimeRules.h)
+- 12 `City_CrimeSpot_` actors: 8 street corners (each with a robbery escape point 58 to
+  62 m along the sidewalk) and 4 rooftops with anchors; none within 40 m of a safehouse
+  or pedestal, all at least 35 m apart.
+- A crime is due every 90 to 150 s of roaming (not in combat, a challenge, or a chapter
+  beat), at a spot 25 to 40 m away and 60 m from the last, preferring spots out of sight.
+  One at a time. `hawkeye.CrimeInterval` and `hawkeye.CrimeType` cvars control it;
+  automation never gets a crime unless the interval is set.
+- Mugging: fists and bat thugs around a grey `BP_Civilian`; the victim is hit at 15, 30,
+  and 45 s while an unalerted thug is beside him, and the third hit fails it. Robbery:
+  a runner (380 cm/s) who leaves when Kate is within 20 m, a thug is alerted, or 40 s
+  pass, and drops the loot when downed; picking up the loot ends it. Ambush: four thugs
+  alerted from the start. Rooftop: two thugs and an archer.
+- Stopping a crime gives +5 standard arrows, a toast, and a per-type count in the save.
+  Crime thugs despawn 60 s after success once the player is 40 m away, 20 s after failure.
+- Scripted mugging: rescued in 12.3 s with no hits. No alley spots yet; robbery, ambush,
+  and rooftop are covered by headless world tests only.
