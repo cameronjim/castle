@@ -34,6 +34,9 @@
     5d. create_crimes            the street crimes (DA_Crime_*) under /Game/Crimes and BP_Civilian, the
                                   mugging's victim; generate_city places the City_CrimeSpot_ spots they
                                   start at, planned by create_crimes from the same records
+    5e. generate_interior         every chapter interior, L_Int_<Name>, from its layout in Tools/Interiors/
+                                  (BP_GameMode_Interior, the M_Int* materials); before the city, whose
+                                  City_InteriorEntrance_ doors point at them
     6. generate_city              L_District_EastVillage from OpenStreetMap, after everything
                                   else and only when Tools/Data/osm/east_village.buildings.json
                                   exists (Tools/fetch-osm.ps1 writes it)
@@ -75,6 +78,7 @@ STEPS = [
     ("narrative", "create_narrative"),
     ("challenges", "create_challenges"),
     ("crimes", "create_crimes"),
+    ("interiors", "generate_interior"),
     ("city", "generate_city"),
 ]
 
