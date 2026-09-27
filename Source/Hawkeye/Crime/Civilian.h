@@ -73,10 +73,10 @@ public:
 
 	/** How far the cower drops his body, cm, and how far it hunches him forward, degrees. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Civilian", meta = (ClampMin = "0.0"))
-	float CowerDrop = 30.f;
+	float CowerDrop = 6.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Civilian", meta = (ClampMin = "0.0", ClampMax = "80.0"))
-	float CowerLeanDegrees = 28.f;
+	float CowerLeanDegrees = 20.f;
 
 	/** The extra lean of a flinch, degrees, and how long it lasts, s. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Civilian", meta = (ClampMin = "0.0"))
