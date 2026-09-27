@@ -35,6 +35,11 @@ if (Get-Process UnrealEditor -ErrorAction SilentlyContinue) {
 New-Item -ItemType Directory -Force (Split-Path $Log) | Out-Null
 New-Item -ItemType Directory -Force $Archive | Out-Null
 
+# Archiving copies over what is there, so a Shipping run after a Development one would leave both
+# executables (and both .pdb files) in the folder and in the zip.
+$Staged = Join-Path $Archive "Windows"
+if (Test-Path $Staged) { Remove-Item $Staged -Recurse -Force }
+
 $Config = if ($Shipping) { "Shipping" } else { "Development" }
 $UatArgs = @(
     "BuildCookRun", "-project=$Proj", "-platform=Win64", "-clientconfig=$Config",
