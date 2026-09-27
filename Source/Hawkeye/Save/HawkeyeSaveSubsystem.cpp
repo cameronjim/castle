@@ -7,6 +7,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Challenge/ChallengeSubsystem.h"
 #include "Combat/HealthComponent.h"
+#include "Crime/CrimeSubsystem.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
@@ -168,6 +169,10 @@ void UHawkeyeSaveSubsystem::CaptureCampaign(UWorld* World)
 	if (const UChallengeSubsystem* Challenges = World->GetSubsystem<UChallengeSubsystem>())
 	{
 		Challenges->MirrorToCampaign();
+	}
+	if (const UCrimeSubsystem* Crimes = World->GetSubsystem<UCrimeSubsystem>())
+	{
+		Crimes->MirrorToCampaign();
 	}
 }
 

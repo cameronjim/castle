@@ -24,6 +24,8 @@ void UHawkeyeCampaignState::ResetCampaign()
 	ChallengeBestSeconds.Reset();
 	ChallengeBestMedals.Reset();
 	ChallengeCompletions.Reset();
+	CrimeTypes.Reset();
+	CrimeCompletions.Reset();
 }
 
 bool UHawkeyeCampaignState::CanMigrateFrom(int32 SavedVersion)

@@ -107,6 +107,14 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Challenges")
 	TArray<int32> ChallengeCompletions;
 
+	/** Street crime types stopped at least once ("Mugging"). UCrimeSubsystem mirrors these two arrays. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Crimes")
+	TArray<FName> CrimeTypes;
+
+	/** Crimes stopped per type, in CrimeTypes' order. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Crimes")
+	TArray<int32> CrimeCompletions;
+
 	/** Back to a fresh campaign. */
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	void ResetCampaign();
