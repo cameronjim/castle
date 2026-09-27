@@ -46,6 +46,7 @@
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 #include "Tests/BowIKScreenshots.h"
+#include "Tests/ChallengeScreenshots.h"
 #include "Tests/CombatScreenshots.h"
 #include "Tests/EnemyScreenshots.h"
 #include "Tests/MeleeScreenshots.h"
@@ -127,6 +128,8 @@
  *                           fair-fight pass (CombatScreenshotTest.cpp)
  *   combo_x3.png, parry_flash.png, finisher_mid.png, hit_lean.png, strike_pose.png: the melee pass
  *                           (MeleeScreenshotTest.cpp)
+ *   challenge_pedestal.png, archery_targets.png, challenge_results.png, traversal_checkpoint.png: the
+ *                           side-challenge pass (ChallengeScreenshotTest.cpp)
  *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass
  *                           (SaveRoundTripTest.cpp)
  *   phone_open.png, chapter_title.png, dialogue_subtitle.png, chapter_end_closeup.png,
@@ -2841,6 +2844,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	HawkeyeAddPartnerShots(this);
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.DebugMovement 0")));
+
+	// The side challenges: a pedestal, the archery range and its results card, a traversal ring ahead.
+	HawkeyeAddChallengeShots(this);
 
 	// The safehouse, the main menu and a death that loads the last save. It reloads the map.
 	HawkeyeAddSaveShots(this);
