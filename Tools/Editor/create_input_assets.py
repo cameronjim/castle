@@ -120,7 +120,10 @@ MAPPINGS = [
     ("IA_Move", "Gamepad_Left2D", [STICK_MOVE_DEADZONE]),
     # IA_Look stays mouse-only; the stick drives IA_LookStick instead so AHawkeyeCharacter's
     # handler (which must scale by delta time and StickSensitivity) has an unambiguous source.
-    ("IA_LookStick", "Gamepad_Right2D", [STICK_LOOK_DEADZONE, STICK_LOOK_SCALAR, NEGATE_Y]),
+    # No NegateY here: Gamepad_Right2D's raw Y is already positive for "stick up" (the opposite
+    # native sign from Mouse2D's raw Y, which is why IA_Look above needs the negate and this
+    # doesn't) - adding one flipped stick-up into a look-down. See ComputeStickLookDelta.
+    ("IA_LookStick", "Gamepad_Right2D", [STICK_LOOK_DEADZONE, STICK_LOOK_SCALAR]),
     ("IA_Jump", "Gamepad_FaceButton_Bottom", []),               # A
     ("IA_Sprint", "Gamepad_LeftThumbstick", []),                # L3, held
     ("IA_Crouch", "Gamepad_FaceButton_Right", []),              # B: also drives dodge tap / slide
