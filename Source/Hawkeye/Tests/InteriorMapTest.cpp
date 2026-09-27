@@ -81,7 +81,11 @@ namespace HawkeyeInteriorMap
 	/** The gallery (a mezzanine over the hall, x 800 to 1200 on floor 1) and the hall's open floor. */
 	static const FBox2D Gallery(FVector2D(800.f, 0.f), FVector2D(1200.f, 1400.f));
 	static const FBox2D Stair(FVector2D(500.f, 600.f), FVector2D(800.f, 1220.f));
-	static const FVector MantleStart(1750.f, 640.f, 0.f);
+	static const FVector MantleStart(1545.f, 640.f, 0.f);   // between the crates and the rows of chairs
+	/** The tops she climbs to the balcony by: the low crate, the tall one, the gallery behind the balustrade. */
+	static const FVector MantleSteps[] = { FVector(1362.f, 640.f, 120.f), FVector(1262.f, 640.f, 240.f),
+		FVector(1120.f, 640.f, FloorHeight) };
+
 	static const FVector GrappleStart(1750.f, 1000.f, 0.f);
 	static const FVector RoofDoorApproach(1000.f, 230.f, FloorHeight);
 
@@ -218,14 +222,15 @@ namespace HawkeyeInteriorMap
 		PC->SetViewTarget(Kate);
 	}
 
-	/** Thugs keep patrolling but see and hear nothing, so the walk needs no fight. */
+	/** Thugs keep patrolling but go Calm and stay so (what a side challenge does round its start). */
 	static void Pacify(UWorld* World)
 	{
 		for (TActorIterator<AThugAIController> It(World); It; ++It)
 		{
-			It->SightRadius = 0.f;
-			It->LoseSightRadius = 0.f;
-			It->HearingRange = 0.f;
+			if (!It->IsPacified())
+			{
+				It->SetPacified(true);
+			}
 		}
 	}
 
@@ -751,10 +756,17 @@ bool FHawkeyeLapInteriorWalk::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FUntilCommand([]()
 	{
 		UWorld* World = FindWorld();
-		return IsMap(World, MapPath) && FindPlayer(World);
+		if (!IsMap(World, MapPath) || !FindPlayer(World))
+		{
+			return false;
+		}
+		// At once: the lobby's patrol would see her in the doorway within the second.
+		Pacify(World);
+		return true;
 	}, [this, Walk]()
 	{
 		EndLeg(this, Walk, TEXT("enter from the district"), false, TEXT("L_Int_Sample did not open within 25 s"));
+
 		return true;
 	}, 25.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
@@ -833,12 +845,24 @@ bool FHawkeyeLapInteriorWalk::RunTest(const FString& Parameters)
 			StopInput(PC);
 			return true;
 		}
-		Steer(PC, 180.f);
+		// Up the steps one at a time: at the low crate from the floor, the tall one from the low one, the
+		// balustrade from the tall one. Steer at the middle of the next, and press jump close to its face.
+		const FVector2D Here(Feet);
+		const FVector2D Next = Feet.Z < MantleSteps[0].Z - 30.f ? FVector2D(MantleSteps[0])
+			: Feet.Z < MantleSteps[1].Z - 30.f ? FVector2D(MantleSteps[1]) : FVector2D(MantleSteps[2]);
+		const FVector2D Dir = (Next - Here).GetSafeNormal();
+		Steer(PC, FMath::RadiansToDegrees(FMath::Atan2(Dir.Y, Dir.X)));
 		Hold(PC, MovePath, true, FInputActionValue(FVector2D(0.f, 1.f)));
-		Hold(PC, SprintPath, true);
 		const double Now = FPlatformTime::Seconds();
-		// Past the auto triggers: close to a face with nothing happening, press jump as a player would.
-		if (!bBusy && Kate->GetVelocity().Size2D() < 150.f && Now - Walk->LastJump > 0.6)
+		if (Now - Walk->LastProgress > 1.0)
+		{
+			Walk->LastProgress = Now;
+			UE_LOG(LogTemp, Display, TEXT("[Hawkeye] mantle leg: feet %s, speed %.0f, mode %d, busy %d, next %s"), *Feet.ToCompactString(),
+				Kate->GetVelocity().Size2D(), static_cast<int32>(Kate->GetCharacterMovement()->MovementMode.GetValue()), bBusy ? 1 : 0,
+				*Next.ToString());
+		}
+		if (!bBusy && FVector2D::Distance(Here, Next) < 130.f && Now - Walk->LastJump > 0.6)
+
 		{
 			Tap(PC, JumpPath);
 			++Walk->JumpTaps;
