@@ -164,7 +164,7 @@ int32 UInventoryComponent::AddArrows(UArrowDefinition* Definition, int32 Count)
 	}
 
 	const int32 Before = Entry.Count;
-	Entry.Count = FMath::Clamp(Entry.Count + Count, 0, FMath::Max(Definition->Cap, 0));
+	Entry.Count = FMath::Clamp(Entry.Count + Count, 0, FMath::Max(GetCap(Definition), 0));
 	OnInventoryChanged.Broadcast();
 	return Entry.Count - Before;
 }
@@ -188,7 +188,7 @@ void UInventoryComponent::SetArrowCount(int32 Slot, int32 Count)
 	{
 		return;
 	}
-	Arrows[Index].Count = FMath::Clamp(Count, 0, FMath::Max(Arrows[Index].Arrow->Cap, 0));
+	Arrows[Index].Count = FMath::Clamp(Count, 0, FMath::Max(GetCap(Arrows[Index].Arrow), 0));
 	OnInventoryChanged.Broadcast();
 }
 
@@ -267,15 +267,48 @@ bool UInventoryComponent::SelectPreviousArrowSlot()
 	return Slot != INDEX_NONE && SelectArrowSlot(Slot);
 }
 
+int32 UInventoryComponent::GetCap(const UArrowDefinition* Arrow) const
+{
+	if (!Arrow)
+	{
+		return 0;
+	}
+	return Arrow->Cap + (IsTrickArrow(Arrow) ? FMath::Max(TrickArrowCapBonus, 0) : 0);
+}
+
+bool UInventoryComponent::IsTrickArrow(const UArrowDefinition* Arrow)
+{
+	return Arrow && Arrow->OnHitEffect != EArrowHitEffect::None && Arrow->OnHitEffect != EArrowHitEffect::Grapple;
+}
+
+void UInventoryComponent::SetTrickArrowCapBonus(int32 Bonus)
+{
+	const int32 Clamped = FMath::Max(Bonus, 0);
+	if (Clamped == TrickArrowCapBonus)
+	{
+		return;
+	}
+	TrickArrowCapBonus = Clamped;
+	for (FHawkeyeQuiverSlot& Entry : Arrows)
+	{
+		if (Entry.Arrow)
+		{
+			Entry.Count = FMath::Min(Entry.Count, GetCap(Entry.Arrow));
+		}
+	}
+	OnInventoryChanged.Broadcast();
+}
+
 int32 UInventoryComponent::RefillToCaps()
 {
 	int32 Added = 0;
 	for (FHawkeyeQuiverSlot& Entry : Arrows)
 	{
-		if (Entry.Arrow && Entry.Count < Entry.Arrow->Cap)
+		const int32 Cap = Entry.Arrow ? GetCap(Entry.Arrow) : 0;
+		if (Entry.Arrow && Entry.Count < Cap)
 		{
-			Added += Entry.Arrow->Cap - Entry.Count;
-			Entry.Count = Entry.Arrow->Cap;
+			Added += Cap - Entry.Count;
+			Entry.Count = Cap;
 		}
 	}
 	if (Added > 0)
@@ -297,7 +330,7 @@ void UInventoryComponent::RestoreQuiver(UBowDefinition* InBow, const TArray<FHaw
 		if (Index != INDEX_NONE)
 		{
 			Arrows[Index].Arrow = Saved.Arrow;
-			Arrows[Index].Count = FMath::Clamp(Saved.Count, 0, FMath::Max(Saved.Arrow->Cap, 0));
+			Arrows[Index].Count = FMath::Clamp(Saved.Count, 0, FMath::Max(GetCap(Saved.Arrow), 0));
 		}
 	}
 	EnsureStandardSlot();
@@ -331,7 +364,7 @@ void UInventoryComponent::Clear()
 			continue;
 		}
 		Arrows[Index].Arrow = Grant.Arrow;
-		Arrows[Index].Count = FMath::Clamp(Grant.Count, 0, FMath::Max(Grant.Arrow->Cap, 0));
+		Arrows[Index].Count = FMath::Clamp(Grant.Count, 0, FMath::Max(GetCap(Grant.Arrow), 0));
 	}
 	EnsureStandardSlot();
 	ApplyHandsToWeapon();

@@ -124,6 +124,31 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Health")
 	float GetHealthPercent() const { return MaxHealth > 0.f ? CurrentHealth / MaxHealth : 0.f; }
 
+	// --- Regeneration (the player only; thugs and bosses never regenerate) --------------------------
+
+	/** Health comes back on its own after RegenDelay seconds without damage. Off by default; Kate turns it on. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health|Regen")
+	bool bRegenerates = false;
+
+	/** Seconds without damage before regeneration starts. The difficulty sets Kate's (3 / 5 / 8). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health|Regen", meta = (ClampMin = "0.0"))
+	float RegenDelay = 5.f;
+
+	/** Health a second once regeneration has started. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health|Regen", meta = (ClampMin = "0.0"))
+	float RegenPerSecond = 10.f;
+
+	/**
+	 * Moves regeneration on by DeltaSeconds: heals RegenPerSecond once RegenDelay has passed since the
+	 * last damage, up to MaxHealth. Nothing while dead or when bRegenerates is off. The owner ticks it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Health|Regen")
+	void AdvanceRegen(float DeltaSeconds);
+
+	/** Seconds since damage last landed. */
+	UFUNCTION(BlueprintPure, Category = "Health|Regen")
+	float GetSecondsSinceDamage() const { return SecondsSinceDamage; }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -137,6 +162,9 @@ protected:
 	/** See SetCannotDie. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Health")
 	bool bCannotDie = false;
+
+	/** Seconds since damage last landed; counted by AdvanceRegen. */
+	float SecondsSinceDamage = 0.f;
 
 	/** Set the first time health reaches 0; cleared only by Revive. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Health")

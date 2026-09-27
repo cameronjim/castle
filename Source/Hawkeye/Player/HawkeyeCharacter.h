@@ -168,6 +168,57 @@ public:
 	/** The bow started drawing: drop the sprint and aim (camera in, strafe, slower walk) while it is held. */
 	void NotifyBowDrawStarted();
 
+	/**
+	 * The aim button went down / up. Held (the default), aim lasts while the button does; toggled
+	 * (FHawkeyeSettings::bToggleAim), a press raises it and the next press lowers it.
+	 */
+	void PressAim();
+	void ReleaseAim();
+
+	/**
+	 * The crouch button went down / up. Toggled (the default), a press crouches and the next stands;
+	 * held, she stands again when it is let go. Taps still dodge and presses at a sprint still slide.
+	 */
+	void PressCrouch();
+	void ReleaseCrouch();
+
+	/**
+	 * Takes every setting the character uses: sensitivities, inverts, hold or toggle for aim and crouch,
+	 * the shake and flash scales, and the difficulty's regen delay, fall damage, parry window and trick
+	 * arrow caps. The settings subsystem's broadcast lands here; tests call it directly.
+	 */
+	void ApplySettings(const FHawkeyeSettings& Settings);
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Settings")
+	bool IsAimToggle() const { return bToggleAim; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Settings")
+	bool IsCrouchToggle() const { return bToggleCrouch; }
+
+	/** What camera shakes are multiplied by: 1, or 0.3 with "reduce camera shake". */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Settings")
+	float GetCameraShakeScale() const { return CameraShakeScale; }
+
+	/** What the EMP's screen split and the parry ring are multiplied by: 1, or 0.3 with "reduce flashing". */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Settings")
+	float GetFlashScale() const { return FlashScale; }
+
+	/** The difficulty's multiplier on fall damage. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Settings")
+	float GetFallDamageScale() const { return FallDamageScale; }
+
+	/** The difficulty's change to the parry window, s (+ an early tap still counts, - not the telegraph's start). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Settings")
+	float GetParryWindowDelta() const { return ParryWindowDelta; }
+
+	/** Seconds an early strike tap is held waiting for a telegraph to parry (Story only). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Parry")
+	float GetParryBufferRemaining() const { return ParryBufferRemaining; }
+
+	/** The throw of the shake now running, cm, after the shake scale. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	float GetActiveShakeAmplitude() const { return ActiveShakeAmplitude; }
+
 	/** The draw ended (released or let down): the aim goes too, unless the aim button is held. */
 	void NotifyBowDrawEnded();
 
@@ -385,6 +436,9 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Melee")
 	bool TryParry();
+
+	/** TryParry, but allowed over her own jab's wind-up: the early tap Story holds (UpdateParryBuffer). */
+	bool TryParryFromBuffer();
 
 	/** The thug a parry would meet now (and what it would meet), or null. */
 	AThugCharacter* FindParryTarget(EHawkeyeParryKind& OutKind) const;
@@ -1390,6 +1444,25 @@ protected:
 
 	UFUNCTION()
 	void HandleSettingsChanged(FHawkeyeSettings Settings);
+
+	/** Aim and crouch by press or by hold (FHawkeyeSettings). */
+	bool bToggleAim = false;
+	bool bToggleCrouch = true;
+
+	/** The accessibility scales and the difficulty's numbers ApplySettings last took. */
+	float CameraShakeScale = 1.f;
+	float FlashScale = 1.f;
+	float FallDamageScale = 1.f;
+	float ParryWindowDelta = 0.f;
+
+	/** Story's early parry: a tap that met no telegraph waits this long for one to start. */
+	float ParryBufferRemaining = 0.f;
+
+	/** Set while the buffered early tap tries its parry, so her own jab's wind-up does not refuse it. */
+	bool bParryOverOwnWindup = false;
+
+	/** Spends a waiting early tap on a telegraph that has just started. */
+	void UpdateParryBuffer(float DeltaSeconds);
 
 	/** Gamepad right stick: Value is a held -1..1 position, not a per-frame delta like the mouse. */
 	void Input_LookStick(const FInputActionValue& Value);

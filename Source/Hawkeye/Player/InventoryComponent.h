@@ -147,6 +147,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
 	int32 FindArrowSlotByEffect(EArrowHitEffect Effect) const;
 
+	/**
+	 * The most of Arrow the quiver carries: its Cap, plus TrickArrowCapBonus for a trick arrow (Story's
+	 * +2). Every clamp and every "n/cap" on screen reads this.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	int32 GetCap(const UArrowDefinition* Arrow) const;
+
+	/** A trick arrow: one that does something on landing beyond damage, other than the grapple. */
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	static bool IsTrickArrow(const UArrowDefinition* Arrow);
+
+	/** Sets the difficulty's extra trick arrows; counts over the new caps come down to them. */
+	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
+	void SetTrickArrowCapBonus(int32 Bonus);
+
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	int32 GetTrickArrowCapBonus() const { return TrickArrowCapBonus; }
+
 	/** Sets Slot's count directly, clamped to its Cap. Debug and tests. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
 	void SetArrowCount(int32 Slot, int32 Count);
@@ -157,6 +175,10 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
 	int32 RefillToCaps();
+
+	/** Arrows added to every trick arrow's cap (the difficulty). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory|Quiver")
+	int32 TrickArrowCapBonus = 0;
 
 	/** All seven slots, index 0 being slot 1. The save reads this. */
 	const TArray<FHawkeyeQuiverSlot>& GetArrowSlots() const { return Arrows; }

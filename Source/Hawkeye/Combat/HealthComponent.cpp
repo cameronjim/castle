@@ -67,6 +67,7 @@ float UHealthComponent::ApplyDamage(float DamageAmount, AActor* DamageInstigator
 	{
 		return 0.f;
 	}
+	SecondsSinceDamage = 0.f;
 
 	// Death is latched before the change is broadcast so listeners (the boss phase component)
 	// already see IsDead() when they react to the hit that killed the actor.
@@ -101,6 +102,19 @@ float UHealthComponent::Heal(float HealAmount, AActor* Healer)
 
 	OnHealthChanged.Broadcast(this, CurrentHealth, ActualDelta, Healer);
 	return ActualDelta;
+}
+
+void UHealthComponent::AdvanceRegen(float DeltaSeconds)
+{
+	const float Step = FMath::Max(DeltaSeconds, 0.f);
+	SecondsSinceDamage += Step;
+	if (!bRegenerates || bIsDead || CurrentHealth >= MaxHealth || SecondsSinceDamage < RegenDelay)
+	{
+		return;
+	}
+	// Only the part of this step past the delay heals, so the first tick after it is not a lump.
+	const float Healing = FMath::Min(Step, SecondsSinceDamage - RegenDelay) * RegenPerSecond;
+	Heal(Healing, GetOwner());
 }
 
 void UHealthComponent::Revive(float NewHealth)

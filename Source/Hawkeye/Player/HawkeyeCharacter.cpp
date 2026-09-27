@@ -30,6 +30,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
+#include "Settings/DifficultySubsystem.h"
+#include "Settings/HawkeyeAccessibility.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
 #include "Player/GrappleComponent.h"
@@ -127,6 +129,10 @@ AHawkeyeCharacter::AHawkeyeCharacter()
 	FollowCamera->SetFieldOfView(HipCamera.FieldOfView);
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
+	// She gets her health back when she stays out of trouble; the difficulty sets how long that takes.
+	HealthComponent->bRegenerates = true;
+	HealthComponent->RegenDelay = UDifficultySubsystem::GetTableValue(EHawkeyeDifficulty::Normal, EDifficultyStat::RegenDelaySeconds);
+	HealthComponent->RegenPerSecond = 10.f;
 	TakedownComponent = CreateDefaultSubobject<UTakedownComponent>(TEXT("TakedownComponent"));
 	InteractionComponent = CreateDefaultSubobject<UInteractionComponent>(TEXT("InteractionComponent"));
 	NoiseEmitter = CreateDefaultSubobject<UPawnNoiseEmitterComponent>(TEXT("NoiseEmitter"));
@@ -927,8 +933,10 @@ void AHawkeyeCharacter::RefreshQuiverWheelHud() const
 	}
 }
 
-void AHawkeyeCharacter::PlayImpactShake(float Seconds, float Amplitude)
+void AHawkeyeCharacter::PlayImpactShake(float InSeconds, float InAmplitude)
 {
+	const float Seconds = InSeconds;
+	const float Amplitude = InAmplitude * CameraShakeScale;
 	if (Seconds <= 0.f)
 	{
 		return;
@@ -1037,14 +1045,7 @@ void AHawkeyeCharacter::BindToSettingsSubsystem()
 		return;
 	}
 
-	SettingsLookSensitivity = SettingsSubsystem->GetLookSensitivity();
-	bHasSettingsLookSensitivity = true;
-
-	SettingsStickSensitivity = SettingsSubsystem->GetStickSensitivity();
-	bHasSettingsStickSensitivity = true;
-
-	bInvertMouseY = SettingsSubsystem->GetInvertMouseY();
-	bInvertStickY = SettingsSubsystem->GetInvertStickY();
+	ApplySettings(SettingsSubsystem->GetSettings());
 
 	if (!SettingsSubsystem->OnSettingsChanged.IsAlreadyBound(this, &AHawkeyeCharacter::HandleSettingsChanged))
 	{
@@ -1063,6 +1064,11 @@ void AHawkeyeCharacter::UnbindFromSettingsSubsystem()
 void AHawkeyeCharacter::HandleSettingsChanged(FHawkeyeSettings NewSettings)
 {
 	// Live, so the slider can be felt while the pause menu is still open.
+	ApplySettings(NewSettings);
+}
+
+void AHawkeyeCharacter::ApplySettings(const FHawkeyeSettings& NewSettings)
+{
 	SettingsLookSensitivity = NewSettings.LookSensitivity;
 	bHasSettingsLookSensitivity = true;
 
@@ -1071,6 +1077,24 @@ void AHawkeyeCharacter::HandleSettingsChanged(FHawkeyeSettings NewSettings)
 
 	bInvertMouseY = NewSettings.bInvertMouseY;
 	bInvertStickY = NewSettings.bInvertStickY;
+
+	bToggleAim = NewSettings.bToggleAim;
+	bToggleCrouch = NewSettings.bToggleCrouch;
+	CameraShakeScale = UHawkeyeAccessibility::GetCameraShakeScale(NewSettings.bReduceCameraShake);
+	FlashScale = UHawkeyeAccessibility::GetFlashScale(NewSettings.bReduceFlashing);
+
+	const EHawkeyeDifficulty Difficulty = NewSettings.Difficulty;
+	FallDamageScale = UDifficultySubsystem::GetTableValue(Difficulty, EDifficultyStat::FallDamage);
+	ParryWindowDelta = UDifficultySubsystem::GetTableValue(Difficulty, EDifficultyStat::ParryWindowSeconds);
+	if (HealthComponent)
+	{
+		HealthComponent->RegenDelay = UDifficultySubsystem::GetTableValue(Difficulty, EDifficultyStat::RegenDelaySeconds);
+	}
+	if (InventoryComponent)
+	{
+		InventoryComponent->SetTrickArrowCapBonus(FMath::RoundToInt(
+			UDifficultySubsystem::GetTableValue(Difficulty, EDifficultyStat::TrickArrowCapBonus)));
+	}
 }
 
 float AHawkeyeCharacter::GetEffectiveLookSensitivity() const
@@ -1181,18 +1205,36 @@ void AHawkeyeCharacter::Input_SprintCompleted(const FInputActionValue& /*Value*/
 
 void AHawkeyeCharacter::Input_AimStarted(const FInputActionValue& /*Value*/)
 {
-	bAimInputHeld = true;
-	StartAim();
+	PressAim();
+}
+
+void AHawkeyeCharacter::PressAim()
+{
+	// Toggled, the press flips what she is doing now (a sprint may have dropped the aim since).
+	bAimInputHeld = UHawkeyeAccessibility::ResolvePress(bToggleAim, bToggleAim ? bIsAiming : bAimInputHeld);
+	if (bAimInputHeld)
+	{
+		StartAim();
+	}
+	else if (!IsDrawingBow())
+	{
+		StopAim();
+	}
+}
+
+void AHawkeyeCharacter::ReleaseAim()
+{
+	bAimInputHeld = UHawkeyeAccessibility::ResolveRelease(bToggleAim, bAimInputHeld);
+	// A bow still drawn keeps the aim until it is released.
+	if (!bAimInputHeld && !IsDrawingBow())
+	{
+		StopAim();
+	}
 }
 
 void AHawkeyeCharacter::Input_AimCompleted(const FInputActionValue& /*Value*/)
 {
-	bAimInputHeld = false;
-	// A bow still drawn keeps the aim until it is released.
-	if (!IsDrawingBow())
-	{
-		StopAim();
-	}
+	ReleaseAim();
 }
 
 bool AHawkeyeCharacter::IsDrawingBow() const
@@ -1500,6 +1542,10 @@ void AHawkeyeCharacter::Tick(float DeltaSeconds)
 	AdvanceMeleeFlow(DeltaSeconds);
 	UpdateDodge(DeltaSeconds);
 	UpdateHitReactions(DeltaSeconds);
+	if (HealthComponent)
+	{
+		HealthComponent->AdvanceRegen(DeltaSeconds);
+	}
 	UpdateLowHealthPostProcess();
 	UpdateSlide(DeltaSeconds);
 	UpdateFalling(DeltaSeconds);
@@ -1559,6 +1605,11 @@ void AHawkeyeCharacter::UpdateBodyLocomotion()
 
 void AHawkeyeCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 {
+	PressCrouch();
+}
+
+void AHawkeyeCharacter::PressCrouch()
+{
 	// The roll owns the crouch until it stands her up.
 	if (IsRolling())
 	{
@@ -1592,7 +1643,11 @@ void AHawkeyeCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 
 	if (bIsCrouched)
 	{
-		UnCrouch();
+		// Held crouch stands on the release, not on a second press.
+		if (bToggleCrouch)
+		{
+			UnCrouch();
+		}
 	}
 	else if (bIsSprinting)
 	{
@@ -1617,12 +1672,22 @@ void AHawkeyeCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 
 void AHawkeyeCharacter::Input_CrouchReleased(const FInputActionValue& /*Value*/)
 {
-	if (!bCrouchTapPending)
+	ReleaseCrouch();
+}
+
+void AHawkeyeCharacter::ReleaseCrouch()
+{
+	if (bCrouchTapPending)
 	{
+		bCrouchTapPending = false;
+		TryDodge(LastMoveWorldDirection);
 		return;
 	}
-	bCrouchTapPending = false;
-	TryDodge(LastMoveWorldDirection);
+	if (!UHawkeyeAccessibility::ResolveRelease(bToggleCrouch, bIsCrouched) && bIsCrouched && !bIsSliding && !IsRolling())
+	{
+		UnCrouch();
+		UpdateMaxWalkSpeed();
+	}
 }
 
 void AHawkeyeCharacter::UpdateCrouchTap(float DeltaSeconds)
@@ -1685,8 +1750,11 @@ bool AHawkeyeCharacter::StartLightAttack()
 {
 	if (TryParry())
 	{
+		ParryBufferRemaining = 0.f;
 		return true;
 	}
+	// Story: a tap a little before a telegraph starts still counts as the parry, when it starts.
+	ParryBufferRemaining = FMath::Max(ParryWindowDelta, 0.f);
 	if (MeleeComponent && MeleeComponent->IsAttacking())
 	{
 		// Inside the chain window, a light pressed during the last one's recovery goes when it ends.
@@ -1851,6 +1919,7 @@ void AHawkeyeCharacter::UpdateSoftTurn(float DeltaSeconds)
 void AHawkeyeCharacter::AdvanceMeleeFlow(float DeltaSeconds)
 {
 	Combo.Advance(DeltaSeconds);
+	UpdateParryBuffer(DeltaSeconds);
 	if (bLightBuffered && MeleeComponent && !MeleeComponent->IsAttacking())
 	{
 		bLightBuffered = false;
@@ -1943,6 +2012,7 @@ AThugCharacter* AHawkeyeCharacter::FindParryTarget(EHawkeyeParryKind& OutKind) c
 		const EHawkeyeParryKind Kind = UHawkeyeMeleeRules::ClassifyParry(*It);
 		const FVector To = It->GetActorLocation() - GetActorLocation();
 		if (Kind == EHawkeyeParryKind::None || FMath::Abs(To.Z) > 150.f
+			|| !UHawkeyeMeleeRules::IsInParryWindow(UHawkeyeMeleeRules::GetTelegraphElapsed(*It), ParryWindowDelta)
 			|| !UHawkeyeMeleeRules::IsInFrontWithin(GetActorLocation(), Forward, It->GetActorLocation(), ParryRange, ParryAngleDegrees))
 		{
 			continue;
@@ -1957,9 +2027,31 @@ AThugCharacter* AHawkeyeCharacter::FindParryTarget(EHawkeyeParryKind& OutKind) c
 	return Best;
 }
 
+void AHawkeyeCharacter::UpdateParryBuffer(float DeltaSeconds)
+{
+	if (ParryBufferRemaining <= 0.f)
+	{
+		return;
+	}
+	if (TryParryFromBuffer())
+	{
+		ParryBufferRemaining = 0.f;
+		return;
+	}
+	ParryBufferRemaining = FMath::Max(0.f, ParryBufferRemaining - FMath::Max(DeltaSeconds, 0.f));
+}
+
+bool AHawkeyeCharacter::TryParryFromBuffer()
+{
+	// Her own jab from the same tap is winding up; the parry takes its place.
+	TGuardValue<bool> Guard(bParryOverOwnWindup, true);
+	return TryParry();
+}
+
 bool AHawkeyeCharacter::TryParry()
 {
-	if (!MeleeComponent || MeleeComponent->IsWindingUp() || IsLockedOutByTakedown() || IsZipping() || IsTraversing()
+	const bool bOwnWindup = MeleeComponent && MeleeComponent->IsWindingUp() && !bParryOverOwnWindup;
+	if (!MeleeComponent || bOwnWindup || IsLockedOutByTakedown() || IsZipping() || IsTraversing()
 		|| IsDodging() || IsStaggered() || IsDrawingBow() || bDowned)
 	{
 		return false;
@@ -1994,7 +2086,8 @@ bool AHawkeyeCharacter::TryParry()
 
 	const FVector Contact = (GetActorLocation() + Thug->GetActorLocation()) * 0.5f + FVector(0.f, 0.f, 40.f);
 	UHawkeyeAudioSubsystem::PlayAt(this, ParrySound, Contact, TEXT("parry"));
-	UHawkeyeVfxSubsystem::SpawnAt(this, ParryVfx, Contact, (-To).Rotation(), UHawkeyeVfxSubsystem::ParryEvent);
+	// "Reduce flashing" draws the ring at 30%: a smaller flash, the same read.
+	UHawkeyeVfxSubsystem::SpawnAt(this, ParryVfx, Contact, (-To).Rotation(), UHawkeyeVfxSubsystem::ParryEvent, FlashScale);
 	ApplyTimeWarp(ParryHitStopSeconds, HitStopTimeDilation);
 	UE_LOG(LogHawkeye, Log, TEXT("%s: parried %s's %s from %.0f cm (%d parries)."), *GetNameSafe(this), *GetNameSafe(Thug),
 		Kind == EHawkeyeParryKind::Burst ? TEXT("burst") : (Kind == EHawkeyeParryKind::Bash ? TEXT("bash") : TEXT("swing")),
@@ -2226,8 +2319,10 @@ float AHawkeyeCharacter::GetScreenPulseStrength() const
 	return ScreenPulseStart * Alpha * Alpha;
 }
 
-void AHawkeyeCharacter::PlayScreenPulse(float Seconds, float Strength)
+void AHawkeyeCharacter::PlayScreenPulse(float Seconds, float InStrength)
 {
+	// "Reduce flashing" softens the EMP's chromatic split to 30%.
+	const float Strength = InStrength * FlashScale;
 	if (Seconds <= 0.f || Strength <= 0.f || GetScreenPulseStrength() > Strength)
 	{
 		return;
@@ -2573,7 +2668,7 @@ void AHawkeyeCharacter::ApplyLanding(float FallHeight)
 	}
 	bControlledDrop = false;
 
-	const float Fraction = ComputeFallDamageFraction(FallHeight);
+	const float Fraction = ComputeFallDamageFraction(FallHeight) * FallDamageScale;
 	if (Fraction > 0.f && HealthComponent && HealthComponent->IsAlive())
 	{
 		// Soft by design: a fall takes a chunk, never the last point.

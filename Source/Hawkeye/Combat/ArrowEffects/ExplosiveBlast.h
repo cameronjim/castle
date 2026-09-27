@@ -83,6 +83,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Explosive")
 	static float ComputeFalloffDamage(float MaxDamage, float Distance, float InRadius);
 
+	/** What the flash light is multiplied by: 1, or 0.3 with "reduce flashing". Read when it goes off. */
+	UFUNCTION(BlueprintPure, Category = "Explosive")
+	float GetFlashScale() const { return FlashScale; }
+
+	/** The flash light's intensity now, cd. */
+	UFUNCTION(BlueprintPure, Category = "Explosive")
+	float GetFlashIntensity() const;
+
 	/** Actors this blast damaged. */
 	UFUNCTION(BlueprintPure, Category = "Explosive")
 	int32 GetVictimCount() const { return VictimCount; }
@@ -116,6 +124,8 @@ protected:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> FireballMaterial;
+
+	float FlashScale = 1.f;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> CoreMaterial;

@@ -190,7 +190,7 @@ FText UHawkeyeHotbarWidget::GetSlotCountText(int32 QuiverSlot) const
 	// Standard arrows are the plentiful ones; a trick arrow's cap is small enough to be worth showing.
 	return QuiverSlot == 1
 		? FText::AsNumber(Entry.Count)
-		: FText::FromString(FString::Printf(TEXT("%d/%d"), Entry.Count, Entry.Arrow->Cap));
+		: FText::FromString(FString::Printf(TEXT("%d/%d"), Entry.Count, BoundInventory->GetCap(Entry.Arrow)));
 }
 
 FLinearColor UHawkeyeHotbarWidget::GetSlotColor(int32 QuiverSlot) const

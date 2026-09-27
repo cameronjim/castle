@@ -2,6 +2,7 @@
 
 #include "Combat/ArrowEffects/ExplosiveBlast.h"
 
+#include "Settings/HawkeyeAccessibility.h"
 #include "Hawkeye.h"
 #include "Combat/HealthComponent.h"
 #include "Components/PointLightComponent.h"
@@ -54,6 +55,7 @@ float AExplosiveBlast::ComputeFalloffDamage(float MaxDamage, float Distance, flo
 void AExplosiveBlast::Activate()
 {
 	Super::Activate();
+	FlashScale = UHawkeyeAccessibility::GetFlashScaleFor(this);
 	SetActorLocation(ImpactPoint);
 	ApplyBlast();
 	if (SpawnEffectVfx(UHawkeyeVfxSubsystem::ExplosionEvent, ImpactPoint))
@@ -159,5 +161,10 @@ void AExplosiveBlast::UpdateFireball()
 	}
 	// A street lamp is under 100 cd; this is a couple of dozen of them for an instant. With the
 	// Niagara fireball glowing on its own the light only has to throw the colour, not be the blast.
-	Flash->SetIntensity((bEffectVfxSpawned ? BlastLightCandelas : PlaceholderLightCandelas) * Fade * Fade);
+	Flash->SetIntensity((bEffectVfxSpawned ? BlastLightCandelas : PlaceholderLightCandelas) * Fade * Fade * FlashScale);
+}
+
+float AExplosiveBlast::GetFlashIntensity() const
+{
+	return Flash ? Flash->Intensity : 0.f;
 }

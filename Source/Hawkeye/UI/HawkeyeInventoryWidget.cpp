@@ -170,7 +170,7 @@ TArray<FHawkeyeInventoryRow> UHawkeyeInventoryWidget::BuildInventoryRows() const
 			continue;
 		}
 		AddRow(FText::FromString(FString::Printf(TEXT("%d. %s  %d / %d"), QuiverSlot,
-			*Entry.Arrow->GetDisplayNameOrAssetName().ToString(), Entry.Count, Entry.Arrow->Cap)), false);
+			*Entry.Arrow->GetDisplayNameOrAssetName().ToString(), Entry.Count, BoundInventory->GetCap(Entry.Arrow))), false);
 	}
 
 	AddRow(NSLOCTEXT("Hawkeye", "InventoryKeycards", "Keycards"), true);
