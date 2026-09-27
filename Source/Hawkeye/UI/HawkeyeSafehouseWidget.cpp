@@ -2,6 +2,7 @@
 
 #include "UI/HawkeyeSafehouseWidget.h"
 
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Components/TextBlock.h"
@@ -73,7 +74,26 @@ void UHawkeyeSafehouseWidget::NativeConstruct()
 	{
 		LeaveButton->OnClicked.AddDynamic(this, &UHawkeyeSafehouseWidget::HandleLeaveClicked);
 	}
+	for (UButton* Button : { RefillButton.Get(), SaveButton.Get(), FastTravelButton.Get(), ChapterSelectButton.Get(),
+			 LeaveButton.Get() })
+	{
+		if (Button)
+		{
+			Button->OnHovered.AddUniqueDynamic(this, &UHawkeyeSafehouseWidget::HandleButtonHovered);
+			Button->OnPressed.AddUniqueDynamic(this, &UHawkeyeSafehouseWidget::HandleButtonPressed);
+		}
+	}
 	bBound = true;
+}
+
+void UHawkeyeSafehouseWidget::HandleButtonHovered()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Hover);
+}
+
+void UHawkeyeSafehouseWidget::HandleButtonPressed()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
 }
 
 void UHawkeyeSafehouseWidget::NativeDestruct()

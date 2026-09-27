@@ -69,6 +69,14 @@ protected:
 	UFUNCTION()
 	void HandleQuitClicked();
 
+	/** Any button under the cursor or pad focus: the hover blip. */
+	UFUNCTION()
+	void HandleButtonHovered();
+
+	/** Any button pressed: the click. */
+	UFUNCTION()
+	void HandleButtonPressed();
+
 	UPROPERTY(BlueprintReadOnly, Category = "Main menu", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> ContinueButton = nullptr;
 

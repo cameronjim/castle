@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "UI/HawkeyeObjectiveWidget.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
 
 #include "Blueprint/WidgetLayoutLibrary.h"
 #include "Blueprint/WidgetTree.h"
@@ -128,7 +129,7 @@ void UHawkeyeObjectiveWidget::HandleObjectiveUpdated(UMissionObjective* Objectiv
 {
 	if (Objective && Objective->IsCompleted())
 	{
-		PushToast(ObjectiveCompleteHeading, Objective->Title);
+		PushToast(ObjectiveCompleteHeading, Objective->Title, EHawkeyeUISound::ObjectiveComplete);
 	}
 	NoteCurrentObjective();
 }
@@ -145,17 +146,22 @@ void UHawkeyeObjectiveWidget::NoteCurrentObjective()
 	LastCurrentObjectiveId = CurrentId;
 	if (Current)
 	{
-		PushToast(NewObjectiveHeading, Current->Title);
+		PushToast(NewObjectiveHeading, Current->Title, EHawkeyeUISound::NewObjective);
 	}
 }
 
-void UHawkeyeObjectiveWidget::PushToast(FText Heading, FText Title)
+void UHawkeyeObjectiveWidget::PushToast(FText Heading, FText Title, EHawkeyeUISound Sound)
 {
-	if (ToastQueue.Num() == 0)
+	const bool bShowsNow = ToastQueue.Num() == 0;
+	if (bShowsNow)
 	{
 		ToastElapsed = 0.f;
 	}
-	ToastQueue.Add({ Heading, Title });
+	ToastQueue.Add({ Heading, Title, Sound });
+	if (bShowsNow)
+	{
+		UHawkeyeAudioSubsystem::PlayUI(this, Sound);
+	}
 }
 
 void UHawkeyeObjectiveWidget::AdvanceToasts(float DeltaSeconds)
@@ -169,6 +175,10 @@ void UHawkeyeObjectiveWidget::AdvanceToasts(float DeltaSeconds)
 	{
 		ToastElapsed -= ToastSeconds;
 		ToastQueue.RemoveAt(0);
+		if (ToastQueue.Num() > 0)
+		{
+			UHawkeyeAudioSubsystem::PlayUI(this, ToastQueue[0].Sound);
+		}
 	}
 	if (ToastQueue.Num() == 0)
 	{

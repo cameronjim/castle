@@ -2,6 +2,7 @@
 
 #include "UI/HawkeyePauseWidget.h"
 
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "Blueprint/WidgetTree.h"
 #include "Brushes/SlateColorBrush.h"
 #include "Components/Border.h"
@@ -145,6 +146,15 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		QuitToDesktopButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleQuitToDesktopClicked);
 	}
+	for (UButton* Button : { ResumeButton.Get(), SettingsButton.Get(), RestartMissionButton.Get(), QuitToMenuButton.Get(),
+			 QuitToDesktopButton.Get() })
+	{
+		if (Button)
+		{
+			Button->OnHovered.AddUniqueDynamic(this, &UHawkeyePauseWidget::HandleButtonHovered);
+			Button->OnPressed.AddUniqueDynamic(this, &UHawkeyePauseWidget::HandleButtonPressed);
+		}
+	}
 
 	bBound = true;
 }
@@ -177,6 +187,16 @@ void UHawkeyePauseWidget::NativeDestruct()
 	}
 
 	Super::NativeDestruct();
+}
+
+void UHawkeyePauseWidget::HandleButtonHovered()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Hover);
+}
+
+void UHawkeyePauseWidget::HandleButtonPressed()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
 }
 
 void UHawkeyePauseWidget::HandleResumeClicked()

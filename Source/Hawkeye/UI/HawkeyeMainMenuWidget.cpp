@@ -2,6 +2,7 @@
 
 #include "UI/HawkeyeMainMenuWidget.h"
 
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "Blueprint/WidgetTree.h"
 #include "Components/Button.h"
 #include "Save/HawkeyeSaveSubsystem.h"
@@ -68,6 +69,14 @@ void UHawkeyeMainMenuWidget::NativeConstruct()
 	{
 		QuitButton->OnClicked.AddDynamic(this, &UHawkeyeMainMenuWidget::HandleQuitClicked);
 	}
+	for (UButton* Button : { ContinueButton.Get(), NewGameButton.Get(), SettingsButton.Get(), QuitButton.Get() })
+	{
+		if (Button)
+		{
+			Button->OnHovered.AddUniqueDynamic(this, &UHawkeyeMainMenuWidget::HandleButtonHovered);
+			Button->OnPressed.AddUniqueDynamic(this, &UHawkeyeMainMenuWidget::HandleButtonPressed);
+		}
+	}
 	bBound = true;
 }
 
@@ -94,6 +103,16 @@ void UHawkeyeMainMenuWidget::NativeDestruct()
 		bBound = false;
 	}
 	Super::NativeDestruct();
+}
+
+void UHawkeyeMainMenuWidget::HandleButtonHovered()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Hover);
+}
+
+void UHawkeyeMainMenuWidget::HandleButtonPressed()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
 }
 
 void UHawkeyeMainMenuWidget::HandleContinueClicked()

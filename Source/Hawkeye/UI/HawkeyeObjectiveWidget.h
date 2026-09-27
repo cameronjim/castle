@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Audio/HawkeyeAudioTypes.h"
 #include "UI/ObjectiveMarkerMath.h"
 #include "HawkeyeObjectiveWidget.generated.h"
 
@@ -25,9 +26,12 @@ class HAWKEYE_API UHawkeyeObjectiveWidget : public UUserWidget
 	GENERATED_BODY()
 
 public:
-	/** Queues a toast: a small heading ("Objective complete") over the objective's title. */
+	/**
+	 * Queues a toast: a small heading ("Objective complete") over the objective's title. Sound plays
+	 * when it comes up (at once, or when the one in front of it goes).
+	 */
 	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
-	void PushToast(FText Heading, FText Title);
+	void PushToast(FText Heading, FText Title, EHawkeyeUISound Sound = EHawkeyeUISound::Toast);
 
 	/** Counts the showing toast down and moves on to the next queued one. */
 	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
@@ -153,6 +157,7 @@ private:
 	{
 		FText Heading;
 		FText Title;
+		EHawkeyeUISound Sound = EHawkeyeUISound::Toast;
 	};
 
 	TArray<FToast> ToastQueue;
