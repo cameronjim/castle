@@ -98,6 +98,8 @@ public:
 protected:
 	/** Places the camera, the prop and the zone from the properties above. */
 	virtual void OnConstruction(const FTransform& Transform) override;
+
+	void ApplyLayout();
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 	virtual void Tick(float DeltaSeconds) override;

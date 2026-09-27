@@ -47,6 +47,11 @@ AChapterEndInteractable::AChapterEndInteractable()
 void AChapterEndInteractable::OnConstruction(const FTransform& Transform)
 {
 	Super::OnConstruction(Transform);
+	ApplyLayout();
+}
+
+void AChapterEndInteractable::ApplyLayout()
+{
 	Prop->SetRelativeRotation(PropRotation);
 	const FVector Look = CloseUpLookAt - CloseUpOffset;
 	CloseUpCamera->SetRelativeLocationAndRotation(CloseUpOffset, Look.IsNearlyZero() ? FRotator::ZeroRotator : Look.Rotation());
@@ -57,6 +62,8 @@ void AChapterEndInteractable::OnConstruction(const FTransform& Transform)
 void AChapterEndInteractable::BeginPlay()
 {
 	Super::BeginPlay();
+	// Placed actors do not rerun construction in a game; the layout comes from the properties again.
+	ApplyLayout();
 	if (UMissionSubsystem* Missions = UMissionSubsystem::Get(this); Missions && !ObjectiveId.IsNone())
 	{
 		Missions->RegisterObjectiveLocation(ObjectiveId, GetActorLocation());
