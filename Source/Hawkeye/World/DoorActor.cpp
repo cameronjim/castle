@@ -3,6 +3,7 @@
 #include "World/DoorActor.h"
 
 #include "Hawkeye.h"
+#include "Components/BoxComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Mission/MissionSubsystem.h"
@@ -36,6 +37,17 @@ ADoorActor::ADoorActor()
 	DoorMesh->SetRelativeLocation(FVector(0.f, 0.f, LeafHeight * 0.5f));
 	DoorMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	DoorMesh->SetCollisionResponseToAllChannels(ECR_Block);
+
+	InteractZone = CreateDefaultSubobject<UBoxComponent>(TEXT("InteractZone"));
+	InteractZone->SetupAttachment(DoorRoot);
+	InteractZone->SetBoxExtent(FVector(130.f, 70.f, 100.f));
+	InteractZone->SetRelativeLocation(FVector(0.f, 0.f, 100.f));
+	InteractZone->SetCollisionProfileName(UCollisionProfile::CustomCollisionProfileName);
+	InteractZone->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	InteractZone->SetCollisionResponseToAllChannels(ECR_Ignore);
+	InteractZone->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	InteractZone->SetGenerateOverlapEvents(true);
+	InteractZone->SetCanEverAffectNavigation(false);
 }
 
 FVector ADoorActor::GetLeafWorldCentre() const

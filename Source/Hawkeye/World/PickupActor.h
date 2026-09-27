@@ -8,6 +8,7 @@
 #include "PickupActor.generated.h"
 
 class UArrowDefinition;
+class USphereComponent;
 class UBowDefinition;
 class UStaticMeshComponent;
 
@@ -87,6 +88,13 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pickup|Parts")
 	TObjectPtr<UStaticMeshComponent> Part4;
+
+	/**
+	 * Standing within this of the pickup counts as looking at it (the third-person camera trace starts
+	 * metres behind her and misses a keycard on a desk). Overlaps pawns only.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pickup")
+	TObjectPtr<USphereComponent> PickupZone;
 
 	/** All four parts in order, for a script or a test that wants to walk them. */
 	UFUNCTION(BlueprintPure, Category = "Pickup|Parts")

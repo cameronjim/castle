@@ -6,6 +6,7 @@
 #include "Combat/ArrowDefinition.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowDefinition.h"
+#include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Mission/MissionSubsystem.h"
 #include "Player/HawkeyeCharacter.h"
@@ -39,6 +40,16 @@ APickupActor::APickupActor()
 		Part->SetCastShadow(false);
 		*PartSlots[Index] = Part;
 	}
+
+	PickupZone = CreateDefaultSubobject<USphereComponent>(TEXT("PickupZone"));
+	PickupZone->SetupAttachment(Mesh);
+	PickupZone->SetSphereRadius(110.f);
+	PickupZone->SetCollisionProfileName(UCollisionProfile::CustomCollisionProfileName);
+	PickupZone->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	PickupZone->SetCollisionResponseToAllChannels(ECR_Ignore);
+	PickupZone->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+	PickupZone->SetGenerateOverlapEvents(true);
+	PickupZone->SetCanEverAffectNavigation(false);
 }
 
 TArray<UStaticMeshComponent*> APickupActor::GetParts() const

@@ -7,6 +7,7 @@
 #include "World/Interactable.h"
 #include "DoorActor.generated.h"
 
+class UBoxComponent;
 class USceneComponent;
 class UStaticMeshComponent;
 
@@ -99,6 +100,14 @@ public:
 	/** The leaf that animates. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Door")
 	TObjectPtr<UStaticMeshComponent> DoorMesh;
+
+	/**
+	 * Standing in here, on either side of the doorway, counts as being at the door: in third person the
+	 * interaction trace starts at the camera, metres behind the character, and rarely reaches a leaf.
+	 * Overlaps pawns only; never blocks anything.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Door")
+	TObjectPtr<UBoxComponent> InteractZone;
 
 	/**
 	 * Opens the door if it can be. Returns false when it is locked and Interactor has no keycard,
