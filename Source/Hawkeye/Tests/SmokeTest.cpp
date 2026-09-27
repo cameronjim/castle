@@ -1,6 +1,9 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Components/LightComponent.h"
+#include "Crime/Civilian.h"
+#include "Crime/CrimeDefinition.h"
+#include "Crime/CrimeSpot.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
@@ -109,6 +112,27 @@ bool FHawkeyeAssertEastVillagePlayable::Update()
 	}
 	Test->TestEqual(TEXT("Five thugs are placed"), ThugCount, HawkeyeSmoke::ExpectedThugs);
 	Test->TestEqual(TEXT("And the two archers facing the find_arrow roof"), ArcherCount, HawkeyeSmoke::ExpectedArchers);
+
+	// The street crimes' twelve spots, each holding its crimes, and the classes they spawn (cooked).
+	int32 SpotCount = 0;
+	int32 SpotsWithoutCrimes = 0;
+	int32 MissingClasses = 0;
+	for (TActorIterator<ACrimeSpot> It(World); It; ++It)
+	{
+		++SpotCount;
+		SpotsWithoutCrimes += It->Crimes.ContainsByPredicate([](const UCrimeDefinition* Crime) { return Crime != nullptr; }) ? 0 : 1;
+		for (const UCrimeDefinition* Crime : It->Crimes)
+		{
+			for (const FCrimeRosterEntry& Entry : Crime ? Crime->Roster : TArray<FCrimeRosterEntry>())
+			{
+				MissingClasses += Entry.ThugClass.LoadSynchronous() ? 0 : 1;
+			}
+			MissingClasses += Crime && Crime->Type == ECrimeType::Mugging && !Crime->VictimClass.LoadSynchronous() ? 1 : 0;
+		}
+	}
+	Test->TestEqual(TEXT("Twelve crime spots are placed"), SpotCount, 12);
+	Test->TestEqual(TEXT("Each holds its crimes"), SpotsWithoutCrimes, 0);
+	Test->TestEqual(TEXT("And every thug and victim class they spawn loads"), MissingClasses, 0);
 
 	int32 PlayerStartCount = 0;
 	for (TActorIterator<APlayerStart> It(World); It; ++It)
