@@ -1559,9 +1559,10 @@ def ensure_chapter_end(district, existing):
     if abs(rot.pitch - ARROW_PITCH) > 0.01:
         actor.set_editor_property("prop_rotation", unreal.Rotator(roll=0.0, pitch=ARROW_PITCH, yaw=0.0))
         n += 1
-    # Actor frame: +X into the tank, the shaft sticking out along -X toward where she stands.
-    n += _ensure_vector_prop(actor, "close_up_offset", unreal.Vector(-115.0, 60.0, -25.0), CHAPTER_END_LABEL)
-    n += _ensure_vector_prop(actor, "close_up_look_at", unreal.Vector(-38.0, 0.0, -4.0), CHAPTER_END_LABEL)
+    # Actor frame: +X into the tank, the shaft sticking out along -X toward where she stands. The
+    # camera sits below and to the side, so the black shaft reads against the sky.
+    n += _ensure_vector_prop(actor, "close_up_offset", unreal.Vector(-190.0, 100.0, -70.0), CHAPTER_END_LABEL)
+    n += _ensure_vector_prop(actor, "close_up_look_at", unreal.Vector(-45.0, 0.0, 0.0), CHAPTER_END_LABEL)
     n += _ensure_vector_prop(actor, "interact_zone_offset", unreal.Vector(-160.0, 0.0, -ARROW_HEIGHT + 110.0), CHAPTER_END_LABEL)
     n += _ensure_vector_prop(actor, "interact_zone_extent", unreal.Vector(160.0, 200.0, 140.0), CHAPTER_END_LABEL)
     n += _ensure_component_mesh(actor, "prop", meshes.get("SM_City_ArrowShaft"), shaft_mat)
