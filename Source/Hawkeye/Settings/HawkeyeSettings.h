@@ -35,10 +35,22 @@ struct HAWKEYE_API FHawkeyeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
 	bool bInvertStickY = false;
 
+	/** Everything the game plays, 0..1. The sliders are squared into gains (HawkeyeAudioMath). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Audio")
+	float MasterVolume = 1.0f;
+
+	/** Bow, arrows, fights, footsteps and the menus, 0..1, under the master. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Audio")
+	float SfxVolume = 1.0f;
+
+	/** The city: wind, street hum, lamp buzz, 0..1, under the master. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Audio")
+	float AmbientVolume = 0.8f;
+
 	/** Bumped whenever the meaning of a field changes. A mismatch on load yields defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-	int32 Version = 3;
+	int32 Version = 4;
 
 	/** The version this build writes and accepts. A save from an older version yields defaults. */
-	static constexpr int32 CurrentVersion = 3;
+	static constexpr int32 CurrentVersion = 4;
 };

@@ -96,6 +96,33 @@ void UHawkeyeSettingsSubsystem::SetInvertStickY(bool bInvert)
 	OnSettingsChanged.Broadcast(Settings);
 }
 
+void UHawkeyeSettingsSubsystem::SetVolume(float& Field, float Value)
+{
+	const float Clamped = ClampVolume(Value);
+	if (FMath::IsNearlyEqual(Clamped, Field, UE_KINDA_SMALL_NUMBER))
+	{
+		return;
+	}
+	Field = Clamped;
+	Save();
+	OnSettingsChanged.Broadcast(Settings);
+}
+
+void UHawkeyeSettingsSubsystem::SetMasterVolume(float NewVolume)
+{
+	SetVolume(Settings.MasterVolume, NewVolume);
+}
+
+void UHawkeyeSettingsSubsystem::SetSfxVolume(float NewVolume)
+{
+	SetVolume(Settings.SfxVolume, NewVolume);
+}
+
+void UHawkeyeSettingsSubsystem::SetAmbientVolume(float NewVolume)
+{
+	SetVolume(Settings.AmbientVolume, NewVolume);
+}
+
 void UHawkeyeSettingsSubsystem::Load()
 {
 	const FString Slot = GetSlotName();
@@ -126,6 +153,9 @@ void UHawkeyeSettingsSubsystem::Load()
 	Settings = Loaded->Settings;
 	Settings.LookSensitivity = ClampLookSensitivity(Settings.LookSensitivity);
 	Settings.StickSensitivity = ClampStickSensitivity(Settings.StickSensitivity);
+	Settings.MasterVolume = ClampVolume(Settings.MasterVolume);
+	Settings.SfxVolume = ClampVolume(Settings.SfxVolume);
+	Settings.AmbientVolume = ClampVolume(Settings.AmbientVolume);
 }
 
 bool UHawkeyeSettingsSubsystem::Save() const

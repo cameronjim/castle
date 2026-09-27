@@ -73,6 +73,27 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Settings")
 	void SetInvertStickY(bool bInvert);
 
+	UFUNCTION(BlueprintPure, Category = "Settings|Audio")
+	float GetMasterVolume() const { return Settings.MasterVolume; }
+
+	/** Clamps to 0..1, stores, saves and broadcasts. A value that changes nothing does nothing. */
+	UFUNCTION(BlueprintCallable, Category = "Settings|Audio")
+	void SetMasterVolume(float NewVolume);
+
+	UFUNCTION(BlueprintPure, Category = "Settings|Audio")
+	float GetSfxVolume() const { return Settings.SfxVolume; }
+
+	/** Clamps to 0..1, stores, saves and broadcasts. A value that changes nothing does nothing. */
+	UFUNCTION(BlueprintCallable, Category = "Settings|Audio")
+	void SetSfxVolume(float NewVolume);
+
+	UFUNCTION(BlueprintPure, Category = "Settings|Audio")
+	float GetAmbientVolume() const { return Settings.AmbientVolume; }
+
+	/** Clamps to 0..1, stores, saves and broadcasts. A value that changes nothing does nothing. */
+	UFUNCTION(BlueprintCallable, Category = "Settings|Audio")
+	void SetAmbientVolume(float NewVolume);
+
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	FHawkeyeSettings GetSettings() const { return Settings; }
 
@@ -90,6 +111,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	static float ClampStickSensitivity(float Value);
 
+	/** Every volume slider is 0..1. */
+	UFUNCTION(BlueprintPure, Category = "Settings|Audio")
+	static float ClampVolume(float Value) { return FMath::Clamp(Value, 0.f, 1.f); }
+
 	/**
 	 * Set by tests so the real player's settings are never touched. Empty in game.
 	 */
@@ -100,6 +125,9 @@ public:
 	FString GetSlotName() const;
 
 private:
+	/** Clamps Value into Field and saves and broadcasts if that changed it. */
+	void SetVolume(float& Field, float Value);
+
 	UPROPERTY(Transient)
 	FHawkeyeSettings Settings;
 };
