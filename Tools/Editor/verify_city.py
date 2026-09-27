@@ -41,6 +41,9 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
 * the side challenges: three archery and three traversal definitions as create_challenges.py plans
   them, a City_Challenge_<id> pedestal on each start holding its definition, every archery target
   10 to 40 m out with a clear line, and every traversal ring reachable from the one before it
+* the street crimes: four DA_Crime_ definitions, twelve City_CrimeSpot_ (eight street, four roof) as
+  create_crimes.py plans them, none within 40 m of the safehouse or a pedestal, all on the navmesh, and
+  every robbery escape point 50 to 70 m out with a walkable path
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
     UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
@@ -830,6 +833,103 @@ def check_challenges(district, actors):
             _check_traversal(cc, world, cid, definition)
 
 
+CRIME_ROSTERS = {"mugging": 2, "robbery": 3, "ambush": 4, "rooftop": 3}
+
+
+def _project(world, point):
+    result = unreal.HawkeyeNavigationLibrary.project_to_navigation(world, point, NAV_QUERY_EXTENT)
+    if isinstance(result, tuple):
+        return bool(result[0]), result[1]
+    return result is not None, result
+
+
+def check_crimes(district, actors):
+    """The street crimes: four DA_Crime_ definitions with their rosters, twelve City_CrimeSpot_ as
+    create_crimes.py plans them (eight street, four roof), each holding its crimes, none within 40 m of
+    the safehouse or a challenge pedestal, every two 35 m apart, every spot on the navmesh, and every
+    street spot's escape point on the navmesh with a walkable path from the spot."""
+    import create_crimes as cr  # noqa: E402 - imports generate_city, already loaded
+    definitions = cr.crime_definitions()
+    rosters = {}
+    for cid, definition in definitions.items():
+        roster = definition.get_editor_property("roster") or []
+        rosters[cid] = sum(int(e.get_editor_property("count")) for e in roster)
+    check(rosters == CRIME_ROSTERS, "four crimes: mugging 2 thugs, robbery 3, ambush 4, rooftop 3", str(rosters))
+    rooftop = definitions.get("rooftop")
+    bows = [e for e in (rooftop.get_editor_property("roster") if rooftop else [])
+            if weapon_name(e.get_editor_property("weapon")) == "BOW"]
+    check(len(bows) == 1 and "BP_Archer" in cr._path(bows[0].get_editor_property("thug_class")),
+          "the rooftop crime has one archer (BP_Archer)")
+    mugging = definitions.get("mugging")
+    victim = cr._path(mugging.get_editor_property("victim_class")) if mugging else ""
+    check(victim.endswith(cr.CIVILIAN_BP), "the mugging's victim is BP_Civilian", victim)
+
+    plan = cr.plan_crime_spots(district)
+    spots = {l: a for l, a in actors.items() if l.startswith(gen.CRIME_SPOT_PREFIX)}
+    street = [s for s in plan if not s["rooftop"]]
+    check(len(plan) == 12 and len(street) == 8 and len(spots) == 12,
+          "twelve crime spots: eight on the street, four on roofs",
+          "{0} planned ({1} street), {2} placed".format(len(plan), len(street), len(spots)))
+    bad = []
+    for s in plan:
+        actor = spots.get(gen.CRIME_SPOT_PREFIX + str(s["index"]))
+        if actor is None:
+            bad.append("{0} missing".format(s["index"]))
+            continue
+        loc = actor.get_actor_location()
+        held = sorted(str(d.get_editor_property("id")) for d in actor.get_editor_property("crimes") if d)
+        if math.hypot(loc.x - s["at"][0], loc.y - s["at"][1]) > 1.0 or held != sorted(s["crimes"]) \
+                or bool(actor.get_editor_property("rooftop")) != s["rooftop"]:
+            bad.append("{0} off its plan or holding {1}".format(s["index"], held))
+        unreal.log("[Hawkeye] info  crime " + cr.describe(s))
+    check(not bad, "every crime spot on its plan, holding its crimes", "; ".join(bad))
+
+    keep_off = []
+    house = actors.get(gen.SAFEHOUSE_LABEL)
+    if house is not None:
+        keep_off.append(("safehouse", house.get_actor_location()))
+    for label, actor in actors.items():
+        if label.startswith(gen.CHALLENGE_PREFIX):
+            keep_off.append((label, actor.get_actor_location()))
+    near = []
+    placed = sorted(spots.items())
+    for label, actor in placed:
+        loc = actor.get_actor_location()
+        for what, at in keep_off:
+            if math.hypot(loc.x - at.x, loc.y - at.y) < 4000.0:
+                near.append("{0} {1:.0f} m from {2}".format(label, math.hypot(loc.x - at.x, loc.y - at.y) / 100.0, what))
+    check(not near and len(keep_off) >= 2, "no crime spot within 40 m of the safehouse or a pedestal",
+          "; ".join(near) or "{0} kept clear of".format(len(keep_off)))
+    close = []
+    for i, (la, a) in enumerate(placed):
+        for lb, b in placed[i + 1:]:
+            pa, pb = a.get_actor_location(), b.get_actor_location()
+            if math.hypot(pa.x - pb.x, pa.y - pb.y) < cr.SPOT_APART - 1.0:
+                close.append(la + "/" + lb)
+    check(not close, "every two crime spots at least 35 m apart", ", ".join(close))
+
+    world, built = build_navigation()
+    if not built:
+        check(False, "navmesh for the crime spots")
+        return
+    off, routes = [], []
+    for label, actor in placed:
+        ok, _point = _project(world, actor.get_actor_location())
+        if not ok:
+            off.append(label)
+        escape = actor.get_editor_property("escape_location")
+        if bool(actor.get_editor_property("rooftop")):
+            continue
+        length = unreal.HawkeyeNavigationLibrary.find_path_length(world, actor.get_actor_location(), escape)
+        straight = math.hypot(escape.x - actor.get_actor_location().x, escape.y - actor.get_actor_location().y)
+        if length < 0.0 or not 5000.0 <= straight <= 7000.0:
+            routes.append("{0} ({1:.0f} m straight, path {2:.0f} m)".format(label, straight / 100.0, length / 100.0))
+        else:
+            unreal.log("[Hawkeye] info  {0} escape {1:.0f} m away, {2:.0f} m on foot".format(label, straight / 100.0, length / 100.0))
+    check(not off, "every crime spot on the navmesh", ", ".join(off))
+    check(not routes, "every street spot's escape point 50 to 70 m out with a walkable path", "; ".join(routes))
+
+
 def _check_archery(cc, world, cid, definition):
     start = definition.get_editor_property("start_location")
     yaw = math.radians(definition.get_editor_property("start_yaw"))
@@ -1079,6 +1179,7 @@ def run():
     check_clint(district, actors)
     check_safehouse(district, actors)
     check_challenges(district, actors)
+    check_crimes(district, actors)
 
     prison = [a.get_actor_label() for a in all_actors
               if not gen.is_chapter_actor(a.get_actor_label())
