@@ -6,37 +6,63 @@
 
 EMissionFlowStep UMissionFlowController::Begin(bool bInHasFlashback, bool bInHasNextLevel)
 {
-	bHasFlashback = bInHasFlashback;
-	bHasNextLevel = bInHasNextLevel;
-	Step = EMissionFlowStep::EndCard;
+	FMissionFlowRoute InRoute;
+	InRoute.bHasFlashback = bInHasFlashback;
+	InRoute.bHasNextLevel = bInHasNextLevel;
+	return BeginRoute(InRoute);
+}
 
-	UE_LOG(LogHawkeye, Log, TEXT("Mission flow: end card (flashback: %s, next level: %s)."),
-		bHasFlashback ? TEXT("yes") : TEXT("no"), bHasNextLevel ? TEXT("yes") : TEXT("no"));
+EMissionFlowStep UMissionFlowController::BeginRoute(const FMissionFlowRoute& InRoute)
+{
+	Route = InRoute;
+	Step = Route.bHasCloseUp ? EMissionFlowStep::CloseUp : EMissionFlowStep::EndCard;
+
+	UE_LOG(LogHawkeye, Log,
+		TEXT("Mission flow: %s (flashback: %s, scene: %s, next level: %s, return to roaming: %s)."),
+		Route.bHasCloseUp ? TEXT("close-up") : TEXT("end card"), Route.bHasFlashback ? TEXT("yes") : TEXT("no"),
+		Route.bHasFlashback && Route.bHasPlayableScene ? TEXT("yes") : TEXT("no"),
+		Route.bHasNextLevel ? TEXT("yes") : TEXT("no"), Route.bReturnToRoaming ? TEXT("yes") : TEXT("no"));
 
 	return Step;
+}
+
+void UMissionFlowController::ResumeAt(const FMissionFlowRoute& InRoute, EMissionFlowStep InStep)
+{
+	Route = InRoute;
+	Step = InStep;
+	UE_LOG(LogHawkeye, Log, TEXT("Mission flow: resumed at %s."), *UEnum::GetValueAsString(InStep));
 }
 
 void UMissionFlowController::Reset()
 {
 	Step = EMissionFlowStep::Idle;
-	bHasFlashback = false;
-	bHasNextLevel = false;
+	Route = FMissionFlowRoute();
+}
+
+EMissionFlowStep UMissionFlowController::AfterStory() const
+{
+	if (Route.bHasNextLevel)
+	{
+		return EMissionFlowStep::OpenNextLevel;
+	}
+	return Route.bReturnToRoaming ? EMissionFlowStep::ReturnToRoaming : EMissionFlowStep::FinalCard;
 }
 
 EMissionFlowStep UMissionFlowController::NextAfter(EMissionFlowStep Current) const
 {
 	switch (Current)
 	{
+	case EMissionFlowStep::CloseUp:
+		return EMissionFlowStep::EndCard;
+
 	case EMissionFlowStep::EndCard:
-		if (bHasFlashback)
-		{
-			return EMissionFlowStep::Flashback;
-		}
-		// Falls through to the same choice the flashback makes when it ends.
-		return bHasNextLevel ? EMissionFlowStep::OpenNextLevel : EMissionFlowStep::FinalCard;
+		return Route.bHasFlashback ? EMissionFlowStep::Flashback : AfterStory();
 
 	case EMissionFlowStep::Flashback:
-		return bHasNextLevel ? EMissionFlowStep::OpenNextLevel : EMissionFlowStep::FinalCard;
+		return Route.bHasPlayableScene ? EMissionFlowStep::PlayableScene : AfterStory();
+
+	case EMissionFlowStep::PlayableScene:
+		return AfterStory();
 
 	case EMissionFlowStep::FinalCard:
 		// The last mission of the campaign hands the player back to the menu.
@@ -44,6 +70,7 @@ EMissionFlowStep UMissionFlowController::NextAfter(EMissionFlowStep Current) con
 
 	case EMissionFlowStep::OpenNextLevel:
 	case EMissionFlowStep::OpenMenuLevel:
+	case EMissionFlowStep::ReturnToRoaming:
 		return EMissionFlowStep::Done;
 
 	default:

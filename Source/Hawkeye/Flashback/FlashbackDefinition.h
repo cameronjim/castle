@@ -8,6 +8,7 @@
 
 class UTexture2D;
 class USoundBase;
+class UWorld;
 
 /** One still frame of a flashback slideshow. */
 USTRUCT(BlueprintType)
@@ -34,6 +35,13 @@ struct HAWKEYE_API FFlashbackSlide
 	/** Optional narration played when this slide appears. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Slide")
 	TSoftObjectPtr<USoundBase> VoiceLine;
+
+	/**
+	 * Multiplies the image. With no Image the slide is this colour, full screen: placeholder
+	 * slides are solid colours until the art exists.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Slide")
+	FLinearColor Tint = FLinearColor::White;
 };
 
 /**
@@ -59,6 +67,25 @@ public:
 	/** When true any key dismisses the flashback early. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Flashback")
 	bool bSkippable = true;
+
+	/**
+	 * Optional small map played after the slideshow (claude-docs/gameplay-semantics.md,
+	 * "Flashback"). The district is saved first; when that map's mission completes the save is
+	 * loaded again and the player is put at ReturnPointLabel.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Flashback|Scene")
+	TSoftObjectPtr<UWorld> PlayableScene;
+
+	/**
+	 * Label or tag of the actor in the district the player comes back to after PlayableScene.
+	 * None, or no such actor, keeps the position the save had.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Flashback|Scene")
+	FName ReturnPointLabel;
+
+	/** True when a playable scene follows the slides. */
+	UFUNCTION(BlueprintPure, Category = "Flashback|Scene")
+	bool HasPlayableScene() const { return !PlayableScene.IsNull(); }
 
 	//~ Begin UPrimaryDataAsset interface
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;

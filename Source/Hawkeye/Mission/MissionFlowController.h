@@ -23,7 +23,38 @@ enum class EMissionFlowStep : uint8
 	/** Travel to the main menu (or the sandbox), because the campaign is over. */
 	OpenMenuLevel,
 	/** The sequence has handed off; nothing left to do. */
-	Done
+	Done,
+	/** The camera pushed in on the thing that ended the chapter (AChapterEndInteractable), then back. */
+	CloseUp,
+	/** The flashback's playable scene: the district is saved and the scene map opened. */
+	PlayableScene,
+	/** No next level and the chapter says so: back to the district with the chapter-complete toast. */
+	ReturnToRoaming
+};
+
+/** Which beats an end-of-mission sequence has, decided once when it begins. */
+USTRUCT(BlueprintType)
+struct HAWKEYE_API FMissionFlowRoute
+{
+	GENERATED_BODY()
+
+	/** A close-up was running when the mission completed: it plays out before the end card. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mission|Flow")
+	bool bHasCloseUp = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mission|Flow")
+	bool bHasFlashback = false;
+
+	/** The flashback ends in a playable scene. Ignored without bHasFlashback. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mission|Flow")
+	bool bHasPlayableScene = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mission|Flow")
+	bool bHasNextLevel = false;
+
+	/** UMissionDefinition::bReturnToRoamingAtEnd. Ignored when there is a next level. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Mission|Flow")
+	bool bReturnToRoaming = false;
 };
 
 /**
@@ -47,6 +78,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Mission|Flow")
 	EMissionFlowStep Begin(bool bInHasFlashback, bool bInHasNextLevel);
 
+	/**
+	 * Starts the sequence with every beat the route has: the close-up when there is one, else
+	 * the end card. The route is fixed from here on.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Mission|Flow")
+	EMissionFlowStep BeginRoute(const FMissionFlowRoute& InRoute);
+
+	/**
+	 * Picks the sequence up at Step on a route begun in another world: back from a playable scene
+	 * the district's controller resumes at PlayableScene and advances to what follows it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Mission|Flow")
+	void ResumeAt(const FMissionFlowRoute& InRoute, EMissionFlowStep InStep);
+
 	/** Moves to the beat after the current one and returns it. Idle and Done never move. */
 	UFUNCTION(BlueprintCallable, Category = "Mission|Flow")
 	EMissionFlowStep Advance();
@@ -63,21 +108,24 @@ public:
 	bool IsRunning() const { return Step != EMissionFlowStep::Idle && Step != EMissionFlowStep::Done; }
 
 	UFUNCTION(BlueprintPure, Category = "Mission|Flow")
-	bool HasFlashback() const { return bHasFlashback; }
+	bool HasFlashback() const { return Route.bHasFlashback; }
 
 	UFUNCTION(BlueprintPure, Category = "Mission|Flow")
-	bool HasNextLevel() const { return bHasNextLevel; }
+	bool HasNextLevel() const { return Route.bHasNextLevel; }
+
+	UFUNCTION(BlueprintPure, Category = "Mission|Flow")
+	FMissionFlowRoute GetRoute() const { return Route; }
 
 private:
-	/** The beat that follows Current, given the flashback and next-level flags. */
+	/** The beat that follows Current, given the route. */
 	EMissionFlowStep NextAfter(EMissionFlowStep Current) const;
+
+	/** What comes once the story beats (card, flashback, scene) are over: travel, roaming or the final card. */
+	EMissionFlowStep AfterStory() const;
 
 	UPROPERTY(Transient)
 	EMissionFlowStep Step = EMissionFlowStep::Idle;
 
 	UPROPERTY(Transient)
-	bool bHasFlashback = false;
-
-	UPROPERTY(Transient)
-	bool bHasNextLevel = false;
+	FMissionFlowRoute Route;
 };

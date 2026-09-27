@@ -78,6 +78,34 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission")
 	TSoftObjectPtr<UWorld> NextLevel;
 
+	// --- Chapter opening and ending (claude-docs/gameplay-semantics.md, "Chapter title") ----------
+
+	/** The title card's big line, shown once per campaign when the chapter starts. Empty skips the card. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission|Opening")
+	FText OpeningTitle;
+
+	/** The smaller line under the title. Optional. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission|Opening", meta = (MultiLine = "true"))
+	FText OpeningSubtitle;
+
+	/**
+	 * A row of DT_DialogueSequences' Sequence column played once when the chapter starts (its first
+	 * gap lets the title card go first). None plays nothing.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission|Opening")
+	FName OpeningDialogueSequence;
+
+	/**
+	 * With no NextLevel: after the end card (and the flashback) the player is handed back to the
+	 * district with ChapterCompleteToast instead of the final card and the menu. The quiver is kept.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission|Ending")
+	bool bReturnToRoamingAtEnd = false;
+
+	/** The toast shown on returning to roaming. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Mission|Ending")
+	FText ChapterCompleteToast;
+
 	//~ Begin UPrimaryDataAsset interface
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 	//~ End UPrimaryDataAsset interface

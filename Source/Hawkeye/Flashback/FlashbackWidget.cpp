@@ -144,6 +144,7 @@ void UFlashbackWidget::ShowSlide(int32 SlideIndex)
 		{
 			SlideImageA->SetBrushFromTexture(Texture, /*bMatchSize=*/false);
 		}
+		SlideImageA->SetColorAndOpacity(Slide.Tint);
 	}
 
 	// Layer B holds the next slide and fades up across this slide's crossfade. On the last slide
@@ -157,10 +158,13 @@ void UFlashbackWidget::ShowSlide(int32 SlideIndex)
 			{
 				SlideImageB->SetBrushFromTexture(NextTexture, /*bMatchSize=*/false);
 			}
+			SlideImageB->SetColorAndOpacity(Flashback->Slides[NextIndex].Tint);
 		}
 		else
 		{
 			SlideImageB->SetBrushFromTexture(nullptr, /*bMatchSize=*/false);
+			// Black, not the white of an empty brush: the last slide fades to black.
+			SlideImageB->SetColorAndOpacity(FLinearColor::Black);
 		}
 	}
 
