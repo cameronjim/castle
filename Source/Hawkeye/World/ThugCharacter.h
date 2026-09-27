@@ -7,6 +7,7 @@
 #include "Combat/Takedownable.h"
 #include "GameFramework/Character.h"
 #include "ISpudObject.h"
+#include "World/ThugTypes.h"
 #include "ThugCharacter.generated.h"
 
 class APickupActor;
@@ -42,7 +43,12 @@ enum class EThugWeapon : uint8
 	/** The gunner: hitscan pistol, 3-shot bursts of 12 after a 0.8 s telegraph, takes cover. */
 	Pistol,
 	/** Barney's archer (BP_Archer): his own UBowComponent, keeps 1500 to 2500 cm, relocates by zip. */
-	Bow
+	Bow,
+	/**
+	 * The heavy (BP_Thug_Heavy): 200 HP, a riot shield on the left forearm that blocks arrows and light
+	 * strikes from the front 120 degrees, a shield bash and a slow bat swing, walks at 300.
+	 */
+	Shield
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAlertStateChangedSignature, EThugAlertState, OldState, EThugAlertState, NewState);
@@ -92,6 +98,10 @@ public:
 	/** True for the Pistol thug: he keeps his distance and shoots instead of rushing. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
 	bool IsGunner() const { return Weapon == EThugWeapon::Pistol; }
+
+	/** True for the Shield thug (BP_Thug_Heavy): he blocks from the front and only a heavy hit staggers him. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
+	bool IsHeavy() const { return Weapon == EThugWeapon::Shield; }
 
 	/** True for the Bow thug (BP_Archer): he keeps range, draws with BowComponent, relocates by zip. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
@@ -161,9 +171,100 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
 	FVector PistolRaisedOffset = FVector(55.f, 4.f, -6.f);
 
-	/** The swing for his weapon: BatAttack for a Bat thug, FistsAttack otherwise. */
+	/**
+	 * The swing for his weapon: BatAttack for a Bat thug, FistsAttack for fists, and for the heavy the
+	 * shield bash on even swings (SwingIndex 0, 2, ...) and the slow bat swing on odd ones.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Thug|Combat")
-	FHawkeyeMeleeAttack GetMeleeAttack() const { return Weapon == EThugWeapon::Bat ? BatAttack : FistsAttack; }
+	FHawkeyeMeleeAttack GetMeleeAttack(int32 SwingIndex = 0) const;
+
+	/** The heavy's shield bash: 30 damage after a 0.8 s telegraph, knocks her back 250 cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FHawkeyeMeleeAttack ShieldBashAttack;
+
+	/** The heavy's bat: 25 damage after a slow 1.0 s wind-up. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
+	FHawkeyeMeleeAttack HeavySwingAttack;
+
+	// --- Shield (the heavy) -----------------------------------------------------------------------------
+
+	/** Width of the front arc the shield covers, degrees, centred on where he faces. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Shield", meta = (ClampMin = "0.0", ClampMax = "360.0"))
+	float ShieldArcDegrees = 120.f;
+
+	/** How long a heavy strike (or anything else that gets through his guard) staggers him, seconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Shield", meta = (ClampMin = "0.0"))
+	float GuardBreakSeconds = 1.f;
+
+	/** The slab, in the actor's frame: X thickness, Y width, Z height, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Shield")
+	FVector ShieldSize = FVector(5.f, 60.f, 110.f);
+
+	/** The shield's centre in guard, held up on the left forearm, in the actor's frame, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Shield")
+	FVector ShieldGuardOffset = FVector(40.f, -16.f, 6.f);
+
+	/** How far forward the shield drives at the end of the bash, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Shield", meta = (ClampMin = "0.0"))
+	float ShieldBashReach = 35.f;
+
+	/** Smoked grey polycarbonate. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Shield")
+	FLinearColor ShieldColor = FLinearColor(0.06f, 0.07f, 0.08f);
+
+	/** True when ToAttacker (from him toward the hit's source) lies inside the front ArcDegrees of Facing. Pure. */
+	static bool IsInShieldArc(const FVector& Facing, const FVector& ToAttacker, float ArcDegrees);
+
+	/** The heavy's shield is up: alive, on his feet, not staggered or getting up. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Shield")
+	bool IsShieldRaised() const;
+
+	/** Whether a hit coming from FromDirection (him toward its source) meets the raised shield. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Shield")
+	bool BlocksHitFrom(const FVector& FromDirection) const;
+
+	/**
+	 * An arrow or a light strike (What, for the log) from Attacker, coming from FromDirection: true when the
+	 * shield takes it. A block costs nothing, rings the shield, and turns him on the attacker.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Shield")
+	bool TryBlock(AActor* Attacker, FVector FromDirection, const FString& What);
+
+	/** Hits the shield has taken. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Shield")
+	int32 GetBlockCount() const { return BlockCount; }
+
+	/**
+	 * Where a line from Start along Direction meets the shield's face, kept inside the slab: where a blocked
+	 * arrow sticks. False when he has no shield.
+	 */
+	bool ComputeShieldImpact(const FVector& Start, const FVector& Direction, FVector& OutPoint) const;
+
+	UFUNCTION(BlueprintPure, Category = "Thug|Components")
+	UStaticMeshComponent* GetShieldComponent() const { return ShieldComponent; }
+
+	/** Places the shield in guard, or driving forward in a bash. Called from Tick. */
+	void UpdateShieldPose();
+
+	// --- Readability ----------------------------------------------------------------------------------
+
+	/** The "!" or "?" over his head right now, or 0. */
+	TCHAR GetAlertGlyph() const { return AlertGlyph.GetGlyph(); }
+
+	/** Seconds the glyph has left. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
+	float GetAlertGlyphRemaining() const { return AlertGlyph.GetRemaining(); }
+
+	/** The thin health bar's opacity for a viewer Distance away (0 unhurt, beyond 1500 cm, or 3.5 s after the last hit). */
+	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
+	float GetHealthBarAlpha(float Distance) const;
+
+	/** Where the glyph and the bar sit: a little over his head. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
+	FVector GetOverheadLocation() const;
+
+	/** Moves the glyph clock on. Called from Tick; public for tests. */
+	void AdvanceReadability(float DeltaSeconds);
 
 	/** 15 damage after a 0.6 s telegraphed wind-up, then 0.6 s to recover. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Combat")
@@ -495,6 +596,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
 	TObjectPtr<UPointLightComponent> TelegraphLight;
 
+	/** The heavy's riot shield: an engine cube slab on the left forearm. Hidden unless Weapon is Shield. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
+	TObjectPtr<UStaticMeshComponent> ShieldComponent;
+
 	/** The bat, in the right hand. Empty and hidden unless Weapon is Bat. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug|Components")
 	TObjectPtr<UStaticMeshComponent> HeldWeaponComponent;
@@ -528,6 +633,14 @@ protected:
 private:
 	/** Seconds of stagger left. */
 	float StaggerRemaining = 0.f;
+
+	/** Hits the shield took. */
+	int32 BlockCount = 0;
+	bool bShieldTinted = false;
+
+	/** The glyph over his head, and world seconds of the last hit that cost him health. */
+	FHawkeyeAlertGlyph AlertGlyph;
+	double LastDamagedSeconds = -1000.0;
 
 	bool bWeaponRaised = false;
 	FVector WeaponAimPoint = FVector::ZeroVector;

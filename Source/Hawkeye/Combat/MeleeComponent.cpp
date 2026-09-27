@@ -126,8 +126,15 @@ void UMeleeComponent::Strike()
 		return;
 	}
 
-	// A knockdown replaces the stagger: the body going over is the reaction.
+	// A knockdown replaces the stagger: the body going over is the reaction. The heavy's shield takes a
+	// light strike from the front outright; a heavy gets through it (and breaks his guard instead).
 	AThugCharacter* Thug = Cast<AThugCharacter>(Target);
+	if (Thug && Owner && !CurrentAttack.bKnockdown
+		&& Thug->TryBlock(Owner, Owner->GetActorLocation() - Thug->GetActorLocation(), CurrentAttack.Name.ToString()))
+	{
+		++BlockedCount;
+		return;
+	}
 	const bool bKnockdown = CurrentAttack.bKnockdown && Thug;
 	const float Dealt = Health->ApplyMeleeDamage(CurrentAttack.Damage, Owner, CurrentAttack.bStagger && !bKnockdown);
 	if (Dealt <= 0.f)
@@ -140,6 +147,10 @@ void UMeleeComponent::Strike()
 	if (bKnockdown && Health->IsAlive())
 	{
 		Thug->Knockdown(Owner);
+	}
+	if (CurrentAttack.KnockbackDistance > 0.f && Health->IsAlive())
+	{
+		ApplyKnockback(Target, CurrentAttack);
 	}
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s swing hit %s for %.1f (health %.1f)."),
@@ -167,4 +178,39 @@ void UMeleeComponent::ApplyLunge(const FHawkeyeMeleeAttack& Attack) const
 	Lunge->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::SetVelocity;
 	Lunge->FinishVelocityParams.SetVelocity = FVector::ZeroVector;
 	Movement->ApplyRootMotionSource(Lunge);
+}
+
+FVector UMeleeComponent::ComputeKnockbackForce(const FVector& From, const FVector& To, float Distance, float Seconds)
+{
+	FVector Away = (To - From).GetSafeNormal2D();
+	if (Away.IsNearlyZero())
+	{
+		Away = FVector::ForwardVector;
+	}
+	return Away * (FMath::Max(Distance, 0.f) / FMath::Max(Seconds, 0.01f));
+}
+
+void UMeleeComponent::ApplyKnockback(AActor* Target, const FHawkeyeMeleeAttack& Attack) const
+{
+	const AActor* Owner = GetOwner();
+	ACharacter* Character = Cast<ACharacter>(Target);
+	UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
+	if (!Owner || !Movement || Attack.KnockbackDistance <= 0.f)
+	{
+		return;
+	}
+	// A root motion force, like the lunge and the dodge: it beats whatever gait the target's graph asks
+	// for, covers exactly the distance, and stops dead at the end.
+	TSharedPtr<FRootMotionSource_ConstantForce> Shove = MakeShared<FRootMotionSource_ConstantForce>();
+	Shove->InstanceName = FName(TEXT("MeleeKnockback"));
+	Shove->AccumulateMode = ERootMotionAccumulateMode::Override;
+	Shove->Priority = 6;
+	Shove->Force = ComputeKnockbackForce(Owner->GetActorLocation(), Target->GetActorLocation(), Attack.KnockbackDistance,
+		Attack.KnockbackSeconds);
+	Shove->Duration = Attack.KnockbackSeconds;
+	Shove->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::SetVelocity;
+	Shove->FinishVelocityParams.SetVelocity = FVector::ZeroVector;
+	Movement->ApplyRootMotionSource(Shove);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s knocks %s back %.0f cm."), *GetNameSafe(Owner), *Attack.Name.ToString(),
+		*GetNameSafe(Target), Attack.KnockbackDistance);
 }

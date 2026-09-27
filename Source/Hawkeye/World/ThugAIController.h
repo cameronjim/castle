@@ -167,6 +167,21 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer")
 	float ChestHeight = 30.f;
 
+	/**
+	 * Losing his line mid-draw: he holds up to 2.5 s and looses 0.1 s after she shows again inside
+	 * ArcherHoldConeDegrees; after every shot, 0.6 s in which he cannot draw.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer")
+	FHawkeyeArcherHoldClock ArcherHold;
+
+	/** Half-angle round the held aim inside which her reappearing draws his shot, degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float ArcherHoldConeDegrees = 12.f;
+
+	/** How often the hold and the loose window are checked while either runs, seconds. Faster than Think. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.01", ClampMax = "0.1"))
+	float ArcherHoldTickSeconds = 0.05f;
+
 	// --- Squad ---------------------------------------------------------------------------------------
 
 	/** After going Alerted, this long before the squad hears about it, seconds. */
@@ -381,6 +396,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug|Archer")
 	int32 GetArrowsLoosed() const;
 
+	/** True while he holds a draw with no line, waiting for her to show. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Archer")
+	bool IsHoldingDraw() const { return ArcherHold.IsHolding(); }
+
+	/** True in the LooseSeconds after a shot: he cannot draw. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Archer")
+	bool IsInLooseWindow() const { return ArcherHold.IsLoose(); }
+
+	/** One step of the hold and the loose window. The fast timer calls it; public for tests. */
+	UFUNCTION(BlueprintCallable, Category = "Thug|Archer")
+	void TickArcherHold(float DeltaSeconds);
+
 	// --- Rules (pure, tested) ------------------------------------------------------------------------
 
 	/** Whether a view from ViewLocation along ViewDirection points within ToleranceDegrees of Point. */
@@ -475,6 +502,16 @@ protected:
 	/** Lets the string down without shooting. */
 	void CancelArcherDraw(const TCHAR* Why);
 
+	/** She went out of his line mid-draw: hold the draw where it points (ArcherHold). */
+	void BeginArcherHold(const FVector& AimPoint);
+
+	/** Looses the draw at Target now (a normal full draw, or a held one she stepped back into). */
+	void LooseArcherDraw(const FVector& AimPoint, const TCHAR* Why);
+
+	/** Runs TickArcherHold every ArcherHoldTickSeconds while a hold or a loose window is on. */
+	void StartArcherHoldTimer();
+	void TickArcherHoldTimer();
+
 	/** The archer's own sight: she is within ArcherAggroRange and nothing is in the way. Think runs it. */
 	void UpdateArcherSight();
 
@@ -565,6 +602,8 @@ private:
 	bool bWasSwinging = false;
 	bool bBackingOff = false;
 	int32 SwingsSinceBackOff = 0;
+	/** Every swing he has started: the heavy alternates bash and bat on it. */
+	int32 SwingsStarted = 0;
 	float MeleeCooldownRemaining = 0.f;
 	float BackOffElapsed = 0.f;
 
@@ -599,6 +638,9 @@ private:
 	float ZipElapsed = 0.f;
 	float ZipSeconds = 0.f;
 	bool bLoggedNoAnchor = false;
+	/** Where the held draw points: the last aim before she went out of his line. */
+	FVector HeldAimPoint = FVector::ZeroVector;
+	FTimerHandle ArcherHoldTimerHandle;
 
 	/** Squad alert. */
 	bool bSquadAlertPending = false;

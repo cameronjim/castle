@@ -13,6 +13,7 @@
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
+#include "World/ThugCharacter.h"
 
 UWeaponComponent::UWeaponComponent()
 {
@@ -315,6 +316,12 @@ bool UWeaponComponent::FireMelee()
 		return true;
 	}
 
+	// The heavy's shield takes a punch from the front.
+	if (AThugCharacter* Thug = Cast<AThugCharacter>(HitActor);
+		Thug && Thug->TryBlock(Owner, Owner->GetActorLocation() - Thug->GetActorLocation(), TEXT("punch")))
+	{
+		return true;
+	}
 	const float DamageDealt = Health->ApplyMeleeDamage(MeleeDamage, Owner, bStaggerOnHit);
 
 	UE_LOG(LogHawkeye, Verbose, TEXT("%s: punched %s for %.1f damage."),

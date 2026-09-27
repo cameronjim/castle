@@ -43,6 +43,14 @@ struct HAWKEYE_API FHawkeyeMeleeAttack
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee")
 	bool bKnockdown = false;
 
+	/** Shoves whoever it lands on this far away from the swinger, cm (the heavy's bash: 250). 0 for none. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee", meta = (ClampMin = "0.0"))
+	float KnockbackDistance = 0.f;
+
+	/** Seconds the knockback takes. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee", meta = (ClampMin = "0.01"))
+	float KnockbackSeconds = 0.35f;
+
 	/** Procedural step forward at the start of the swing, cm. There is no attack animation yet. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee", meta = (ClampMin = "0.0"))
 	float LungeDistance = 0.f;
@@ -122,6 +130,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Melee")
 	AActor* FindTarget(const FHawkeyeMeleeAttack& Attack) const;
 
+	/**
+	 * The knockback's force (cm/s, flat) on a target at To hit from From: Distance over Seconds, pointing away
+	 * from From. Pure.
+	 */
+	static FVector ComputeKnockbackForce(const FVector& From, const FVector& To, float Distance, float Seconds);
+
+	/** Pushes Target (a character) Attack.KnockbackDistance away from the owner as a root motion force. */
+	void ApplyKnockback(AActor* Target, const FHawkeyeMeleeAttack& Attack) const;
+
+	/** Swings the target's shield took. */
+	UFUNCTION(BlueprintPure, Category = "Melee")
+	int32 GetBlockedCount() const { return BlockedCount; }
+
 	/** Actors with this tag are never hit. Thugs set "Thug". */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee")
 	FName IgnoreTag;
@@ -151,4 +172,6 @@ protected:
 
 	UPROPERTY(Transient)
 	float PhaseRemaining = 0.f;
+
+	int32 BlockedCount = 0;
 };

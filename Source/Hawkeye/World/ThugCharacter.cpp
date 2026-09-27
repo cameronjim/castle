@@ -67,6 +67,24 @@ AThugCharacter::AThugCharacter()
 	BatAttack.Damage = 25.f;
 	BatAttack.Range = 140.f;
 
+	// The heavy: a long, glowing telegraph for the bash (dodge it or eat 250 cm of shove) and a slower
+	// bat than the street thugs'. Neither is fast; he is dangerous because he does not flinch.
+	ShieldBashAttack = FistsAttack;
+	ShieldBashAttack.Name = FName(TEXT("bash"));
+	ShieldBashAttack.Damage = 30.f;
+	ShieldBashAttack.WindupSeconds = 0.8f;
+	ShieldBashAttack.RecoverSeconds = 0.8f;
+	ShieldBashAttack.Range = 150.f;
+	ShieldBashAttack.Radius = 45.f;
+	ShieldBashAttack.KnockbackDistance = 250.f;
+	ShieldBashAttack.KnockbackSeconds = 0.35f;
+
+	HeavySwingAttack = BatAttack;
+	HeavySwingAttack.Name = FName(TEXT("heavy_bat"));
+	HeavySwingAttack.WindupSeconds = 1.f;
+	HeavySwingAttack.RecoverSeconds = 0.9f;
+	HeavySwingAttack.Range = 150.f;
+
 	GetCapsuleComponent()->SetCapsuleSize(34.f, 96.f);
 
 	// Both the capsule and the mesh block bullets. The capsule is the guarantee - a greybox
@@ -122,6 +140,14 @@ AThugCharacter::AThugCharacter()
 	PistolGrip = MakeProp(TEXT("PistolGrip"), Cube.Succeeded() ? Cube.Object : nullptr, PistolComponent);
 	PistolGrip->SetRelativeLocationAndRotation(FVector(-0.3f, 0.f, -1.6f), FRotator(-15.f, 0.f, 0.f));
 	PistolGrip->SetRelativeScale3D(FVector(0.18f, 0.9f, 2.6f));
+
+	// The riot shield: a slab placed in the world each tick (no animation holds it up). No collision: what
+	// it stops is decided by the arc rule, and a blocked arrow is moved onto its face.
+	ShieldComponent = MakeProp(TEXT("Shield"), Cube.Succeeded() ? Cube.Object : nullptr, GetCapsuleComponent());
+	ShieldComponent->SetUsingAbsoluteLocation(true);
+	ShieldComponent->SetUsingAbsoluteRotation(true);
+	ShieldComponent->SetCastShadow(true);
+	ShieldComponent->SetWorldScale3D(ShieldSize / 100.f);
 
 	GlintMesh = MakeProp(TEXT("Glint"), Sphere.Succeeded() ? Sphere.Object : nullptr, GetCapsuleComponent());
 	GlintMesh->SetUsingAbsoluteLocation(true);
@@ -193,12 +219,14 @@ void AThugCharacter::Tick(float DeltaSeconds)
 	}
 
 	UpdateMaterialPulse(DeltaSeconds);
+	AdvanceReadability(DeltaSeconds);
 	if (bLimp)
 	{
 		return;
 	}
 	UpdatePistolPose();
 	UpdateTelegraphGlint();
+	UpdateShieldPose();
 
 	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
 	UpdateKnockdown(DeltaSeconds);
@@ -226,6 +254,11 @@ FVector AThugCharacter::ComputeBatDirection() const
 		return Hang;
 	}
 	const FHawkeyeMeleeAttack& Attack = MeleeComponent->GetCurrentAttack();
+	// The bash is all shield; the bat stays down by his leg.
+	if (Attack.Name == ShieldBashAttack.Name)
+	{
+		return Hang;
+	}
 	if (MeleeComponent->IsWindingUp())
 	{
 		// Up and back over the telegraph.
@@ -267,7 +300,7 @@ void AThugCharacter::RefreshHeldWeapon()
 		return;
 	}
 
-	const bool bShowBat = Weapon == EThugWeapon::Bat && BatMesh != nullptr;
+	const bool bShowBat = (Weapon == EThugWeapon::Bat || Weapon == EThugWeapon::Shield) && BatMesh != nullptr;
 	if (bShowBat && HeldWeaponComponent->GetStaticMesh() != BatMesh)
 	{
 		HeldWeaponComponent->SetStaticMesh(BatMesh);
@@ -336,6 +369,10 @@ void AThugCharacter::HandleHealthChanged(UHealthComponent* Health, float /*NewHe
 		return;
 	}
 	FlashHit();
+	if (const UWorld* World = GetWorld())
+	{
+		LastDamagedSeconds = World->GetTimeSeconds();
+	}
 	// Any hit breaks a gunner's burst or an archer's draw: hitting first is the counter.
 	if (Health && Health->IsAlive())
 	{
@@ -454,6 +491,14 @@ void AThugCharacter::UpdateTelegraphGlint()
 
 void AThugCharacter::HandleStaggered(UHealthComponent* /*Health*/, AActor* DamageInstigator)
 {
+	// Arrows and light strikes that get round the shield still hurt the heavy, but he does not flinch:
+	// only a heavy strike (Knockdown), the bola and the blast move him.
+	if (IsHeavy())
+	{
+		UE_LOG(LogHawkeye, Verbose, TEXT("%s: shrugs off the stagger from %s."), *GetName(), *GetNameSafe(DamageInstigator));
+		AlertTo(DamageInstigator);
+		return;
+	}
 	HitReaction(DamageInstigator);
 }
 
@@ -519,6 +564,17 @@ void AThugCharacter::HitReaction(AActor* HitBy)
 
 void AThugCharacter::Knockdown(AActor* By)
 {
+	if (IsHeavy())
+	{
+		// Kate's heavy does not put the heavy down; it knocks his guard open for GuardBreakSeconds.
+		const float Normal = StaggerSeconds;
+		StaggerSeconds = GuardBreakSeconds;
+		HitReaction(By);
+		StaggerSeconds = Normal;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: guard broken by %s's heavy, open for %.1f s."), *GetName(), *GetNameSafe(By),
+			GuardBreakSeconds);
+		return;
+	}
 	KnockdownFor(By, KnockdownSeconds, KnockdownLaunchSpeed);
 }
 
@@ -756,6 +812,7 @@ void AThugCharacter::SetAlertState(EThugAlertState NewState)
 	UE_LOG(LogHawkeye, Verbose, TEXT("%s: alert state %d -> %d."),
 		*GetName(), static_cast<int32>(OldState), static_cast<int32>(NewState));
 
+	AlertGlyph.Trigger(NewState == EThugAlertState::Alerted, NewState == EThugAlertState::Suspicious);
 	OnAlertStateChanged.Broadcast(OldState, NewState);
 }
 
@@ -856,6 +913,13 @@ void AThugCharacter::GoLimp(AActor* Killer)
 	if (PistolComponent)
 	{
 		PistolComponent->SetVisibility(false, true);
+	}
+	// The shield goes down with his arm.
+	if (ShieldComponent && ShieldComponent->IsVisible() && GetMesh() && GetMesh()->DoesSocketExist(FName(TEXT("lowerarm_l"))))
+	{
+		ShieldComponent->SetUsingAbsoluteLocation(false);
+		ShieldComponent->SetUsingAbsoluteRotation(false);
+		ShieldComponent->AttachToComponent(GetMesh(), FAttachmentTransformRules::KeepWorldTransform, FName(TEXT("lowerarm_l")));
 	}
 	bKnockedDown = false;
 	FinishGetUp();
@@ -1049,4 +1113,158 @@ void AThugCharacter::DropLoot()
 	}
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s dropped %d pickup(s)."), *GetName(), Index);
+}
+
+// --- The heavy's shield ---------------------------------------------------------------------------------
+
+FHawkeyeMeleeAttack AThugCharacter::GetMeleeAttack(int32 SwingIndex) const
+{
+	switch (Weapon)
+	{
+	case EThugWeapon::Bat:
+		return BatAttack;
+	case EThugWeapon::Shield:
+		return (SwingIndex % 2 == 0) ? ShieldBashAttack : HeavySwingAttack;
+	default:
+		return FistsAttack;
+	}
+}
+
+bool AThugCharacter::IsInShieldArc(const FVector& Facing, const FVector& ToAttacker, float ArcDegrees)
+{
+	const FVector Forward = Facing.GetSafeNormal2D();
+	const FVector To = ToAttacker.GetSafeNormal2D();
+	if (Forward.IsNearlyZero() || To.IsNearlyZero())
+	{
+		return false;
+	}
+	const float HalfArc = FMath::Clamp(ArcDegrees * 0.5f, 0.f, 180.f);
+	return FVector::DotProduct(Forward, To) >= FMath::Cos(FMath::DegreesToRadians(HalfArc)) - KINDA_SMALL_NUMBER;
+}
+
+bool AThugCharacter::IsShieldRaised() const
+{
+	return IsHeavy() && !bLimp && HealthComponent && HealthComponent->IsAlive() && !IsIncapacitated();
+}
+
+bool AThugCharacter::BlocksHitFrom(const FVector& FromDirection) const
+{
+	return IsShieldRaised() && IsInShieldArc(GetActorForwardVector(), FromDirection, ShieldArcDegrees);
+}
+
+bool AThugCharacter::TryBlock(AActor* Attacker, FVector FromDirection, const FString& What)
+{
+	if (!BlocksHitFrom(FromDirection))
+	{
+		return false;
+	}
+	++BlockCount;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: shield blocks %s from %s (%d blocked)."), *GetName(), *What, *GetNameSafe(Attacker),
+		BlockCount);
+	if (Cast<APawn>(Attacker))
+	{
+		AlertTo(Attacker);
+	}
+	return true;
+}
+
+bool AThugCharacter::ComputeShieldImpact(const FVector& Start, const FVector& Direction, FVector& OutPoint) const
+{
+	if (!IsHeavy() || !ShieldComponent)
+	{
+		return false;
+	}
+	const FTransform Shield = ShieldComponent->GetComponentTransform();
+	const FVector Normal = Shield.GetUnitAxis(EAxis::X);
+	const FVector Face = Shield.GetLocation() + Normal * (ShieldSize.X * 0.5f);
+	const FVector Dir = Direction.GetSafeNormal();
+	const float Along = FVector::DotProduct(Dir, Normal);
+	// Coming at the face: meet its plane. Glancing along it: the nearest point of the face.
+	const FVector Point = FMath::Abs(Along) > KINDA_SMALL_NUMBER
+		? Start + Dir * (FVector::DotProduct(Face - Start, Normal) / Along)
+		: FVector::PointPlaneProject(Start, Face, Normal);
+	FVector Local = Shield.InverseTransformPositionNoScale(Point);
+	Local.X = ShieldSize.X * 0.5f;
+	Local.Y = FMath::Clamp(Local.Y, -ShieldSize.Y * 0.45f, ShieldSize.Y * 0.45f);
+	Local.Z = FMath::Clamp(Local.Z, -ShieldSize.Z * 0.45f, ShieldSize.Z * 0.45f);
+	OutPoint = Shield.TransformPositionNoScale(Local);
+	return true;
+}
+
+void AThugCharacter::UpdateShieldPose()
+{
+	if (!ShieldComponent)
+	{
+		return;
+	}
+	const bool bShow = IsHeavy() && !bLimp;
+	if (ShieldComponent->IsVisible() != bShow)
+	{
+		ShieldComponent->SetVisibility(bShow);
+	}
+	if (!bShow)
+	{
+		return;
+	}
+	if (!bShieldTinted)
+	{
+		bShieldTinted = true;
+		if (UMaterialInstanceDynamic* Tint = ShieldComponent->CreateDynamicMaterialInstance(0))
+		{
+			Tint->SetVectorParameterValue(TEXT("Color"), ShieldColor);
+		}
+	}
+	// Guard in front of his left side; pulled in over the bash's wind-up, driven out at the start of its recovery.
+	FVector Offset = ShieldGuardOffset;
+	float Turn = 0.f;
+	if (MeleeComponent && MeleeComponent->IsAttacking() && MeleeComponent->GetCurrentAttack().Name == ShieldBashAttack.Name)
+	{
+		const FHawkeyeMeleeAttack& Bash = MeleeComponent->GetCurrentAttack();
+		if (MeleeComponent->IsWindingUp())
+		{
+			const float Alpha = Bash.WindupSeconds > 0.f ? 1.f - MeleeComponent->GetPhaseRemaining() / Bash.WindupSeconds : 1.f;
+			Offset.X -= 12.f * FMath::SmoothStep(0.f, 1.f, Alpha);
+			Offset.Y += 8.f * Alpha;
+		}
+		else
+		{
+			const float Elapsed = Bash.RecoverSeconds - MeleeComponent->GetPhaseRemaining();
+			const float Out = Elapsed < 0.15f ? Elapsed / 0.15f : FMath::Max(0.f, 1.f - (Elapsed - 0.15f) / 0.4f);
+			Offset.X += ShieldBashReach * Out;
+			Offset.Y += 8.f * Out;
+		}
+	}
+	else if (IsIncapacitated())
+	{
+		// Guard open: the shield swings out wide and low.
+		Offset += FVector(-15.f, -25.f, -20.f);
+		Turn = -50.f;
+	}
+	ShieldComponent->SetWorldLocationAndRotation(GetActorTransform().TransformPosition(Offset),
+		FRotator(0.f, GetActorRotation().Yaw + Turn, 0.f));
+	ShieldComponent->SetWorldScale3D(ShieldSize / 100.f);
+}
+
+// --- Readability ----------------------------------------------------------------------------------------
+
+void AThugCharacter::AdvanceReadability(float DeltaSeconds)
+{
+	AlertGlyph.Advance(DeltaSeconds);
+}
+
+float AThugCharacter::GetHealthBarAlpha(float Distance) const
+{
+	const UWorld* World = GetWorld();
+	if (!HealthComponent || bLimp || !World)
+	{
+		return 0.f;
+	}
+	return FHawkeyeAlertGlyph::ComputeHealthBarAlpha(HealthComponent->GetHealthPercent(), Distance,
+		static_cast<float>(World->GetTimeSeconds() - LastDamagedSeconds));
+}
+
+FVector AThugCharacter::GetOverheadLocation() const
+{
+	const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 96.f;
+	return GetActorLocation() + FVector(0.f, 0.f, HalfHeight + 28.f);
 }

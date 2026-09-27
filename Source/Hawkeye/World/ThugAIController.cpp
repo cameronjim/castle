@@ -237,6 +237,7 @@ void AThugAIController::OnUnPossess()
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(ThinkTimerHandle);
+		World->GetTimerManager().ClearTimer(ArcherHoldTimerHandle);
 	}
 	if (StateTreeComponent && StateTreeComponent->IsRunning())
 	{
@@ -257,6 +258,7 @@ void AThugAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(ThinkTimerHandle);
+		World->GetTimerManager().ClearTimer(ArcherHoldTimerHandle);
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -341,7 +343,8 @@ void AThugAIController::ApplyMoveSpeed()
 	{
 		return;
 	}
-	const bool bRush = Thug->IsAlerted() && !Thug->IsGunner() && !Thug->IsArcher();
+	// The heavy never rushes: he walks at his own pace behind the shield.
+	const bool bRush = Thug->IsAlerted() && !Thug->IsGunner() && !Thug->IsArcher() && !Thug->IsHeavy();
 	Movement->MaxWalkSpeed = bRush ? RushSpeed : BaseWalkSpeed;
 }
 
@@ -1329,6 +1332,7 @@ void AThugAIController::CancelArcherDraw(const TCHAR* Why)
 	{
 		return;
 	}
+	ArcherHold.EndHold();
 	if (Bow->IsDrawing())
 	{
 		Bow->CancelDraw();
@@ -1348,8 +1352,21 @@ void AThugAIController::TickArcher(float DeltaSeconds, const FVector& ToTarget)
 	{
 		return;
 	}
+	// Holding a draw on where she went: the hold timer watches for her, nothing else moves him.
+	if (ArcherHold.IsHolding())
+	{
+		return;
+	}
 	const double Now = GetNowSeconds();
 	const float Distance = ToTarget.Size2D();
+
+	// Just loosed: he stands there, bow down, open to a shot back.
+	if (ArcherHold.IsLoose())
+	{
+		StopMovement();
+		FaceTarget(Thug, ToTarget);
+		return;
+	}
 
 	// The band: inside ArcherCloseRange he leaves the roof; out past the far edge he looks for a nearer one.
 	const EArcherRangeAction Action = ChooseArcherRangeAction(Distance, ArcherCloseRange, ArcherMinRange, ArcherMaxRange);
@@ -1408,18 +1425,114 @@ void AThugAIController::TickArcher(float DeltaSeconds, const FVector& ToTarget)
 	}
 	if (!bLine)
 	{
-		CancelArcherDraw(TEXT("lost his line"));
+		BeginArcherHold(Aim);
 		return;
 	}
 	if (Bow->GetDrawElapsed() + KINDA_SMALL_NUMBER >= BowDef->FullDrawSeconds)
 	{
-		Thug->SetTelegraphGlint(false);
-		if (Bow->ReleaseDraw())
+		LooseArcherDraw(Aim, *FString::Printf(TEXT("leading %.0f cm for her speed %.0f cm/s"), FVector::Dist(Aim, Chest),
+			TargetActor->GetVelocity().Size()));
+	}
+}
+
+void AThugAIController::BeginArcherHold(const FVector& AimPoint)
+{
+	const AThugCharacter* Thug = GetThug();
+	const UBowComponent* Bow = Thug ? Thug->GetBowComponent() : nullptr;
+	if (!Bow || !Bow->IsDrawing() || ArcherHold.IsHolding())
+	{
+		return;
+	}
+	HeldAimPoint = AimPoint;
+	ArcherHold.BeginHold();
+	StartArcherHoldTimer();
+	UE_LOG(LogHawkeye, Log, TEXT("%s: lost his line %.2f s into the draw; holds it up to %.1f s on where %s went."),
+		*Thug->GetName(), Bow->GetDrawElapsed(), ArcherHold.MaxHoldSeconds, *GetNameSafe(TargetActor));
+}
+
+void AThugAIController::LooseArcherDraw(const FVector& AimPoint, const TCHAR* Why)
+{
+	AThugCharacter* Thug = GetThug();
+	UBowComponent* Bow = Thug ? Thug->GetBowComponent() : nullptr;
+	if (!Bow)
+	{
+		return;
+	}
+	Thug->SetTelegraphGlint(false);
+	Bow->SetAimOverride(AimPoint);
+	FRotator AimRotation = (AimPoint - Thug->GetPawnViewLocation()).Rotation();
+	AimRotation.Roll = 0.f;
+	SetControlRotation(AimRotation);
+	if (!Bow->ReleaseDraw())
+	{
+		return;
+	}
+	LastArrowSeconds = GetNowSeconds();
+	ArcherHold.BeginLoose();
+	StartArcherHoldTimer();
+	UE_LOG(LogHawkeye, Log, TEXT("%s: looses at %s (%s); %.1f s loose window."), *Thug->GetName(), *GetNameSafe(TargetActor),
+		Why, ArcherHold.LooseSeconds);
+}
+
+void AThugAIController::StartArcherHoldTimer()
+{
+	UWorld* World = GetWorld();
+	if (!World || World->GetTimerManager().IsTimerActive(ArcherHoldTimerHandle))
+	{
+		return;
+	}
+	World->GetTimerManager().SetTimer(ArcherHoldTimerHandle, this, &AThugAIController::TickArcherHoldTimer,
+		ArcherHoldTickSeconds, true);
+}
+
+void AThugAIController::TickArcherHoldTimer()
+{
+	TickArcherHold(ArcherHoldTickSeconds);
+	if (!ArcherHold.IsHolding() && !ArcherHold.IsLoose())
+	{
+		if (UWorld* World = GetWorld())
 		{
-			LastArrowSeconds = Now;
-			UE_LOG(LogHawkeye, Log, TEXT("%s: looses at %s, leading %.0f cm for her speed %.0f cm/s."), *Thug->GetName(),
-				*GetNameSafe(TargetActor), FVector::Dist(Aim, Chest), TargetActor->GetVelocity().Size());
+			World->GetTimerManager().ClearTimer(ArcherHoldTimerHandle);
 		}
+	}
+}
+
+void AThugAIController::TickArcherHold(float DeltaSeconds)
+{
+	ArcherHold.AdvanceLoose(DeltaSeconds);
+	if (!ArcherHold.IsHolding())
+	{
+		return;
+	}
+	AThugCharacter* Thug = GetThug();
+	UBowComponent* Bow = Thug ? Thug->GetBowComponent() : nullptr;
+	const UBowDefinition* BowDef = Bow ? Bow->GetBow() : nullptr;
+	if (!BowDef || !Bow->IsDrawing() || !IsValid(TargetActor) || bBlinded || HasNeed(EThugMode::Stunned))
+	{
+		CancelArcherDraw(TEXT("the hold ended"));
+		return;
+	}
+	const FVector Chest = GetAimPointOn(TargetActor);
+	const FVector From = Bow->GetArrowSpawnLocation();
+	const bool bLine = !IsHiddenInSmoke(TargetActor) && HasLineTo(Chest, TargetActor);
+	const bool bInCone = bLine && IsAimedAtPoint(From, HeldAimPoint - From, Chest, ArcherHoldConeDegrees);
+	const bool bFull = Bow->GetDrawElapsed() + KINDA_SMALL_NUMBER >= BowDef->FullDrawSeconds;
+	const float Held = ArcherHold.GetHoldElapsed() + DeltaSeconds;
+	switch (ArcherHold.Advance(DeltaSeconds, bInCone, bFull))
+	{
+	case EArcherHoldStep::Fire:
+	{
+		const UWorld* World = GetWorld();
+		const FVector Aim = ComputeLeadAimPoint(From, Chest, TargetActor->GetVelocity(), BowDef->MaxSpeed,
+			World ? World->GetGravityZ() : -980.f);
+		LooseArcherDraw(Aim, *FString::Printf(TEXT("she showed again after a %.2f s hold"), Held));
+		break;
+	}
+	case EArcherHoldStep::Relax:
+		CancelArcherDraw(*FString::Printf(TEXT("held %.1f s with no line, relaxes"), Held));
+		break;
+	default:
+		break;
 	}
 }
 
@@ -1550,10 +1663,11 @@ void AThugAIController::TickMeleeRush(float DeltaSeconds, const FVector& ToTarge
 	const float Distance = ToTarget.Size2D();
 	if (!bSwinging && MeleeCooldownRemaining <= 0.f && Distance <= MeleeEngageRange)
 	{
-		const FHawkeyeMeleeAttack Attack = Thug->GetMeleeAttack();
+		const FHawkeyeMeleeAttack Attack = Thug->GetMeleeAttack(SwingsStarted);
 		UE_LOG(LogHawkeye, Log, TEXT("%s: telegraphs a %s swing at %s from %.0f cm."), *Thug->GetName(),
 			*Attack.Name.ToString(), *GetNameSafe(TargetActor), Distance);
 		bWasSwinging = Melee->StartAttack(Attack);
+		SwingsStarted += bWasSwinging ? 1 : 0;
 	}
 
 	// Keep closing through the wind-up; stop and square up once he is in reach.

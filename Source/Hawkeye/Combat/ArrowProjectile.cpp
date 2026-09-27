@@ -26,6 +26,7 @@
 #include "UI/HawkeyeHudWidget.h"
 #include "UI/HawkeyeObjectiveWidget.h"
 #include "UObject/ConstructorHelpers.h"
+#include "World/ThugCharacter.h"
 
 namespace HawkeyeArrow
 {
@@ -346,10 +347,29 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 	bInFlight = false;
 	bStuck = true;
 
-	const FName Bone = ResolveHitBone(Hit, Direction);
 	// The explosive's damage is the blast's, falling off from the centre; a direct hit is not
 	// also a stab for the full 80.
 	const EArrowHitEffect Effect = Arrow ? Arrow->OnHitEffect : EArrowHitEffect::None;
+
+	// The heavy's shield takes it from the front: no damage, and it sticks in the shield. A trick arrow's
+	// effect still goes off (the bola still trips him, the putty still holds him).
+	AThugCharacter* Thug = Cast<AThugCharacter>(Hit.GetActor());
+	FVector OnShield;
+	if (Thug && Effect != EArrowHitEffect::Explosive && Thug->TryBlock(Shooter.Get(), -Direction, GetNameSafe(Arrow))
+		&& Thug->ComputeShieldImpact(Hit.TraceStart, Direction, OnShield))
+	{
+		FHitResult ShieldHit = Hit;
+		// Only the tip goes in: the slab is 5 cm thick.
+		ShieldHit.ImpactPoint = OnShield - Direction * FMath::Max(EmbedDepth - 4.f, 0.f);
+		ShieldHit.Location = ShieldHit.ImpactPoint;
+		ShieldHit.Component = Thug->GetShieldComponent();
+		ShieldHit.BoneName = NAME_None;
+		Embed(ShieldHit, Direction, NAME_None);
+		SpawnHitEffect(Hit);
+		return;
+	}
+
+	const FName Bone = ResolveHitBone(Hit, Direction);
 	if (Effect != EArrowHitEffect::Explosive)
 	{
 		DamageVictim(Hit, Direction, Bone);
