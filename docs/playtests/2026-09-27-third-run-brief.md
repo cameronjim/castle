@@ -57,3 +57,8 @@ Chapter 1's beats become. The data tables and assets are named in
 - Thug hit spark competes with the hit flash. Footstep snow kick faint.
 - Sample foley may double footsteps (unconfirmed).
 - No attack animations yet (strikes are lunges). Fingers don't curl on the bow.
+
+## Added after the brief: a packaged build
+`Play Hawkeye (Packaged)` on the desktop runs the game without the engine. It loads in
+about 5.5 s the first time and 3 s after, against 21 s from the editor build. Made by
+`Tools\package.ps1` in a few minutes; the zip is under `Saved\Packaged`.
