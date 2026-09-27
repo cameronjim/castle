@@ -1016,9 +1016,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera")
 	FHawkeyeCameraTargets HipCamera = { 350.f, FVector(0.f, 70.f, 60.f), 90.f };
 
-	/** Where it sits while aiming: in close over the right shoulder. */
+	/**
+	 * Where it sits while aiming: in close, well out over the right shoulder and a little high, so her
+	 * raised bow arm sits left of centre and the reticle area stays clear.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera")
-	FHawkeyeCameraTargets AimCamera = { 180.f, FVector(0.f, 45.f, 55.f), 70.f };
+	FHawkeyeCameraTargets AimCamera = { 180.f, FVector(0.f, 70.f, 65.f), 70.f };
 
 	/** Seconds the camera takes to travel the whole way between HipCamera and AimCamera. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))

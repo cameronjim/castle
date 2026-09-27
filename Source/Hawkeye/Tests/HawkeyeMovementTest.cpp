@@ -46,7 +46,7 @@ bool FHawkeyeCameraTargetsTest::RunTest(const FString& Parameters)
 
 	const FHawkeyeCameraTargets Aim = Kate->ComputeCameraTargets(true);
 	TestEqual(TEXT("Aim arm is 180"), Aim.ArmLength, 180.f);
-	TestEqual(TEXT("Aim socket is over the right shoulder"), Aim.SocketOffset, FVector(0.f, 45.f, 55.f));
+	TestEqual(TEXT("Aim socket is out over the right shoulder, clear of the bow arm"), Aim.SocketOffset, FVector(0.f, 70.f, 65.f));
 	TestEqual(TEXT("Aim FOV is 70"), Aim.FieldOfView, 70.f);
 	return true;
 }
@@ -120,7 +120,7 @@ bool FHawkeyeCameraAimBlend::RunTest(const FString& Parameters)
 
 	Kate->TestTickAim(Kate->TestAimBlendSeconds());
 	TestTrue(TEXT("A full blend reaches 180"), FMath::IsNearlyEqual(Boom->TargetArmLength, 180.f, 0.01f));
-	TestTrue(TEXT("Over the right shoulder"), Boom->SocketOffset.Equals(FVector(0.f, 45.f, 55.f), 0.01f));
+	TestTrue(TEXT("Over the right shoulder"), Boom->SocketOffset.Equals(FVector(0.f, 70.f, 65.f), 0.01f));
 	TestTrue(TEXT("At the aim FOV"), FMath::IsNearlyEqual(Kate->GetCurrentFOV(), 70.f, 0.01f));
 
 	Kate->StopAim();
