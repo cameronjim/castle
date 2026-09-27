@@ -10,9 +10,10 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
   Static mobility
 * handedness: the streets come out in the real order (1st Ave west of Ave A west of Ave B
   west of Ave C, East 6th south of East 11th), i.e. the map is not mirrored
-* the BP_GameMode_EastVillage override starting DA_CH01_Rooftops, one City_Obj_* volume per
-  chapter-1 objective sitting above its roof, three City_Beacon_* (pole, emissive cap, movable
-  300 lm light) on those roofs, the street lamps (light, pole, head) matching the
+* the BP_GameMode_EastVillage override starting DA_CH01_Rooftops, a City_Obj_* volume above the
+  reach_roof and cross_block roofs, three City_Beacon_* (pole, emissive cap, movable
+  300 lm light) on the objective roofs, the chapter end (City_ChapterEndTower on the find_arrow
+  roof, City_ChapterEnd completing find_arrow with the arrow meshes, City_SceneReturn_FB00), the street lamps (light, pole, head) matching the
   generator, and no prison-build actors (thugs, keycards, doors, pickups)
 * City_LedgeSpawner and its props asset (the ledges and anchors are data, spawned at load; this
   script calls SpawnAll() first, as BeginPlay does), and no ledge or anchor saved in the map
@@ -633,6 +634,47 @@ def check_thugs(district, actors, records):
     check(not off, "every thug starts on the navmesh", ", ".join(off))
 
 
+def check_chapter_end(district, actors):
+    """City_ChapterEndTower on the find_arrow roof, City_ChapterEnd in its tank completing find_arrow
+    with the arrow meshes, and City_SceneReturn_FB00 tagged with its own label."""
+    spot = gen.chapter_end_spot(district)
+    tower = actors.get(gen.CHAPTER_END_TOWER_LABEL)
+    arrow = actors.get(gen.CHAPTER_END_LABEL)
+    back = actors.get(gen.SCENE_RETURN_LABEL)
+    cls = c.find_class("ChapterEndInteractable", "/Script/Hawkeye.ChapterEndInteractable")
+    problems = []
+    if spot is None:
+        problems.append("no spot on the find_arrow roof")
+    if tower is None or arrow is None or back is None:
+        problems.append("missing: " + ", ".join(l for l, a in ((gen.CHAPTER_END_TOWER_LABEL, tower),
+                                                             (gen.CHAPTER_END_LABEL, arrow),
+                                                             (gen.SCENE_RETURN_LABEL, back)) if a is None))
+    if not problems:
+        tx, ty = spot["tower"]
+        loc = tower.get_actor_location()
+        if abs(loc.x - tx) > 1.0 or abs(loc.y - ty) > 1.0 or abs(loc.z - spot["roof_z"]) > 1.0:
+            problems.append("tower not on its roof spot")
+        mesh = tower.get_editor_property("static_mesh_component").get_editor_property("static_mesh")
+        if mesh is None or "SM_City_WaterTower" not in mesh.get_name():
+            problems.append("tower is not SM_City_WaterTower")
+        if cls is None or not isinstance(arrow, cls):
+            problems.append("City_ChapterEnd is not an AChapterEndInteractable")
+        elif str(arrow.get_editor_property("objective_id")) != "find_arrow":
+            problems.append("City_ChapterEnd does not complete find_arrow")
+        else:
+            prop = arrow.get_editor_property("prop").get_editor_property("static_mesh")
+            accent = arrow.get_editor_property("prop_accent").get_editor_property("static_mesh")
+            if prop is None or accent is None or "ArrowShaft" not in prop.get_name() or "ArrowFletching" not in accent.get_name():
+                problems.append("arrow meshes not set")
+            dist = math.hypot(arrow.get_actor_location().x - tx, arrow.get_actor_location().y - ty)
+            if abs(dist - gen.TOWER_TANK_RADIUS) > 1.0:
+                problems.append("arrow not on the tank ({0:.0f} cm from its axis)".format(dist))
+        if gen.SCENE_RETURN_LABEL not in [str(t) for t in back.get_editor_property("tags")]:
+            problems.append("return point not tagged with its label")
+    check(not problems, "the chapter end: the arrow in the find_arrow water tower, and the scene return point",
+          "; ".join(problems))
+
+
 def check_archers(district, actors):
     """Two City_Archer_<n> (BP_Archer) where the generator puts them, on the navmesh, with a traced
     line to the find_arrow roof."""
@@ -849,8 +891,8 @@ def run():
     check(mission_ids == list(gen.MISSION_OBJECTIVE_IDS), "DA_CH01_Rooftops objectives are "
           + ", ".join(gen.MISSION_OBJECTIVE_IDS), ", ".join(mission_ids))
     detail = []
-    ok = len(volumes) == len(gen.OBJECTIVE_IDS)
-    for oid in gen.OBJECTIVE_IDS:
+    ok = len(volumes) == len(gen.VOLUME_OBJECTIVE_IDS)
+    for oid in gen.VOLUME_OBJECTIVE_IDS:
         found = by_id.get(oid, [])
         if len(found) != 1:
             ok = False
@@ -864,7 +906,8 @@ def run():
                                              + gen.OBJECTIVE_HALF_HEIGHT)) <= 1.0
         ok = ok and above and v.get_actor_label() == gen.OBJECTIVE_PREFIX + oid
         detail.append("{0} on {1}{2}".format(oid, osm, "" if above else " NOT above its roof"))
-    check(ok, "three objective volumes with the chapter-1 ObjectiveIds", "; ".join(detail))
+    check(ok, "objective volumes on reach_roof and cross_block (find_arrow is the chapter end)", "; ".join(detail))
+    check_chapter_end(district, actors)
 
     # Objective beacons: a pole, an emissive cap and a movable 300 lm purple light per volume.
     check_beacons(district, actors, records)

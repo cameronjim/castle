@@ -30,10 +30,14 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
 * ``City_Ambience`` (AHawkeyeAmbience) at street level: rooftop wind and street hum, crossfaded by
   the player's height above it.
   The lit windows are in the facade material.
-* chapter 1: the BP_GameMode_EastVillage override (starts DA_CH01_Rooftops) and three
-  ``City_Obj_<objective>`` trigger volumes on roofs picked from the records, each with a 1 m
-  ``City_Beacon_<objective>`` (pole, emissive purple ``City_BeaconTop_``, and a movable 300 lm
-  purple ``City_BeaconLight_``) at the end of the roof nearest the start.
+* chapter 1: the BP_GameMode_EastVillage override (starts DA_CH01_Rooftops), three objective roofs
+  picked from the records, each with a 1 m ``City_Beacon_<objective>`` (pole, emissive purple
+  ``City_BeaconTop_``, and a movable 300 lm purple ``City_BeaconLight_``) at the end of the roof
+  nearest the start, ``City_Obj_<objective>`` trigger volumes on the first two, and on the
+  find_arrow roof the chapter's end: ``City_ChapterEndTower`` (a water tower) with
+  ``City_ChapterEnd`` (AChapterEndInteractable) stuck in its tank, a black arrow with emissive
+  purple fletching that completes find_arrow when examined, and ``City_SceneReturn_FB00`` (an
+  ATargetPoint in front of the tower) where the placeholder flashback's scene hands the player back.
 * Barney's archers: two ``City_Archer_<n>`` (BP_Archer, tag ArcherPair) on the roofs of two other
   buildings 15 to 25 m from the find_arrow roof, each with a clear line to it (building footprints
   and heights, parapets included) and as far apart around it as the roofs allow. Their roofs, and
@@ -988,6 +992,8 @@ DISTRICT_GAME_MODE = "BP_GameMode_EastVillage"
 MISSION_ASSET = "/Game/Missions/DA_CH01_Rooftops"
 OBJECTIVE_PREFIX = "City_Obj_"
 OBJECTIVE_IDS = ("reach_roof", "cross_block", "find_arrow")
+# The roofs with a trigger volume; find_arrow is completed by examining City_ChapterEnd instead.
+VOLUME_OBJECTIVE_IDS = ("reach_roof", "cross_block")
 OBJECTIVE_START_RADIUS = 6000.0   # cm: reach_roof is the tallest building this close to the start
 OBJECTIVE_MIN_HEIGHT_M = 8.0      # cross_block and find_arrow skip sheds and garages
 OBJECTIVE_ABOVE_ROOF = 50.0       # cm between the roof and the bottom of the volume
@@ -1185,7 +1191,7 @@ def ensure_objective_volumes(district, existing):
     roofs = objective_roofs(district)
     changes = 0
     wanted = set()
-    for oid in OBJECTIVE_IDS:
+    for oid in VOLUME_OBJECTIVE_IDS:
         rec = roofs.get(oid)
         label = OBJECTIVE_PREFIX + oid
         if rec is None:
@@ -1372,6 +1378,205 @@ def ensure_objective_beacons(district, existing):
             changes += 1
             c.log("updated", label, "removed stray beacon")
     return changes
+
+
+# --------------------------------------------------------------------------------------
+# chapter 1's end: an arrow in the find_arrow roof's water tower (AChapterEndInteractable)
+# --------------------------------------------------------------------------------------
+
+CHAPTER_END_LABEL = "City_ChapterEnd"
+CHAPTER_END_TOWER_LABEL = "City_ChapterEndTower"
+SCENE_RETURN_LABEL = "City_SceneReturn_FB00"   # DA_FB00_Placeholder's ReturnPointLabel
+CHAPTER_END_VERSION = 1                        # bump when an arrow mesh recipe changes
+TOWER_TANK_RADIUS = 150.0                      # cm; SM_City_WaterTower's tank
+TOWER_FOOTPRINT = 170.0                        # cm; its deck
+TOWER_EDGE_CLEAR = 230.0                       # cm from the roof edge to the tower's centre
+TOWER_BEACON_RANGE = (400.0, 900.0)            # cm from the find_arrow beacon
+TOWER_BEACON_IDEAL = 550.0
+TOWER_ARCHER_LINE_CLEAR = 320.0                # cm from each archer's line to the beacon
+TOWER_GRID = 50.0
+ARROW_HEIGHT = 320.0                           # cm above the roof: the low part of the tank
+ARROW_PITCH = -10.0                            # tip down, as if loosed from a higher roof
+ARROW_LENGTH = 90.0
+ARROW_EMBED = 12.0
+ARROW_SHAFT_RADIUS = 1.4
+RETURN_OUT = TOWER_TANK_RADIUS + 170.0         # cm from the tower's centre to the return point
+MI_ARROW_SHAFT_KEY = "ArrowShaft"
+ARROW_SHAFT_COLOR = ((0.02, 0.02, 0.022), 0.35)
+
+
+def _arrow_shaft_mesh():
+    """Tip at the origin pointing +X, ARROW_EMBED of it inside the surface; shaft and nock along -X."""
+    mesh = new_mesh()
+    options = unreal.GeometryScriptPrimitiveOptions()
+    # Pitch 90 turns the cylinder's +Z onto -X.
+    along = unreal.Rotator(roll=0.0, pitch=90.0, yaw=0.0)
+    GS_PRIM.append_cylinder(mesh, options, unreal.Transform(location=unreal.Vector(ARROW_EMBED, 0.0, 0.0), rotation=along),
+                            ARROW_SHAFT_RADIUS, ARROW_LENGTH, 10, 0, True, unreal.GeometryScriptPrimitiveOriginMode.BASE)
+    tail = ARROW_EMBED - ARROW_LENGTH
+    GS_PRIM.append_cylinder(mesh, options, unreal.Transform(location=unreal.Vector(tail, 0.0, 0.0), rotation=along),
+                            ARROW_SHAFT_RADIUS + 0.5, 2.0, 10, 0, True, unreal.GeometryScriptPrimitiveOriginMode.BASE)
+    return mesh
+
+
+def _arrow_fletching_mesh():
+    """Three vanes 120 degrees apart near the tail."""
+    mesh = new_mesh()
+    options = unreal.GeometryScriptPrimitiveOptions()
+    x = ARROW_EMBED - ARROW_LENGTH + 10.0
+    r = ARROW_SHAFT_RADIUS + 2.6
+    for i in range(3):
+        angle = 120.0 * i
+        rad = math.radians(angle)
+        xf = unreal.Transform(location=unreal.Vector(x, -r * math.sin(rad), r * math.cos(rad)),
+                              rotation=unreal.Rotator(roll=angle, pitch=0.0, yaw=0.0))
+        GS_PRIM.append_box(mesh, options, xf, 16.0, 0.5, 5.5, 0, 0, 0, unreal.GeometryScriptPrimitiveOriginMode.CENTER)
+    return mesh
+
+
+CHAPTER_END_MESHES = {
+    "SM_City_ArrowShaft": _arrow_shaft_mesh,
+    "SM_City_ArrowFletching": _arrow_fletching_mesh,
+}
+
+
+def ensure_chapter_end_meshes():
+    out = {}
+    for name, build in sorted(CHAPTER_END_MESHES.items()):
+        spec = geo.record_hash(GENERATOR_VERSION, CHAPTER_END_VERSION, "chapter-end", name, ARROW_LENGTH,
+                               ARROW_SHAFT_RADIUS, ARROW_EMBED)
+        asset, current = stored_hash(name)
+        if asset is not None and current == spec:
+            out[name] = asset
+            continue
+        result = write_static_mesh(build(), name, spec)
+        if result is not None:
+            out[name] = result[0]
+            c.log(result[1], c.asset_path(MESH_DIR, name))
+    return out
+
+
+def _segment_distance(p, a, b):
+    ax, ay, bx, by = a[0], a[1], b[0], b[1]
+    dx, dy = bx - ax, by - ay
+    length2 = dx * dx + dy * dy
+    t = 0.0 if length2 <= 0.0 else max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / length2))
+    return math.hypot(p[0] - (ax + t * dx), p[1] - (ay + t * dy))
+
+
+def chapter_end_spot(district):
+    """{tower (x, y), direction to the beacon (dx, dy), roof z} for the find_arrow tower, or None.
+
+    On the find_arrow roof, TOWER_BEACON_RANGE from its beacon (Kate walks from the beacon to it),
+    TOWER_EDGE_CLEAR inside the roof, and clear of both archers' lines to the beacon so the tower
+    never blocks their shot. The arrow faces the beacon; the return point sits between them."""
+    rec = objective_roofs(district).get("find_arrow")
+    spot = beacon_spots(district).get("find_arrow")
+    if rec is None or spot is None:
+        return None
+    ring = rec["ring"]
+    bx, by, roof_z, _how = spot
+    lines = [((a[1], a[2]), (bx, by)) for a in archer_placements(district)]
+    xs, ys = [p[0] for p in ring], [p[1] for p in ring]
+    best = None
+    gx = min(xs) + TOWER_GRID * 0.5
+    while gx < max(xs):
+        gy = min(ys) + TOWER_GRID * 0.5
+        while gy < max(ys):
+            pt = (gx, gy)
+            gy += TOWER_GRID
+            d = math.hypot(pt[0] - bx, pt[1] - by)
+            clear = _edge_clearance(pt, ring)
+            if not (TOWER_BEACON_RANGE[0] <= d <= TOWER_BEACON_RANGE[1]) or clear < TOWER_EDGE_CLEAR:
+                continue
+            if any(_segment_distance(pt, a, b) < TOWER_ARCHER_LINE_CLEAR for a, b in lines):
+                continue
+            ux, uy = (bx - pt[0]) / d, (by - pt[1]) / d
+            back = (pt[0] + ux * RETURN_OUT, pt[1] + uy * RETURN_OUT)
+            if _edge_clearance(back, ring) < 80.0:
+                continue
+            score = (abs(d - TOWER_BEACON_IDEAL) - 0.2 * clear, round(pt[0]), round(pt[1]))
+            if best is None or score < best[0]:
+                best = (score, pt, (ux, uy), d)
+        gx += TOWER_GRID
+    if best is None:
+        return None
+    return {"tower": best[1], "dir": best[2], "distance": best[3], "roof_z": roof_z, "osm": rec["id"]}
+
+
+def _ensure_vector_prop(actor, prop, value, label):
+    current = actor.get_editor_property(prop)
+    if not same_vector(current, value, 0.05):
+        actor.set_editor_property(prop, value)
+        return 1
+    return 0
+
+
+def _ensure_component_mesh(actor, comp_name, mesh, material):
+    comp = actor.get_editor_property(comp_name)
+    n = 0
+    if comp.get_editor_property("static_mesh") != mesh:
+        comp.set_static_mesh(mesh)
+        n += 1
+    overrides = comp.get_editor_property("override_materials")
+    if material is not None and (len(overrides) < 1 or overrides[0] != material):
+        comp.set_material(0, material)
+        n += 1
+    return n
+
+
+def ensure_chapter_end(district, existing):
+    cls = c.find_class("ChapterEndInteractable", "/Script/Hawkeye.ChapterEndInteractable")
+    if cls is None:
+        c.log("FAILED", CHAPTER_END_LABEL, "AChapterEndInteractable not exposed; build the module")
+        return 0
+    spot = chapter_end_spot(district)
+    if spot is None:
+        c.log("FAILED", CHAPTER_END_LABEL, "no spot on the find_arrow roof for the tower")
+        return 0
+    meshes = ensure_chapter_end_meshes()
+    tower_mesh = ensure_clutter_meshes().get("SM_City_WaterTower")
+    tower_mat = m.ensure_prop_instance("WaterTower", *CLUTTER_MATERIALS["WaterTower"])
+    shaft_mat = m.ensure_prop_instance(MI_ARROW_SHAFT_KEY, *ARROW_SHAFT_COLOR)
+    fletch_mat = c.load_or_none(MI_BEACON)
+    (tx, ty), (ux, uy), roof_z = spot["tower"], spot["dir"], spot["roof_z"]
+    facing = math.degrees(math.atan2(uy, ux))
+    tags = ["City", "CityChapterEnd", "osm:" + spot["osm"], "objective:find_arrow"]
+
+    n = _ensure_mesh_actor(existing, CHAPTER_END_TOWER_LABEL, tower_mesh, tower_mat, unreal.Vector(tx, ty, roof_z),
+                           unreal.Rotator(0.0, 0.0, facing), unreal.Vector(1.0, 1.0, 1.0), tags)
+
+    # The arrow went in on the side facing the beacon, pointing into the tank.
+    loc = unreal.Vector(tx + ux * TOWER_TANK_RADIUS, ty + uy * TOWER_TANK_RADIUS, roof_z + ARROW_HEIGHT)
+    actor, k = _ensure_located(existing, CHAPTER_END_LABEL, cls, loc, facing + 180.0)
+    n += k
+    if actor is None:
+        return n
+    if str(actor.get_editor_property("objective_id")) != "find_arrow":
+        actor.set_editor_property("objective_id", unreal.Name("find_arrow"))
+        n += 1
+    rot = actor.get_editor_property("prop_rotation")
+    if abs(rot.pitch - ARROW_PITCH) > 0.01:
+        actor.set_editor_property("prop_rotation", unreal.Rotator(roll=0.0, pitch=ARROW_PITCH, yaw=0.0))
+        n += 1
+    # Actor frame: +X into the tank, the shaft sticking out along -X toward where she stands.
+    n += _ensure_vector_prop(actor, "close_up_offset", unreal.Vector(-115.0, 60.0, -25.0), CHAPTER_END_LABEL)
+    n += _ensure_vector_prop(actor, "close_up_look_at", unreal.Vector(-38.0, 0.0, -4.0), CHAPTER_END_LABEL)
+    n += _ensure_vector_prop(actor, "interact_zone_offset", unreal.Vector(-160.0, 0.0, -ARROW_HEIGHT + 110.0), CHAPTER_END_LABEL)
+    n += _ensure_vector_prop(actor, "interact_zone_extent", unreal.Vector(160.0, 200.0, 140.0), CHAPTER_END_LABEL)
+    n += _ensure_component_mesh(actor, "prop", meshes.get("SM_City_ArrowShaft"), shaft_mat)
+    n += _ensure_component_mesh(actor, "prop_accent", meshes.get("SM_City_ArrowFletching"), fletch_mat)
+    n += _ensure_tags(actor, tags)
+
+    back = unreal.Vector(tx + ux * RETURN_OUT, ty + uy * RETURN_OUT, roof_z + 100.0)
+    point, k = _ensure_located(existing, SCENE_RETURN_LABEL, unreal.TargetPoint, back, facing + 180.0)
+    n += k
+    if point is not None:
+        # Tagged with its label too: a packaged game has no labels to find it by.
+        n += _ensure_tags(point, ["City", "CitySceneReturn", SCENE_RETURN_LABEL])
+    c.log("updated" if n else "exists", CHAPTER_END_LABEL, "tower at ({0:.0f}, {1:.0f}) on osm {2}, {3:.0f} cm from the beacon".format(
+        tx, ty, spot["osm"], spot["distance"]))
+    return n
 
 
 # --------------------------------------------------------------------------------------
@@ -3696,6 +3901,7 @@ def run():
     changes += remove_prison_actors(existing)
     changes += ensure_objective_volumes(district, existing)
     changes += ensure_objective_beacons(district, existing)
+    changes += ensure_chapter_end(district, existing)
     changes += ensure_safehouse(district, existing)
     changes += ensure_thugs(district, existing)
     changes += ensure_archers(district, existing)
