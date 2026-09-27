@@ -14,6 +14,8 @@ class UNiagaraSystem;
  * on the player controller, so it follows whichever character is possessed. At BeginPlay it spawns
  * SnowSystem (NS_Snowfall: 800 GPU flakes the view recycler keeps inside the frustum) and every frame
  * puts it at HawkeyeVfxMath::ComputeSnowfallOrigin for the camera, so its bounds always hold the view.
+ * Only outdoors: a map whose game mode has bOutdoorWeather off (a flashback's playable scene, an
+ * interior) gets no snow at all.
  */
 UCLASS(ClassGroup = (Hawkeye), meta = (BlueprintSpawnableComponent))
 class HAWKEYE_API USnowfallComponent : public UActorComponent
@@ -42,6 +44,9 @@ public:
 	/** The snow's component, or null before BeginPlay, without a local player, or when unset. */
 	UFUNCTION(BlueprintPure, Category = "Snowfall")
 	UNiagaraComponent* GetSnowComponent() const { return Snow; }
+
+	/** Whether snow falls in World at all: only under a Hawkeye game mode with outdoor weather. */
+	static bool ShouldSnowIn(const UWorld* World);
 
 	/** Puts the snow where it belongs for a camera at Location looking along Forward. Tick calls it. */
 	void FollowCamera(const FVector& Location, const FVector& Forward, float DeltaSeconds);

@@ -53,8 +53,13 @@ AHawkeyeGameMode::AHawkeyeGameMode()
 
 bool AHawkeyeGameMode::WantsOutdoorWeather(const UWorld* World)
 {
-	const AHawkeyeGameMode* GameMode = World ? World->GetAuthGameMode<AHawkeyeGameMode>() : nullptr;
-	return GameMode && GameMode->bOutdoorWeather;
+	return WantsOutdoorWeather(World ? World->GetAuthGameMode() : nullptr);
+}
+
+bool AHawkeyeGameMode::WantsOutdoorWeather(const AGameModeBase* GameMode)
+{
+	const AHawkeyeGameMode* Hawkeye = Cast<AHawkeyeGameMode>(GameMode);
+	return Hawkeye && Hawkeye->bOutdoorWeather;
 }
 
 void AHawkeyeGameMode::Tick(float DeltaSeconds)

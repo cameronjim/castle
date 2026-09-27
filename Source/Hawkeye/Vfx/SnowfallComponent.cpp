@@ -3,6 +3,7 @@
 #include "Vfx/SnowfallComponent.h"
 
 #include "Camera/PlayerCameraManager.h"
+#include "HawkeyeGameMode.h"
 #include "GameFramework/PlayerController.h"
 #include "NiagaraComponent.h"
 #include "Vfx/HawkeyeVfxMath.h"
@@ -19,7 +20,7 @@ void USnowfallComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	const APlayerController* Controller = Cast<APlayerController>(GetOwner());
-	if (!Controller || !Controller->IsLocalController() || SnowSystem.IsNull())
+	if (!Controller || !Controller->IsLocalController() || SnowSystem.IsNull() || !ShouldSnowIn(GetWorld()))
 	{
 		SetComponentTickEnabled(false);
 		return;
@@ -27,6 +28,11 @@ void USnowfallComponent::BeginPlay()
 	Snow = UHawkeyeVfxSubsystem::SpawnKept(this, SnowSystem, GetOwner()->GetActorLocation(),
 		UHawkeyeVfxSubsystem::SnowfallEvent);
 	SetComponentTickEnabled(Snow != nullptr);
+}
+
+bool USnowfallComponent::ShouldSnowIn(const UWorld* World)
+{
+	return AHawkeyeGameMode::WantsOutdoorWeather(World);
 }
 
 void USnowfallComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)

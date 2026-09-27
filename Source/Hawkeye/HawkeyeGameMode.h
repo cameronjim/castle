@@ -96,6 +96,9 @@ public:
 	/** Whether the game mode running World wants outdoor weather. A world without a Hawkeye game mode has none. */
 	static bool WantsOutdoorWeather(const UWorld* World);
 
+	/** The same rule for a given game mode (null, or not a Hawkeye one: no weather). */
+	static bool WantsOutdoorWeather(const AGameModeBase* GameMode);
+
 	/**
 	 * Uncooked builds only (-game from the editor binaries): index every loaded PoseSearch database
 	 * during the load instead of on the first frame. The motion-matching databases wait for their

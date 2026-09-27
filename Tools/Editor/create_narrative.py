@@ -84,6 +84,11 @@ MARKER = (600.0, 0.0)
 OBJECTIVE_EXTENT = (120.0, 120.0, 150.0)
 LIGHT_LUMENS = 4000.0
 LIGHT_RADIUS = 1800.0
+# Auto exposure is off project-wide, so with no volume the room sat at the default bias and its
+# two lamps blew the ceiling and walls out. Pinned like the district's PP_Global, two stops down.
+SCENE_PP_LABEL = "Scene_PostProcess"
+SCENE_EXPOSURE_BRIGHTNESS = 1.0
+SCENE_EXPOSURE_BIAS = -1.0
 
 
 def _hash(rows):
@@ -167,6 +172,10 @@ def ensure_scene_game_mode():
     if cdo is not None and cdo.get_editor_property("build_navigation_at_start"):
         c.set_props(cdo, [("build_navigation_at_start", False)], SCENE_GAME_MODE)
         changed.append("no navigation")
+    # Indoors: no snow falling round the camera.
+    if cdo is not None and cdo.get_editor_property("outdoor_weather"):
+        c.set_props(cdo, [("outdoor_weather", False)], SCENE_GAME_MODE)
+        changed.append("no weather")
     if changed:
         c.compile_blueprint(bp)
         c.save(bp)
@@ -250,6 +259,32 @@ def _ensure_light(existing, label, loc):
     return n
 
 
+def _ensure_exposure(existing):
+    """An unbound post-process volume pinning the room's exposure."""
+    actor, n = _ensure_actor(existing, SCENE_PP_LABEL, unreal.PostProcessVolume, unreal.Vector(0.0, 0.0, WALL_HEIGHT * 0.5))
+    if actor is None:
+        return 0
+    if not actor.get_editor_property("unbound"):
+        actor.set_editor_property("unbound", True)
+        n += 1
+    settings = actor.get_editor_property("settings")
+    dirty = False
+    for prop, value in (("override_auto_exposure_min_brightness", True),
+                        ("override_auto_exposure_max_brightness", True),
+                        ("auto_exposure_min_brightness", SCENE_EXPOSURE_BRIGHTNESS),
+                        ("auto_exposure_max_brightness", SCENE_EXPOSURE_BRIGHTNESS),
+                        ("override_auto_exposure_bias", True),
+                        ("auto_exposure_bias", SCENE_EXPOSURE_BIAS)):
+        current = settings.get_editor_property(prop)
+        if not m.same_value(current, value):
+            settings.set_editor_property(prop, value)
+            dirty = True
+    if dirty:
+        actor.set_editor_property("settings", settings)
+        n += 1
+    return n
+
+
 def build_room(existing):
     cube = c.load_or_none(CUBE)
     cylinder = c.load_or_none(CYLINDER)
@@ -267,6 +302,7 @@ def build_room(existing):
         n += _ensure_box(existing, label, cube, wall_mat, centre, size)
     n += _ensure_light(existing, "Scene_Light_0", (-450.0, 0.0, h - 60.0))
     n += _ensure_light(existing, "Scene_Light_1", (450.0, 0.0, h - 60.0))
+    n += _ensure_exposure(existing)
 
     start, k = _ensure_actor(existing, "Scene_PlayerStart", unreal.PlayerStart, unreal.Vector(*START))
     n += k
