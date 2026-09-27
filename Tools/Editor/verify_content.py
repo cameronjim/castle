@@ -621,7 +621,7 @@ def check_weapon_data():
                         ("perfect_window_seconds", 0.1), ("perfect_bonus", 0.25), ("hand_socket", "palm_l_Socket")],
         "DA_Bow_Clint": [("full_draw_seconds", 1.0)],
         "DA_Bow_Archer": [("full_draw_seconds", 1.2), ("max_speed", 5000.0), ("perfect_bonus", 0.0),
-                          ("headshot_multiplier", 1.0), ("hand_socket", "hand_l")],
+                          ("headshot_multiplier", 1.0), ("hand_socket", "None")],
         "DA_Arrow_Trickshot": [("slot", 1), ("damage", 30.0), ("recoverable", True), ("on_hit_effect", "NONE")],
         "DA_Arrow_Standard": [("slot", 1), ("damage", 40.0), ("cap", 30), ("recoverable", True),
                               ("on_hit_effect", "NONE")],

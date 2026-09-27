@@ -91,8 +91,11 @@ AThugCharacter::AThugCharacter()
 	HeldWeaponComponent->SetCanEverAffectNavigation(false);
 	HeldWeaponComponent->SetVisibility(false);
 
-	// The archer's bow. Inert (no mesh, no draw) on every thug until OwnBow is set.
+	// The archer's bow. Inert (no mesh, no draw) on every thug until OwnBow is set. With no draw
+	// animation his hand hangs at his hip, so DA_Bow_Archer names no hand socket and arrows leave
+	// from here: in front of his cheek, where a drawn bow is anchored, high enough to clear his parapet.
 	BowComponent = CreateDefaultSubobject<UBowComponent>(TEXT("BowComponent"));
+	BowComponent->ArrowLaunchOffset = FVector(45.f, 0.f, 65.f);
 
 	// The gunner's pistol and the telegraph glint: engine shapes, so a thug needs no art for them.
 	static ConstructorHelpers::FObjectFinder<UStaticMesh> Cube(TEXT("/Engine/BasicShapes/Cube.Cube"));

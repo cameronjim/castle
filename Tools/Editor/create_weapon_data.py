@@ -99,10 +99,11 @@ def bow_values(name, mesh):
         return [("display_name", "Clint's recurve"), ("full_draw_seconds", 1.0)] + common
     if name == "DA_Bow_Archer":
         # An AI release is always at full draw: no perfect bonus, and no headshot bonus so 30 is 30.
-        # The UE4 mannequin the thugs wear has hand_l, not the UEFN palm socket.
+        # No hand socket: with no draw animation the thug's hand hangs at his hip, and arrows from there
+        # hit his own parapet; without one they leave from the bow's launch offset at chest height.
         archer = dict(common)
         archer.update({"max_speed": 5000.0, "min_spread": 1.0, "perfect_bonus": 0.0, "headshot_multiplier": 1.0,
-                       "hand_socket": "hand_l"})
+                       "hand_socket": "None"})
         return [("display_name", "Trickshot crew recurve"), ("full_draw_seconds", 1.2)] + list(archer.items())
     return []
 
