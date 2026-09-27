@@ -36,6 +36,7 @@
 #include "World/CityLedgeSpawner.h"
 #include "World/FireEscapeLanding.h"
 #include "World/GrappleAnchor.h"
+#include "World/InteractionComponent.h"
 #include "World/ThugAIController.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -196,7 +197,33 @@ namespace HawkeyeChallengeLap
 		Kate->TeleportTo(Start->GetStandLocation() + FVector(0.f, 0.f, HalfHeight + 5.f), FRotator(0.f, Yaw, 0.f));
 		PC->SetControlRotation(FRotator(-10.f, Yaw, 0.f));
 		PC->SetViewTarget(Kate);
+		// A lap before this one on the same map may have left her down, hurt or under a menu.
+		if (Kate->IsDowned())
+		{
+			Kate->ReviveFromDown(1.f);
+		}
+		if (!Kate->GetHealthComponent()->IsAlive())
+		{
+			Kate->GetHealthComponent()->Revive(Kate->GetHealthComponent()->GetMaxHealth());
+		}
 		Kate->GetHealthComponent()->Heal(1000.f);
+		if (AHawkeyePlayerController* Hawkeye = Cast<AHawkeyePlayerController>(PC))
+		{
+			Hawkeye->CloseChallengeResults();
+		}
+		PC->SetPause(false);
+	}
+
+	/** Why E at the pedestal did nothing, for the report. */
+	static FString ExplainStart(const AHawkeyeCharacter* Kate, AChallengeStart* Start)
+	{
+		const UInteractionComponent* Interaction = Kate->GetInteractionComponent();
+		return FString::Printf(TEXT("%.0f cm from the stand spot, focus %s, can interact %d, health %.0f, down %d, prompt \"%s\""),
+			FVector::Dist2D(Kate->GetActorLocation(), Start->GetStandLocation()),
+			Interaction && Interaction->GetFocusedActor() ? *Interaction->GetFocusedActor()->GetName() : TEXT("none"),
+			IInteractable::Execute_CanInteract(Start, const_cast<AHawkeyeCharacter*>(Kate)) ? 1 : 0,
+			Kate->GetHealthComponent()->GetCurrentHealth(), Kate->IsDowned() ? 1 : 0,
+			*IInteractable::Execute_GetInteractPrompt(Start).ToString());
 	}
 
 	static void WriteText(const FString& FileName, const FString& Text)
@@ -389,11 +416,14 @@ bool FHawkeyeArcheryChallengeRunner::Update()
 		}
 		if (!Challenges->IsRunning())
 		{
-			Tap(PC, InteractPath);
+			// A press every half second: injecting every frame is one long hold, one Started.
+			if (FMath::Fmod(Now - PhaseStart, 0.5) < World->GetDeltaSeconds())
+			{
+				Tap(PC, InteractPath);
+			}
 			if (Now - PhaseStart > 4.0)
 			{
-				Test->AddError(FString::Printf(TEXT("Archery challenge 1: E at the pedestal started nothing (prompt \"%s\")."),
-					*IInteractable::Execute_GetInteractPrompt(Start.Get()).ToString()));
+				Test->AddError(FString::Printf(TEXT("Archery challenge 1: E at the pedestal started nothing (%s)."), *ExplainStart(Kate, Start.Get())));
 				return true;
 			}
 			return false;
@@ -965,10 +995,14 @@ bool FHawkeyeTraversalChallengeRunner::Update()
 		}
 		if (!Challenges->IsRunning())
 		{
-			Tap(PC, InteractPath);
+			// A press every half second: injecting every frame is one long hold, one Started.
+			if (FMath::Fmod(Now - PhaseStart, 0.5) < World->GetDeltaSeconds())
+			{
+				Tap(PC, InteractPath);
+			}
 			if (Now - PhaseStart > 4.0)
 			{
-				Test->AddError(TEXT("Traversal challenge 1: E at the pedestal started nothing."));
+				Test->AddError(FString::Printf(TEXT("Traversal challenge 1: E at the pedestal started nothing (%s)."), *ExplainStart(Kate, Start.Get())));
 				return true;
 			}
 			return false;
