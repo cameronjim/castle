@@ -98,6 +98,7 @@ public:
 	static const FName ArrowTrailEvent;
 	static const FName ArrowImpactEvent;
 	static const FName HitSparkEvent;
+	static const FName ParryEvent;
 	static const FName BowReleaseEvent;
 	static const FName ZipLineEvent;
 	static const FName AnchorSparksEvent;

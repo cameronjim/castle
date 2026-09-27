@@ -4,7 +4,11 @@
 
 #include "CoreMinimal.h"
 #include "Audio/HawkeyeAudioTypes.h"
+#include "Combat/FinisherComponent.h"
+#include "Combat/MeleeCombo.h"
 #include "Combat/MeleeComponent.h"
+#include "Combat/MeleeRules.h"
+#include "Combat/StrikePose.h"
 #include "GameFramework/Character.h"
 #include "ISpudObject.h"
 #include "Player/HawkeyeMovementTypes.h"
@@ -12,6 +16,7 @@
 #include "HawkeyeCharacter.generated.h"
 
 class UAnimSequence;
+class AThugCharacter;
 class UBowComponent;
 class UCameraComponent;
 class UInputAction;
@@ -94,6 +99,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
 	UMeleeComponent* GetMeleeComponent() const { return MeleeComponent; }
 
+	/** The finisher on F (after the takedown is tried). Always present on the player. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
+	UFinisherComponent* GetFinisherComponent() const { return FinisherComponent; }
+
 	/** Vault, mantle and ledge grab. Always present on the player. */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
 	UParkourComponent* GetParkourComponent() const { return ParkourComponent; }
@@ -135,9 +144,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
 	float GetMovementNoiseLoudness() const;
 
-	/** True while a takedown animation is playing; movement and firing are ignored. */
+	/** True while a takedown or a finisher is playing; movement, strikes, dodges and firing are ignored. */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
 	bool IsLockedOutByTakedown() const;
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	bool IsPerformingFinisher() const;
 
 	/**
 	 * Starts aiming: the camera blends in to AimCamera over the right shoulder, the body turns to
@@ -348,15 +360,73 @@ public:
 	// --- Melee, dodge, hit reactions -------------------------------------------------------------
 
 	/**
-	 * A tap of V: LightAttack (15, 0.1 s wind-up, 0.3 s in all). Turns her to the nearest thug in
-	 * front within SoftLockRange first. Refused mid-swing, mid-dodge, drawing, traversing or zipping.
+	 * A tap of V. A parry first, when a thug in front within ParryRange is telegraphing (TryParry).
+	 * Otherwise the next light of the chain (GetComboAttack): 15, 15, then 25 with a 150 cm knockback,
+	 * each within the combo's 0.35 s window after the last one landed; pressed during the recovery of
+	 * a light that landed, it waits for the recovery. Turns her to the soft-lock target over
+	 * SoftTurnSeconds. Refused mid-wind-up, mid-dodge, drawing, traversing or zipping.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Melee")
 	bool StartLightAttack();
 
-	/** V held HeavyHoldSeconds: HeavyAttack (35 after a 0.6 s wind-up, knocks a thug down). */
+	/** V held HeavyHoldSeconds: HeavyAttack (35 after a 0.6 s wind-up, knocks a thug down). Ends the chain. */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Melee")
 	bool StartHeavyAttack();
+
+	/** Chain step Step (0, 1, 2) of the light combo. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	FHawkeyeMeleeAttack GetComboAttack(int32 Step) const;
+
+	/**
+	 * The parry: a thug within ParryRange and ParryAngleDegrees of her view, telegraphing a swing or a
+	 * bash (UHawkeyeMeleeRules::ClassifyParry), is staggered ParryStaggerSeconds and his swing never
+	 * lands; a gunner's raised pistol loses its first shot. Hit stop, a ring and MS_Parry. False when
+	 * there is nothing to parry.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Melee")
+	bool TryParry();
+
+	/** The thug a parry would meet now (and what it would meet), or null. */
+	AThugCharacter* FindParryTarget(EHawkeyeParryKind& OutKind) const;
+
+	/** F when no takedown is valid: the finisher on a staggered or knocked-down thug (UFinisherComponent). */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Melee")
+	bool TryFinisher();
+
+	/** The closest living thug within SoftLockRange and SoftLockAngleDegrees of the camera's forward. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	AActor* FindSoftLockTarget() const;
+
+	/** Turns her to face Direction (flat) over SoftTurnSeconds. */
+	void BeginSoftTurn(const FVector& Direction);
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	bool IsSoftTurning() const { return SoftTurnRemaining > 0.f; }
+
+	/**
+	 * One step of the melee flow: the combo's windows, a waiting light, the soft turn, the strike pose
+	 * and the hit lean, handed to the bow-IK anim instance. Tick calls it; public for tests.
+	 */
+	void AdvanceMeleeFlow(float DeltaSeconds);
+
+	const FHawkeyeComboTracker& GetCombo() const { return Combo; }
+
+	/** Hits on the combo counter (the HUD's "x3"). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	int32 GetComboCount() const { return Combo.GetCount(); }
+
+	/** The counter is at its bonus (x5 and up): hits do +20% and it glows. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	bool IsComboBonusActive() const { return Combo.IsBonusActive(); }
+
+	const FHawkeyeStrikePoseClock& GetStrikePose() const { return StrikePose; }
+	const FHawkeyeHitLeanClock& GetHitLean() const { return HitLean; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	int32 GetParryCount() const { return ParryCount; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Dodge")
+	int32 GetPerfectDodgeCount() const { return PerfectDodgeCount; }
 
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
 	bool IsMeleeAttacking() const;
@@ -622,11 +692,26 @@ protected:
 	void Input_MeleePressed(const FInputActionValue& Value);
 	void Input_MeleeReleased(const FInputActionValue& Value);
 
-	/** Starts Attack after turning to the soft-lock target. Shared by the light and the heavy. */
-	bool StartMelee(const FHawkeyeMeleeAttack& Attack);
+	/** Starts Attack after turning to the soft-lock target, with Pose on the arms. Shared by the light and the heavy. */
+	bool StartMelee(const FHawkeyeMeleeAttack& Attack, EHawkeyeStrikePose Pose);
 
-	/** The closest living thug within SoftLockRange and SoftLockAngleDegrees of the camera's forward. */
-	AActor* FindSoftLockTarget() const;
+	/** The next light of the chain, with the counter's bonus. */
+	bool StartComboLight();
+
+	/** The camera's flat forward (the body's without a controller): what "in front" means for her. */
+	FVector GetViewForward() const;
+
+	/** Slows the world to Dilation for RealSeconds (hit stop, parry, perfect dodge). */
+	void ApplyTimeWarp(float RealSeconds, float Dilation);
+
+	/** Turns the body toward the soft turn's yaw, and keeps orient-to-movement off while something owns her facing. */
+	void UpdateSoftTurn(float DeltaSeconds);
+
+	/** Hands the strike pose and the hit lean to the bow-IK anim instance. */
+	void UpdateArmPoses();
+
+	/** A dodge that starts inside a thug's telegraph: a moment of slow motion. */
+	void CheckPerfectDodge();
 
 	/** Counts the V hold; past HeavyHoldSeconds it becomes the heavy. */
 	void UpdateMeleeHold(float DeltaSeconds);
@@ -651,6 +736,15 @@ protected:
 
 	UFUNCTION()
 	void HandleMeleeLanded(AActor* HitActor, float DamageDealt, FName AttackName);
+
+	UFUNCTION()
+	void HandleMeleeMissed(FName AttackName);
+
+	UFUNCTION()
+	void HandleFinisherStarted(AActor* Target, EHawkeyeFinisherStyle Style);
+
+	UFUNCTION()
+	void HandleFinisherStruck(AActor* Target);
 
 	/** Time back to normal after the hit stop. */
 	void EndHitStop();
@@ -776,6 +870,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
 	TObjectPtr<UGrappleComponent> GrappleComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	TObjectPtr<UFinisherComponent> FinisherComponent;
+
 	/** Light and heavy bow strikes. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
 	TObjectPtr<UMeleeComponent> MeleeComponent;
@@ -880,13 +977,71 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
 	FHawkeyeMeleeAttack HeavyAttack;
 
+	/** The chain's second light: 15, like the first, a longer lunge. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
+	FHawkeyeMeleeAttack ComboFollowAttack;
+
+	/** The chain's third light: 25 and a 150 cm knockback. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
+	FHawkeyeMeleeAttack ComboFinishAttack;
+
+	/** The chain window, the counter's reset and its bonus. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
+	FHawkeyeComboTracker Combo;
+
+	/** Seconds the soft lock takes to turn her to the target. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float SoftTurnSeconds = 0.1f;
+
+	/** A telegraphing thug this close and this far off her view is parried by a tap of V, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Parry", meta = (ClampMin = "0.0"))
+	float ParryRange = 250.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Parry", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float ParryAngleDegrees = 70.f;
+
+	/** How long a parried thug is staggered. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Parry", meta = (ClampMin = "0.0"))
+	float ParryStaggerSeconds = 1.5f;
+
+	/** Real seconds of hit stop on a parry: four frames at 60. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Parry", meta = (ClampMin = "0.0"))
+	float ParryHitStopSeconds = 0.067f;
+
+	/** The parry's ring (NS_ParryRing). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Parry")
+	TSoftObjectPtr<UNiagaraSystem> ParryVfx;
+
+	/** The parry's ring of metal (MS_Parry). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Parry")
+	TSoftObjectPtr<USoundBase> ParrySound;
+
+	/** A dodge started while a thug this close is in a telegraph is a perfect dodge, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.0"))
+	float PerfectDodgeRange = 300.f;
+
+	/** The perfect dodge's slow motion: real seconds, and how slow. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.0"))
+	float PerfectDodgeSeconds = 0.1f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float PerfectDodgeDilation = 0.3f;
+
+	/** The arms on a strike (no attack clips): where the hands go and how fast. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
+	FHawkeyeStrikePoseClock StrikePose;
+
+	/** The lean away from a hit on her. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")
+	FHawkeyeHitLeanClock HitLean;
+
 	/** V held this long becomes the heavy; let go sooner and it was a tap. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
 	float HeavyHoldSeconds = 0.4f;
 
 	/** A thug this close and this far off the camera's forward is who a swing turns to face. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
-	float SoftLockRange = 300.f;
+	float SoftLockRange = 400.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float SoftLockAngleDegrees = 60.f;
@@ -1450,6 +1605,26 @@ private:
 	/** V is held and has not yet become a heavy. */
 	bool bMeleeHeld = false;
 	float MeleeHeldSeconds = 0.f;
+
+	/** A light pressed in the recovery of a light that landed, waiting for it to end. */
+	bool bLightBuffered = false;
+
+	/** The swing now going: a light of this chain step, or (false) a heavy. */
+	bool bSwingIsLight = false;
+	int32 SwingStep = 0;
+
+	/** The soft turn: the yaw she is turning to and the seconds left. */
+	float SoftTurnYaw = 0.f;
+	float SoftTurnRemaining = 0.f;
+
+	/** Orient-to-movement was switched off because something owns her facing. */
+	bool bFacingLocked = false;
+
+	/** The dodge running was aimed at a soft-lock target, so she keeps facing it. */
+	bool bDodgeFacesTarget = false;
+
+	int32 ParryCount = 0;
+	int32 PerfectDodgeCount = 0;
 
 	/** A Ctrl press while moving, waiting to find out whether it is a tap (dodge) or a hold (crouch). */
 	bool bCrouchTapPending = false;

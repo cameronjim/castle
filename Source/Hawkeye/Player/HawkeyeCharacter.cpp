@@ -8,6 +8,8 @@
 #include "Hawkeye.h"
 #include "HawkeyeGameMode.h"
 #include "Combat/BowComponent.h"
+#include "Combat/BowIKAnimInstance.h"
+#include "Combat/FinisherComponent.h"
 #include "HawkeyePlayerController.h"
 #include "Audio/HawkeyeAudioMath.h"
 #include "Audio/HawkeyeAudioSubsystem.h"
@@ -26,6 +28,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
+#include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 #include "InputActionValue.h"
 #include "InputMappingContext.h"
@@ -153,6 +156,22 @@ AHawkeyeCharacter::AHawkeyeCharacter()
 	HeavyAttack.LungeDistance = 40.f;
 	HeavyAttack.LungeSeconds = 0.15f;
 
+	// The chain: two quick lights and a harder third that shoves him back 150 cm.
+	ComboFollowAttack = LightAttack;
+	ComboFollowAttack.Name = FName(TEXT("light2"));
+	ComboFollowAttack.LungeDistance = 25.f;
+	ComboFinishAttack = LightAttack;
+	ComboFinishAttack.Name = FName(TEXT("light3"));
+	ComboFinishAttack.Damage = 25.f;
+	ComboFinishAttack.WindupSeconds = 0.12f;
+	ComboFinishAttack.RecoverSeconds = 0.28f;
+	ComboFinishAttack.KnockbackDistance = 150.f;
+	ComboFinishAttack.KnockbackSeconds = 0.3f;
+	ComboFinishAttack.LungeDistance = 35.f;
+	ComboFinishAttack.LungeSeconds = 0.12f;
+
+	FinisherComponent = CreateDefaultSubobject<UFinisherComponent>(TEXT("FinisherComponent"));
+
 	InventoryComponent = CreateDefaultSubobject<UInventoryComponent>(TEXT("InventoryComponent"));
 	GrappleComponent = CreateDefaultSubobject<UGrappleComponent>(TEXT("GrappleComponent"));
 	ParkourComponent = CreateDefaultSubobject<UParkourComponent>(TEXT("ParkourComponent"));
@@ -211,6 +230,12 @@ void AHawkeyeCharacter::BeginPlay()
 	if (MeleeComponent)
 	{
 		MeleeComponent->OnAttackLanded.AddDynamic(this, &AHawkeyeCharacter::HandleMeleeLanded);
+		MeleeComponent->OnAttackMissed.AddDynamic(this, &AHawkeyeCharacter::HandleMeleeMissed);
+	}
+	if (FinisherComponent)
+	{
+		FinisherComponent->OnFinisherStarted.AddDynamic(this, &AHawkeyeCharacter::HandleFinisherStarted);
+		FinisherComponent->OnFinisherStruck.AddDynamic(this, &AHawkeyeCharacter::HandleFinisherStruck);
 	}
 
 	UpdateBodyLocomotion();
@@ -459,6 +484,7 @@ void AHawkeyeCharacter::ReleaseHeldInputs()
 	bIsSprinting = false;
 	bAimInputHeld = false;
 	bMeleeHeld = false;
+	bLightBuffered = false;
 	bCrouchTapPending = false;
 	bInventoryKeyHeld = false;
 	MoveInputMagnitude = 0.f;
@@ -1425,6 +1451,12 @@ void AHawkeyeCharacter::UpdateCamera(float DeltaSeconds)
 		Blend.SocketOffset.Z += ActiveShakeAmplitude * Shake * FMath::Cos(Time * 2.3f);
 	}
 
+	// A finisher pushes the lens in on the blow.
+	if (FinisherComponent)
+	{
+		Blend.ArmLength -= FinisherComponent->CameraPushDistance * FinisherComponent->GetCameraPushAlpha();
+	}
+
 	if (CameraBoom)
 	{
 		CameraBoom->TargetArmLength = Blend.ArmLength;
@@ -1465,6 +1497,7 @@ void AHawkeyeCharacter::Tick(float DeltaSeconds)
 	UpdateQuiverWheelHold();
 	UpdateCrouchTap(DeltaSeconds);
 	UpdateMeleeHold(DeltaSeconds);
+	AdvanceMeleeFlow(DeltaSeconds);
 	UpdateDodge(DeltaSeconds);
 	UpdateHitReactions(DeltaSeconds);
 	UpdateLowHealthPostProcess();
@@ -1650,15 +1683,65 @@ void AHawkeyeCharacter::UpdateMeleeHold(float DeltaSeconds)
 
 bool AHawkeyeCharacter::StartLightAttack()
 {
-	return StartMelee(LightAttack);
+	if (TryParry())
+	{
+		return true;
+	}
+	if (MeleeComponent && MeleeComponent->IsAttacking())
+	{
+		// Inside the chain window, a light pressed during the last one's recovery goes when it ends.
+		if (MeleeComponent->GetPhase() == EMeleePhase::Recover && bSwingIsLight && Combo.IsChainOpen())
+		{
+			bLightBuffered = true;
+			return true;
+		}
+		return false;
+	}
+	return StartComboLight();
+}
+
+bool AHawkeyeCharacter::StartComboLight()
+{
+	const int32 Step = Combo.GetNextStep();
+	FHawkeyeMeleeAttack Attack = GetComboAttack(Step);
+	Attack.Damage *= Combo.GetDamageMultiplier();
+	if (!StartMelee(Attack, EHawkeyeStrikePose::Light))
+	{
+		return false;
+	}
+	bSwingIsLight = true;
+	SwingStep = Step;
+	return true;
 }
 
 bool AHawkeyeCharacter::StartHeavyAttack()
 {
-	return StartMelee(HeavyAttack);
+	FHawkeyeMeleeAttack Attack = HeavyAttack;
+	Attack.Damage *= Combo.GetDamageMultiplier();
+	bLightBuffered = false;
+	if (!StartMelee(Attack, EHawkeyeStrikePose::Heavy))
+	{
+		return false;
+	}
+	bSwingIsLight = false;
+	Combo.EndChain();
+	return true;
 }
 
-bool AHawkeyeCharacter::StartMelee(const FHawkeyeMeleeAttack& Attack)
+FHawkeyeMeleeAttack AHawkeyeCharacter::GetComboAttack(int32 Step) const
+{
+	switch (Step)
+	{
+	case 1:
+		return ComboFollowAttack;
+	case 2:
+		return ComboFinishAttack;
+	default:
+		return LightAttack;
+	}
+}
+
+bool AHawkeyeCharacter::StartMelee(const FHawkeyeMeleeAttack& Attack, EHawkeyeStrikePose Pose)
 {
 	if (!MeleeComponent || MeleeComponent->IsAttacking() || IsLockedOutByTakedown() || IsZipping()
 		|| IsTraversing() || IsDodging() || IsStaggered() || IsDrawingBow() || bDowned)
@@ -1666,19 +1749,32 @@ bool AHawkeyeCharacter::StartMelee(const FHawkeyeMeleeAttack& Attack)
 		return false;
 	}
 
-	// Face the thug she means to hit; with nobody close, the way the camera looks.
-	FVector Facing = Controller ? FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f).Vector() : GetActorForwardVector();
+	// Face the thug she means to hit; with nobody close, the way the camera looks. The blow goes that
+	// way at once; the body turns over SoftTurnSeconds.
+	FVector Facing = GetViewForward();
 	if (const AActor* Target = FindSoftLockTarget())
 	{
 		Facing = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
 	}
 	if (!Facing.IsNearlyZero())
 	{
-		SetActorRotation(FRotator(0.f, Facing.Rotation().Yaw, 0.f));
+		BeginSoftTurn(Facing);
 	}
 
 	EndSlide();
-	return MeleeComponent->StartAttack(Attack);
+	MeleeComponent->SetNextAttackDirection(Facing);
+	if (!MeleeComponent->StartAttack(Attack))
+	{
+		return false;
+	}
+	StrikePose.Start(Pose, Attack.WindupSeconds);
+	UpdateArmPoses();
+	return true;
+}
+
+FVector AHawkeyeCharacter::GetViewForward() const
+{
+	return Controller ? FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f).Vector() : GetActorForwardVector().GetSafeNormal2D();
 }
 
 AActor* AHawkeyeCharacter::FindSoftLockTarget() const
@@ -1688,43 +1784,130 @@ AActor* AHawkeyeCharacter::FindSoftLockTarget() const
 	{
 		return nullptr;
 	}
-
-	const FVector Forward = Controller
-		? FRotator(0.f, Controller->GetControlRotation().Yaw, 0.f).Vector() : GetActorForwardVector();
-	const float MinDot = FMath::Cos(FMath::DegreesToRadians(SoftLockAngleDegrees));
-	AActor* Best = nullptr;
-	float BestDistance = SoftLockRange;
+	TArray<AThugCharacter*> Thugs;
+	TArray<FVector> Where;
 	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
 		const UHealthComponent* Health = It->GetHealthComponent();
-		if (!Health || !Health->IsAlive())
+		if (Health && Health->IsAlive() && !It->IsLimp())
 		{
-			continue;
-		}
-		const FVector To = It->GetActorLocation() - GetActorLocation();
-		const float Distance = To.Size2D();
-		if (Distance < BestDistance && FVector::DotProduct(To.GetSafeNormal2D(), Forward) >= MinDot
-			&& FMath::Abs(To.Z) < 200.f)
-		{
-			Best = *It;
-			BestDistance = Distance;
+			Thugs.Add(*It);
+			Where.Add(It->GetActorLocation());
 		}
 	}
-	return Best;
+	const int32 Pick = UHawkeyeMeleeRules::SelectSoftLockIndex(GetActorLocation(), GetViewForward(), Where, SoftLockRange,
+		SoftLockAngleDegrees, 200.f);
+	return Thugs.IsValidIndex(Pick) ? Thugs[Pick] : nullptr;
+}
+
+void AHawkeyeCharacter::BeginSoftTurn(const FVector& Direction)
+{
+	const FVector Flat = Direction.GetSafeNormal2D();
+	if (Flat.IsNearlyZero())
+	{
+		return;
+	}
+	SoftTurnYaw = Flat.Rotation().Yaw;
+	SoftTurnRemaining = SoftTurnSeconds;
+	if (SoftTurnSeconds <= 0.f)
+	{
+		SetActorRotation(FRotator(0.f, SoftTurnYaw, 0.f));
+	}
+}
+
+void AHawkeyeCharacter::UpdateSoftTurn(float DeltaSeconds)
+{
+	if (SoftTurnRemaining > 0.f)
+	{
+		// The remaining turn split evenly over the remaining time: a constant rate, done on time.
+		const float Step = FMath::Min(FMath::Max(DeltaSeconds, 0.f), SoftTurnRemaining);
+		const float Current = GetActorRotation().Yaw;
+		const float Fraction = SoftTurnRemaining > 0.f ? Step / SoftTurnRemaining : 1.f;
+		SetActorRotation(FRotator(0.f, Current + FRotator::NormalizeAxis(SoftTurnYaw - Current) * Fraction, 0.f));
+		SoftTurnRemaining -= Step;
+		if (SoftTurnRemaining <= KINDA_SMALL_NUMBER)
+		{
+			SoftTurnRemaining = 0.f;
+			SetActorRotation(FRotator(0.f, SoftTurnYaw, 0.f));
+		}
+	}
+
+	// While a swing, a finisher or a locked-on dodge owns her facing, the stick must not turn her.
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const bool bLock = SoftTurnRemaining > 0.f || IsMeleeAttacking() || IsPerformingFinisher() || (IsDodging() && bDodgeFacesTarget);
+	if (Movement && bLock)
+	{
+		Movement->bOrientRotationToMovement = false;
+		Movement->bUseControllerDesiredRotation = false;
+		bFacingLocked = true;
+	}
+	else if (bFacingLocked)
+	{
+		bFacingLocked = false;
+		ApplyRotationMode();
+	}
+}
+
+void AHawkeyeCharacter::AdvanceMeleeFlow(float DeltaSeconds)
+{
+	Combo.Advance(DeltaSeconds);
+	if (bLightBuffered && MeleeComponent && !MeleeComponent->IsAttacking())
+	{
+		bLightBuffered = false;
+		if (Combo.IsChainOpen())
+		{
+			StartComboLight();
+		}
+	}
+	StrikePose.Advance(DeltaSeconds);
+	HitLean.Advance(DeltaSeconds);
+	UpdateSoftTurn(DeltaSeconds);
+	UpdateArmPoses();
+}
+
+void AHawkeyeCharacter::UpdateArmPoses()
+{
+	UHawkeyeBowIKAnimInstance* Hands = BowComponent ? BowComponent->GetHandsIKInstance() : nullptr;
+	if (!Hands)
+	{
+		return;
+	}
+	Hands->SetStrikePose(StrikePose.Sample(), GetActorTransform());
+	Hands->SetHitLean(HitLean.GetDirection(), HitLean.GetAlpha());
 }
 
 void AHawkeyeCharacter::HandleMeleeLanded(AActor* /*HitActor*/, float /*DamageDealt*/, FName /*AttackName*/)
 {
-	// Hit stop: the world nearly stops for two frames so the contact reads. The timer runs in
-	// dilated time, hence the multiply.
+	if (bSwingIsLight)
+	{
+		Combo.NotifyLightLanded(SwingStep);
+	}
+	else
+	{
+		Combo.NotifyHit();
+	}
+	// Hit stop: the world nearly stops for two frames so the contact reads.
+	ApplyTimeWarp(HitStopSeconds, HitStopTimeDilation);
+}
+
+void AHawkeyeCharacter::HandleMeleeMissed(FName /*AttackName*/)
+{
+	Combo.NotifyMiss();
+	bLightBuffered = false;
+}
+
+void AHawkeyeCharacter::ApplyTimeWarp(float RealSeconds, float Dilation)
+{
 	UWorld* World = GetWorld();
-	if (!World || HitStopSeconds <= 0.f)
+	// The finisher's own slow motion is not cut short by a smaller one.
+	if (!World || RealSeconds <= 0.f || IsPerformingFinisher())
 	{
 		return;
 	}
-	UGameplayStatics::SetGlobalTimeDilation(World, HitStopTimeDilation);
+	// The timer runs in dilated time, hence the multiply.
+	UGameplayStatics::SetGlobalTimeDilation(World, Dilation);
 	World->GetTimerManager().SetTimer(HitStopTimerHandle, this, &AHawkeyeCharacter::EndHitStop,
-		HitStopSeconds * HitStopTimeDilation, false);
+		RealSeconds * Dilation, false);
 }
 
 void AHawkeyeCharacter::EndHitStop()
@@ -1734,6 +1917,129 @@ void AHawkeyeCharacter::EndHitStop()
 		// Back to the wheel's slow motion if a strike landed while it was open.
 		UGameplayStatics::SetGlobalTimeDilation(World, bQuiverWheelOpen ? QuiverWheelTimeDilation : 1.f);
 	}
+}
+
+// --- Parry ------------------------------------------------------------------------------------
+
+AThugCharacter* AHawkeyeCharacter::FindParryTarget(EHawkeyeParryKind& OutKind) const
+{
+	OutKind = EHawkeyeParryKind::None;
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+	AThugCharacter* Best = nullptr;
+	float BestDistance = BIG_NUMBER;
+	const FVector Forward = GetViewForward();
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
+	{
+		const EHawkeyeParryKind Kind = UHawkeyeMeleeRules::ClassifyParry(*It);
+		const FVector To = It->GetActorLocation() - GetActorLocation();
+		if (Kind == EHawkeyeParryKind::None || FMath::Abs(To.Z) > 150.f
+			|| !UHawkeyeMeleeRules::IsInFrontWithin(GetActorLocation(), Forward, It->GetActorLocation(), ParryRange, ParryAngleDegrees))
+		{
+			continue;
+		}
+		if (To.Size2D() < BestDistance)
+		{
+			Best = *It;
+			BestDistance = To.Size2D();
+			OutKind = Kind;
+		}
+	}
+	return Best;
+}
+
+bool AHawkeyeCharacter::TryParry()
+{
+	if (!MeleeComponent || MeleeComponent->IsWindingUp() || IsLockedOutByTakedown() || IsZipping() || IsTraversing()
+		|| IsDodging() || IsStaggered() || IsDrawingBow() || bDowned)
+	{
+		return false;
+	}
+	EHawkeyeParryKind Kind = EHawkeyeParryKind::None;
+	AThugCharacter* Thug = FindParryTarget(Kind);
+	if (!Thug)
+	{
+		return false;
+	}
+	if (Kind == EHawkeyeParryKind::Burst)
+	{
+		AThugAIController* Brain = Cast<AThugAIController>(Thug->GetController());
+		if (!Brain || !Brain->DeflectFirstShot())
+		{
+			return false;
+		}
+	}
+	else
+	{
+		Thug->Parried(this, ParryStaggerSeconds);
+	}
+
+	// Her own recovery gives way to it; a light waiting for it is spent.
+	MeleeComponent->CancelAttack();
+	bLightBuffered = false;
+	const FVector To = (Thug->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+	BeginSoftTurn(To);
+	StrikePose.Start(EHawkeyeStrikePose::Light, 0.08f);
+	UpdateArmPoses();
+	++ParryCount;
+
+	const FVector Contact = (GetActorLocation() + Thug->GetActorLocation()) * 0.5f + FVector(0.f, 0.f, 40.f);
+	UHawkeyeAudioSubsystem::PlayAt(this, ParrySound, Contact, TEXT("parry"));
+	UHawkeyeVfxSubsystem::SpawnAt(this, ParryVfx, Contact, (-To).Rotation(), UHawkeyeVfxSubsystem::ParryEvent);
+	ApplyTimeWarp(ParryHitStopSeconds, HitStopTimeDilation);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: parried %s's %s from %.0f cm (%d parries)."), *GetNameSafe(this), *GetNameSafe(Thug),
+		Kind == EHawkeyeParryKind::Burst ? TEXT("burst") : (Kind == EHawkeyeParryKind::Bash ? TEXT("bash") : TEXT("swing")),
+		FVector::Dist2D(Thug->GetActorLocation(), GetActorLocation()), ParryCount);
+	return true;
+}
+
+// --- Finisher ---------------------------------------------------------------------------------
+
+bool AHawkeyeCharacter::IsPerformingFinisher() const
+{
+	return FinisherComponent && FinisherComponent->IsPerformingFinisher();
+}
+
+bool AHawkeyeCharacter::TryFinisher()
+{
+	if (!FinisherComponent || IsLockedOutByTakedown() || IsZipping() || IsTraversing() || IsStaggered() || IsDodging()
+		|| bDowned || (HealthComponent && !HealthComponent->IsAlive()))
+	{
+		return false;
+	}
+	const bool bBowOut = BowComponent && BowComponent->GetBow() && (BowComponent->IsBowRaised() || IsDrawingBow());
+	if (!FinisherComponent->FindTarget())
+	{
+		return false;
+	}
+	if (MeleeComponent)
+	{
+		MeleeComponent->CancelAttack();
+	}
+	bLightBuffered = false;
+	bMeleeHeld = false;
+	if (IsDrawingBow())
+	{
+		BowComponent->CancelDraw();
+	}
+	EndSlide();
+	return FinisherComponent->TryFinisher(bBowOut);
+}
+
+void AHawkeyeCharacter::HandleFinisherStarted(AActor* /*Target*/, EHawkeyeFinisherStyle Style)
+{
+	SoftTurnRemaining = 0.f;
+	StrikePose.Start(Style == EHawkeyeFinisherStyle::Bow ? EHawkeyeStrikePose::BowSweep : EHawkeyeStrikePose::Heavy,
+		FinisherComponent ? FinisherComponent->StrikeAtSeconds : 0.3f);
+	UpdateArmPoses();
+}
+
+void AHawkeyeCharacter::HandleFinisherStruck(AActor* /*Target*/)
+{
+	Combo.NotifyHit();
 }
 
 // --- Dodge ------------------------------------------------------------------------------------
@@ -1766,6 +2072,16 @@ bool AHawkeyeCharacter::TryDodge(FVector WorldDirection)
 	DodgeRemaining = DodgeSeconds;
 	DodgeInvulnerableRemaining = DodgeInvulnerableSeconds;
 	DodgeCooldownRemaining = DodgeCooldownSeconds;
+	bLightBuffered = false;
+
+	// Locked on, she keeps her eyes on him while the dash goes where the stick says.
+	const AActor* Facing = FindSoftLockTarget();
+	bDodgeFacesTarget = Facing != nullptr;
+	if (Facing)
+	{
+		BeginSoftTurn(Facing->GetActorLocation() - GetActorLocation());
+	}
+	CheckPerfectDodge();
 	if (HealthComponent && !HealthComponent->IsInvulnerable() && DodgeInvulnerableSeconds > 0.f)
 	{
 		HealthComponent->SetInvulnerable(true);
@@ -1789,10 +2105,37 @@ bool AHawkeyeCharacter::TryDodge(FVector WorldDirection)
 	return true;
 }
 
+void AHawkeyeCharacter::CheckPerfectDodge()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
+	{
+		const EHawkeyeParryKind Kind = UHawkeyeMeleeRules::ClassifyParry(*It);
+		const bool bMelee = Kind == EHawkeyeParryKind::Swing || Kind == EHawkeyeParryKind::Bash;
+		if (bMelee && FVector::Dist2D(It->GetActorLocation(), GetActorLocation()) <= PerfectDodgeRange)
+		{
+			++PerfectDodgeCount;
+			ApplyTimeWarp(PerfectDodgeSeconds, PerfectDodgeDilation);
+			// TODO(stage3): refill 10% focus here once the focus meter exists.
+			UE_LOG(LogHawkeye, Log, TEXT("%s: perfect dodge through %s's %s (%d so far)."), *GetNameSafe(this), *It->GetName(),
+				Kind == EHawkeyeParryKind::Bash ? TEXT("bash") : TEXT("swing"), PerfectDodgeCount);
+			return;
+		}
+	}
+}
+
 void AHawkeyeCharacter::UpdateDodge(float DeltaSeconds)
 {
 	DodgeCooldownRemaining = FMath::Max(0.f, DodgeCooldownRemaining - DeltaSeconds);
 	DodgeRemaining = FMath::Max(0.f, DodgeRemaining - DeltaSeconds);
+	if (DodgeRemaining <= 0.f)
+	{
+		bDodgeFacesTarget = false;
+	}
 	if (DodgeInvulnerableRemaining <= 0.f)
 	{
 		return;
@@ -1840,10 +2183,13 @@ void AHawkeyeCharacter::HandleStaggered(UHealthComponent* /*Health*/, AActor* Da
 
 void AHawkeyeCharacter::HandleHealthChanged(UHealthComponent* /*Health*/, float /*NewHealth*/, float Delta, AActor* DamageInstigator)
 {
-	// Someone else hurting her shakes the camera; a fall does not (it has the landing dip).
+	// Someone else hurting her shakes the camera and leans her away; a fall does not (it has the landing dip).
 	if (Delta < 0.f && DamageInstigator && DamageInstigator != this)
 	{
 		PlayImpactShake(HitShakeSeconds, HitShakeAmplitude);
+		const EHawkeyeHitDirection Side = UHawkeyeMeleeRules::ClassifyHitDirection(GetActorForwardVector(),
+			DamageInstigator->GetActorLocation() - GetActorLocation());
+		HitLean.Start(UHawkeyeMeleeRules::ComputeLeanDirection(GetActorForwardVector(), Side));
 	}
 }
 
@@ -2443,7 +2789,7 @@ FString AHawkeyeCharacter::GetMovementDebugText() const
 
 bool AHawkeyeCharacter::IsLockedOutByTakedown() const
 {
-	return TakedownComponent && TakedownComponent->IsPerformingTakedown();
+	return (TakedownComponent && TakedownComponent->IsPerformingTakedown()) || IsPerformingFinisher();
 }
 
 void AHawkeyeCharacter::Input_FirePressed(const FInputActionValue& /*Value*/)
@@ -2491,7 +2837,8 @@ void AHawkeyeCharacter::Input_Takedown(const FInputActionValue& /*Value*/)
 {
 	// Bound before Input_Interact (see SetupPlayerInputComponent), so on the gamepad's shared Y
 	// button this runs first and, if it lands, tells Input_Interact to skip this press.
-	bTookDownThisPress = TakedownComponent && TakedownComponent->TryTakedown();
+	// The stealth takedown first (from behind, unaware); otherwise the loud one, the finisher.
+	bTookDownThisPress = (TakedownComponent && TakedownComponent->TryTakedown()) || TryFinisher();
 }
 
 void AHawkeyeCharacter::Input_Interact(const FInputActionValue& /*Value*/)
