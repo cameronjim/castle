@@ -98,6 +98,103 @@ bool FHawkeyeStickLookScalesByDeltaTimeAndSensitivity::RunTest(const FString& Pa
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeStickLookUpIsUpByDefaultAndInverted,
+	"Hawkeye.Character.StickLookUpIsUpByDefaultAndInverted",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeStickLookUpIsUpByDefaultAndInverted::RunTest(const FString& Parameters)
+{
+	const FHawkeyeTestWorld TestWorld;
+	AHawkeyeAimTestCharacter* Kate = Cast<AHawkeyeAimTestCharacter>(TestWorld.SpawnActor(
+		AHawkeyeAimTestCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
+	if (!Kate)
+	{
+		AddError(TEXT("Could not spawn the test character."));
+		return false;
+	}
+
+	TestFalse(TEXT("Not inverted by default"), Kate->TestInvertStickY());
+
+	// Raw stick +Y ("stick pushed up") must produce a positive pitch delta (AddControllerPitchInput
+	// of a positive value looks up, per the mouse path below), never the inverted opposite.
+	const FVector2D Up = Kate->ComputeStickLookDelta(FVector2D(0.f, 1.f), 1.f, false);
+	TestTrue(TEXT("Stick up looks up by default"), Up.Y > 0.f);
+
+	FHawkeyeSettings Inverted;
+	Inverted.bInvertStickY = true;
+	Kate->TestApplySettings(Inverted);
+	TestTrue(TEXT("bInvertStickY took effect"), Kate->TestInvertStickY());
+
+	const FVector2D UpInverted = Kate->ComputeStickLookDelta(FVector2D(0.f, 1.f), 1.f, false);
+	TestTrue(TEXT("Stick up looks down once inverted"), UpInverted.Y < 0.f);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeMouseLookUpIsUpByDefaultAndInverted,
+	"Hawkeye.Character.MouseLookUpIsUpByDefaultAndInverted",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeMouseLookUpIsUpByDefaultAndInverted::RunTest(const FString& Parameters)
+{
+	const FHawkeyeTestWorld TestWorld;
+	AHawkeyeAimTestCharacter* Kate = Cast<AHawkeyeAimTestCharacter>(TestWorld.SpawnActor(
+		AHawkeyeAimTestCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
+	if (!Kate)
+	{
+		AddError(TEXT("Could not spawn the test character."));
+		return false;
+	}
+
+	TestFalse(TEXT("Not inverted by default"), Kate->TestInvertMouseY());
+
+	// IA_Look's NegateY modifier already turns "mouse moved up" (raw Mouse2D Y negative) into a
+	// positive Y here; ComputeLookDelta must pass it straight through by default.
+	const FVector2D Up = Kate->ComputeLookDelta(FVector2D(0.f, 1.f), false);
+	TestTrue(TEXT("Mouse up (post-modifier positive Y) looks up by default"), Up.Y > 0.f);
+
+	FHawkeyeSettings Inverted;
+	Inverted.bInvertMouseY = true;
+	Kate->TestApplySettings(Inverted);
+	TestTrue(TEXT("bInvertMouseY took effect"), Kate->TestInvertMouseY());
+
+	const FVector2D UpInverted = Kate->ComputeLookDelta(FVector2D(0.f, 1.f), false);
+	TestTrue(TEXT("Mouse up looks down once inverted"), UpInverted.Y < 0.f);
+
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeSettingsInvertYFlagsRoundTrip,
+	"Hawkeye.Settings.InvertYFlagsRoundTrip",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeSettingsInvertYFlagsRoundTrip::RunTest(const FString& Parameters)
+{
+	HawkeyeGamepadInputTest::ClearTestSlot();
+	UHawkeyeSettingsSubsystem* Writer = HawkeyeGamepadInputTest::MakeSubsystem();
+	if (!Writer)
+	{
+		AddError(TEXT("Could not create the settings subsystem."));
+		return false;
+	}
+
+	TestFalse(TEXT("bInvertMouseY defaults false"), Writer->GetInvertMouseY());
+	TestFalse(TEXT("bInvertStickY defaults false"), Writer->GetInvertStickY());
+
+	Writer->SetInvertMouseY(true);
+	Writer->SetInvertStickY(true);
+	TestTrue(TEXT("bInvertMouseY set"), Writer->GetInvertMouseY());
+	TestTrue(TEXT("bInvertStickY set"), Writer->GetInvertStickY());
+
+	UHawkeyeSettingsSubsystem* Reader = HawkeyeGamepadInputTest::MakeSubsystem();
+	Reader->Load();
+	TestTrue(TEXT("bInvertMouseY round-trips through the slot"), Reader->GetInvertMouseY());
+	TestTrue(TEXT("bInvertStickY round-trips through the slot"), Reader->GetInvertStickY());
+
+	HawkeyeGamepadInputTest::ClearTestSlot();
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeSettingsStickSensitivityRoundTrips,
 	"Hawkeye.Settings.StickSensitivityRoundTrips",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)

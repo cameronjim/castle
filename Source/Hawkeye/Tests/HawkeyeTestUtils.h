@@ -313,6 +313,8 @@ public:
 	float TestStickYawDegreesPerSecond() const { return StickYawDegreesPerSecond; }
 	float TestStickPitchDegreesPerSecond() const { return StickPitchDegreesPerSecond; }
 	float TestAimStickRateMultiplier() const { return AimStickRateMultiplier; }
+	bool TestInvertMouseY() const { return bInvertMouseY; }
+	bool TestInvertStickY() const { return bInvertStickY; }
 
 	/**
 	 * Stands in for Input_Takedown having (or not having) executed a takedown this press,
