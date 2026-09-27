@@ -403,6 +403,31 @@ def _slide_sign(bd, at, cuts):
 
 
 
+NAV_LINK_WIDTH = 140.0      # openings narrower than this get a nav link: the navmesh erodes a 100 cm door shut
+NAV_LINK_REACH = 90.0       # cm each side of the wall line the link's ends stand
+
+
+def build_nav_link(b, room, bd, at, z0):
+    """A NavLinkProxy through a narrow opening, both ways, so paths and patrols plan through it. With a
+    34 cm agent on 19 cm cells the navmesh leaves nothing of a 100 cm doorway."""
+    x, y = bd.point(at)
+    nx, ny = (1.0, 0.0) if bd.axis == "x" else (0.0, 1.0)
+    actor = b.located(room, "NavLink", unreal.NavLinkProxy, (x, y, z0), 0.0, ["IntNavLink"])
+    if actor is None:
+        return
+    link = unreal.NavigationLink()
+    link.set_editor_property("left", _v(-nx * NAV_LINK_REACH, -ny * NAV_LINK_REACH, 10.0))
+    link.set_editor_property("right", _v(nx * NAV_LINK_REACH, ny * NAV_LINK_REACH, 10.0))
+    link.set_editor_property("direction", unreal.NavLinkDirection.BOTH_WAYS)
+    current = actor.get_editor_property("point_links")
+    same = len(current) == 1 and gen.same_vector(current[0].get_editor_property("left"), link.get_editor_property("left"), 0.5) \
+        and gen.same_vector(current[0].get_editor_property("right"), link.get_editor_property("right"), 0.5) \
+        and current[0].get_editor_property("direction") == unreal.NavLinkDirection.BOTH_WAYS
+    if not same:
+        actor.set_editor_property("point_links", [link])
+        b.changes += 1
+
+
 def build_doors(b, openings):
     layout = b.layout
     door_cls = c.find_class("DoorActor", "/Script/Hawkeye.DoorActor")
@@ -410,6 +435,9 @@ def build_doors(b, openings):
         z0 = bd.band * it.FLOOR_HEIGHT
         room = b.room_label(bd.a)
         build_trim(b, room, bd, at, width, z0, it.DOOR_HEIGHT, (-1.0, 1.0))
+        if width < NAV_LINK_WIDTH:
+            build_nav_link(b, room, bd, at, z0)
+
         leaf = door.get("leaf", "wood")
         if leaf == "none" or door_cls is None:
             if door_cls is None and leaf != "none":

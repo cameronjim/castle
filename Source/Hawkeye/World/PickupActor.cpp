@@ -25,6 +25,8 @@ APickupActor::APickupActor()
 	Mesh->SetCollisionResponseToAllChannels(ECR_Ignore);
 	Mesh->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 	Mesh->SetMobility(EComponentMobility::Movable);
+	// It spins and bobs every frame; if it counted for navigation the navmesh under it would never stop rebuilding.
+	Mesh->SetCanEverAffectNavigation(false);
 
 	// The parts carry the silhouette and, with the root mesh cleared, the interaction sweep.
 	const TCHAR* PartNames[] = { TEXT("Part1"), TEXT("Part2"), TEXT("Part3"), TEXT("Part4") };
@@ -38,6 +40,8 @@ APickupActor::APickupActor()
 		Part->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
 		Part->SetMobility(EComponentMobility::Movable);
 		Part->SetCastShadow(false);
+		Part->SetCanEverAffectNavigation(false);
+
 		*PartSlots[Index] = Part;
 	}
 

@@ -110,7 +110,9 @@ namespace HawkeyeInteriorMap
 
 	static bool IsMap(const UWorld* World, const TCHAR* Path)
 	{
-		return World && World->GetOutermost()->GetName() == Path;
+		// An editor-context run opens the map as a PIE copy, /Game/Maps/UEDPIE_0_L_Int_Sample.
+		return World && UWorld::RemovePIEPrefix(World->GetOutermost()->GetName()) == Path;
+
 	}
 
 	template <typename T>
@@ -285,7 +287,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeSmokeLoadInteriorSample, "Hawkeye.Smoke
 bool FHawkeyeSmokeLoadInteriorSample::RunTest(const FString& Parameters)
 {
 	using namespace HawkeyeInteriorMap;
-	TSharedRef<TMap<AActor*, FVector>> Starts = MakeShared<TMap<AActor*, FVector>>();
+	TSharedRef<TArray<TPair<TWeakObjectPtr<AActor>, FVector>>> Starts = MakeShared<TArray<TPair<TWeakObjectPtr<AActor>, FVector>>>();
 	AutomationOpenMap(MapPath);
 	ADD_LATENT_AUTOMATION_COMMAND(FUntilCommand([]()
 	{
@@ -312,7 +314,13 @@ bool FHawkeyeSmokeLoadInteriorSample::RunTest(const FString& Parameters)
 		for (AThugCharacter* Thug : All<AThugCharacter>(World))
 		{
 			TestTrue(FString::Printf(TEXT("%s patrols two points or more"), *Thug->GetName()), Thug->PatrolPoints.Num() >= 2);
-			Starts->Add(Thug, Thug->GetActorLocation());
+			Starts->Emplace(Thug, Thug->GetActorLocation());
+		}
+		// They patrol; they must not start a fight (a death here would load a save and change the map).
+		Pacify(World);
+		if (AHawkeyeCharacter* Player = FindPlayer(World); Player && Player->GetHealthComponent())
+		{
+			Player->GetHealthComponent()->SetInvulnerable(true);
 		}
 		const TArray<ADoorActor*> Doors = All<ADoorActor>(World);
 		TestEqual(TEXT("Three doors"), Doors.Num(), ExpectedDoors);
@@ -341,10 +349,13 @@ bool FHawkeyeSmokeLoadInteriorSample::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this, Starts]()
 	{
 		int32 Moved = 0;
-		for (const TPair<AActor*, FVector>& Start : *Starts)
+		for (const TPair<TWeakObjectPtr<AActor>, FVector>& Start : *Starts)
 		{
-			Moved += IsValid(Start.Key) && FVector::Dist2D(Start.Key->GetActorLocation(), Start.Value) > 100.f ? 1 : 0;
+			const AActor* Thug = Start.Key.Get();
+			Moved += Thug && FVector::Dist2D(Thug->GetActorLocation(), Start.Value) > 100.f ? 1 : 0;
 		}
+		TestTrue(TEXT("Still in the interior"), IsMap(FindWorld(), MapPath));
+
 		TestTrue(FString::Printf(TEXT("Thugs walk their patrols (%d of %d moved)"), Moved, Starts->Num()), Moved >= 1);
 		return true;
 	}));
@@ -369,8 +380,15 @@ bool FHawkeyeInteriorStairsNavPath::RunTest(const FString& Parameters)
 	{
 		UWorld* World = FindWorld();
 		UNavigationSystemV1* Nav = World ? FNavigationSystem::GetCurrent<UNavigationSystemV1>(World) : nullptr;
-		return IsMap(World, MapPath) && Nav && Nav->GetDefaultNavDataInstance() && !Nav->IsNavigationBuildInProgress();
+		if (!IsMap(World, MapPath) || !FindPlayer(World))
+		{
+			return false;
+		}
+		// Nothing may start a fight while the navmesh builds: a death would load a save and change the map.
+		Pacify(World);
+		return Nav && Nav->GetDefaultNavDataInstance() && !Nav->IsNavigationBuildInProgress();
 	}, [this]()
+
 	{
 		AddError(TEXT("No navmesh in L_Int_Sample within 20 s."));
 		return true;
@@ -386,6 +404,25 @@ bool FHawkeyeInteriorStairsNavPath::RunTest(const FString& Parameters)
 		}
 		const FVector From = Starts[0]->GetActorLocation();
 		const FVector To = Anchors[0]->GetLandingLocation() + FVector(0.f, 0.f, 50.f);
+		// Where along the walk the navmesh is, for a report when the path breaks.
+		if (UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
+		{
+			TArray<FString> Probes;
+			// Up flight 2 (x 735) from the mid landing to the top landing, then through the door: expected floor heights.
+			const FVector Checks[] = { FVector(735.f, 1140.f, 165.f), FVector(735.f, 1000.f, 200.f), FVector(735.f, 950.f, 230.f),
+				FVector(735.f, 900.f, 260.f), FVector(735.f, 850.f, 290.f), FVector(735.f, 800.f, 315.f), FVector(735.f, 700.f, 330.f),
+				FVector(790.f, 685.f, 330.f), FVector(830.f, 685.f, 330.f), FVector(1000.f, 685.f, 330.f) };
+			for (const FVector& Point : Checks)
+			{
+				FNavLocation Found;
+				const bool bOn = Nav->ProjectPointToNavigation(Point + FVector(0.f, 0.f, 20.f), Found, FVector(30.f, 30.f, 40.f));
+				Probes.Add(bOn ? FString::Printf(TEXT("(%.0f, %.0f) z %.0f"), Point.X, Point.Y, Found.Location.Z)
+					: FString::Printf(TEXT("(%.0f, %.0f, %.0f) off"), Point.X, Point.Y, Point.Z));
+			}
+
+			AddInfo(TEXT("Navmesh along the walk: ") + FString::Join(Probes, TEXT("; ")));
+		}
+
 		const UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(World, From, To);
 		if (!TestTrue(TEXT("A path from the lobby to the gallery"), Path && Path->IsValid()))
 		{
