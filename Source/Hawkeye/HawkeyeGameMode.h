@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameModeBase.h"
+#include "World/HawkeyeFrameWatch.h"
 #include "HawkeyeGameMode.generated.h"
 
 class UInventoryComponent;
@@ -85,8 +86,38 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Navigation")
 	bool bBuildNavigationAtStart = true;
 
+	/**
+	 * Outdoor weather: snow falls round the camera only in a map whose game mode says so. An interior
+	 * (a flashback's playable scene) turns it off.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "World")
+	bool bOutdoorWeather = true;
+
+	/** Whether the game mode running World wants outdoor weather. A world without a Hawkeye game mode has none. */
+	static bool WantsOutdoorWeather(const UWorld* World);
+
+	/** Frames longer than this after the first playable frame are logged as hitches, ms. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Diagnostics", meta = (ClampMin = "1.0"))
+	float HitchLogMs = 100.f;
+
+	/** How long after the first playable frame the frame summary covers, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Diagnostics", meta = (ClampMin = "1.0"))
+	float FrameSummarySeconds = 20.f;
+
+	/** Seconds from process start (or from the level change that loaded this map) to the first playable frame; -1 before it. */
+	UFUNCTION(BlueprintPure, Category = "Diagnostics")
+	float GetPlayableSeconds() const { return PlayableSeconds; }
+
+	virtual void Tick(float DeltaSeconds) override;
+
 protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	/** The first tick with a possessed pawn: logs "Playable after X s" and starts the frame watch. */
+	void NotePlayable();
+
+	/** One real frame of the watch after the playable mark. */
+	void WatchFrame(double Now);
 
 	/** Timer body: actually reopens the level. */
 	void ReopenCurrentLevel();
@@ -125,6 +156,21 @@ protected:
 	void OnMissionRestarting();
 
 private:
+	/** Marks the frame the engine processed a screenshot, so the frame watch can say so. */
+	void HandleScreenshotProcessed();
+
+	double BeginPlayWallSeconds = 0.0;
+	double PlayableWallSeconds = 0.0;
+	double LastFrameWallSeconds = 0.0;
+	float PlayableSeconds = -1.f;
+	FHawkeyeFrameWatch FrameWatch;
+	bool bFrameSummaryLogged = false;
+	bool bScreenshotThisFrame = false;
+	FDelegateHandle ScreenshotProcessedHandle;
+	/** -HawkeyeQuitAfterPlayable=<s>: the load measurement quits this long after the playable mark. */
+	float QuitAfterPlayableSeconds = -1.f;
+	bool bQuitRequested = false;
+
 	bool bRestartPending = false;
 	FTimerHandle RestartTimerHandle;
 	FTimerHandle AutosaveTimerHandle;

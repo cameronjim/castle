@@ -21,16 +21,108 @@
 #include "Save/HawkeyeSaveSubsystem.h"
 #include "TimerManager.h"
 #include "World/ThugCharacter.h"
+#include "HAL/PlatformTime.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "UnrealClient.h"
+
+namespace HawkeyeGameModeClock
+{
+	/** When the last level change began (the outgoing game mode's EndPlay), wall seconds; 0 before any. */
+	static double LevelChangeStartSeconds = 0.0;
+}
 
 AHawkeyeGameMode::AHawkeyeGameMode()
 {
 	DefaultPawnClass = AHawkeyeCharacter::StaticClass();
 	PlayerControllerClass = AHawkeyePlayerController::StaticClass();
+	// Only the playable mark and the frame watch after it; the main menu pauses the world under it.
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bStartWithTickEnabled = true;
+	PrimaryActorTick.bTickEvenWhenPaused = true;
+}
+
+bool AHawkeyeGameMode::WantsOutdoorWeather(const UWorld* World)
+{
+	const AHawkeyeGameMode* GameMode = World ? World->GetAuthGameMode<AHawkeyeGameMode>() : nullptr;
+	return GameMode && GameMode->bOutdoorWeather;
+}
+
+void AHawkeyeGameMode::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	const double Now = FPlatformTime::Seconds();
+	if (PlayableSeconds < 0.f)
+	{
+		const UWorld* World = GetWorld();
+		const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		if (PC && PC->GetPawn())
+		{
+			NotePlayable();
+		}
+		return;
+	}
+	WatchFrame(Now);
+}
+
+void AHawkeyeGameMode::NotePlayable()
+{
+	const double Now = FPlatformTime::Seconds();
+	PlayableWallSeconds = Now;
+	LastFrameWallSeconds = Now;
+	FrameWatch = FHawkeyeFrameWatch();
+	FrameWatch.ThresholdSeconds = HitchLogMs / 1000.0;
+	const bool bFirstMap = HawkeyeGameModeClock::LevelChangeStartSeconds <= 0.0;
+	const double From = bFirstMap ? GStartTime : HawkeyeGameModeClock::LevelChangeStartSeconds;
+	PlayableSeconds = static_cast<float>(Now - From);
+	UE_LOG(LogHawkeye, Log, TEXT("Playable after %.2f s (%s to the first tick with a possessed pawn; BeginPlay to it %.2f s, map %s)."),
+		PlayableSeconds, bFirstMap ? TEXT("process start") : TEXT("level change"), Now - BeginPlayWallSeconds,
+		*GetNameSafe(GetWorld()));
+
+	ScreenshotProcessedHandle = FScreenshotRequest::OnScreenshotRequestProcessed().AddUObject(
+		this, &AHawkeyeGameMode::HandleScreenshotProcessed);
+}
+
+void AHawkeyeGameMode::HandleScreenshotProcessed()
+{
+	bScreenshotThisFrame = true;
+}
+
+void AHawkeyeGameMode::WatchFrame(double Now)
+{
+	const double FrameSeconds = Now - LastFrameWallSeconds;
+	LastFrameWallSeconds = Now;
+	const double Since = Now - PlayableWallSeconds;
+	// The capture ran in the previous frame's draw, so it lengthens the frame that ends now.
+	const bool bScreenshot = bScreenshotThisFrame;
+	bScreenshotThisFrame = false;
+	if (FrameWatch.AddFrame(FrameSeconds, Since, bScreenshot))
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("Hitch: a %.0f ms frame %.2f s after the playable mark (frame %d)%s."),
+			FrameSeconds * 1000.0, Since, FrameWatch.Frames - 1, bScreenshot ? TEXT(", a screenshot capture") : TEXT(""));
+	}
+	if (!bFrameSummaryLogged && Since >= FrameSummarySeconds)
+	{
+		bFrameSummaryLogged = true;
+		UE_LOG(LogHawkeye, Log, TEXT("First %.0f s after the playable mark: %d frames, worst %.0f ms at %.2f s%s; worst without captures %.0f ms at %.2f s; %d frame(s) of %.0f ms or more (%d of them screenshot captures)."),
+			FrameSummarySeconds, FrameWatch.Frames, FrameWatch.WorstSeconds * 1000.0, FrameWatch.WorstAtSeconds,
+			FrameWatch.bWorstWasScreenshot ? TEXT(" (a capture)") : TEXT(""), FrameWatch.WorstGameSeconds * 1000.0,
+			FrameWatch.WorstGameAtSeconds, FrameWatch.HitchFrames, HitchLogMs, FrameWatch.ScreenshotHitchFrames);
+	}
+	// Wall time, not a timer: the main menu pauses the world on a fresh boot.
+	if (QuitAfterPlayableSeconds >= 0.f && !bQuitRequested && Since >= QuitAfterPlayableSeconds)
+	{
+		bQuitRequested = true;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: -HawkeyeQuitAfterPlayable=%.1f: quitting."), *GetName(), QuitAfterPlayableSeconds);
+		FPlatformMisc::RequestExit(/*bForce=*/false, TEXT("HawkeyeQuitAfterPlayable"));
+	}
 }
 
 void AHawkeyeGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+	BeginPlayWallSeconds = FPlatformTime::Seconds();
+	FParse::Value(FCommandLine::Get(), TEXT("HawkeyeQuitAfterPlayable="), QuitAfterPlayableSeconds);
 
 	BuildNavigationIfEmpty();
 
@@ -199,6 +291,15 @@ void AHawkeyeGameMode::BuildNavigationIfEmpty()
 
 void AHawkeyeGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (EndPlayReason == EEndPlayReason::LevelTransition)
+	{
+		HawkeyeGameModeClock::LevelChangeStartSeconds = FPlatformTime::Seconds();
+	}
+	if (ScreenshotProcessedHandle.IsValid())
+	{
+		FScreenshotRequest::OnScreenshotRequestProcessed().Remove(ScreenshotProcessedHandle);
+		ScreenshotProcessedHandle.Reset();
+	}
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(RestartTimerHandle);
