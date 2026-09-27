@@ -18,6 +18,7 @@
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "Settings/HawkeyeSettingsSubsystem.h"
 
 namespace HawkeyeSettingsWidgetLayout
@@ -68,6 +69,18 @@ void UHawkeyeSettingsWidget::ApplyDefaultLabels()
 	if (InvertStickYLabel.IsEmpty())
 	{
 		InvertStickYLabel = NSLOCTEXT("Hawkeye", "SettingsInvertStickY", "Invert controller Y");
+	}
+	if (MasterVolumeLabel.IsEmpty())
+	{
+		MasterVolumeLabel = NSLOCTEXT("Hawkeye", "SettingsMasterVolume", "Master volume");
+	}
+	if (SfxVolumeLabel.IsEmpty())
+	{
+		SfxVolumeLabel = NSLOCTEXT("Hawkeye", "SettingsSfxVolume", "Sound effects");
+	}
+	if (AmbientVolumeLabel.IsEmpty())
+	{
+		AmbientVolumeLabel = NSLOCTEXT("Hawkeye", "SettingsAmbientVolume", "Ambience");
 	}
 }
 
@@ -326,6 +339,90 @@ TSharedRef<SWidget> UHawkeyeSettingsWidget::RebuildWidget()
 		BuildCheckboxRow(InvertMouseYLabel, InvertMouseYCheckBox, InvertMouseYLabelText, TEXT("InvertMouseY"));
 		BuildCheckboxRow(InvertStickYLabel, InvertStickYCheckBox, InvertStickYLabelText, TEXT("InvertStickY"));
 
+		// --- Volume sliders: the sensitivity rows' shape, a little tighter so all fit at 720p -----
+		auto BuildVolumeRow = [&](const FText& Label, TObjectPtr<USlider>& OutSlider, TObjectPtr<UTextBlock>& OutValue,
+			TObjectPtr<UTextBlock>& OutLabelText, const TCHAR* BaseName)
+		{
+			const FString Base(BaseName);
+			USizeBox* RowBoxLocal = WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *(Base + TEXT("RowBox")));
+			RowBoxLocal->SetWidthOverride(RowWidth);
+			if (UVerticalBoxSlot* RowSlotLocal = Cast<UVerticalBoxSlot>(OptionStack->AddChild(RowBoxLocal)))
+			{
+				RowSlotLocal->SetHorizontalAlignment(HAlign_Center);
+				RowSlotLocal->SetPadding(FMargin(0.f, 0.f, 0.f, 24.f));
+			}
+			UHorizontalBox* RowLocal =
+				WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), *(Base + TEXT("Row")));
+			if (USizeBoxSlot* RowInnerLocal = Cast<USizeBoxSlot>(RowBoxLocal->AddChild(RowLocal)))
+			{
+				RowInnerLocal->SetHorizontalAlignment(HAlign_Fill);
+				RowInnerLocal->SetVerticalAlignment(VAlign_Center);
+			}
+
+			if (!OutLabelText)
+			{
+				OutLabelText =
+					WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *(Base + TEXT("LabelText")));
+			}
+			OutLabelText->SetText(Label);
+			SetFontSize(OutLabelText, 20);
+			USizeBox* LabelBoxLocal =
+				WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *(Base + TEXT("LabelBox")));
+			LabelBoxLocal->SetWidthOverride(LabelWidth);
+			if (USizeBoxSlot* LabelInnerLocal = Cast<USizeBoxSlot>(LabelBoxLocal->AddChild(OutLabelText)))
+			{
+				LabelInnerLocal->SetHorizontalAlignment(HAlign_Left);
+				LabelInnerLocal->SetVerticalAlignment(VAlign_Center);
+			}
+			if (UHorizontalBoxSlot* LabelSlotLocal = Cast<UHorizontalBoxSlot>(RowLocal->AddChild(LabelBoxLocal)))
+			{
+				LabelSlotLocal->SetVerticalAlignment(VAlign_Center);
+			}
+
+			if (!OutSlider)
+			{
+				OutSlider = WidgetTree->ConstructWidget<USlider>(USlider::StaticClass(), *(Base + TEXT("Slider")));
+			}
+			USizeBox* SliderBoxLocal =
+				WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *(Base + TEXT("SliderBox")));
+			SliderBoxLocal->SetHeightOverride(SliderHeight);
+			if (USizeBoxSlot* SliderInnerLocal = Cast<USizeBoxSlot>(SliderBoxLocal->AddChild(OutSlider)))
+			{
+				SliderInnerLocal->SetHorizontalAlignment(HAlign_Fill);
+				SliderInnerLocal->SetVerticalAlignment(VAlign_Center);
+			}
+			if (UHorizontalBoxSlot* SliderSlotLocal = Cast<UHorizontalBoxSlot>(RowLocal->AddChild(SliderBoxLocal)))
+			{
+				SliderSlotLocal->SetSize(FSlateChildSize(ESlateSizeRule::Fill));
+				SliderSlotLocal->SetVerticalAlignment(VAlign_Center);
+				SliderSlotLocal->SetPadding(FMargin(0.f, 0.f, 24.f, 0.f));
+			}
+
+			if (!OutValue)
+			{
+				OutValue = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), *(Base + TEXT("ValueText")));
+			}
+			SetFontSize(OutValue, 20);
+			USizeBox* ValueBoxLocal =
+				WidgetTree->ConstructWidget<USizeBox>(USizeBox::StaticClass(), *(Base + TEXT("ValueBox")));
+			ValueBoxLocal->SetWidthOverride(ValueWidth);
+			if (USizeBoxSlot* ValueInnerLocal = Cast<USizeBoxSlot>(ValueBoxLocal->AddChild(OutValue)))
+			{
+				ValueInnerLocal->SetHorizontalAlignment(HAlign_Right);
+				ValueInnerLocal->SetVerticalAlignment(VAlign_Center);
+			}
+			if (UHorizontalBoxSlot* ValueSlotLocal = Cast<UHorizontalBoxSlot>(RowLocal->AddChild(ValueBoxLocal)))
+			{
+				ValueSlotLocal->SetVerticalAlignment(VAlign_Center);
+			}
+		};
+
+		BuildVolumeRow(MasterVolumeLabel, MasterVolumeSlider, MasterVolumeValueText, MasterVolumeLabelText,
+			TEXT("MasterVolume"));
+		BuildVolumeRow(SfxVolumeLabel, SfxVolumeSlider, SfxVolumeValueText, SfxVolumeLabelText, TEXT("SfxVolume"));
+		BuildVolumeRow(AmbientVolumeLabel, AmbientVolumeSlider, AmbientVolumeValueText, AmbientVolumeLabelText,
+			TEXT("AmbientVolume"));
+
 		// --- Back -----------------------------------------------------------------------------
 		if (!BackButton)
 		{
@@ -371,8 +468,30 @@ void UHawkeyeSettingsWidget::NativeConstruct()
 		StickSensitivitySlider->SetStepSize(HawkeyeSettingsWidgetLayout::SliderStep);
 	}
 
+	for (USlider* Volume : { MasterVolumeSlider.Get(), SfxVolumeSlider.Get(), AmbientVolumeSlider.Get() })
+	{
+		if (Volume)
+		{
+			Volume->SetMinValue(0.f);
+			Volume->SetMaxValue(1.f);
+			Volume->SetStepSize(HawkeyeSettingsWidgetLayout::SliderStep);
+		}
+	}
+
 	if (!bBound)
 	{
+		if (MasterVolumeSlider)
+		{
+			MasterVolumeSlider->OnValueChanged.AddDynamic(this, &UHawkeyeSettingsWidget::HandleMasterVolumeChanged);
+		}
+		if (SfxVolumeSlider)
+		{
+			SfxVolumeSlider->OnValueChanged.AddDynamic(this, &UHawkeyeSettingsWidget::HandleSfxVolumeChanged);
+		}
+		if (AmbientVolumeSlider)
+		{
+			AmbientVolumeSlider->OnValueChanged.AddDynamic(this, &UHawkeyeSettingsWidget::HandleAmbientVolumeChanged);
+		}
 		if (SensitivitySlider)
 		{
 			SensitivitySlider->OnValueChanged.AddDynamic(this, &UHawkeyeSettingsWidget::HandleSensitivityChanged);
@@ -392,6 +511,7 @@ void UHawkeyeSettingsWidget::NativeConstruct()
 		if (BackButton)
 		{
 			BackButton->OnClicked.AddDynamic(this, &UHawkeyeSettingsWidget::HandleBackClicked);
+			BackButton->OnHovered.AddDynamic(this, &UHawkeyeSettingsWidget::HandleBackHovered);
 		}
 		bBound = true;
 	}
@@ -419,9 +539,22 @@ void UHawkeyeSettingsWidget::NativeDestruct()
 		{
 			InvertStickYCheckBox->OnCheckStateChanged.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleInvertStickYChanged);
 		}
+		if (MasterVolumeSlider)
+		{
+			MasterVolumeSlider->OnValueChanged.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleMasterVolumeChanged);
+		}
+		if (SfxVolumeSlider)
+		{
+			SfxVolumeSlider->OnValueChanged.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleSfxVolumeChanged);
+		}
+		if (AmbientVolumeSlider)
+		{
+			AmbientVolumeSlider->OnValueChanged.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleAmbientVolumeChanged);
+		}
 		if (BackButton)
 		{
 			BackButton->OnClicked.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleBackClicked);
+			BackButton->OnHovered.RemoveDynamic(this, &UHawkeyeSettingsWidget::HandleBackHovered);
 		}
 		bBound = false;
 	}
@@ -467,6 +600,62 @@ void UHawkeyeSettingsWidget::RefreshFromSettings()
 	{
 		InvertStickYCheckBox->SetIsChecked(bInvertStickY);
 	}
+
+	const FHawkeyeSettings Current = SettingsSubsystem ? SettingsSubsystem->GetSettings() : FHawkeyeSettings();
+	const TTuple<USlider*, UTextBlock*, float> Volumes[] = {
+		{ MasterVolumeSlider.Get(), MasterVolumeValueText.Get(), Current.MasterVolume },
+		{ SfxVolumeSlider.Get(), SfxVolumeValueText.Get(), Current.SfxVolume },
+		{ AmbientVolumeSlider.Get(), AmbientVolumeValueText.Get(), Current.AmbientVolume },
+	};
+	for (const TTuple<USlider*, UTextBlock*, float>& Volume : Volumes)
+	{
+		if (Volume.Get<0>())
+		{
+			Volume.Get<0>()->SetValue(Volume.Get<2>());
+		}
+		UpdateVolumeText(Volume.Get<1>(), Volume.Get<2>());
+	}
+}
+
+void UHawkeyeSettingsWidget::UpdateVolumeText(UTextBlock* Text, float Value)
+{
+	if (Text)
+	{
+		Text->SetText(FText::FromString(FString::Printf(TEXT("%d%%"), FMath::RoundToInt(Value * 100.f))));
+	}
+}
+
+void UHawkeyeSettingsWidget::HandleMasterVolumeChanged(float Value)
+{
+	UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this);
+	if (SettingsSubsystem)
+	{
+		SettingsSubsystem->SetMasterVolume(Value);
+	}
+	UpdateVolumeText(MasterVolumeValueText,
+		SettingsSubsystem ? SettingsSubsystem->GetMasterVolume() : UHawkeyeSettingsSubsystem::ClampVolume(Value));
+}
+
+void UHawkeyeSettingsWidget::HandleSfxVolumeChanged(float Value)
+{
+	UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this);
+	if (SettingsSubsystem)
+	{
+		SettingsSubsystem->SetSfxVolume(Value);
+	}
+	UpdateVolumeText(SfxVolumeValueText,
+		SettingsSubsystem ? SettingsSubsystem->GetSfxVolume() : UHawkeyeSettingsSubsystem::ClampVolume(Value));
+}
+
+void UHawkeyeSettingsWidget::HandleAmbientVolumeChanged(float Value)
+{
+	UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this);
+	if (SettingsSubsystem)
+	{
+		SettingsSubsystem->SetAmbientVolume(Value);
+	}
+	UpdateVolumeText(AmbientVolumeValueText,
+		SettingsSubsystem ? SettingsSubsystem->GetAmbientVolume() : UHawkeyeSettingsSubsystem::ClampVolume(Value));
 }
 
 void UHawkeyeSettingsWidget::UpdateValueText(float Value)
@@ -527,5 +716,11 @@ void UHawkeyeSettingsWidget::HandleInvertStickYChanged(bool bIsChecked)
 
 void UHawkeyeSettingsWidget::HandleBackClicked()
 {
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
 	OnBackRequested.Broadcast();
+}
+
+void UHawkeyeSettingsWidget::HandleBackHovered()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Hover);
 }

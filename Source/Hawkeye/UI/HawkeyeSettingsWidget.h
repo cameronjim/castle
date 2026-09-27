@@ -54,6 +54,15 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings")
 	FText InvertStickYLabel;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings|Audio")
+	FText MasterVolumeLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings|Audio")
+	FText SfxVolumeLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings|Audio")
+	FText AmbientVolumeLabel;
+
 	/** Pulls the slider and the number back in line with the subsystem. Called on construct. */
 	UFUNCTION(BlueprintCallable, Category = "Settings")
 	void RefreshFromSettings();
@@ -79,6 +88,21 @@ protected:
 
 	UFUNCTION()
 	void HandleBackClicked();
+
+	UFUNCTION()
+	void HandleBackHovered();
+
+	UFUNCTION()
+	void HandleMasterVolumeChanged(float Value);
+
+	UFUNCTION()
+	void HandleSfxVolumeChanged(float Value);
+
+	UFUNCTION()
+	void HandleAmbientVolumeChanged(float Value);
+
+	/** Writes Value (0..1) into Text as a whole percentage. */
+	static void UpdateVolumeText(UTextBlock* Text, float Value);
 
 	/** Fills in any label the designer left empty. Called before the layout is built. */
 	void ApplyDefaultLabels();
@@ -115,6 +139,34 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> InvertStickYLabelText = nullptr;
+
+	/** Three volume rows under the checkboxes: master, sound effects, ambience. */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<USlider> MasterVolumeSlider = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> MasterVolumeValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> MasterVolumeLabelText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<USlider> SfxVolumeSlider = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SfxVolumeValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SfxVolumeLabelText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<USlider> AmbientVolumeSlider = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> AmbientVolumeValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> AmbientVolumeLabelText = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;
