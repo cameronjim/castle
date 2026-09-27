@@ -12,6 +12,7 @@ class UCanvasPanel;
 class UHawkeyeHotbarWidget;
 class UHawkeyeObjectiveWidget;
 class UHawkeyeQuiverWheelWidget;
+class UHawkeyeThugOverheadWidget;
 class UGrappleComponent;
 class UImage;
 class UInventoryComponent;
@@ -101,6 +102,10 @@ public:
 	/** The objective marker, compass and toasts, built into the HUD's overlay. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
 	UHawkeyeObjectiveWidget* GetObjectiveMarker() const { return ObjectiveMarker; }
+
+	/** The thugs' "!" / "?" glyphs and health bars. */
+	UFUNCTION(BlueprintPure, Category = "HUD")
+	UHawkeyeThugOverheadWidget* GetThugOverhead() const { return ThugOverhead; }
 
 	// --- Reticle --------------------------------------------------------------------------------
 
@@ -435,6 +440,9 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Objective")
 	TObjectPtr<UHawkeyeObjectiveWidget> ObjectiveMarker = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UHawkeyeThugOverheadWidget> ThugOverhead = nullptr;
 
 	/** The hotbar along the bottom of the screen. Built into the HUD's own overlay. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hotbar")

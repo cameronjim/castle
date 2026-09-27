@@ -26,6 +26,7 @@
 #include "Player/GrappleComponent.h"
 #include "UI/HawkeyeHotbarWidget.h"
 #include "UI/HawkeyeObjectiveWidget.h"
+#include "UI/HawkeyeThugOverheadWidget.h"
 #include "UI/HawkeyeQuiverWheelWidget.h"
 #include "World/GrappleAnchor.h"
 #include "EngineUtils.h"
@@ -64,6 +65,16 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 		BuildReticle(Root);
 		BuildGrappleMarker(Root);
 		BuildPartnerWidgets(Root);
+
+		// Under the objective marker and the hotbar: the thugs' glyphs and health bars.
+		ThugOverhead = WidgetTree->ConstructWidget<UHawkeyeThugOverheadWidget>(
+			UHawkeyeThugOverheadWidget::StaticClass(), TEXT("ThugOverhead"));
+		ThugOverhead->SetVisibility(ESlateVisibility::HitTestInvisible);
+		if (UOverlaySlot* OverheadSlot = Cast<UOverlaySlot>(Root->AddChild(ThugOverhead)))
+		{
+			OverheadSlot->SetHorizontalAlignment(HAlign_Fill);
+			OverheadSlot->SetVerticalAlignment(VAlign_Fill);
+		}
 
 		ObjectiveMarker = WidgetTree->ConstructWidget<UHawkeyeObjectiveWidget>(
 			UHawkeyeObjectiveWidget::StaticClass(), TEXT("ObjectiveMarker"));
