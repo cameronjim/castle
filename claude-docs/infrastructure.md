@@ -220,3 +220,18 @@ Get-ChildItem "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEd
 git lfs ls-files | Measure-Object -Line
 Get-Content "C:\Users\camer\code\fps-game\Saved\Logs\Hawkeye.log" -Tail 50 | Select-String -Pattern "Error|Fatal|Warning: .*Hawkeye"
 ```
+
+## Load time (measured 2026-09-27)
+- `Tools\measure-load.ps1` reads the game mode's "Playable after X s" line from a `-game`
+  run. Warm load about 21 to 23 s, cold about 25 s. Roughly 12 s of that is uncooked
+  editor data behind the animation sample's 1,300 animations; only a cooked build removes
+  it. Mid-session reloads (death, playable scene and back) are 1 to 2 s because shared
+  characters and databases stay loaded across level changes.
+- Keep the Zen cache server running between launches (saves about 3 s). Python is off in
+  `-game`. Motion-matching database indices build during load rather than on the first
+  tick, so the first playable frame is under 80 ms.
+- Ledges within 40 m spawn at load; the rest stream in nearest-first. Effects and sounds
+  stream in after load. An async navmesh build was tried and reverted (3.4 s and thug
+  warnings); the synchronous build is 0.5 s.
+- Screenshot captures in tests run one at a time, write off the game thread, and fail the
+  test if the file is missing, empty, or older than the request.

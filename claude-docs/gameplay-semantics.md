@@ -602,3 +602,11 @@ the last input came from a pad.
 - All CH01 text is bracketed placeholders: "[CH01 title]", "[CH01 subtitle]",
   "[End card line]", "[Grills text 1]" and so on. The 48 banter lines are the only
   written lines in the game.
+
+## Small rules added 2026-09-27
+- D-pad down: hold 0.4 s opens the phone; a tap selects arrow slot 2 only on release.
+- Phone messages still waiting on their delay are saved with the time remaining.
+- Snowfall runs only when the map's game mode sets `bOutdoorWeather`; the placeholder
+  scene room turns it off and pins its exposure two stops down.
+- Explosion blast light 400 cd; motion blur off for 0.3 s during the blast.
+- A chained zip keeps ignoring the roof it just left until clear of it.
