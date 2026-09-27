@@ -45,6 +45,7 @@
 #include "World/GrappleAnchor.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
+#include "Tests/AccessibilityScreenshots.h"
 #include "Tests/BowIKScreenshots.h"
 #include "Tests/ChallengeScreenshots.h"
 #include "Tests/CombatScreenshots.h"
@@ -130,6 +131,8 @@
  *                           (MeleeScreenshotTest.cpp)
  *   challenge_pedestal.png, archery_targets.png, challenge_results.png, traversal_checkpoint.png: the
  *                           side-challenge pass (ChallengeScreenshotTest.cpp)
+ *   settings_full.png, difficulty_prompt.png, subtitles_large.png, palette_deuteranopia.png,
+ *   pedestal_dimmer.png: the difficulty and accessibility pass (AccessibilityScreenshotTest.cpp)
  *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass
  *                           (SaveRoundTripTest.cpp)
  *   phone_open.png, chapter_title.png, dialogue_subtitle.png, chapter_end_closeup.png,
@@ -2847,6 +2850,10 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 
 	// The side challenges: a pedestal, the archery range and its results card, a traversal ring ahead.
 	HawkeyeAddChallengeShots(this);
+
+	// Difficulty and accessibility: the settings screen, the New Game prompt, large subtitles, a palette,
+	// and the dimmer pedestal. The player's settings are put back.
+	HawkeyeAddAccessibilityShots(this);
 
 	// The safehouse, the main menu and a death that loads the last save. It reloads the map.
 	HawkeyeAddSaveShots(this);
