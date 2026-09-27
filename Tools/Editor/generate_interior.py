@@ -62,7 +62,7 @@ PENDANT_DROP = 70.0                       # cm under a ceiling to the bulb; a do
 PENDANT_DROP_TALL = 160.0
 PENDANT_LUMENS = 260.0
 PENDANT_RADIUS = 1000.0
-TUBE_LUMENS = 380.0
+TUBE_LUMENS = 220.0
 TUBE_RADIUS = 950.0
 WARM = (1.0, 0.72, 0.45)
 COOL = (0.82, 0.9, 1.0)
@@ -134,8 +134,9 @@ class Build(object):
 
     # --- mesh actors -----------------------------------------------------------------------------
 
-    def box(self, room, kind, centre, size, material, tags=None, collide=True, yaw=0.0, shape="cube"):
-        """A StaticMeshActor of an engine shape (100 cm, pivot at its centre) scaled to size."""
+    def box(self, room, kind, centre, size, material, tags=None, collide=True, yaw=0.0, shape="cube", shadow=True):
+        """A StaticMeshActor of an engine shape (100 cm, pivot at its centre) scaled to size. shadow False for a
+        lamp's own fitting, which would otherwise throw its shape over the ceiling."""
         label = self.label(room, kind)
         mesh = self.meshes[shape]
         scale = _v(size[0] / 100.0, size[1] / 100.0, size[2] / 100.0)
@@ -149,6 +150,7 @@ class Build(object):
             if str(comp.get_collision_profile_name()) != want:
                 comp.set_collision_profile_name(want)
                 self.changes += 1
+            self.changes += gen.set_if_different(comp, "cast_shadow", bool(shadow), label)
         return actor
 
     def slab(self, room, kind, x0, y0, z0, x1, y1, z1, material, tags=None, collide=True):
@@ -607,19 +609,21 @@ def build_pendant(b, room, x, y, top, rgb, tall):
     bulb = top - drop
     lamp_tags = LAMP_TAGS
     b.box(room.label, "PendantCord", (x, y, (top + bulb + 18.0) * 0.5), (1.5, 1.5, top - bulb - 18.0), "prop:Black",
-          collide=False, shape="cylinder")
+          collide=False, shape="cylinder", shadow=False)
     b.box(room.label, "PendantShade", (x, y, bulb + 10.0), (46.0, 46.0, 26.0), "prop:Shade", lamp_tags, collide=False,
-          shape="cone")
+          shape="cone", shadow=False)
     b.box(room.label, "PendantBulb", (x, y, bulb - 2.0), (16.0, 16.0, 12.0), "lamp:PendantWarm", lamp_tags,
-          collide=False, shape="sphere")
+          collide=False, shape="sphere", shadow=False)
     lumens = PENDANT_LUMENS * (1.6 if tall else 1.0)
     b.light(room.label, "PendantLight", (x, y, bulb - 12.0), lumens, PENDANT_RADIUS * (1.4 if tall else 1.0), rgb,
             shadows=tall, tags=lamp_tags)
 
 
 def build_tube(b, room, x, y, top, rgb):
-    b.box(room.label, "TubeHousing", (x, y, top - 4.0), (130.0, 18.0, 8.0), "prop:Iron", LAMP_TAGS, collide=False)
-    b.box(room.label, "Tube", (x, y, top - 9.0), (120.0, 7.0, 3.0), "lamp:TubeCool", LAMP_TAGS, collide=False)
+    b.box(room.label, "TubeHousing", (x, y, top - 4.0), (130.0, 18.0, 8.0), "prop:Iron", LAMP_TAGS, collide=False,
+          shadow=False)
+    b.box(room.label, "Tube", (x, y, top - 9.0), (120.0, 7.0, 3.0), "lamp:TubeCool", LAMP_TAGS, collide=False, shadow=False)
+
     b.light(room.label, "TubeLight", (x, y, top - 16.0), TUBE_LUMENS, TUBE_RADIUS, rgb, shadows=False,
             source_length=110.0, tags=LAMP_TAGS)
 
@@ -635,6 +639,10 @@ def build_outside(b):
         (gen.MOON_LABEL, "Moon"), ("SkyLight", "SkyLight"), ("SkyAtmosphere", "Atmosphere"), ("HeightFog", "Fog"),
         ("PP_Global", "PostProcess"))}
     b.changes += gen.ensure_lighting_core(b.existing, labels=labels)
+    for label in labels.values():
+        if label in b.existing:
+            b.changes += gen._ensure_tags(b.existing[label], [TAG, "IntOutside"])
+
 
     x0, y0, x1, y1 = b.layout.bounds()
     cx, cy = (x0 + x1) * 0.5, (y0 + y1) * 0.5

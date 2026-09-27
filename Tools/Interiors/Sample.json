@@ -49,10 +49,11 @@
     {"id": "main", "room": "stair", "landing": 170, "flight": 130}
   ],
   "props": [
-    {"room": "lobby", "tag": "counter", "at": [400, 470]},
-    {"room": "lobby", "tag": "chair", "at": [60, 230]},
-    {"room": "lobby", "tag": "chair", "at": [60, 330]},
-    {"room": "lobby", "tag": "sofa", "at": [720, 330], "yaw": 180},
+    {"room": "lobby", "tag": "counter", "at": [480, 430], "yaw": 90},
+    {"room": "lobby", "tag": "chair", "at": [150, 380]},
+    {"room": "lobby", "tag": "chair", "at": [150, 470]},
+    {"room": "lobby", "tag": "sofa", "at": [55, 300]},
+
     {"room": "lobby", "tag": "pedestal", "at": [660, 110]},
     {"room": "lobby", "tag": "plant", "at": [50, 50]},
     {"room": "lobby", "tag": "plant", "at": [750, 50]},

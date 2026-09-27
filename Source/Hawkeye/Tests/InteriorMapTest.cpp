@@ -522,8 +522,8 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 	}));
 	AddShot(this, FVector(400.f, 140.f, 0.f), 90.f, -6.f, TEXT("interior_lobby.png"));
 	AddShot(this, FVector(1930.f, 700.f, 40.f), 180.f, 12.f, TEXT("interior_hall.png"));
-	AddShot(this, FVector(565.f, 640.f, 0.f), 90.f, 14.f, TEXT("interior_stairs.png"));
-	AddShot(this, FVector(1110.f, 700.f, FloorHeight), 0.f, -32.f, TEXT("interior_gallery.png"));
+	AddShot(this, FVector(565.f, 900.f, 83.f), 90.f, 12.f, TEXT("interior_stairs.png"));
+	AddShot(this, FVector(1140.f, 520.f, FloorHeight), 20.f, -24.f, TEXT("interior_gallery.png"));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
