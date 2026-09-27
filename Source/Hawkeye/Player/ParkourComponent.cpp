@@ -36,6 +36,9 @@ namespace HawkeyeParkour
 	static constexpr float FaceProbeStep = 35.f;
 	/** How far behind the front face the top is looked for, cm. Less than a fire-escape rail is thick. */
 	static constexpr float TopInset = 4.f;
+	/** A ledge higher than this above the feet needs open air from here up on the character's side (a ceiling fails). */
+	static constexpr float HeadroomProbeFrom = 100.f;
+
 	/** A top this steep is not a top. */
 	static constexpr float MinFloorNormalZ = 0.7f;
 	/** Step between back-edge probes, cm. */
@@ -221,8 +224,17 @@ bool UParkourComponent::FindTop(const FHitResult& Face, const FVector& Normal, c
 	{
 		return false;
 	}
+	// And open air on the character's side from head height up to it: the top of a floor slab seen
+	// past the edge of the ceiling over her head is not a ledge she can reach (indoors, a stumble near
+	// a wall used to hang her from the ceiling).
+	const float HeadZ = Feet.Z + HawkeyeParkour::HeadroomProbeFrom;
+	if (AboveZ > HeadZ && TraceLine(FVector(Outside.X, Outside.Y, HeadZ), FVector(Outside.X, Outside.Y, AboveZ), Above))
+	{
+		return false;
+	}
 	OutTop = Top.ImpactPoint;
 	return true;
+
 }
 
 void UParkourComponent::ProbeBeyond(const FVector& Feet, FHawkeyeParkourObstacle& Obstacle) const

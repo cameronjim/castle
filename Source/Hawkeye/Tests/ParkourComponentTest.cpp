@@ -330,4 +330,42 @@ bool FHawkeyeParkourCatch::RunTest(const FString& Parameters)
 	return true;
 }
 
+/**
+ * Indoors a wall runs up to the floor above, level with the top of the ceiling slab over her head. A
+ * stumble beside it used to catch that as a ledge 330 cm up and hang her from the ceiling; a ledge now
+ * needs open air on her side from head height up to it.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeParkourCeilingIsNotALedge, "Hawkeye.Parkour.CeilingIsNotALedge",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeParkourCeilingIsNotALedge::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeParkourTest;
+	for (const bool bCeiling : { false, true })
+	{
+		const FHawkeyeTestWorld TestWorld;
+		AHawkeyeAimTestCharacter* Kate = SpawnKateOnFloor(TestWorld);
+		// A wall 330 tall at x = 100, and (indoors) a 20 cm ceiling slab over her from 310 to 330.
+		SpawnObstacle(TestWorld, 330.f, 300.f);
+		if (bCeiling)
+		{
+			SpawnBox(TestWorld, FVector(-400.f, -300.f, 310.f), FVector(100.f, 300.f, 330.f));
+		}
+		Kate->SetActorLocation(FVector(30.f, 0.f, 2.f + HalfHeight));
+		UCharacterMovementComponent* Movement = Kate->GetCharacterMovement();
+		Movement->SetMovementMode(MOVE_Falling);
+		Movement->Velocity = FVector(0.f, 0.f, -150.f);
+		const bool bCaught = Kate->GetParkourComponent()->TryCatchLedge();
+		if (bCeiling)
+		{
+			TestFalse(TEXT("Under a ceiling, the wall's top behind it is no ledge"), bCaught);
+		}
+		else
+		{
+			TestTrue(TEXT("In the open, the same wall's top 328 cm up is caught"), bCaught);
+		}
+	}
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
