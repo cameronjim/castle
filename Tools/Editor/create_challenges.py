@@ -8,15 +8,18 @@ Everything is planned from the same OpenStreetMap records generate_city.py build
 (footprints, heights, parapets, grapple anchors, fire escapes, clutter), so the challenges move with
 the city and nothing is placed by hand:
 
-* archery, from three rooftops: a shooting spot on a roof 10 to 25 m tall with twelve targets 10 to
-  40 m from it on other roofs and on fire-escape landings, every line from the bow to a target's
-  centre and to its bottom edge clear of every building, parapet and rooftop prop. Four slide on a
-  6 m track across the line of fire; four stand on landings. 60 s; medals at 36 / 60 / 84 points.
-* traversal, from three street corners: eight checkpoint rings, 200 cm across: along the sidewalk,
-  a grapple to a roof, across the roof (over a parapet onto a neighbour where one is a step up), a
-  grapple to another roof, across it, a grapple to a roof with a fire escape, to the spot behind its
-  top landing, and down the escape to the street. Every grapple is within the arrow's 2500 cm of
-  where she stands, and its line clears every other building. 150 s; medals under 120 / 90 / 60 s.
+* archery, from three rooftops within 250 m of the PlayerStart: a shooting spot on a roof 10 to 25 m
+  tall with twelve targets 10 to 40 m from it on other roofs and on fire-escape landings, every line
+  from the bow to a target's centre and to its bottom edge clear of every building, parapet, rooftop
+  prop, lamp and fire escape. Up to four (at least three) slide 6 m along the roof edge they stand
+  behind; up to four (at least three) stand on landings. 60 s; medals at 36 / 60 / 84 points.
+* traversal, from three street corners anywhere in the district (routes with a mantle are rare): eight
+  checkpoint rings, 200 cm across: along the sidewalk, a grapple to a roof, across it, a grapple to
+  another roof, across it, a grapple to a third, to the spot behind the top landing of a fire escape,
+  and down the escape to the street; one of the roof legs is a mantle onto a neighbour a step (30 to
+  110 cm) up. Every grapple is within 2200 cm of where she stands, no steeper than 55 degrees, in view
+  of her camera, and clear by the grapple's own rule (the capsule's feet from 120 cm up, her own roof
+  ignored for the first 284 cm, the anchor's building all the way). 150 s; medals under 120 / 90 / 60 s.
 
 Challenge names are bracketed placeholders ("[Archery challenge 1]") until the side content is
 written. generate_city.py places a City_Challenge_<id> pedestal (AChallengeStart) at each
