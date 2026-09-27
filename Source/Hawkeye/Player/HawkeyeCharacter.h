@@ -1130,6 +1130,18 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input", meta = (ClampMin = "0.2", ClampMax = "3.0"))
 	float StickSensitivity = 1.f;
 
+	/**
+	 * On, mouse look pitch is flipped: pushing the mouse forward looks down. Matches
+	 * FHawkeyeSettings::bInvertMouseY once a settings subsystem exists; false (not inverted) is
+	 * the fallback for a world without one, same as LookSensitivity above.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	bool bInvertMouseY = false;
+
+	/** On, gamepad stick look pitch is flipped: pushing the stick up looks down. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
+	bool bInvertStickY = false;
+
 	/** Reads the current sensitivity out of the settings subsystem and subscribes to changes. */
 	void BindToSettingsSubsystem();
 

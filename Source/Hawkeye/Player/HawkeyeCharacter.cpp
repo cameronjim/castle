@@ -994,6 +994,9 @@ void AHawkeyeCharacter::BindToSettingsSubsystem()
 	SettingsStickSensitivity = SettingsSubsystem->GetStickSensitivity();
 	bHasSettingsStickSensitivity = true;
 
+	bInvertMouseY = SettingsSubsystem->GetInvertMouseY();
+	bInvertStickY = SettingsSubsystem->GetInvertStickY();
+
 	if (!SettingsSubsystem->OnSettingsChanged.IsAlreadyBound(this, &AHawkeyeCharacter::HandleSettingsChanged))
 	{
 		SettingsSubsystem->OnSettingsChanged.AddDynamic(this, &AHawkeyeCharacter::HandleSettingsChanged);
@@ -1016,6 +1019,9 @@ void AHawkeyeCharacter::HandleSettingsChanged(FHawkeyeSettings NewSettings)
 
 	SettingsStickSensitivity = NewSettings.StickSensitivity;
 	bHasSettingsStickSensitivity = true;
+
+	bInvertMouseY = NewSettings.bInvertMouseY;
+	bInvertStickY = NewSettings.bInvertStickY;
 }
 
 float AHawkeyeCharacter::GetEffectiveLookSensitivity() const
@@ -1027,7 +1033,12 @@ float AHawkeyeCharacter::GetEffectiveLookSensitivity() const
 FVector2D AHawkeyeCharacter::ComputeLookDelta(FVector2D RawInput, bool bAiming) const
 {
 	const float Base = bHasSettingsLookSensitivity ? SettingsLookSensitivity : LookSensitivity;
-	return RawInput * (bAiming ? Base * AimLookMultiplier : Base);
+	FVector2D Delta = RawInput * (bAiming ? Base * AimLookMultiplier : Base);
+	if (bInvertMouseY)
+	{
+		Delta.Y = -Delta.Y;
+	}
+	return Delta;
 }
 
 void AHawkeyeCharacter::Input_Look(const FInputActionValue& Value)
@@ -1062,9 +1073,14 @@ FVector2D AHawkeyeCharacter::ComputeStickLookDelta(FVector2D RawInput, float Del
 		return FMath::Sign(Axis) * FMath::Pow(FMath::Abs(Axis), 1.5f);
 	};
 
-	return FVector2D(
+	FVector2D Delta(
 		Ease(RawInput.X) * StickYawDegreesPerSecond * RateMultiplier,
 		Ease(RawInput.Y) * StickPitchDegreesPerSecond * RateMultiplier);
+	if (bInvertStickY)
+	{
+		Delta.Y = -Delta.Y;
+	}
+	return Delta;
 }
 
 void AHawkeyeCharacter::Input_LookStick(const FInputActionValue& Value)
