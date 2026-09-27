@@ -68,11 +68,15 @@ AActor* FHawkeyeTestWorld::SpawnActor(TSubclassOf<AActor> ActorClass, const FVec
 	return World->SpawnActor<AActor>(ActorClass, Location, Rotation, SpawnParams);
 }
 
-void UHawkeyeTestListener::HandleHealthChanged(UHealthComponent* /*HealthComponent*/, float NewHealth, float Delta, AActor* /*DamageInstigator*/)
+void UHawkeyeTestListener::HandleHealthChanged(UHealthComponent* /*HealthComponent*/, float NewHealth, float Delta, AActor* DamageInstigator)
 {
 	++HealthChangedCount;
 	LastNewHealth = NewHealth;
 	LastHealthDelta = Delta;
+	if (Delta < 0.f)
+	{
+		DamageInstigators.Add(DamageInstigator);
+	}
 }
 
 void UHawkeyeTestListener::HandleDeath(UHealthComponent* /*HealthComponent*/, AActor* Killer)

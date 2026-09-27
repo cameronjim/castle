@@ -71,6 +71,9 @@ public:
 	UPROPERTY() float LastHealthDelta = 0.f;
 	UPROPERTY() int32 DeathCount = 0;
 
+	/** Who did each hit (health going down) since the caller last emptied it; null for a fall. */
+	UPROPERTY() TArray<TObjectPtr<AActor>> DamageInstigators;
+
 	/** Who OnDeath said did it. A takedown that reports None is the bug this catches. */
 	UPROPERTY() TObjectPtr<AActor> LastKiller = nullptr;
 
