@@ -815,6 +815,8 @@ void UGrappleComponent::AdvanceZip(float DeltaSeconds)
 	const float Remaining = ToEnd.Size();
 	const float Step = ZipSpeed * DeltaSeconds;
 	FVector Direction = Remaining > KINDA_SMALL_NUMBER ? ToEnd / Remaining : ZipDirection;
+	const FVector StraightDirection = Direction;
+	const bool bSwinging = bRedirecting;
 	if (bRedirecting)
 	{
 		RedirectElapsed += DeltaSeconds;
@@ -839,6 +841,38 @@ void UGrappleComponent::AdvanceZip(float DeltaSeconds)
 
 	FHitResult Hit;
 	Character->SetActorLocation(Target, /*bSweep=*/true, &Hit);
+	if (Hit.bBlockingHit && bSwinging && !bArrives)
+	{
+		// The swing from the old line onto the new one bulges off the line TryFire swept clear, and on
+		// a chain past a roof edge that bulge can clip the parapet. Finish the swing at once and go on
+		// along the line itself; only a hit on that line drops her.
+		UE_LOG(LogHawkeye, Log, TEXT("%s: chain swing to %s clipped %s; straightening onto the line"),
+			*GetNameSafe(Character), *GetNameSafe(ZipAnchor.Get()), *GetNameSafe(Hit.GetActor()));
+		bRedirecting = false;
+		Character->SetActorLocation(Current, /*bSweep=*/false);
+		Direction = StraightDirection;
+		ZipDirection = Direction;
+		const FVector Straight = Current + Direction * Step;
+		ZipTravelled = FMath::Clamp(ZipLength - FVector::Dist(Straight, ZipEnd), ZipTravelled, ZipLength);
+		Hit = FHitResult();
+		Character->SetActorLocation(Straight, /*bSweep=*/true, &Hit);
+	}
+	if (Hit.bBlockingHit && !bArrives && ZipStartSupports.Contains(Hit.GetActor()) && !bStartSupportsIgnored)
+	{
+		// The roof she left counts again once she is GetStartReleaseDistance() from where the zip began,
+		// but after a chain swing she can still be over its parapet there. TryFire cleared the line
+		// with that roof ignored up to the same distance along the line itself, so keep ignoring it.
+		if (UCapsuleComponent* Capsule = Character->GetCapsuleComponent())
+		{
+			UE_LOG(LogHawkeye, Log, TEXT("%s: zip to %s grazed %s, the roof it started from; ignoring it for the rest of the zip"),
+				*GetNameSafe(Character), *GetNameSafe(ZipAnchor.Get()), *GetNameSafe(Hit.GetActor()));
+			Capsule->IgnoreActorWhenMoving(Hit.GetActor(), true);
+			ZipIgnoredSupports.AddUnique(Hit.GetActor());
+			const FVector Retry = Target;
+			Hit = FHitResult();
+			Character->SetActorLocation(Retry, /*bSweep=*/true, &Hit);
+		}
+	}
 	if (UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
 	{
 		// The zip moves the capsule itself; any velocity left in the movement component would add to it.
