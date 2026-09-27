@@ -621,9 +621,9 @@ the last input came from a pad.
   gunner's burst; never on archers.
 - Finisher: F on a staggered or knocked-down thug within 200 cm (the stealth takedown is
   tried first). 1.2 s: lunge, camera 40 cm in, time 0.5 for 0.4 s, lethal at 0.35 s,
-  thrown ragdoll; input locked, invulnerable. With the bow up it's a sweep. TO TIGHTEN:
-  every hit staggers 0.5 s so a finisher is available after almost any hit; restrict it to
-  knockdowns, parry staggers, and combo enders in the difficulty pass.
+  thrown ragdoll; input locked, invulnerable. With the bow up it's a sweep. Gate (2026-09-27):
+  only a knocked-down thug, a parry-staggered thug, or one hit by a combo ender within
+  the last 1.0 s qualifies; ordinary 0.5 s hit staggers do not. Fight times barely changed.
 - Hit lean: 5 degrees for 0.2 s away from the hit direction, on thugs and Kate, through
   the IK post-process graph. Strike poses: light punches the right hand out over 0.1 s
   and back over 0.2 s; heavy both hands over 0.25 s; bow finisher sweeps the bow hand.
@@ -649,3 +649,23 @@ the last input came from a pad.
 - Scripted: archery clears 12 of 12 in about 17 s (bronze by score); traversal in 18 to
   19 s (gold). Distant targets are small at 30 to 40 m. The pedestal light was too strong
   and is being dimmed.
+
+## Difficulty and accessibility (built 2026-09-27)
+- One difficulty setting, Story / Normal / Hard (default Normal), asked once at New Game
+  and changeable in Settings; `UDifficultySubsystem::GetScalar` holds the whole table.
+  Thug melee and gunner damage 0.6 / 1.0 / 1.4; thug health 0.8 / 1.0 / 1.2; archer draw
+  1.5 / 1.2 / 1.0 s; parry window +0.15 / 0 / -0.1 s (Story holds an early tap up to
+  0.15 s; Hard ignores the first 0.1 s of a telegraph); regen delay 3 / 5 / 8 s at
+  10 HP/s (regen didn't exist before and applies to Kate only); fall damage 0.5 / 1.0 /
+  1.0; Story adds 2 to each trick arrow cap. `-Difficulty=Story|Normal|Hard` on the
+  command line overrides without saving. Every scripted fight is won on all three.
+- Accessibility, all persisted (settings version 5): subtitle size 20 / 26 / 34 px with a
+  background opacity slider; hold or toggle for aim (default hold) and crouch (default
+  toggle); a 1 px outline on the alert glyphs; four colour palettes (default,
+  deuteranopia, protanopia, tritanopia) for the reticle, markers, hotbar, glyphs, and
+  health bars; reduce camera shake to 30%; reduce flashing to 30% for the EMP split and
+  the explosion light (the parry ring shrinks to 30% instead, it has no brightness
+  input); Replay flashbacks in the pause menu, slides only, seen-list stored with settings.
+- HUD scale 0.8 to 1.4 applies to HUD text, hotbar, markers, and compass.
+- Challenge pedestal light 135 lm over 400 cm with a stronger emissive; the cap and icon
+  still read white rather than purple.
