@@ -48,6 +48,7 @@
 #include "Tests/BowIKScreenshots.h"
 #include "Tests/CombatScreenshots.h"
 #include "Tests/EnemyScreenshots.h"
+#include "Tests/NarrativeScreenshots.h"
 #include "Tests/PartnerScreenshots.h"
 #include "Tests/SaveScreenshots.h"
 #include "Tests/VfxScreenshots.h"
@@ -121,8 +122,11 @@
  *                           enemy pass (EnemyScreenshotTest.cpp)
  *   heavy_block.png, heavy_bash.png, archer_hold.png, thug_alert_glyph.png, aim_view_clear.png: the
  *                           fair-fight pass (CombatScreenshotTest.cpp)
- *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass, run last
+ *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass
  *                           (SaveRoundTripTest.cpp)
+ *   phone_open.png, chapter_title.png, dialogue_subtitle.png, chapter_end_closeup.png,
+ *   scene_placeholder.png, chapter_complete.png: the narrative pass, run last; it completes the
+ *                           chapter through its flashback's playable scene (NarrativeScreenshotTest.cpp)
  *
  * The district's placed thugs are frozen (thinking off) for every shot but their own, and Kate is
  * invulnerable through the roof fight so a swing cannot end the pass.
@@ -2832,8 +2836,12 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 
 	ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.DebugMovement 0")));
 
-	// The safehouse, the main menu and a death that loads the last save. Last: it reloads the map.
+	// The safehouse, the main menu and a death that loads the last save. It reloads the map.
 	HawkeyeAddSaveShots(this);
+
+	// The phone, the title card, a scripted line, and chapter 1's end played through its playable
+	// scene and back. Last of all: it completes the chapter and travels twice.
+	HawkeyeAddNarrativeShots(this);
 	return true;
 }
 
