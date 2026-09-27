@@ -42,6 +42,10 @@
 #include "Sound/SoundClass.h"
 #include "Sound/SoundMix.h"
 #include "UI/HawkeyeMainMenuWidget.h"
+#include "UI/HawkeyeDifficultyPromptWidget.h"
+#include "Settings/DifficultySubsystem.h"
+#include "UI/FlashbackReplayWidget.h"
+#include "Flashback/FlashbackDefinition.h"
 #include "UI/ChallengeResultsWidget.h"
 #include "UI/HawkeyeSafehouseWidget.h"
 #include "World/Safehouse.h"
@@ -60,6 +64,8 @@ AHawkeyePlayerController::AHawkeyePlayerController()
 	Banter = CreateDefaultSubobject<UBanterComponent>(TEXT("Banter"));
 	Snowfall = CreateDefaultSubobject<USnowfallComponent>(TEXT("Snowfall"));
 	MainMenuWidgetClass = UHawkeyeMainMenuWidget::StaticClass();
+	DifficultyPromptWidgetClass = UHawkeyeDifficultyPromptWidget::StaticClass();
+	FlashbackReplayWidgetClass = UFlashbackReplayWidget::StaticClass();
 	SafehouseWidgetClass = UHawkeyeSafehouseWidget::StaticClass();
 	ChallengeResultsWidgetClass = UChallengeResultsWidget::StaticClass();
 	ChapterTitleWidgetClass = UChapterTitleWidget::StaticClass();
@@ -292,6 +298,19 @@ void AHawkeyePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
 		return;
 	}
 
+	if (bFlashbackReplayOpen)
+	{
+		CloseFlashbackReplay();
+		return;
+	}
+
+	// Escape on the difficulty prompt goes back to the main menu under it.
+	if (bDifficultyPromptOpen)
+	{
+		HideDifficultyPrompt();
+		return;
+	}
+
 	if (bPhoneOpen)
 	{
 		SetPhoneOpen(false);
@@ -424,9 +443,14 @@ void AHawkeyePlayerController::SetPauseMenuOpen(bool bOpen)
 	}
 	else
 	{
-		// Leaving the pause state at all takes the settings screen with it.
+		// Leaving the pause state at all takes the settings screen and the replay list with it.
 		bSettingsOpen = false;
 		HideSettingsWidget();
+		bFlashbackReplayOpen = false;
+		if (FlashbackReplayWidget)
+		{
+			FlashbackReplayWidget->RemoveFromParent();
+		}
 		HidePauseWidget();
 	}
 
@@ -496,6 +520,7 @@ UHawkeyePauseWidget* AHawkeyePlayerController::ShowPauseWidget()
 
 		PauseWidget->OnResumeClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseResumeClicked);
 		PauseWidget->OnSettingsClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseSettingsClicked);
+		PauseWidget->OnReplayFlashbacksClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseReplayFlashbacksClicked);
 		PauseWidget->OnRestartMissionClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseRestartClicked);
 		PauseWidget->OnQuitToDesktopClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitClicked);
 		PauseWidget->OnQuitToMenuClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitToMenuClicked);
@@ -558,6 +583,14 @@ void AHawkeyePlayerController::HideSettingsWidget()
 
 TSharedPtr<SWidget> AHawkeyePlayerController::GetFocusedMenuWidget() const
 {
+	if (bDifficultyPromptOpen && DifficultyPromptWidget)
+	{
+		return DifficultyPromptWidget->TakeWidget();
+	}
+	if (bFlashbackReplayOpen && FlashbackReplayWidget)
+	{
+		return FlashbackReplayWidget->TakeWidget();
+	}
 	if (bPhoneOpen && PhoneWidget)
 	{
 		return PhoneWidget->TakeWidget();
@@ -630,6 +663,71 @@ void AHawkeyePlayerController::HandlePauseSettingsClicked()
 void AHawkeyePlayerController::HandleSettingsBackRequested()
 {
 	CloseSettings();
+}
+
+void AHawkeyePlayerController::HandlePauseReplayFlashbacksClicked()
+{
+	OpenFlashbackReplay();
+}
+
+void AHawkeyePlayerController::OpenFlashbackReplay()
+{
+	if (!bPauseMenuOpen || bSettingsOpen || bFlashbackReplayOpen || !FlashbackReplayWidgetClass || !IsLocalController())
+	{
+		return;
+	}
+	if (!FlashbackReplayWidget)
+	{
+		FlashbackReplayWidget = CreateWidget<UFlashbackReplayWidget>(this, FlashbackReplayWidgetClass);
+		if (!FlashbackReplayWidget)
+		{
+			UE_LOG(LogHawkeye, Warning, TEXT("%s: could not create the flashback replay widget."), *GetName());
+			return;
+		}
+		FlashbackReplayWidget->OnFlashbackPicked.AddDynamic(this, &AHawkeyePlayerController::HandleFlashbackReplayPicked);
+		FlashbackReplayWidget->OnBackRequested.AddDynamic(this, &AHawkeyePlayerController::HandleFlashbackReplayBack);
+	}
+	FlashbackReplayWidget->SetFlashbacks(UHawkeyeSettingsSubsystem::GetCurrentSettings(this).SeenFlashbacks);
+	if (!FlashbackReplayWidget->IsInViewport())
+	{
+		FlashbackReplayWidget->AddToViewport(11);
+	}
+	HidePauseWidget();
+	bFlashbackReplayOpen = true;
+	ApplyPauseInputMode(true);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: replay flashbacks (%d seen)."), *GetName(), FlashbackReplayWidget->GetEntryCount());
+}
+
+void AHawkeyePlayerController::CloseFlashbackReplay()
+{
+	if (!bFlashbackReplayOpen)
+	{
+		return;
+	}
+	bFlashbackReplayOpen = false;
+	if (FlashbackReplayWidget)
+	{
+		FlashbackReplayWidget->RemoveFromParent();
+	}
+	ShowPauseWidget();
+	ApplyPauseInputMode(true);
+}
+
+void AHawkeyePlayerController::HandleFlashbackReplayBack()
+{
+	CloseFlashbackReplay();
+}
+
+void AHawkeyePlayerController::HandleFlashbackReplayPicked(UFlashbackDefinition* Flashback)
+{
+	if (!Flashback)
+	{
+		return;
+	}
+	CloseFlashbackReplay();
+	// Only the slides: a replay never reopens the playable scene or moves the story on.
+	UE_LOG(LogHawkeye, Log, TEXT("%s: replaying %s."), *GetName(), *Flashback->GetName());
+	PlayFlashback(Flashback);
 }
 
 void AHawkeyePlayerController::HandlePauseRestartClicked()
@@ -747,6 +845,69 @@ void AHawkeyePlayerController::MainMenuContinue()
 }
 
 void AHawkeyePlayerController::MainMenuNewGame()
+{
+	// Asked once, here; automation runs keep whatever the settings (or -Difficulty=) say.
+	if (!IsAutomationRun() && DifficultyPromptWidgetClass)
+	{
+		ShowDifficultyPrompt();
+		if (bDifficultyPromptOpen)
+		{
+			return;
+		}
+	}
+	StartNewGame();
+}
+
+void AHawkeyePlayerController::ShowDifficultyPrompt()
+{
+	if (!IsLocalController() || !DifficultyPromptWidgetClass)
+	{
+		return;
+	}
+	if (!DifficultyPromptWidget)
+	{
+		DifficultyPromptWidget = CreateWidget<UHawkeyeDifficultyPromptWidget>(this, DifficultyPromptWidgetClass);
+		if (!DifficultyPromptWidget)
+		{
+			UE_LOG(LogHawkeye, Warning, TEXT("%s: could not create the difficulty prompt."), *GetName());
+			return;
+		}
+		DifficultyPromptWidget->OnDifficultyChosen.AddDynamic(this, &AHawkeyePlayerController::HandleNewGameDifficultyChosen);
+	}
+	if (!DifficultyPromptWidget->IsInViewport())
+	{
+		DifficultyPromptWidget->AddToViewport(25);
+	}
+	bDifficultyPromptOpen = true;
+	ApplyPauseInputMode(true);
+}
+
+void AHawkeyePlayerController::HideDifficultyPrompt()
+{
+	if (!bDifficultyPromptOpen)
+	{
+		return;
+	}
+	bDifficultyPromptOpen = false;
+	if (DifficultyPromptWidget)
+	{
+		DifficultyPromptWidget->RemoveFromParent();
+	}
+	ApplyPauseInputMode(bMainMenuOpen || bPauseMenuOpen);
+}
+
+void AHawkeyePlayerController::HandleNewGameDifficultyChosen(EHawkeyeDifficulty Difficulty)
+{
+	if (UHawkeyeSettingsSubsystem* Settings = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		Settings->SetDifficulty(Difficulty);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: new game on %s."), *GetName(), *UDifficultySubsystem::GetDifficultyName(Difficulty).ToString());
+	HideDifficultyPrompt();
+	StartNewGame();
+}
+
+void AHawkeyePlayerController::StartNewGame()
 {
 	UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
 	if (!bMainMenuOverFreshBoot && Save)
@@ -1103,6 +1264,12 @@ UFlashbackWidget* AHawkeyePlayerController::PlayFlashback(UFlashbackDefinition* 
 
 	// Escape belongs to the slideshow from here until OnFlashbackFinished.
 	bFlashbackActive = true;
+
+	// Seen once is enough for the pause menu's replay list, whatever save it was in.
+	if (UHawkeyeSettingsSubsystem* Settings = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		Settings->MarkFlashbackSeen(FSoftObjectPath(Flashback));
+	}
 
 	if (!FlashbackWidgetClass)
 	{

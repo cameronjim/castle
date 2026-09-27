@@ -23,6 +23,8 @@ class USnowfallComponent;
 class UHawkeyeHudWidget;
 class UHawkeyeInventoryWidget;
 class UHawkeyeMainMenuWidget;
+class UHawkeyeDifficultyPromptWidget;
+class UFlashbackReplayWidget;
 class UHawkeyeSafehouseWidget;
 class UHawkeyePauseWidget;
 class UHawkeyeSettingsWidget;
@@ -275,6 +277,29 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	bool IsSettingsOpen() const { return bSettingsOpen; }
 
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	UHawkeyeSettingsWidget* GetSettingsWidget() const { return SettingsWidget; }
+
+	// --- Replay flashbacks ------------------------------------------------------------------------
+
+	/** The pause menu's list of seen flashbacks. UFlashbackReplayWidget by default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Flashback")
+	TSubclassOf<UFlashbackReplayWidget> FlashbackReplayWidgetClass;
+
+	/** Swaps the pause menu for the list of flashbacks the player has seen (the settings save's). */
+	UFUNCTION(BlueprintCallable, Category = "Flashback")
+	void OpenFlashbackReplay();
+
+	/** Back to the pause menu. */
+	UFUNCTION(BlueprintCallable, Category = "Flashback")
+	void CloseFlashbackReplay();
+
+	UFUNCTION(BlueprintPure, Category = "Flashback")
+	bool IsFlashbackReplayOpen() const { return bFlashbackReplayOpen; }
+
+	UFUNCTION(BlueprintPure, Category = "Flashback")
+	UFlashbackReplayWidget* GetFlashbackReplayWidget() const { return FlashbackReplayWidget; }
+
 	/** Pause menu "Quit to desktop". */
 	UFUNCTION(BlueprintCallable, Category = "Pause")
 	void QuitToDesktop();
@@ -313,6 +338,28 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Main menu")
 	void MainMenuNewGame();
+
+	/** Asked once at New Game, before it starts: Story, Normal or Hard. UHawkeyeDifficultyPromptWidget by default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Main menu")
+	TSubclassOf<UHawkeyeDifficultyPromptWidget> DifficultyPromptWidgetClass;
+
+	/** Puts the difficulty prompt over the main menu. New Game does, except in automation runs. */
+	UFUNCTION(BlueprintCallable, Category = "Main menu")
+	void ShowDifficultyPrompt();
+
+	/** Takes the prompt down without starting anything (Escape: back to the menu). */
+	UFUNCTION(BlueprintCallable, Category = "Main menu")
+	void HideDifficultyPrompt();
+
+	UFUNCTION(BlueprintPure, Category = "Main menu")
+	bool IsDifficultyPromptOpen() const { return bDifficultyPromptOpen; }
+
+	UFUNCTION(BlueprintPure, Category = "Main menu")
+	UHawkeyeDifficultyPromptWidget* GetDifficultyPromptWidget() const { return DifficultyPromptWidget; }
+
+	/** The prompt's answer: stores the difficulty and starts the new game. */
+	UFUNCTION()
+	void HandleNewGameDifficultyChosen(EHawkeyeDifficulty Difficulty);
 
 	// --- Safehouse ------------------------------------------------------------------------------
 
@@ -553,6 +600,18 @@ protected:
 	void HandleSettingsBackRequested();
 
 	UFUNCTION()
+	void HandlePauseReplayFlashbacksClicked();
+
+	UFUNCTION()
+	void HandleFlashbackReplayPicked(UFlashbackDefinition* Flashback);
+
+	UFUNCTION()
+	void HandleFlashbackReplayBack();
+
+	/** New Game once the difficulty is settled: the fresh-boot start or the clean reopen. */
+	void StartNewGame();
+
+	UFUNCTION()
 	void HandlePauseRestartClicked();
 
 	UFUNCTION()
@@ -677,6 +736,18 @@ protected:
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Settings")
 	TObjectPtr<UHawkeyeSettingsWidget> SettingsWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Flashback")
+	TObjectPtr<UFlashbackReplayWidget> FlashbackReplayWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Flashback")
+	bool bFlashbackReplayOpen = false;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Main menu")
+	TObjectPtr<UHawkeyeDifficultyPromptWidget> DifficultyPromptWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Main menu")
+	bool bDifficultyPromptOpen = false;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Inventory")
 	TObjectPtr<UHawkeyeInventoryWidget> InventoryWidget = nullptr;

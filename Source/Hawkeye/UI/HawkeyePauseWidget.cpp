@@ -28,6 +28,10 @@ void UHawkeyePauseWidget::ApplyDefaultLabels()
 	{
 		SettingsLabel = NSLOCTEXT("Hawkeye", "PauseSettings", "Settings");
 	}
+	if (ReplayFlashbacksLabel.IsEmpty())
+	{
+		ReplayFlashbacksLabel = NSLOCTEXT("Hawkeye", "PauseReplayFlashbacks", "Replay flashbacks");
+	}
 	if (RestartMissionLabel.IsEmpty())
 	{
 		RestartMissionLabel = NSLOCTEXT("Hawkeye", "PauseRestart", "Restart mission");
@@ -107,6 +111,7 @@ TSharedRef<SWidget> UHawkeyePauseWidget::RebuildWidget()
 
 		AddButton(ResumeButton, TEXT("ResumeButton"), ResumeLabel);
 		AddButton(SettingsButton, TEXT("SettingsButton"), SettingsLabel);
+		AddButton(ReplayFlashbacksButton, TEXT("ReplayFlashbacksButton"), ReplayFlashbacksLabel);
 		AddButton(RestartMissionButton, TEXT("RestartMissionButton"), RestartMissionLabel);
 		AddButton(QuitToMenuButton, TEXT("QuitToMenuButton"), QuitToMenuLabel);
 		AddButton(QuitToDesktopButton, TEXT("QuitToDesktopButton"), QuitToDesktopLabel);
@@ -134,6 +139,10 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		SettingsButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleSettingsClicked);
 	}
+	if (ReplayFlashbacksButton)
+	{
+		ReplayFlashbacksButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleReplayFlashbacksClicked);
+	}
 	if (RestartMissionButton)
 	{
 		RestartMissionButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleRestartMissionClicked);
@@ -146,8 +155,8 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		QuitToDesktopButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleQuitToDesktopClicked);
 	}
-	for (UButton* Button : { ResumeButton.Get(), SettingsButton.Get(), RestartMissionButton.Get(), QuitToMenuButton.Get(),
-			 QuitToDesktopButton.Get() })
+	for (UButton* Button : { ResumeButton.Get(), SettingsButton.Get(), ReplayFlashbacksButton.Get(), RestartMissionButton.Get(),
+			 QuitToMenuButton.Get(), QuitToDesktopButton.Get() })
 	{
 		if (Button)
 		{
@@ -170,6 +179,10 @@ void UHawkeyePauseWidget::NativeDestruct()
 		if (SettingsButton)
 		{
 			SettingsButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleSettingsClicked);
+		}
+		if (ReplayFlashbacksButton)
+		{
+			ReplayFlashbacksButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleReplayFlashbacksClicked);
 		}
 		if (RestartMissionButton)
 		{
@@ -207,6 +220,11 @@ void UHawkeyePauseWidget::HandleResumeClicked()
 void UHawkeyePauseWidget::HandleSettingsClicked()
 {
 	OnSettingsClicked.Broadcast();
+}
+
+void UHawkeyePauseWidget::HandleReplayFlashbacksClicked()
+{
+	OnReplayFlashbacksClicked.Broadcast();
 }
 
 void UHawkeyePauseWidget::HandleRestartMissionClicked()

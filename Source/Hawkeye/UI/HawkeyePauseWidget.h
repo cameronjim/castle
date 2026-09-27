@@ -13,7 +13,8 @@ class UVerticalBox;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPauseMenuChoiceSignature);
 
 /**
- * The Escape menu: Resume, Settings, Restart mission (the last save), Quit to menu, Quit to desktop.
+ * The Escape menu: Resume, Settings, Replay flashbacks, Restart mission (the last save), Quit to menu,
+ * Quit to desktop.
  *
  * Reparent a UMG widget to this class and name the buttons ResumeButton, SettingsButton,
  * RestartMissionButton, QuitToMenuButton and QuitToDesktopButton to have them driven automatically. A subclass
@@ -36,6 +37,9 @@ public:
 	FOnPauseMenuChoiceSignature OnSettingsClicked;
 
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
+	FOnPauseMenuChoiceSignature OnReplayFlashbacksClicked;
+
+	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnRestartMissionClicked;
 
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
@@ -53,6 +57,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText SettingsLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
+	FText ReplayFlashbacksLabel;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText RestartMissionLabel;
@@ -75,6 +82,9 @@ protected:
 
 	UFUNCTION()
 	void HandleSettingsClicked();
+
+	UFUNCTION()
+	void HandleReplayFlashbacksClicked();
 
 	UFUNCTION()
 	void HandleRestartMissionClicked();
@@ -101,6 +111,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> SettingsButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> ReplayFlashbacksButton = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> RestartMissionButton = nullptr;
