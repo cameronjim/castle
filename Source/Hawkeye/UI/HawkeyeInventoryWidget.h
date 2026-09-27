@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "Player/HawkeyeTapHold.h"
 #include "HawkeyeInventoryWidget.generated.h"
 
 class UBorder;
@@ -77,6 +78,9 @@ protected:
 	virtual TSharedRef<SWidget> RebuildWidget() override;
 	virtual void NativeConstruct() override;
 	virtual void NativeDestruct() override;
+	virtual void NativeTick(const FGeometry& MyGeometry, float InDeltaTime) override;
+	virtual FReply NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
+	virtual FReply NativeOnKeyUp(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent) override;
 	//~ End UUserWidget interface
 
 	UFUNCTION()
@@ -84,6 +88,25 @@ protected:
 
 	/** Fills in TitleLabel when the designer left it empty. */
 	void ApplyDefaultLabels();
+
+	/** Tab tap over the open screen closes it; asks the controller (it owns the pause). */
+	void RequestClose();
+
+	/**
+	 * Tab held past QuiverWheelHoldSeconds: hides this screen's own content (without losing
+	 * keyboard focus, so the eventual key-up still reaches this widget, not the ether), unpauses,
+	 * and opens the radial wheel on the pawn.
+	 */
+	void EnterWheelFromHold();
+
+	/** The Tab that opened the wheel finally comes up: nocks the highlighted slot and closes both. */
+	void FinishWheelFromHold();
+
+	/** QuiverWheelHoldSeconds off the pawn, or a sensible default with none possessed. */
+	float GetQuiverWheelHoldSeconds() const;
+
+	/** Swaps the footer between keyboard and gamepad key names. */
+	void RefreshHint();
 
 	UPROPERTY(BlueprintReadOnly, Category = "Inventory|UI", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TitleText = nullptr;
@@ -96,9 +119,20 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UBorder> Dimmer = nullptr;
 
+	/** "[Tab] Close   [Esc] Close", or the gamepad equivalent. */
+	UPROPERTY(Transient)
+	TObjectPtr<UTextBlock> HintText = nullptr;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Inventory|UI")
 	FLinearColor DimmerColor = FLinearColor(0.f, 0.f, 0.f, 0.7f);
 
 	UPROPERTY(Transient)
 	TObjectPtr<UInventoryComponent> BoundInventory = nullptr;
+
+	/** Tracks Tab from key-down to key-up while this screen has keyboard focus (Slate's own
+	 * focus-navigation would otherwise eat every Tab press before the game ever sees it). */
+	FHawkeyeTapHold TabHold;
+
+	/** True from EnterWheelFromHold until the same Tab press comes back up. */
+	bool bWheelOpenedFromHold = false;
 };

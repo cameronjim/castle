@@ -14,6 +14,9 @@
 #include "Components/VerticalBoxSlot.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "HawkeyePlayerController.h"
+#include "InputCoreTypes.h"
+#include "Player/HawkeyeCharacter.h"
 #include "Player/InventoryComponent.h"
 
 void UHawkeyeInventoryWidget::ApplyDefaultLabels()
@@ -71,7 +74,18 @@ TSharedRef<SWidget> UHawkeyeInventoryWidget::RebuildWidget()
 			RowSlot->SetHorizontalAlignment(HAlign_Left);
 		}
 
+		if (!HintText)
+		{
+			HintText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("HintText"));
+		}
+		if (UVerticalBoxSlot* HintSlot = Cast<UVerticalBoxSlot>(Stack->AddChild(HintText)))
+		{
+			HintSlot->SetHorizontalAlignment(HAlign_Center);
+			HintSlot->SetPadding(FMargin(0.f, 24.f, 0.f, 0.f));
+		}
+
 		RefreshRows();
+		RefreshHint();
 	}
 
 	return Super::RebuildWidget();
@@ -84,6 +98,8 @@ void UHawkeyeInventoryWidget::NativeConstruct()
 	ApplyDefaultLabels();
 	BindToOwningPawn();
 	RefreshRows();
+	RefreshHint();
+	SetIsFocusable(true);
 }
 
 void UHawkeyeInventoryWidget::NativeDestruct()
@@ -91,6 +107,152 @@ void UHawkeyeInventoryWidget::NativeDestruct()
 	BindToInventory(nullptr);
 
 	Super::NativeDestruct();
+}
+
+void UHawkeyeInventoryWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	if (!bWheelOpenedFromHold && TabHold.IsDown())
+	{
+		if (const UWorld* World = GetWorld())
+		{
+			if (TabHold.Tick(World->GetRealTimeSeconds()) == EHawkeyeTapHold::Hold)
+			{
+				EnterWheelFromHold();
+			}
+		}
+	}
+
+	RefreshHint();
+}
+
+FReply UHawkeyeInventoryWidget::NativeOnKeyDown(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	const FKey Key = InKeyEvent.GetKey();
+
+	// Escape and the pad's B close outright, same press, no second menu underneath.
+	if (Key == EKeys::Escape || Key == EKeys::Gamepad_FaceButton_Right)
+	{
+		RequestClose();
+		return FReply::Handled();
+	}
+
+	// Tab (View on a pad, same IA_Inventory binding) is special: Slate treats an unhandled Tab
+	// as "focus the next widget," which would swallow the key before the game ever saw it.
+	// Claiming it here (tap closes, a hold opens the wheel) is what makes it do anything at all
+	// while this screen has focus.
+	if ((Key == EKeys::Tab || Key == EKeys::Gamepad_Special_Left) && !InKeyEvent.IsRepeat() && !TabHold.IsDown())
+	{
+		const UWorld* World = GetWorld();
+		TabHold.HoldSeconds = GetQuiverWheelHoldSeconds();
+		TabHold.Press(World ? World->GetRealTimeSeconds() : 0.0);
+		return FReply::Handled();
+	}
+
+	// Everything else is swallowed: the game is paused (or wheel-slowed) under this screen.
+	return FReply::Handled();
+}
+
+FReply UHawkeyeInventoryWidget::NativeOnKeyUp(const FGeometry& InGeometry, const FKeyEvent& InKeyEvent)
+{
+	const FKey Key = InKeyEvent.GetKey();
+	if (Key != EKeys::Tab && Key != EKeys::Gamepad_Special_Left)
+	{
+		return Super::NativeOnKeyUp(InGeometry, InKeyEvent);
+	}
+
+	const UWorld* World = GetWorld();
+	const EHawkeyeTapHold Result = TabHold.Release(World ? World->GetRealTimeSeconds() : 0.0);
+
+	if (bWheelOpenedFromHold)
+	{
+		// The hold already swapped us into the wheel; this is that same Tab finally coming up.
+		FinishWheelFromHold();
+	}
+	else if (Result == EHawkeyeTapHold::Tap || Result == EHawkeyeTapHold::Hold)
+	{
+		RequestClose();
+	}
+
+	return FReply::Handled();
+}
+
+void UHawkeyeInventoryWidget::RequestClose()
+{
+	if (AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetOwningPlayer()))
+	{
+		PC->SetInventoryOpen(false);
+	}
+}
+
+void UHawkeyeInventoryWidget::EnterWheelFromHold()
+{
+	bWheelOpenedFromHold = true;
+
+	// Hide this screen's own content; the wheel it is about to draw lives on the HUD beneath it.
+	// The widget itself stays mounted and focused so the matching key-up still reaches us.
+	if (Dimmer)
+	{
+		Dimmer->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (TitleText)
+	{
+		TitleText->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (RowBox)
+	{
+		RowBox->SetVisibility(ESlateVisibility::Collapsed);
+	}
+	if (HintText)
+	{
+		HintText->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetOwningPlayer());
+	if (PC)
+	{
+		// The wheel runs on time dilation, not a full pause.
+		PC->SetPause(false);
+	}
+	if (AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr)
+	{
+		Kate->OpenQuiverWheel();
+	}
+}
+
+void UHawkeyeInventoryWidget::FinishWheelFromHold()
+{
+	bWheelOpenedFromHold = false;
+
+	AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetOwningPlayer());
+	if (AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr)
+	{
+		Kate->CloseQuiverWheel(/*bSelect=*/true);
+	}
+	if (PC)
+	{
+		PC->SetInventoryOpen(false);
+	}
+}
+
+float UHawkeyeInventoryWidget::GetQuiverWheelHoldSeconds() const
+{
+	const APlayerController* PC = GetOwningPlayer();
+	const AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	return Kate ? Kate->QuiverWheelHoldSeconds : 0.25f;
+}
+
+void UHawkeyeInventoryWidget::RefreshHint()
+{
+	if (!HintText)
+	{
+		return;
+	}
+	const AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetOwningPlayer());
+	HintText->SetText(PC && PC->IsUsingGamepad()
+		? NSLOCTEXT("Hawkeye", "InventoryHintGamepad", "[View] Close   [B] Close")
+		: NSLOCTEXT("Hawkeye", "InventoryHint", "[Tab] Close   [Esc] Close"));
 }
 
 void UHawkeyeInventoryWidget::BindToOwningPawn()
