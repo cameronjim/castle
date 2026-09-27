@@ -90,8 +90,20 @@ public:
 	/** What the save keeps: arrived ids in order, and the read ones. */
 	void Export(TArray<FName>& OutReceived, TArray<FName>& OutRead) const;
 
-	/** Back from a save. Unknown ids are dropped; anything scheduled is forgotten. */
+	/** Back from a save. Unknown ids are dropped; anything scheduled is forgotten (ImportPending restores it). */
 	void Import(const TArray<FName>& InReceived, const TArray<FName>& InRead);
+
+	/** What the save keeps of the messages still on their delay: ids, and the seconds each has left. */
+	void ExportPending(TArray<FName>& OutIds, TArray<float>& OutSecondsLeft) const;
+
+	/**
+	 * Back from a save, after Import: each id is scheduled again with the delay it had left. Ids that
+	 * are unknown, already arrived or already scheduled are dropped; a missing or negative delay is 0.
+	 */
+	void ImportPending(const TArray<FName>& InIds, const TArray<float>& InSecondsLeft);
+
+	/** Seconds until Id arrives, or -1 when it is not scheduled. */
+	float GetSecondsLeft(FName Id) const;
 
 private:
 	/** Adds Id to the arrived list (read at once if its row says so). */

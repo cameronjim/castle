@@ -71,6 +71,14 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Phone")
 	TArray<FName> ReadMessages;
 
+	/** Messages triggered but still on their delay when the save was written, soonest first. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Phone")
+	TArray<FName> PendingMessages;
+
+	/** Seconds each of PendingMessages had left, in the same order. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Phone")
+	TArray<float> PendingMessageSeconds;
+
 	/** Chapters (mission asset names) whose opening title card has been shown. */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Narrative")
 	TArray<FName> SeenChapterTitles;

@@ -16,6 +16,7 @@
 #include "Misc/Parse.h"
 #include "Mission/MissionDefinition.h"
 #include "Mission/MissionSubsystem.h"
+#include "Phone/PhoneSubsystem.h"
 #include "Player/HawkeyeCharacter.h"
 #include "SpudCustomSaveInfo.h"
 #include "SpudState.h"
@@ -155,6 +156,14 @@ void UHawkeyeSaveSubsystem::CaptureCampaign(UWorld* World)
 	const APlayerController* PC = World->GetFirstPlayerController();
 	const AHawkeyeCharacter* Player = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
 	Campaign->ControlledCharacter = Player ? Player->GetCharacterName().ToString() : FString();
+
+	// The phone's texts still on their delay go into the save with the seconds they have left, and
+	// an objective whose autosave this is may not have reached the phone yet.
+	if (UPhoneSubsystem* Phone = World->GetSubsystem<UPhoneSubsystem>())
+	{
+		Phone->CatchUpTriggers();
+		Phone->MirrorToCampaign();
+	}
 }
 
 bool UHawkeyeSaveSubsystem::SaveCampaign(const FString& Reason)

@@ -15,6 +15,8 @@ void UHawkeyeCampaignState::ResetCampaign()
 	ControlledCharacter.Reset();
 	ReceivedMessages.Reset();
 	ReadMessages.Reset();
+	PendingMessages.Reset();
+	PendingMessageSeconds.Reset();
 	SeenChapterTitles.Reset();
 	PlayedDialogueSequences.Reset();
 }

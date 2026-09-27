@@ -18,8 +18,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPhoneUnreadChangedSignature, int3
  * (UHawkeyeNarrativeSettings), turns the mission's events into triggers for UPhoneInbox, and when
  * a message arrives shows a 2 s "[Sender]: [first line]" toast and updates the HUD badge.
  *
- * The arrived and read ids are mirrored into UHawkeyeCampaignState on every change and read back
- * at world start and after a load, so SPUD saves them with the campaign. Triggers are ignored
+ * The arrived and read ids, and the messages still waiting on their delay with the seconds they
+ * have left, are mirrored into UHawkeyeCampaignState on every change and before every save, and
+ * read back at world start and after a load, so SPUD saves them with the campaign. Triggers are ignored
  * while a save is being restored: the objectives it completes silently must not text anyone.
  */
 UCLASS()
@@ -45,8 +46,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Phone")
 	int32 GetUnreadCount() const { return Inbox ? Inbox->GetUnreadCount() : 0; }
 
-	/** Writes the inbox into the campaign state (SPUD saves that). */
+	/** Writes the inbox into the campaign state (SPUD saves that), the messages still on their delay included. */
 	void MirrorToCampaign() const;
+
+	/**
+	 * Schedules the ObjectiveCompleted messages of every objective already done that have neither
+	 * arrived nor been scheduled. The save calls it before it mirrors: an objective's autosave can
+	 * run before this subsystem has heard the same objective complete. Returns how many.
+	 */
+	int32 CatchUpTriggers();
 
 	/** Reads the inbox back from the campaign state. */
 	void RestoreFromCampaign();

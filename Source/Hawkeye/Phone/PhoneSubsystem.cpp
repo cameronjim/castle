@@ -103,6 +103,7 @@ void UPhoneSubsystem::HandleMissionStarted(UMissionDefinition* Mission)
 	Inbox->HandleTrigger(EHawkeyeMessageTrigger::ChapterStart, NAME_None, ChapterId);
 	LastCurrentObjectiveId = NAME_None;
 	NoteCurrentObjective();
+	MirrorToCampaign();
 }
 
 void UPhoneSubsystem::HandleObjectiveUpdated(UMissionObjective* Objective, int32 /*ObjectiveIndex*/)
@@ -116,6 +117,8 @@ void UPhoneSubsystem::HandleObjectiveUpdated(UMissionObjective* Objective, int32
 		Inbox->HandleTrigger(EHawkeyeMessageTrigger::ObjectiveCompleted, Objective->ObjectiveId, ChapterId);
 	}
 	NoteCurrentObjective();
+	// A level change before the next save keeps what is now on its delay.
+	MirrorToCampaign();
 }
 
 void UPhoneSubsystem::NoteCurrentObjective()
@@ -138,6 +141,10 @@ int32 UPhoneSubsystem::NotifyEvent(FName EventName)
 {
 	const int32 Count = Inbox && !EventName.IsNone() ? Inbox->HandleTrigger(EHawkeyeMessageTrigger::Event, EventName, ChapterId) : 0;
 	UE_LOG(LogHawkeye, Verbose, TEXT("%s: event %s scheduled %d message(s)."), *GetNameSafe(this), *EventName.ToString(), Count);
+	if (Count > 0)
+	{
+		MirrorToCampaign();
+	}
 	return Count;
 }
 
@@ -198,7 +205,26 @@ void UPhoneSubsystem::MirrorToCampaign() const
 	if (Inbox && Campaign)
 	{
 		Inbox->Export(Campaign->ReceivedMessages, Campaign->ReadMessages);
+		Inbox->ExportPending(Campaign->PendingMessages, Campaign->PendingMessageSeconds);
 	}
+}
+
+int32 UPhoneSubsystem::CatchUpTriggers()
+{
+	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
+	if (!Inbox || IsRestoring() || !Missions || !Missions->GetCurrentMission())
+	{
+		return 0;
+	}
+	int32 Count = 0;
+	for (const UMissionObjective* Objective : Missions->GetActiveObjectives())
+	{
+		if (Objective && Objective->IsCompleted())
+		{
+			Count += Inbox->HandleTrigger(EHawkeyeMessageTrigger::ObjectiveCompleted, Objective->ObjectiveId, ChapterId);
+		}
+	}
+	return Count;
 }
 
 void UPhoneSubsystem::RestoreFromCampaign()
@@ -208,6 +234,7 @@ void UPhoneSubsystem::RestoreFromCampaign()
 	if (Inbox && Campaign)
 	{
 		Inbox->Import(Campaign->ReceivedMessages, Campaign->ReadMessages);
+		Inbox->ImportPending(Campaign->PendingMessages, Campaign->PendingMessageSeconds);
 		OnUnreadChanged.Broadcast(Inbox->GetUnreadCount());
 	}
 }

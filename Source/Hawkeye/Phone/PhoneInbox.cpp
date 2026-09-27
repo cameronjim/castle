@@ -207,3 +207,34 @@ void UPhoneInbox::Import(const TArray<FName>& InReceived, const TArray<FName>& I
 		}
 	}
 }
+
+void UPhoneInbox::ExportPending(TArray<FName>& OutIds, TArray<float>& OutSecondsLeft) const
+{
+	OutIds.Reset();
+	OutSecondsLeft.Reset();
+	for (const FScheduled& Entry : Scheduled)
+	{
+		OutIds.Add(Entry.Id);
+		OutSecondsLeft.Add(FMath::Max(Entry.SecondsLeft, 0.f));
+	}
+}
+
+void UPhoneInbox::ImportPending(const TArray<FName>& InIds, const TArray<float>& InSecondsLeft)
+{
+	for (int32 Index = 0; Index < InIds.Num(); ++Index)
+	{
+		const FName Id = InIds[Index];
+		if (!Messages.Contains(Id) || Received.Contains(Id) || IsScheduled(Id))
+		{
+			continue;
+		}
+		const float SecondsLeft = InSecondsLeft.IsValidIndex(Index) ? FMath::Max(InSecondsLeft[Index], 0.f) : 0.f;
+		Scheduled.Add({ Id, SecondsLeft });
+	}
+}
+
+float UPhoneInbox::GetSecondsLeft(FName Id) const
+{
+	const FScheduled* Entry = Scheduled.FindByPredicate([Id](const FScheduled& Candidate) { return Candidate.Id == Id; });
+	return Entry ? Entry->SecondsLeft : -1.f;
+}
