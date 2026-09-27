@@ -148,6 +148,13 @@ AThugCharacter::AThugCharacter()
 	ShieldComponent->SetUsingAbsoluteRotation(true);
 	ShieldComponent->SetCastShadow(true);
 	ShieldComponent->SetWorldScale3D(ShieldSize / 100.f);
+	// The cube's own material is the editor grid; the shape material takes the smoked grey tint.
+	static ConstructorHelpers::FObjectFinder<UMaterialInterface> ShapeMaterial(
+		TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	if (ShapeMaterial.Succeeded())
+	{
+		ShieldComponent->SetMaterial(0, ShapeMaterial.Object);
+	}
 
 	GlintMesh = MakeProp(TEXT("Glint"), Sphere.Succeeded() ? Sphere.Object : nullptr, GetCapsuleComponent());
 	GlintMesh->SetUsingAbsoluteLocation(true);
