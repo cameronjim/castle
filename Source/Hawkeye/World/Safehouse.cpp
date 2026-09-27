@@ -14,6 +14,9 @@
 #include "Player/InventoryComponent.h"
 #include "Save/HawkeyeSaveSubsystem.h"
 #include "UObject/ConstructorHelpers.h"
+#include "UI/HawkeyeHudWidget.h"
+#include "UI/HawkeyeObjectiveWidget.h"
+#include "World/SafehouseSubsystem.h"
 
 namespace HawkeyeSafehouse
 {
@@ -86,6 +89,69 @@ ASafehouse::ASafehouse()
 	EntryZone->SetGenerateOverlapEvents(true);
 }
 
+void ASafehouse::BeginPlay()
+{
+	Super::BeginPlay();
+	if (USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this))
+	{
+		Safehouses->RegisterSafehouse(this);
+	}
+	EntryZone->OnComponentBeginOverlap.AddDynamic(this, &ASafehouse::HandleEntryOverlap);
+}
+
+void ASafehouse::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	EntryZone->OnComponentBeginOverlap.RemoveDynamic(this, &ASafehouse::HandleEntryOverlap);
+	if (USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this))
+	{
+		Safehouses->UnregisterSafehouse(this);
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
+FTransform ASafehouse::GetArrivalTransform(int32 Slot) const
+{
+	const FVector Local = Slot == 0 ? FVector(ArrivalOut, 0.f, 0.f)
+		: FVector(PartnerArrivalOffset.X, PartnerArrivalOffset.Y, 0.f);
+	const FRotator Facing(0.f, GetActorRotation().Yaw, 0.f);
+	return FTransform(Facing, GetActorLocation() + Facing.RotateVector(Local));
+}
+
+void ASafehouse::HandleEntryOverlap(UPrimitiveComponent* /*OverlappedComponent*/, AActor* OtherActor,
+	UPrimitiveComponent* /*OtherComp*/, int32 /*OtherBodyIndex*/, bool /*bFromSweep*/, const FHitResult& /*SweepResult*/)
+{
+	DiscoverBy(OtherActor);
+}
+
+bool ASafehouse::DiscoverBy(AActor* Visitor, UHawkeyeSaveSubsystem* Save)
+{
+	const AHawkeyeCharacter* Character = Cast<AHawkeyeCharacter>(Visitor);
+	if (!Character || !Character->IsPlayerControlled())
+	{
+		return false;
+	}
+	if (USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this); Safehouses && Safehouses->GetMarkedSafehouse())
+	{
+		Safehouses->ClearSafehouseMarker();
+	}
+	Save = Save ? Save : UHawkeyeSaveSubsystem::Get(this);
+	if (!Save || !Save->DiscoverSafehouse(SafehouseId))
+	{
+		return false;
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s walked in; safehouse %s discovered."), *GetName(), *Character->GetName(),
+		*SafehouseId.ToString());
+	if (UHawkeyeHudWidget* Hud = AHawkeyePlayerController::GetHawkeyeHudFor(Character))
+	{
+		if (UHawkeyeObjectiveWidget* Toasts = Hud->GetObjectiveMarker())
+		{
+			Toasts->PushToast(NSLOCTEXT("Hawkeye", "SafehouseDiscovered", "[Safehouse discovered]"), GetDisplayName());
+		}
+	}
+	Save->SaveCampaign(TEXT("safehouse discovered"));
+	return true;
+}
+
 FText ASafehouse::GetDisplayName() const
 {
 	return DisplayName.IsEmpty() ? FText::FromName(SafehouseId) : DisplayName;
@@ -122,6 +188,7 @@ void ASafehouse::Interact_Implementation(AActor* Interactor)
 	if (UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this))
 	{
 		const bool bFirstVisit = Save->DiscoverSafehouse(SafehouseId);
+		Save->SetLastSafehouse(SafehouseId);
 		Save->SaveCampaign(bFirstVisit ? TEXT("safehouse discovered") : TEXT("safehouse"));
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s entered the safehouse; healed to full."), *GetName(), *Character->GetName());
