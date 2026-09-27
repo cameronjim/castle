@@ -45,6 +45,7 @@
 #include "World/GrappleAnchor.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
+#include "Tests/BowIKScreenshots.h"
 #include "Tests/EnemyScreenshots.h"
 #include "Tests/PartnerScreenshots.h"
 #include "Tests/SaveScreenshots.h"
@@ -90,6 +91,8 @@
  *   bow_draw.png       half drawn: bow in the left hand, the spread ring and the draw bar
  *   bow_hit.png        a full draw loosed at a thug 15 m down the street, stuck in him, reticle flashing
  *   arrow_stuck.png    that arrow from just behind and beside it, aimed in: shaft, three vanes, purple nock
+ *   bow_hold.png, bow_aim_half.png, bow_aim_full.png, bow_aim_full_view.png, clint_draw.png,
+ *   archer_draw_close.png: both hands on the bow (BowIKScreenshotTest.cpp)
  *
  *   roll_mid.png       0.2 s into the landing roll after a 6 m drop with the stick held, side on:
  *                      upside down in the tuck, motion blur off so the tumble does not smear away
@@ -2644,6 +2647,10 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateBowShot(this, static_cast<uint8>(EBow::Cleanup)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+
+	// Both hands on the bow, close up: at rest in the hand, half and full draw, Clint and an archer.
+	HawkeyeAddBowIKShots(this);
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
 	// Locomotion: a run, the stop after it, and an aimed strafe, captured mid-move.
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFrameShot(this, static_cast<uint8>(EShot::Run)));
