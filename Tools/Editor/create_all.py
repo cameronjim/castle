@@ -3,6 +3,8 @@
     1. create_input_assets        IA_* and IMC_Default
     1b. create_audio              every sound, synthesised as MetaSounds (MS_*), the sound classes,
                                   the settings mix and the attenuations, under /Game/Audio
+    1c. create_vfx                every particle effect (NS_*) and its materials under /Game/VFX, the
+                                  Niagara plugin's template emitters tuned by UHawkeyeVfxBuilder
     2. import_gasp                the Game Animation Sample's sandbox character, AnimBP and
                                   UEFN mannequin, copied from the local GASP install (skipped
                                   when the sample is not installed; before BP_Kate derives from it)
@@ -20,6 +22,7 @@
                                   BP_Kate, BP_Clint and BP_Archer (after the partner and the enemies)
     4e. apply_audio_defaults      (create_blueprints) the sounds on BP_HawkeyeCharacter, BP_Thug,
                                   BP_HawkeyePlayerController and the trick arrows' data assets
+    4f. apply_vfx_defaults        (create_blueprints) the effects on the same classes and data assets
     5. fixup_redirectors          resave past any redirector the GASP copy brought in, then
                                   delete it
     6. generate_city              L_District_EastVillage from OpenStreetMap, after everything
@@ -47,6 +50,7 @@ import _common as c  # noqa: E402
 STEPS = [
     ("input assets", "create_input_assets"),
     ("audio", "create_audio"),
+    ("vfx", "create_vfx"),
     ("gasp import", "import_gasp"),
     ("blueprints", "create_blueprints"),
     ("materials", "_materials"),
@@ -57,6 +61,7 @@ STEPS = [
     ("enemies", "create_enemies"),
     ("bow ik", "create_bow_ik"),
     ("audio defaults", "create_blueprints", "apply_audio_defaults"),
+    ("vfx defaults", "create_blueprints", "apply_vfx_defaults"),
     ("fix up redirectors", "fixup_redirectors"),
     ("city", "generate_city"),
 ]
