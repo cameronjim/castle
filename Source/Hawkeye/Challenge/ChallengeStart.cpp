@@ -18,6 +18,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/RotationMatrix.h"
+#include "Misc/App.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace HawkeyeChallengeStart
@@ -160,9 +161,10 @@ void AChallengeStart::RefreshLook()
 	{
 		Body->SetVectorParameterValue(TEXT("Color"), Steel);
 	}
-	// The glow only in a running game: the editor never needs to load it to place a pedestal.
+	// The glow only in a game that draws: the editor placing a pedestal, and headless tests, never load it.
 	UWorld* World = GetWorld();
-	UMaterialInterface* Emissive = World && World->IsGameWorld() && !GlowMaterial.IsNull() ? GlowMaterial.LoadSynchronous() : nullptr;
+	UMaterialInterface* Emissive = World && World->IsGameWorld() && FApp::CanEverRender() && !GlowMaterial.IsNull()
+		? GlowMaterial.LoadSynchronous() : nullptr;
 	TArray<UStaticMeshComponent*> Lit{ Cap.Get() };
 	Lit.Append(bArchery ? TargetIcon : RingIcon);
 	for (int32 Index = 0; Index < Lit.Num(); ++Index)

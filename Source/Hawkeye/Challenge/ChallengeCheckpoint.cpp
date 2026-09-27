@@ -9,6 +9,7 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Math/RotationMatrix.h"
+#include "Misc/App.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace HawkeyeChallengeCheckpoint
@@ -86,7 +87,7 @@ void AChallengeCheckpoint::BeginPlay()
 	Super::BeginPlay();
 	LayoutSegments();
 	// Synchronously: a ring spawned mid-run must glow on its first frame.
-	LoadedGlow = GlowMaterial.IsNull() ? nullptr : GlowMaterial.LoadSynchronous();
+	LoadedGlow = GlowMaterial.IsNull() || !FApp::CanEverRender() ? nullptr : GlowMaterial.LoadSynchronous();
 	SetState(State);
 }
 
