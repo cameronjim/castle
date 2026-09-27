@@ -120,6 +120,7 @@ void AExplosiveBlast::ApplyBlast()
 		if (Distance <= ShakeRadius)
 		{
 			It->PlayImpactShake(ShakeSeconds, ShakeAmplitude * FMath::Clamp(1.f - Distance / ShakeRadius, 0.25f, 1.f));
+			It->SuppressMotionBlur(MotionBlurOffSeconds);
 		}
 	}
 }
@@ -158,5 +159,5 @@ void AExplosiveBlast::UpdateFireball()
 	}
 	// A street lamp is under 100 cd; this is a couple of dozen of them for an instant. With the
 	// Niagara fireball glowing on its own the light only has to throw the colour, not be the blast.
-	Flash->SetIntensity((bEffectVfxSpawned ? 700.f : 2500.f) * Fade * Fade);
+	Flash->SetIntensity((bEffectVfxSpawned ? BlastLightCandelas : PlaceholderLightCandelas) * Fade * Fade);
 }

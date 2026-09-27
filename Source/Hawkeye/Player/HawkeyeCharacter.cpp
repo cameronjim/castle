@@ -917,6 +917,23 @@ void AHawkeyeCharacter::PlayImpactShake(float Seconds, float Amplitude)
 	HitShakeRemaining = Seconds;
 }
 
+void AHawkeyeCharacter::SuppressMotionBlur(float Seconds)
+{
+	if (Seconds <= 0.f || !FollowCamera)
+	{
+		return;
+	}
+	FPostProcessSettings& Settings = FollowCamera->PostProcessSettings;
+	if (MotionBlurOffRemaining <= 0.f)
+	{
+		bSavedMotionBlurOverride = Settings.bOverride_MotionBlurAmount != 0;
+		SavedMotionBlurAmount = Settings.MotionBlurAmount;
+	}
+	Settings.bOverride_MotionBlurAmount = true;
+	Settings.MotionBlurAmount = 0.f;
+	MotionBlurOffRemaining = FMath::Max(MotionBlurOffRemaining, Seconds);
+}
+
 void AHawkeyeCharacter::Input_Grapple(const FInputActionValue& /*Value*/)
 {
 	if (GrappleComponent && !IsLockedOutByTakedown() && !IsTraversing())
@@ -1834,6 +1851,15 @@ void AHawkeyeCharacter::UpdateHitReactions(float DeltaSeconds)
 {
 	StaggerRemaining = FMath::Max(0.f, StaggerRemaining - DeltaSeconds);
 	HitShakeRemaining = FMath::Max(0.f, HitShakeRemaining - DeltaSeconds);
+	if (MotionBlurOffRemaining > 0.f)
+	{
+		MotionBlurOffRemaining = FMath::Max(0.f, MotionBlurOffRemaining - DeltaSeconds);
+		if (MotionBlurOffRemaining <= 0.f && FollowCamera)
+		{
+			FollowCamera->PostProcessSettings.bOverride_MotionBlurAmount = bSavedMotionBlurOverride;
+			FollowCamera->PostProcessSettings.MotionBlurAmount = SavedMotionBlurAmount;
+		}
+	}
 	UpdateScreenPulse(DeltaSeconds);
 }
 

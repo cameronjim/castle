@@ -59,6 +59,24 @@ public:
 	FLinearColor FireColor = FLinearColor(1.f, 0.45f, 0.08f);
 
 	/**
+	 * The flash light's peak with the Niagara fireball up, cd. It only throws the colour; at 700 it
+	 * lit the smoke and the street as one flat orange sheet.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Explosive", meta = (ClampMin = "0.0"))
+	float BlastLightCandelas = 400.f;
+
+	/** The flash light's peak over the placeholder spheres, when NS_Explosion is missing, cd. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Explosive", meta = (ClampMin = "0.0"))
+	float PlaceholderLightCandelas = 2500.f;
+
+	/**
+	 * How long a shaken player's camera draws without motion blur, s: the shake's first jolts
+	 * otherwise smear the fireball into a grey wash.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Explosive", meta = (ClampMin = "0.0"))
+	float MotionBlurOffSeconds = 0.3f;
+
+	/**
 	 * Damage at Distance from a blast of MaxDamage that reaches 0 at InRadius: linear, never
 	 * negative, MaxDamage at the centre. Pure.
 	 */

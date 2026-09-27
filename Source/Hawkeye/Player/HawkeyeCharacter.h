@@ -400,6 +400,16 @@ public:
 	void PlayImpactShake(float Seconds, float Amplitude);
 
 	/**
+	 * Draws the follow camera without motion blur for Seconds (the longer of this and any running),
+	 * then puts its own setting back. A blast calls it with its shake.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Camera")
+	void SuppressMotionBlur(float Seconds);
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	bool IsMotionBlurSuppressed() const { return MotionBlurOffRemaining > 0.f; }
+
+	/**
 	 * A brief chromatic split on her camera (ScreenPulseMaterial) for Seconds, Strength 0..1 at the
 	 * start and fading out. An EMP nearby calls it. A stronger pulse running on is left alone.
 	 */
@@ -1392,6 +1402,11 @@ protected:
 
 	UPROPERTY(Transient)
 	float HitShakeRemaining = 0.f;
+
+	/** SuppressMotionBlur: seconds left, and the camera's own motion blur override to put back. */
+	float MotionBlurOffRemaining = 0.f;
+	bool bSavedMotionBlurOverride = false;
+	float SavedMotionBlurAmount = 0.f;
 
 	/** Length and throw of the shake now running: a hit's, or a blast's from PlayImpactShake. */
 	UPROPERTY(Transient)
