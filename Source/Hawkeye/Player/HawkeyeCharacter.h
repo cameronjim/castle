@@ -851,6 +851,9 @@ protected:
 	 */
 	bool bTookDownThisPress = false;
 
+	/** The frame bTookDownThisPress was set on; Input_Interact skips only a press on that frame. */
+	uint64 TakedownPressFrame = 0;
+
 	/** Hands only: the punch while no bow is owned (bHasWeapon false). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Hawkeye|Components")
 	TObjectPtr<UWeaponComponent> WeaponComponent;

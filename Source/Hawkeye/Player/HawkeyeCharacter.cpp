@@ -2839,13 +2839,17 @@ void AHawkeyeCharacter::Input_Takedown(const FInputActionValue& /*Value*/)
 	// button this runs first and, if it lands, tells Input_Interact to skip this press.
 	// The stealth takedown first (from behind, unaware); otherwise the loud one, the finisher.
 	bTookDownThisPress = (TakedownComponent && TakedownComponent->TryTakedown()) || TryFinisher();
+	TakedownPressFrame = GFrameCounter;
 }
 
 void AHawkeyeCharacter::Input_Interact(const FInputActionValue& /*Value*/)
 {
-	if (bTookDownThisPress)
+	// Only the same press: on a keyboard F and E are different keys, and a takedown on F must not
+	// swallow the next E (it did, and the challenge pedestals ignored the first E after a fight).
+	const bool bSamePress = bTookDownThisPress && TakedownPressFrame == GFrameCounter;
+	bTookDownThisPress = false;
+	if (bSamePress)
 	{
-		bTookDownThisPress = false;
 		return;
 	}
 
