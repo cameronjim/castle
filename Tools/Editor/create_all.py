@@ -31,6 +31,9 @@
     5c. create_challenges         the side challenges (DA_Challenge_*) under /Game/Challenges, planned
                                   from the same OpenStreetMap records the city is (skipped, like the
                                   city, until the records exist); generate_city places their pedestals
+    5d. create_crimes            the street crimes (DA_Crime_*) under /Game/Crimes and BP_Civilian, the
+                                  mugging's victim; generate_city places the City_CrimeSpot_ spots they
+                                  start at, planned by create_crimes from the same records
     6. generate_city              L_District_EastVillage from OpenStreetMap, after everything
                                   else and only when Tools/Data/osm/east_village.buildings.json
                                   exists (Tools/fetch-osm.ps1 writes it)
@@ -71,6 +74,7 @@ STEPS = [
     ("fix up redirectors", "fixup_redirectors"),
     ("narrative", "create_narrative"),
     ("challenges", "create_challenges"),
+    ("crimes", "create_crimes"),
     ("city", "generate_city"),
 ]
 
