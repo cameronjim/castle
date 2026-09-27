@@ -50,6 +50,7 @@
 #include "Tests/EnemyScreenshots.h"
 #include "Tests/PartnerScreenshots.h"
 #include "Tests/SaveScreenshots.h"
+#include "Tests/VfxScreenshots.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -74,6 +75,8 @@
  *   grapple_marker.png  back on the street, looking up at a tenement anchor with its marker showing
  *   grapple_mid.png     part way along the zip, the camera following
  *   grapple_roof.png    landed on the anchor's roof
+ *   vfx_zipline.png     60% along the same zip: the line from her hand to the anchor
+ *   vfx_*.png           the effect shots, after the street frame time (VfxScreenshotTest.cpp)
  *
  *   kate_lookup.png  on the street 13 m out from a facade, the camera pitched straight at a rooftop
  *                    anchor: the arm shortens and lifts, so Kate stays out of the centre and the lens
@@ -2695,6 +2698,11 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFrameTime(this, TEXT("street"), 60));
 
+	// The effects, 30 m down the street (VfxScreenshotTest.cpp), then back to the street spot.
+	HawkeyeAddVfxShots(this);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFrameShot(this, static_cast<uint8>(EShot::Street)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+
 	// The grapple: marker, mid-zip, landed.
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateAimAtAnchor(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
@@ -2704,6 +2712,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFireGrapple(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateWaitZip(this, 0.45f, 3.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("grapple_mid.png")));
+	// Further along, the line from her hand to the anchor (NS_ZipLine).
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateWaitZip(this, 0.6f, 3.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("vfx_zipline.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateWaitZip(this, 2.f, 5.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateLookAcrossRoof());
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
