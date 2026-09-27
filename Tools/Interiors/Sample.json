@@ -1,0 +1,118 @@
+{
+  "name": "Sample",
+  "display_name": "[Auction house]",
+  "district": "/Game/Maps/L_District_EastVillage",
+  "doorstep": "City_InteriorReturn_Sample",
+  "rooms": [
+    {"id": "lobby", "label": "Lobby", "floor": 0, "rect": [0, 0, 800, 600], "surface": "carpet", "paint": "Cream",
+     "light": "pendant", "tone": "warm"},
+    {"id": "hall", "label": "Hall", "floor": 0, "floors": 2, "rect": [800, 0, 2200, 1400], "surface": "wood",
+     "paint": "Plum", "light": "pendant", "tone": "warm"},
+    {"id": "gallery", "label": "Gallery", "floor": 1, "rect": [800, 0, 1200, 1400], "surface": "wood", "paint": "Plum",
+     "light": "pendant", "tone": "warm", "overlooks": "hall", "rail": ["E"]},
+    {"id": "office", "label": "Office", "floor": 0, "rect": [0, 600, 500, 1400], "surface": "wood", "paint": "Slate",
+     "light": "fluorescent", "tone": "cool"},
+    {"id": "stair", "label": "Stair", "floor": 0, "floors": 2, "rect": [500, 600, 800, 1220], "surface": "concrete",
+     "paint": "Stone", "light": "fluorescent", "tone": "cool"},
+    {"id": "vault", "label": "Vault", "floor": 0, "rect": [2200, 900, 2600, 1400], "surface": "concrete",
+     "paint": "Slate", "light": "fluorescent", "tone": "cool"}
+  ],
+  "doors": [
+    {"id": "lobby_hall", "rooms": ["lobby", "hall"], "floor": 0, "at": 300, "width": 200, "leaf": "none"},
+    {"id": "lobby_stair", "rooms": ["lobby", "stair"], "floor": 0, "at": 650, "width": 120, "leaf": "none"},
+    {"id": "office", "rooms": ["lobby", "office"], "floor": 0, "at": 250, "leaf": "wood"},
+    {"id": "vault", "rooms": ["hall", "vault"], "floor": 0, "at": 1150, "leaf": "steel", "locked": true,
+     "keycard": "vault"},
+    {"id": "stair_gallery", "rooms": ["stair", "gallery"], "floor": 1, "at": 685, "leaf": "wood"}
+  ],
+  "exits": [
+    {"id": "front", "room": "lobby", "side": "N", "floor": 0, "at": 400, "entrance": true, "name": "[Leave]"},
+    {"id": "roof", "room": "gallery", "side": "N", "floor": 1, "at": 1000, "return": "City_InteriorRoof_Sample",
+     "name": "[Roof]"}
+  ],
+  "windows": [
+    {"room": "lobby", "side": "N", "floor": 0, "at": 150},
+    {"room": "lobby", "side": "N", "floor": 0, "at": 650},
+    {"room": "hall", "side": "N", "floor": 0, "at": 1500},
+    {"room": "hall", "side": "N", "floor": 0, "at": 1900},
+    {"room": "hall", "side": "N", "floor": 1, "at": 1500},
+    {"room": "hall", "side": "N", "floor": 1, "at": 1900},
+    {"room": "hall", "side": "S", "floor": 0, "at": 1500},
+    {"room": "hall", "side": "S", "floor": 1, "at": 1500},
+    {"room": "hall", "side": "S", "floor": 1, "at": 1900},
+    {"room": "hall", "side": "E", "floor": 1, "at": 450},
+    {"room": "office", "side": "W", "floor": 0, "at": 1000},
+    {"room": "gallery", "side": "W", "floor": 1, "at": 300},
+    {"room": "stair", "side": "W", "floor": 1, "at": 1000}
+  ],
+  "stairs": [
+    {"id": "main", "room": "stair", "landing": 170, "flight": 130}
+  ],
+  "props": [
+    {"room": "lobby", "tag": "counter", "at": [400, 470]},
+    {"room": "lobby", "tag": "chair", "at": [60, 230]},
+    {"room": "lobby", "tag": "chair", "at": [60, 330]},
+    {"room": "lobby", "tag": "sofa", "at": [720, 330], "yaw": 180},
+    {"room": "lobby", "tag": "pedestal", "at": [660, 110]},
+    {"room": "lobby", "tag": "plant", "at": [50, 50]},
+    {"room": "lobby", "tag": "plant", "at": [750, 50]},
+    {"room": "lobby", "tag": "painting", "at": [12, 470], "yaw": 0},
+    {"room": "hall", "tag": "stage", "at": [1275, 500], "size": [250, 700, 40]},
+    {"room": "hall", "tag": "lectern", "at": [1330, 500], "yaw": 180, "z": 40},
+    {"room": "hall", "tag": "display_case", "at": [550, 180]},
+    {"room": "hall", "tag": "display_case", "at": [800, 180]},
+    {"room": "hall", "tag": "display_case", "at": [1050, 180]},
+    {"room": "hall", "tag": "display_case", "at": [550, 1220]},
+    {"room": "hall", "tag": "display_case", "at": [800, 1220]},
+    {"room": "hall", "tag": "display_case", "at": [1050, 1220]},
+    {"room": "hall", "tag": "chair", "at": [820, 420]}, {"room": "hall", "tag": "chair", "at": [820, 510]},
+    {"room": "hall", "tag": "chair", "at": [820, 600]}, {"room": "hall", "tag": "chair", "at": [820, 690]},
+    {"room": "hall", "tag": "chair", "at": [820, 780]}, {"room": "hall", "tag": "chair", "at": [910, 420]},
+    {"room": "hall", "tag": "chair", "at": [910, 510]}, {"room": "hall", "tag": "chair", "at": [910, 600]},
+    {"room": "hall", "tag": "chair", "at": [910, 690]}, {"room": "hall", "tag": "chair", "at": [910, 780]},
+    {"room": "hall", "tag": "chair", "at": [1000, 420]}, {"room": "hall", "tag": "chair", "at": [1000, 510]},
+    {"room": "hall", "tag": "chair", "at": [1000, 600]}, {"room": "hall", "tag": "chair", "at": [1000, 690]},
+    {"room": "hall", "tag": "chair", "at": [1000, 780]},
+    {"room": "hall", "tag": "crates", "at": [462, 640], "size": [100, 120, 240], "traversable": true},
+    {"room": "hall", "tag": "crates", "at": [562, 640], "size": [100, 120, 120], "traversable": true},
+    {"room": "hall", "tag": "painting", "at": [900, 1388], "yaw": -90},
+    {"room": "hall", "tag": "painting", "at": [900, 12], "yaw": 90},
+    {"room": "gallery", "tag": "pedestal", "at": [60, 400]},
+    {"room": "gallery", "tag": "pedestal", "at": [60, 800]},
+    {"room": "gallery", "tag": "pedestal", "at": [60, 1200]},
+    {"room": "gallery", "tag": "painting", "at": [12, 600], "yaw": 0},
+    {"room": "gallery", "tag": "painting", "at": [12, 1000], "yaw": 0},
+    {"room": "office", "tag": "desk", "at": [260, 420]},
+    {"room": "office", "tag": "chair", "at": [260, 500], "yaw": -90},
+    {"room": "office", "tag": "shelves", "at": [30, 300], "yaw": 0},
+    {"room": "office", "tag": "shelves", "at": [30, 600], "yaw": 0},
+    {"room": "office", "tag": "table", "at": [400, 700]},
+    {"room": "office", "tag": "bed", "at": [400, 250], "yaw": 90},
+    {"room": "vault", "tag": "crates", "at": [100, 100]},
+    {"room": "vault", "tag": "crates", "at": [100, 250]},
+    {"room": "vault", "tag": "crates", "at": [300, 420]},
+    {"room": "vault", "tag": "pallet", "at": [280, 150]},
+    {"room": "vault", "tag": "shelves", "at": [370, 260], "yaw": 180},
+    {"room": "vault", "tag": "display_case", "at": [200, 280]}
+  ],
+  "patrols": [
+    {"id": "lobby", "weapon": "FISTS", "points": [["lobby", 170, 200], ["lobby", 600, 200]]},
+    {"id": "hall_front", "weapon": "BAT", "points": [["hall", 500, 300], ["hall", 1100, 300]]},
+    {"id": "hall_back", "weapon": "FISTS", "points": [["hall", 500, 1080], ["hall", 1100, 1080]]},
+    {"id": "hall_under", "weapon": "BAT", "points": [["hall", 200, 200], ["hall", 200, 1200]]},
+    {"id": "gallery", "weapon": "FISTS", "points": [["gallery", 250, 150], ["gallery", 250, 1250]]},
+    {"id": "office", "weapon": "PISTOL", "points": [["office", 100, 150], ["office", 100, 700]]}
+  ],
+  "pickups": [
+    {"id": "vault_key", "room": "office", "kind": "keycard", "keycard": "vault", "at": [300, 420], "z": 76}
+  ],
+  "anchors": [
+    {"room": "gallery", "side": "E", "at": 1000},
+    {"room": "gallery", "side": "E", "at": 300}
+  ],
+  "exit_signs": [
+    {"room": "lobby", "side": "S", "floor": 0, "at": 650},
+    {"room": "gallery", "side": "W", "floor": 1, "at": 685},
+    {"room": "hall", "side": "W", "floor": 0, "at": 300}
+  ]
+}
