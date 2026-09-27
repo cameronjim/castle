@@ -204,7 +204,10 @@ bool FHawkeyeMeleeKateLight::RunTest(const FString& Parameters)
 	UMeleeComponent* Melee = Kate->GetMeleeComponent();
 
 	TestTrue(TEXT("The light starts"), Kate->StartLightAttack());
-	TestTrue(TEXT("She turned to the thug in reach"),
+	TestTrue(TEXT("The blow goes at the thug in reach at once"),
+		FVector::DotProduct(Melee->GetSwingDirection(), FVector::ForwardVector) > 0.99f);
+	Kate->AdvanceMeleeFlow(0.1f);
+	TestTrue(TEXT("She has turned to him 0.1 s later"),
 		FVector::DotProduct(Kate->GetActorForwardVector(), FVector::ForwardVector) > 0.99f);
 	TestEqual(TEXT("The light lands 0.1 s in"), Melee->GetCurrentAttack().WindupSeconds, 0.1f);
 	TestFalse(TEXT("No second swing while one is going"), Kate->StartLightAttack());
