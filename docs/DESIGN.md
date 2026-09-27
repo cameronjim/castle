@@ -63,7 +63,7 @@ only when the first block is finished.
 Do not contradict the show's ending (Kingpin, Eleanor, Maya, Jack). The research doc
 tracks their status.
 
-## Story shape, Part 1 (six chapters, we refine together)
+## Story shape, Part 1 (DRAFT PROPOSAL, nothing decided: Cameron and Claude work the story out together before any chapter is built)
 | # | Chapter | Playable | Beat |
 |---|---------|----------|------|
 | 1 | **Rooftops** | Kate | Tutorial. Kate on a self-assigned patrol. Traversal, first Tracksuit fight, the grapple arrow. Ends with an arrow that isn't hers pinned in a wall, fletched purple. |
