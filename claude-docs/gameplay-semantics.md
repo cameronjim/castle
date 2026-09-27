@@ -610,3 +610,22 @@ the last input came from a pad.
   scene room turns it off and pins its exposure two stops down.
 - Explosion blast light 400 cd; motion blur off for 0.3 s during the blast.
 - A chained zip keeps ignoring the roof it just left until clear of it.
+
+## Melee depth (built 2026-09-27)
+- Combos: light, light, light do 15, 15, 25 (the third knocks back 150 cm), each input
+  within 0.35 s of the previous hit landing; a heavy anywhere in the chain does 35 and
+  knocks down. HUD counter from x2, clears after 2 s; at x5 it turns purple and adds 20%.
+- Parry: a strike tap during a telegraph from a thug within 250 cm and in front staggers
+  him 1.5 s with no damage taken, a 4-frame hit stop, `NS_ParryRing`, and `MS_Parry`.
+  Works on fists, bat, the heavy's bash and slow swing; cancels only the first shot of a
+  gunner's burst; never on archers.
+- Finisher: F on a staggered or knocked-down thug within 200 cm (the stealth takedown is
+  tried first). 1.2 s: lunge, camera 40 cm in, time 0.5 for 0.4 s, lethal at 0.35 s,
+  thrown ragdoll; input locked, invulnerable. With the bow up it's a sweep. TO TIGHTEN:
+  every hit staggers 0.5 s so a finisher is available after almost any hit; restrict it to
+  knockdowns, parry staggers, and combo enders in the difficulty pass.
+- Hit lean: 5 degrees for 0.2 s away from the hit direction, on thugs and Kate, through
+  the IK post-process graph. Strike poses: light punches the right hand out over 0.1 s
+  and back over 0.2 s; heavy both hands over 0.25 s; bow finisher sweeps the bow hand.
+- Soft lock: strikes and dodges turn toward the nearest thug within 400 cm in front over
+  0.1 s. A dodge during a telegraph within 300 cm gives 0.1 s of slow motion.
