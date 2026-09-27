@@ -8,8 +8,11 @@
 #include "HawkeyePlayerController.h"
 #include "Combat/Takedownable.h"
 #include "InputActionValue.h"
+#include "InputCoreTypes.h"
 #include "Player/HawkeyeCharacter.h"
 #include "Settings/HawkeyeSettings.h"
+#include "UI/ChallengeResultsWidget.h"
+#include "UI/HawkeyeInventoryWidget.h"
 #include "World/ThugCharacter.h"
 #include "GameFramework/Actor.h"
 #include "UObject/Object.h"
@@ -130,6 +133,16 @@ public:
 
 	UFUNCTION()
 	void HandleActiveSlotChanged(int32 OldSlot, int32 NewSlot);
+
+	// --- Challenge results ------------------------------------------------------------------------
+	UPROPERTY() int32 ChallengeRetryCount = 0;
+	UPROPERTY() int32 ChallengeLeaveCount = 0;
+
+	UFUNCTION()
+	void HandleChallengeRetry();
+
+	UFUNCTION()
+	void HandleChallengeLeave();
 
 	// --- Bow ------------------------------------------------------------------------------------
 	UPROPERTY() int32 DrawChangedCount = 0;
@@ -345,6 +358,9 @@ class HAWKEYE_API AHawkeyePauseTestController : public AHawkeyePlayerController
 
 public:
 	void TestSetFlashbackActive(bool bActive) { bFlashbackActive = bActive; }
+
+	/** Stands in for the Escape key so a test can check what one press does without EnhancedInput. */
+	void TestInputPause() { Input_Pause(FInputActionValue()); }
 };
 
 /** Minimal ITakedownable actor for takedown tests. */
@@ -394,4 +410,75 @@ public:
 
 	UPROPERTY()
 	TObjectPtr<UBoxComponent> Box;
+};
+
+/** Fires a synthetic key event without a live Slate application, for widgets whose NativeOnKeyDown/Up is the whole fix under test. */
+inline FKeyEvent HawkeyeTestKeyEvent(const FKey& Key, bool bIsRepeat = false)
+{
+	return FKeyEvent(Key, FModifierKeysState(), 0u, bIsRepeat, 0u, 0u);
+}
+
+/** Exposes UHawkeyeInventoryWidget's protected key handling: Escape/Tab/pad close it reach it Slate normally, not through the controller. */
+UCLASS()
+class HAWKEYE_API UHawkeyeInventoryWidgetTestHelper : public UHawkeyeInventoryWidget
+{
+	GENERATED_BODY()
+
+public:
+	FReply TestKeyDown(const FKey& Key, bool bIsRepeat = false)
+	{
+		return NativeOnKeyDown(FGeometry(), HawkeyeTestKeyEvent(Key, bIsRepeat));
+	}
+
+	FReply TestKeyUp(const FKey& Key)
+	{
+		return NativeOnKeyUp(FGeometry(), HawkeyeTestKeyEvent(Key));
+	}
+
+	void TestTick(float DeltaTime) { NativeTick(FGeometry(), DeltaTime); }
+
+	bool TestIsWheelOpenedFromHold() const { return bWheelOpenedFromHold; }
+
+	/**
+	 * NativeOnKeyDown/Tick/Up read NowSeconds off GetWorld()->GetRealTimeSeconds(), which only
+	 * advances if something ticks the world - a plain FHawkeyeTestWorld never does. These three
+	 * drive the same tap/hold state machine with an injected clock instead, the way the generic
+	 * FHawkeyeTapHold tests (Hawkeye.Stability.PhoneTapAndHold) already do.
+	 */
+	void TestPressTab(float HoldSeconds, double NowSeconds)
+	{
+		TabHold.HoldSeconds = HoldSeconds;
+		TabHold.Press(NowSeconds);
+	}
+
+	void TestTickTab(double NowSeconds)
+	{
+		if (TabHold.Tick(NowSeconds) == EHawkeyeTapHold::Hold)
+		{
+			EnterWheelFromHold();
+		}
+	}
+
+	void TestReleaseTab(double NowSeconds)
+	{
+		const EHawkeyeTapHold Result = TabHold.Release(NowSeconds);
+		if (bWheelOpenedFromHold)
+		{
+			FinishWheelFromHold();
+		}
+		else if (Result == EHawkeyeTapHold::Tap || Result == EHawkeyeTapHold::Hold)
+		{
+			RequestClose();
+		}
+	}
+};
+
+/** Exposes UChallengeResultsWidget's protected key handling: Enter/Esc should do what Retry/Leave do. */
+UCLASS()
+class HAWKEYE_API UChallengeResultsWidgetTestHelper : public UChallengeResultsWidget
+{
+	GENERATED_BODY()
+
+public:
+	FReply TestKeyDown(const FKey& Key) { return NativeOnKeyDown(FGeometry(), HawkeyeTestKeyEvent(Key)); }
 };

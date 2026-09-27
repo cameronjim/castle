@@ -133,6 +133,16 @@ void UHawkeyeTestListener::HandleActiveSlotChanged(int32 OldSlot, int32 NewSlot)
 	LastNewArrowSlot = NewSlot;
 }
 
+void UHawkeyeTestListener::HandleChallengeRetry()
+{
+	++ChallengeRetryCount;
+}
+
+void UHawkeyeTestListener::HandleChallengeLeave()
+{
+	++ChallengeLeaveCount;
+}
+
 void UHawkeyeTestListener::HandleDrawChanged(float Fraction)
 {
 	++DrawChangedCount;
