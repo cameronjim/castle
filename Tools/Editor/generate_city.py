@@ -34,10 +34,13 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   buildings 15 to 25 m from the find_arrow roof, each with a clear line to it (building footprints
   and heights, parapets included) and as far apart around it as the roofs allow. Their roofs, and
   every roof those lines cross, get no rooftop clutter. Aggressive only when Kate is within 30 m.
-* chapter 1's first fight: four ``City_Thug_<n>`` (BP_Thug). A Fists and a Bat thug face each
+* chapter 1's first fight: five ``City_Thug_<n>``. A Fists and a Bat thug (BP_Thug) face each
   other on the cross_block roof (tag RoofPair, counted by ``City_ThugGroup_clear_roof``, which
   completes ``clear_roof``); a Bat thug and the gunner patrol the Avenue A sidewalk beside the
-  park between ``City_Patrol_0`` and ``City_Patrol_1`` (ATargetPoints 40 m apart, tag StreetPair).
+  park between ``City_Patrol_0`` and ``City_Patrol_1`` (ATargetPoints 40 m apart, tag StreetPair);
+  ``City_Thug_4``, the heavy (BP_Thug_Heavy, shield), walks his own 20 m of the same sidewalk
+  between ``City_Patrol_2`` and ``City_Patrol_3`` near the park's south corner. The three street
+  thugs are also tagged StreetGroup.
 * the partner: ``City_ClintStart`` (an ATargetPoint 5 m behind the PlayerStart, toward the park)
   and ``City_Clint`` (BP_Clint) standing on it; BP_PartnerController possesses him at load.
 * grapple anchors (``City_Anchor_<n>``, BP_GrappleAnchor): on every building over 8 m, one on
@@ -1379,6 +1382,12 @@ THUG_BP_NAME = "BP_Thug"
 THUG_HALF_HEIGHT = 96.0           # cm; BP_Thug's capsule
 ROOF_PAIR_TAG = "RoofPair"
 STREET_PAIR_TAG = "StreetPair"
+STREET_GROUP_TAG = "StreetGroup"  # the pair and the heavy: the street fight
+HEAVY_BP_NAME = "BP_Thug_Heavy"
+HEAVY_PATROL_LENGTH = 2000.0      # cm between the heavy's two patrol points
+HEAVY_CORNER_REACH = 4000.0       # cm from the sidewalk line a park vertex may be and still be its corner
+HEAVY_PAIR_CLEAR = 500.0          # cm the heavy's patrol keeps from the pair's
+HEAVY_CORNER_START = 600.0        # cm along the sidewalk from the corner the heavy's patrol starts at least
 ROOF_PAIR_GAP = 300.0             # cm between the two arguing on the roof
 ROOF_EDGE_CLEARANCE = 200.0       # cm from any roof edge, so neither stands in the parapet
 PATROL_STREET = "Avenue A"
@@ -1389,10 +1398,11 @@ CROSSING_CLEARANCE = 300.0        # cm; a patrol point this far from any other r
 
 # Every thug keeps AThugCharacter's own "Thug" tag first: the takedown looks for it and a thug's
 # swing skips anyone carrying it. The labels' other tags come after.
-# (weapon, group tag) per thug, in label order: the roof pair (one fists, one bat), then the
-# street pair (one bat, one gunner). One gunner in four.
+# (weapon, group tag) per thug, in label order: the roof pair (one fists, one bat), the street
+# pair (one bat, one gunner), then the heavy on his own patrol.
 THUG_LOADOUT = (("FISTS", ROOF_PAIR_TAG), ("BAT", ROOF_PAIR_TAG),
-                ("BAT", STREET_PAIR_TAG), ("PISTOL", STREET_PAIR_TAG))
+                ("BAT", STREET_PAIR_TAG), ("PISTOL", STREET_PAIR_TAG),
+                ("SHIELD", STREET_GROUP_TAG))
 
 
 def _edge_clearance(pt, ring):
@@ -1433,11 +1443,10 @@ def _clear_of_crossings(pt, district, own):
     return True
 
 
-def street_patrol(district):
-    """(P0, P1, direction yaw) on the Avenue A sidewalk on the park side, PATROL_LENGTH apart.
-
-    Centred on the point of the Avenue A centre line nearest the park's centroid, moved along
-    the avenue until both points are clear of every crossing street."""
+def _park_sidewalk(district):
+    """(q, d, n, offset): the Avenue A centre-line point nearest the park's centroid, the avenue's
+    direction there, the normal toward the park, and how far the park-side sidewalk's middle is
+    from the centre line. None without a park or the avenue."""
     park = district.parks[0] if district.parks else None
     if park is None:
         return None
@@ -1459,7 +1468,18 @@ def street_patrol(district):
     n = (-d[1], d[0])
     if (target[0] - q[0]) * n[0] + (target[1] - q[1]) * n[1] < 0.0:
         n = (-n[0], -n[1])
-    offset = width_m * 50.0 + SIDEWALK_WIDTH * 0.5
+    return q, d, n, width_m * 50.0 + SIDEWALK_WIDTH * 0.5
+
+
+def street_patrol(district):
+    """(P0, P1, direction yaw) on the Avenue A sidewalk on the park side, PATROL_LENGTH apart.
+
+    Centred on the point of the Avenue A centre line nearest the park's centroid, moved along
+    the avenue until both points are clear of every crossing street."""
+    walk = _park_sidewalk(district)
+    if walk is None:
+        return None
+    q, d, n, offset = walk
     centre = (q[0] + n[0] * offset, q[1] + n[1] * offset)
     half = PATROL_LENGTH * 0.5
     for shift in (0.0, 500.0, -500.0, 1000.0, -1000.0, 1500.0, -1500.0, 2000.0, -2000.0):
@@ -1471,10 +1491,47 @@ def street_patrol(district):
     return None
 
 
+def heavy_patrol(district):
+    """(P0, P1, direction yaw) for the heavy: HEAVY_PATROL_LENGTH of the same park-side sidewalk,
+    starting as close to the park's south corner (its southernmost vertex, largest Y, on the Avenue A
+    side) as the crossing streets allow and heading back toward the pair, clear of their patrol."""
+    walk = _park_sidewalk(district)
+    pair = street_patrol(district)
+    if walk is None or pair is None:
+        return None
+    q, d, n, offset = walk
+    base = (q[0] + n[0] * offset, q[1] + n[1] * offset)
+    ring = district.ring_cm(district.parks[0]["outer"])
+    near = [v for v in ring if abs((v[0] - base[0]) * n[0] + (v[1] - base[1]) * n[1]) <= HEAVY_CORNER_REACH]
+    if not near:
+        return None
+    corner = max(near, key=lambda v: v[1])
+    t_corner = (corner[0] - base[0]) * d[0] + (corner[1] - base[1]) * d[1]
+    sign = -1.0 if t_corner > 0.0 else 1.0
+    pair_seg = [pair[0], pair[1]]
+
+    def at(t):
+        return (base[0] + d[0] * t, base[1] + d[1] * t)
+
+    step = HEAVY_CORNER_START
+    while step <= abs(t_corner):
+        t0 = t_corner + sign * step
+        p0, p1 = at(t0), at(t0 + sign * HEAVY_PATROL_LENGTH)
+        clear = (_clear_of_crossings(p0, district, PATROL_STREET) and _clear_of_crossings(p1, district, PATROL_STREET)
+                 and closest_point_on_polyline(p0, pair_seg)[0] >= HEAVY_PAIR_CLEAR
+                 and closest_point_on_polyline(p1, pair_seg)[0] >= HEAVY_PAIR_CLEAR)
+        if clear:
+            yaw = math.degrees(math.atan2(d[1] * sign, d[0] * sign))
+            return p0, p1, yaw
+        step += 250.0
+    return None
+
+
 def thug_placements(district):
-    """([(label, x, y, z, yaw, weapon, tags, [patrol labels])], [(label, x, y, z)], roof record)."""
+    """([(label, x, y, z, yaw, weapon, tags, [patrol labels], blueprint)], [(label, x, y, z, tag)], roof record)."""
     roof = roof_pair_spots(district)
     patrol = street_patrol(district)
+    heavy = heavy_patrol(district)
     thugs, points = [], []
     roof_rec = None
     if roof is not None:
@@ -1482,20 +1539,29 @@ def thug_placements(district):
         for i, spot in enumerate((a, b)):
             weapon, tag = THUG_LOADOUT[i]
             thugs.append((THUG_PREFIX + str(i), spot[0], spot[1], spot[2], spot[3], weapon,
-                          ["Thug", "City", "CityThug", tag, "osm:" + roof_rec["id"]], []))
+                          ["Thug", "City", "CityThug", tag, "osm:" + roof_rec["id"]], [], THUG_BP_NAME))
     if patrol is not None:
         p0, p1, yaw = patrol
         z_walk = SIDEWALK_TOP
-        points = [(PATROL_PREFIX + "0", p0[0], p0[1], z_walk + PATROL_POINT_HEIGHT),
-                  (PATROL_PREFIX + "1", p1[0], p1[1], z_walk + PATROL_POINT_HEIGHT)]
+        points = [(PATROL_PREFIX + "0", p0[0], p0[1], z_walk + PATROL_POINT_HEIGHT, STREET_PAIR_TAG),
+                  (PATROL_PREFIX + "1", p1[0], p1[1], z_walk + PATROL_POINT_HEIGHT, STREET_PAIR_TAG)]
         ux, uy = math.cos(math.radians(yaw)), math.sin(math.radians(yaw))
         for j in range(2):
             weapon, tag = THUG_LOADOUT[2 + j]
             along = STREET_PAIR_SPACING * j
             thugs.append((THUG_PREFIX + str(2 + j), p0[0] + ux * along, p0[1] + uy * along,
                           z_walk + THUG_HALF_HEIGHT + 2.0, yaw, weapon,
-                          ["Thug", "City", "CityThug", tag, "street:" + PATROL_STREET],
-                          [PATROL_PREFIX + "1", PATROL_PREFIX + "0"]))
+                          ["Thug", "City", "CityThug", tag, "street:" + PATROL_STREET, STREET_GROUP_TAG],
+                          [PATROL_PREFIX + "1", PATROL_PREFIX + "0"], THUG_BP_NAME))
+    if patrol is not None and heavy is not None:
+        h0, h1, h_yaw = heavy
+        z_walk = SIDEWALK_TOP
+        points += [(PATROL_PREFIX + "2", h0[0], h0[1], z_walk + PATROL_POINT_HEIGHT, STREET_GROUP_TAG),
+                   (PATROL_PREFIX + "3", h1[0], h1[1], z_walk + PATROL_POINT_HEIGHT, STREET_GROUP_TAG)]
+        weapon, tag = THUG_LOADOUT[4]
+        thugs.append((THUG_PREFIX + "4", h0[0], h0[1], z_walk + THUG_HALF_HEIGHT + 2.0, h_yaw, weapon,
+                      ["Thug", "City", "CityThug", tag, "street:" + PATROL_STREET],
+                      [PATROL_PREFIX + "3", PATROL_PREFIX + "2"], HEAVY_BP_NAME))
     return thugs, points, roof_rec
 
 
@@ -1546,20 +1612,26 @@ def ensure_thugs(district, existing):
         c.log("FAILED", THUG_PREFIX + "*", "BP_Thug or AThugGroupObjective missing; build and run create_world_blueprints.py")
         return 0
     thugs, points, roof_rec = thug_placements(district)
-    if len(thugs) != len(THUG_LOADOUT) or len(points) != 2:
+    if len(thugs) != len(THUG_LOADOUT) or len(points) != 4:
         c.log("FAILED", THUG_PREFIX + "*", "found {0} thug spots and {1} patrol points".format(len(thugs), len(points)))
+    classes = {THUG_BP_NAME: thug_cls, HEAVY_BP_NAME: c.load_generated_class(THUG_BP_PATH, HEAVY_BP_NAME)}
+    if classes[HEAVY_BP_NAME] is None:
+        c.log("FAILED", THUG_PREFIX + "4", HEAVY_BP_NAME + " missing; run create_enemies.py")
     changes = 0
     wanted = set()
     patrol_actors = {}
-    for label, x, y, z in points:
+    for label, x, y, z, tag in points:
         actor, n = _ensure_located(existing, label, unreal.TargetPoint, unreal.Vector(x, y, z), 0.0)
         if actor is None:
             continue
         wanted.add(label)
         patrol_actors[label] = actor
-        changes += n + _ensure_tags(actor, ["City", "CityPatrol", STREET_PAIR_TAG])
-    for label, x, y, z, yaw, weapon, tags, patrol in thugs:
-        actor, n = _ensure_located(existing, label, thug_cls, unreal.Vector(x, y, z), yaw)
+        changes += n + _ensure_tags(actor, ["City", "CityPatrol", tag])
+    for label, x, y, z, yaw, weapon, tags, patrol, bp_name in thugs:
+        cls = classes.get(bp_name)
+        if cls is None:
+            continue
+        actor, n = _ensure_located(existing, label, cls, unreal.Vector(x, y, z), yaw)
         if actor is None:
             continue
         wanted.add(label)
@@ -2994,8 +3066,8 @@ def clutter_keepouts(district):
         cy = origin[1] + uy * scale[0] * 50.0 + ux * scale[1] * 50.0
         points.append(("test_block", (cx, cy), TEST_BLOCK_CLEAR + max(scale[0], scale[1]) * 50.0))
     segments = []
-    if len(patrol_points) == 2:
-        segments.append(((patrol_points[0][1], patrol_points[0][2]), (patrol_points[1][1], patrol_points[1][2])))
+    for a, b in zip(patrol_points[0::2], patrol_points[1::2]):
+        segments.append(((a[1], a[2]), (b[1], b[2])))
     return points, segments
 
 

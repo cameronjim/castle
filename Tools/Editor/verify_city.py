@@ -26,9 +26,10 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
   clearance of a lamp pole or head, no two landings overlapping; each has its rail ledge
   (Ledge_1 on the outer top rail within 5 cm) and the bars are drawn in M_SteelPainted
 * the partner: City_ClintStart and City_Clint (BP_Clint) 5 m behind the PlayerStart, on the navmesh.
-* chapter 1's fight: four City_Thug_ (one gunner, two bats, one fists), the RoofPair on the
-  cross_block roof, two City_Patrol_ points 40 m apart, City_ThugGroup_clear_roof, and every
-  thug's feet on the navmesh (the navmesh is built in the editor world first, not saved)
+* chapter 1's fight: five City_Thug_ (one gunner, two bats, one fists, one heavy on BP_Thug_Heavy), the
+  RoofPair on the cross_block roof, the street pair's two City_Patrol_ points 40 m apart and the
+  heavy's two 20 m apart, the StreetGroup tag on the three street thugs, City_ThugGroup_clear_roof,
+  and every thug's feet on the navmesh (the navmesh is built in the editor world first, not saved)
 * Barney's archers: two City_Archer_ (BP_Archer, Bow, tagged ArcherPair) where the generator puts
   them, 15 to 25 m from the find_arrow beacon, feet on the navmesh, and a clear line from each one's
   eyes to Kate's chest at the beacon by a real trace against the level's collision
@@ -328,7 +329,7 @@ def check_clutter(district, spawner):
 
     thugs, points, _roof = gen.thug_placements(district)
     keep = [(t[1], t[2]) for t in thugs] + [(p[1], p[2]) for p in points]
-    segment = [(points[0][1], points[0][2]), (points[1][1], points[1][2])] if len(points) == 2 else None
+    patrol_segments = [[(a[1], a[2]), (b[1], b[2])] for a, b in zip(points[0::2], points[1::2])]
     landings = []
     for rec in data.get_editor_property("fire_escapes") if data is not None else []:
         xf = rec.get_editor_property("transform")
@@ -350,7 +351,8 @@ def check_clutter(district, spawner):
             t = xf.translation
             pt = (t.x, t.y)
             if any(math.hypot(pt[0] - q[0], pt[1] - q[1]) < gen.PATROL_CLEAR + radius - 1.0 for q in keep) or (
-                    segment and gen.closest_point_on_polyline(pt, segment)[0] < gen.PATROL_CLEAR + radius - 1.0):
+                    any(gen.closest_point_on_polyline(pt, seg)[0] < gen.PATROL_CLEAR + radius - 1.0
+                        for seg in patrol_segments)):
                 blocking["patrol"].append(kind)
             if kind == "Scaffold":
                 yaw = xf.rotation.rotator().yaw
@@ -554,19 +556,25 @@ def weapon_name(value):
 
 
 def check_thugs(district, actors, records):
-    """Four City_Thug_<n> with one gunner, two patrol points 40 m apart, the roof pair on the
-    cross_block roof, the clear_roof group, and every thug's feet on the navmesh."""
+    """Five City_Thug_<n> with one gunner and one heavy, the street pair's patrol points 40 m apart and
+    the heavy's 20 m apart, the roof pair on the cross_block roof, the clear_roof group, and every thug's
+    feet on the navmesh."""
     thugs = {l: a for l, a in actors.items() if l.startswith(gen.THUG_PREFIX)}
     points = {l: a for l, a in actors.items() if l.startswith(gen.PATROL_PREFIX)}
     wanted, wanted_points, roof_rec = gen.thug_placements(district)
-    check(sorted(thugs) == sorted(t[0] for t in wanted), "four chapter-1 thugs placed",
+    check(sorted(thugs) == sorted(t[0] for t in wanted) and len(thugs) == 5, "five chapter-1 thugs placed",
           "{0} thugs: {1}".format(len(thugs), ", ".join(sorted(thugs))))
-    check(len(points) == 2 and all(isinstance(a, unreal.TargetPoint) for a in points.values()),
-          "two patrol points (ATargetPoint)", ", ".join(sorted(points)))
-    if len(points) == 2:
-        a, b = [points[l].get_actor_location() for l in sorted(points)]
-        gap = math.hypot(a.x - b.x, a.y - b.y)
-        check(abs(gap - gen.PATROL_LENGTH) <= 1.0, "patrol points 40 m apart", "{0:.1f} cm".format(gap))
+    check(len(points) == 4 and all(isinstance(a, unreal.TargetPoint) for a in points.values()),
+          "four patrol points (ATargetPoint)", ", ".join(sorted(points)))
+    for first, second, length, what in ((0, 1, gen.PATROL_LENGTH, "street pair's patrol points 40 m apart"),
+                                        (2, 3, gen.HEAVY_PATROL_LENGTH, "heavy's patrol points 20 m apart")):
+        la, lb = gen.PATROL_PREFIX + str(first), gen.PATROL_PREFIX + str(second)
+        if la in points and lb in points:
+            a, b = points[la].get_actor_location(), points[lb].get_actor_location()
+            gap = math.hypot(a.x - b.x, a.y - b.y)
+            check(abs(gap - length) <= 1.0, what, "{0:.1f} cm".format(gap))
+        else:
+            check(False, what, "missing " + la + " or " + lb)
 
     weapons = {}
     detail = []
@@ -577,13 +585,19 @@ def check_thugs(district, actors, records):
         patrol = [p.get_actor_label() for p in actor.get_editor_property("patrol_points") if p]
         loc = actor.get_actor_location()
         detail.append("{0} {1} {2} ({3:.0f}, {4:.0f}, {5:.0f}){6}".format(
-            label, weapon.lower(), "/".join(t for t in tags if t.endswith("Pair")), loc.x, loc.y, loc.z,
+            label, weapon.lower(), "/".join(t for t in tags if t.endswith("Pair") or t.endswith("Group")), loc.x, loc.y, loc.z,
             " patrol " + ">".join(patrol) if patrol else ""))
     unreal.log("[Hawkeye] info  thugs: " + "; ".join(detail))
     untagged = [l for l, a in thugs.items() if "Thug" not in [str(t) for t in a.get_editor_property("tags")]]
     check(not untagged, "every thug keeps the Thug tag (takedowns and friendly swings use it)", ", ".join(untagged))
-    check(weapons.get("PISTOL", 0) == 1 and weapons.get("BAT", 0) == 2 and weapons.get("FISTS", 0) == 1,
-          "one gunner, two bats, one fists", str(weapons))
+    check(weapons.get("PISTOL", 0) == 1 and weapons.get("BAT", 0) == 2 and weapons.get("FISTS", 0) == 1
+          and weapons.get("SHIELD", 0) == 1, "one gunner, two bats, one fists, one heavy", str(weapons))
+    heavy = thugs.get(gen.THUG_PREFIX + "4")
+    heavy_class = heavy.get_class().get_name() if heavy is not None else ""
+    check(heavy_class.startswith(gen.HEAVY_BP_NAME), "City_Thug_4 is BP_Thug_Heavy", heavy_class)
+    street = sorted(l for l, a in thugs.items() if gen.STREET_GROUP_TAG in [str(t) for t in a.get_editor_property("tags")])
+    check(street == sorted(t[0] for t in wanted if gen.STREET_GROUP_TAG in t[6]) and len(street) == 3,
+          "the bat, the gunner and the heavy are tagged StreetGroup", ", ".join(street))
 
     roof_pair = [a for a in thugs.values() if "RoofPair" in [str(t) for t in a.get_editor_property("tags")]]
     on_roof = roof_rec is not None and len(roof_pair) == 2 and all(
