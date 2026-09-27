@@ -25,6 +25,9 @@
     4f. apply_vfx_defaults        (create_blueprints) the effects on the same classes and data assets
     5. fixup_redirectors          resave past any redirector the GASP copy brought in, then
                                   delete it
+    5b. create_narrative          DT_Messages, DT_DialogueSequences, L_Scene_Placeholder and its game
+                                  mode, DA_FB00_Placeholder (after the mission data and the partner's
+                                  DT_Dialogue); it opens its own map, so it runs just before the city
     6. generate_city              L_District_EastVillage from OpenStreetMap, after everything
                                   else and only when Tools/Data/osm/east_village.buildings.json
                                   exists (Tools/fetch-osm.ps1 writes it)
@@ -63,6 +66,7 @@ STEPS = [
     ("audio defaults", "create_blueprints", "apply_audio_defaults"),
     ("vfx defaults", "create_blueprints", "apply_vfx_defaults"),
     ("fix up redirectors", "fixup_redirectors"),
+    ("narrative", "create_narrative"),
     ("city", "generate_city"),
 ]
 
