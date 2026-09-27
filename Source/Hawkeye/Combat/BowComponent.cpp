@@ -177,6 +177,17 @@ void UBowComponent::SetTestTimeSeconds(double InSeconds)
 	TestTimeOverride = InSeconds;
 }
 
+void UBowComponent::ClearTestTime()
+{
+	if (!bUseTestTime)
+	{
+		return;
+	}
+	const double Left = FollowThroughUntilSeconds - TestTimeOverride;
+	bUseTestTime = false;
+	FollowThroughUntilSeconds = Left > 0.0 ? GetNowSeconds() + Left : -1.0;
+}
+
 UInventoryComponent* UBowComponent::FindInventory() const
 {
 	const AActor* Owner = GetOwner();
