@@ -25,6 +25,10 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
   from Tompkins Square Park, a NavMeshBoundsVolume.
 * street lamps every 30 m on both sidewalks of every road (``City_Lamp_<n>`` spot light plus
   ``City_LampPole_<n>`` and ``City_LampHead_<n>``); only the ones around the park cast shadows.
+  The 20 nearest the park hum: ``City_LampBuzz_<n>`` (AAmbientSound, MS_Amb_LampBuzz, tag CityLamp so
+  the EMP silences it too), 3 m up the pole.
+* ``City_Ambience`` (AHawkeyeAmbience) at street level: rooftop wind and street hum, crossfaded by
+  the player's height above it.
   The lit windows are in the facade material.
 * chapter 1: the BP_GameMode_EastVillage override (starts DA_CH01_Rooftops) and three
   ``City_Obj_<objective>`` trigger volumes on roofs picked from the records, each with a 1 m
@@ -2098,6 +2102,89 @@ def ensure_street_lamps(district, existing):
 
 
 # --------------------------------------------------------------------------------------
+# ambience: the wind and street bed, and the buzz on the lamps round the park
+# --------------------------------------------------------------------------------------
+
+AMBIENCE_LABEL = "City_Ambience"      # AHawkeyeAmbience at street level; the fade reads height above it
+LAMP_BUZZ_PREFIX = "City_LampBuzz_"   # an AAmbientSound on each of the lamps nearest the park
+LAMP_BUZZ_COUNT = 20
+LAMP_BUZZ_HEIGHT = 300.0              # cm up the pole: ATT_Lamp's 400 cm reaches a head under the lamp
+LAMP_BUZZ_TAGS = ["City", "CityLamp"]  # CityLamp: the EMP silences it with the light
+
+
+def _audio_sound(name):
+    import create_audio  # noqa: PLC0415 - the generator needs only the paths
+
+    return c.load_or_none(create_audio.sound_path(name))
+
+
+def _sound_key(value):
+    return value.get_path_name().split(".")[0] if value is not None else ""
+
+
+def _ensure_sound(obj, prop, sound, context):
+    if sound is None:
+        c.log("skipped", context + "." + prop, "sound not built; run create_audio")
+        return 0
+    if _sound_key(obj.get_editor_property(prop)) == _sound_key(sound):
+        return 0
+    c.set_props(obj, [(prop, sound)], context)
+    return 1
+
+
+def ensure_ambience(district, existing):
+    """City_Ambience at the ground's centre, street level, with the wind and street loops."""
+    cls = c.find_class("HawkeyeAmbience", "/Script/Hawkeye.HawkeyeAmbience")
+    if cls is None:
+        c.log("skipped", AMBIENCE_LABEL, "AHawkeyeAmbience not built")
+        return 0
+    cx, cy = geo.centroid(ground_ring_cm(district))
+    actor, changes = _ensure_located(existing, AMBIENCE_LABEL, cls, unreal.Vector(cx, cy, 0.0), 0.0)
+    if actor is None:
+        return changes
+    changes += _ensure_sound(actor, "wind_sound", _audio_sound("MS_Amb_Wind"), AMBIENCE_LABEL)
+    changes += _ensure_sound(actor, "street_sound", _audio_sound("MS_Amb_Street"), AMBIENCE_LABEL)
+    changes += _ensure_tags(actor, ["City"])
+    c.log("updated" if changes else "exists", AMBIENCE_LABEL)
+    return changes
+
+
+def lamp_buzz_spots(district):
+    """[(x, y)] of the sound on the LAMP_BUZZ_COUNT lamps nearest the park, nearest first."""
+    if not district.parks:
+        return []
+    ring = district.ring_cm(district.parks[0]["outer"])
+    ranked = sorted((ring_distance((x, y), ring), i, x, y) for i, (x, y, _yaw, _s) in enumerate(lamp_spots(district)))
+    return [(x, y) for _d, _i, x, y in ranked[:LAMP_BUZZ_COUNT]]
+
+
+def ensure_lamp_buzz(district, existing):
+    buzz = _audio_sound("MS_Amb_LampBuzz")
+    spots = lamp_buzz_spots(district)
+    changes = 0
+    for i, (x, y) in enumerate(spots):
+        label = LAMP_BUZZ_PREFIX + str(i)
+        loc = unreal.Vector(x, y, SIDEWALK_TOP + LAMP_BUZZ_HEIGHT)
+        actor, n = _ensure_located(existing, label, unreal.AmbientSound, loc, 0.0)
+        if actor is None:
+            continue
+        n += _ensure_sound(actor.get_editor_property("audio_component"), "sound", buzz, label)
+        n += _ensure_tags(actor, LAMP_BUZZ_TAGS)
+        changes += n
+    removed = 0
+    for label, actor in list(existing.items()):
+        rest = label[len(LAMP_BUZZ_PREFIX):] if label.startswith(LAMP_BUZZ_PREFIX) else ""
+        if rest.isdigit() and int(rest) >= len(spots):
+            actor.destroy_actor()
+            existing.pop(label, None)
+            removed += 1
+    changes += removed
+    c.log("updated" if changes else "exists", "lamp buzz",
+          "{0} lamps nearest the park, {1} removed".format(len(spots), removed))
+    return changes
+
+
+# --------------------------------------------------------------------------------------
 # grapple anchors
 # --------------------------------------------------------------------------------------
 
@@ -3614,6 +3701,8 @@ def run():
     changes += ensure_archers(district, existing)
     changes += ensure_clint(district, existing)
     changes += ensure_street_lamps(district, existing)
+    changes += ensure_ambience(district, existing)
+    changes += ensure_lamp_buzz(district, existing)
     changes += ensure_ledge_spawner(district, existing)
     changes += ensure_test_blocks(district, existing)
 
