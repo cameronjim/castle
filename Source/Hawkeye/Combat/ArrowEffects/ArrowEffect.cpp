@@ -3,6 +3,7 @@
 #include "Combat/ArrowEffects/ArrowEffect.h"
 
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "Combat/ArrowEffects/BolaEffect.h"
 #include "Combat/ArrowEffects/EmpPulse.h"
 #include "Combat/ArrowEffects/ExplosiveBlast.h"
@@ -103,6 +104,14 @@ void AArrowEffect::Activate()
 	Elapsed = 0.f;
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s landed at %s (hit %s)."), *GetName(), *GetNameSafe(Arrow),
 		*ImpactPoint.ToCompactString(), *GetNameSafe(HitActor.Get()));
+	if (Arrow && Arrow->bEffectSoundFollowsEffect)
+	{
+		UHawkeyeAudioSubsystem::PlayAttached(Arrow->EffectSound, Root, TEXT("trick arrow effect"));
+	}
+	else if (Arrow)
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, Arrow->EffectSound, ImpactPoint, TEXT("trick arrow effect"));
+	}
 }
 
 void AArrowEffect::AdvanceEffect(float DeltaSeconds)

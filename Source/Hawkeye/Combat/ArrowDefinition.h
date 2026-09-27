@@ -8,6 +8,7 @@
 
 class AArrowEffect;
 class AArrowProjectile;
+class USoundBase;
 class UTexture2D;
 
 /**
@@ -86,6 +87,17 @@ public:
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")
 	TSubclassOf<AArrowEffect> EffectClass;
+
+	/** What the effect sounds like as it goes off (MS_Trick_Putty, _Bola, _Smoke, _Emp, _Explosion). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Audio")
+	TSoftObjectPtr<USoundBase> EffectSound;
+
+	/**
+	 * The sound rides on the effect and stops with it (the smoke's hiss loops for the cloud's life).
+	 * Off, it plays once at the impact and outlives the effect actor.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow|Audio")
+	bool bEffectSoundFollowsEffect = false;
 
 	/** Hotbar icon. TODO(stage3): unused until icons are drawn; the hotbar shows ShortName. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow")

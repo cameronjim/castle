@@ -4,6 +4,7 @@
 
 #include "Hawkeye.h"
 #include "Combat/ArrowEffects/SmokeCloud.h"
+#include "Components/AudioComponent.h"
 #include "Components/LightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/World.h"
@@ -115,6 +116,17 @@ void UArrowEffectsSubsystem::SwitchOff(AActor* Lamp, FLampOutage& Outage) const
 			Outage.GlowIntensities.Add(Intensity);
 		}
 	}
+
+	TArray<UAudioComponent*> Sounds;
+	Lamp->GetComponents<UAudioComponent>(Sounds);
+	for (UAudioComponent* Sound : Sounds)
+	{
+		if (Sound && Sound->IsPlaying())
+		{
+			Sound->Stop();
+			Outage.Sounds.Add(Sound);
+		}
+	}
 }
 
 void UArrowEffectsSubsystem::SwitchOn(FLampOutage& Outage) const
@@ -131,6 +143,13 @@ void UArrowEffectsSubsystem::SwitchOn(FLampOutage& Outage) const
 		if (UMaterialInstanceDynamic* Glow = Outage.Glows[Index].Get())
 		{
 			Glow->SetScalarParameterValue(HawkeyeArrowEffects::GlowParameter, Outage.GlowIntensities[Index]);
+		}
+	}
+	for (const TWeakObjectPtr<UAudioComponent>& Sound : Outage.Sounds)
+	{
+		if (UAudioComponent* Live = Sound.Get())
+		{
+			Live->Play();
 		}
 	}
 }

@@ -7,6 +7,7 @@
 #include "ArrowEffectsSubsystem.generated.h"
 
 class ASmokeCloud;
+class UAudioComponent;
 class ULightComponent;
 class UMaterialInstanceDynamic;
 
@@ -84,6 +85,8 @@ protected:
 		TArray<TWeakObjectPtr<ULightComponent>> Lights;
 		TArray<TWeakObjectPtr<UMaterialInstanceDynamic>> Glows;
 		TArray<float> GlowIntensities;
+		/** The lamp's buzz (the City_LampBuzz_ sounds carry the lamp tag), silenced with the light. */
+		TArray<TWeakObjectPtr<UAudioComponent>> Sounds;
 	};
 
 	/** Hides the lamp's lights and dims its glow, remembering what to put back. */
