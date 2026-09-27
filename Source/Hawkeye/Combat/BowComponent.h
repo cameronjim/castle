@@ -4,11 +4,15 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Combat/BowHandIKTypes.h"
 #include "Math/RandomStream.h"
 #include "BowComponent.generated.h"
 
 class AArrowProjectile;
+class UAnimInstance;
 class UArrowDefinition;
+class UHawkeyeBowIKAnimInstance;
+class USkeletalMeshComponent;
 class UBowDefinition;
 class UInventoryComponent;
 class UStaticMeshComponent;
@@ -29,10 +33,12 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnArrowHitSignature, AActor*, Hi
  * here: releasing with it nocked hands over to UGrappleComponent::TryFire.
  *
  * Also owns the bow's look: the mesh on the back while holstered, attached to the left hand while
- * drawing, turned toward the aim as the draw builds and the string pulled back. No draw animation
- * exists and the arm cannot be posed without an AnimBP change, so the grip also blends from the
- * hand up to a point held out in front of the left shoulder, where a drawn bow would be. An arrow
- * sits on the string from the nock forward through the grip while drawing.
+ * drawing, turned toward the aim as the draw builds and the string pulled back. With HandsIKClass
+ * set (a post-process AnimBP built by UHawkeyeBowIKGraphBuilder) the arms do the work: IK raises the
+ * bow hand to the aim and brings the string hand back to the cheek, the bow rides in the palm and
+ * the string's nock follows the string hand. Without it (no AnimBP, tests) the grip blends from the
+ * hand up to a point held out in front of the left shoulder instead. An arrow sits on the string
+ * from the nock forward through the grip while drawing.
  */
 UCLASS(Blueprintable, BlueprintType, ClassGroup = (Hawkeye), meta = (BlueprintSpawnableComponent))
 class HAWKEYE_API UBowComponent : public UActorComponent
@@ -114,9 +120,25 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Bow|Visual")
 	UStaticMeshComponent* GetBowMeshComponent() const { return BowMesh; }
 
-	/** True while the bow is in the hand (drawing, or just loosed), false on the back. */
+	/** True while the bow is in the hand: raised, or resting there with bHolsterWhenIdle off. False on the back. */
 	UFUNCTION(BlueprintPure, Category = "Bow|Visual")
 	bool IsBowInHand() const;
+
+	/** True while the bow is up at the aim: drawing, or the follow-through just after a shot. */
+	UFUNCTION(BlueprintPure, Category = "Bow|Visual")
+	bool IsBowRaised() const;
+
+	/**
+	 * The way the hands aim the bow from From: at the aim override for the AI, else the controller's
+	 * view (the player's camera), else the actor's facing.
+	 */
+	FRotator ComputeHandsAimRotation(const FVector& From) const;
+
+	/** The owner mesh's running bow hands post-process instance, or null (no HandsIKClass, no mesh). */
+	UHawkeyeBowIKAnimInstance* GetHandsIKInstance() const;
+
+	/** Sets HandsIKClass as the owner mesh's post-process AnimBP override. BeginPlay calls it. */
+	void ApplyHandsIK();
 
 	/** Every tick while drawing, and 0 on release or cancel. */
 	UPROPERTY(BlueprintAssignable, Category = "Bow")
@@ -165,7 +187,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float DrawWalkSpeedMultiplier = 0.6f;
 
+	// --- Hands ------------------------------------------------------------------------------------
+
+	/**
+	 * Post-process AnimBP that puts the hands on the bow (ABP_BowIK_Post, ABP_BowIK_Post_Thug), set as
+	 * the owner mesh's post-process override at BeginPlay. It runs after the main AnimBP and reads
+	 * HandsIK from here. None leaves the mesh alone and the bow uses the held-out placeholder.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands")
+	TSubclassOf<UAnimInstance> HandsIKClass;
+
+	/** Where the hands and elbows go while the bow is up, and how fast they get there. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands")
+	FBowHandIKSettings HandsIK;
+
 	// --- Visual tuning ----------------------------------------------------------------------------
+
+	/** Carry the bow across the back while not drawing. Off: it stays in the left hand, arm down. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bow|Visual")
+	bool bHolsterWhenIdle = true;
+
+	/** Pitch of the bow resting in the hand with the arm down (bHolsterWhenIdle off), degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
+	float RestPitchDegrees = -10.f;
 
 	/** Bone the bow hangs off while holstered. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Visual")
@@ -251,6 +295,19 @@ protected:
 
 	/** Places the bow on the back or in the hand and pulls the string for this frame. */
 	void UpdateBowVisual();
+
+	/** The socket the bow is gripped by while in the hand, or HolsterBone when there is none. */
+	FName FindGripSocket(const USkeletalMeshComponent& Body, bool bWithHandsIK) const;
+
+	/** The bow in the palm with the hands IK running: turned from resting to the aim by its bow alpha. */
+	void PlaceBowWithHandsIK(const USkeletalMeshComponent& Body, const UHawkeyeBowIKAnimInstance& Hands, FName Grip,
+		FVector& OutLocation, FQuat& OutRotation) const;
+
+	/** The bow without hands IK: blended up from the hand to the held-out point in the first part of the draw. */
+	void PlaceBowHeldOut(const USkeletalMeshComponent& Body, FName Grip, FVector& OutLocation, FQuat& OutRotation) const;
+
+	/** Lays the string halves and the nocked arrow for this frame from the bow's transform. */
+	void PlaceStringAndArrow(const USkeletalMeshComponent& Body, const UHawkeyeBowIKAnimInstance* Hands);
 
 	/** Lays one string half from Tip to Nock (world space). */
 	void PlaceString(UStaticMeshComponent* String, const FVector& Tip, const FVector& Nock) const;

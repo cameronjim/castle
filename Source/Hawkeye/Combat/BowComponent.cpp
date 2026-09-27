@@ -8,6 +8,7 @@
 #include "Combat/ArrowDefinition.h"
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowDefinition.h"
+#include "Combat/BowIKAnimInstance.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/WeaponComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -47,7 +48,52 @@ void UBowComponent::BeginPlay()
 	{
 		Inventory->OnInventoryChanged.AddDynamic(this, &UBowComponent::HandleInventoryChanged);
 	}
+	ApplyHandsIK();
 	RefreshBowVisual();
+}
+
+void UBowComponent::ApplyHandsIK()
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Body = Character ? Character->GetMesh() : nullptr;
+	if (!HandsIKClass || !Body || Body->GetPostProcessAnimBPClassToBeUsed() == HandsIKClass)
+	{
+		return;
+	}
+	// Not a full re-initialise: the main AnimBP keeps its state and only the post-process instance
+	// is created. The override replaces the mesh asset's own post-process AnimBP; ABP_BowIK_Post
+	// runs the sample's one inside itself so nothing is lost.
+	Body->SetOverridePostProcessAnimBP(HandsIKClass, /*ReinitAnimInstances=*/false);
+	Body->InitializeAnimScriptInstance(/*bForceReinit=*/false);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: bow hands post-process %s on %s (instance %s)."), *GetNameSafe(Character),
+		*GetNameSafe(HandsIKClass.Get()), *GetNameSafe(Body), *GetNameSafe(Body->GetPostProcessInstance()));
+}
+
+UHawkeyeBowIKAnimInstance* UBowComponent::GetHandsIKInstance() const
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	const USkeletalMeshComponent* Body = Character ? Character->GetMesh() : nullptr;
+	return Body ? Cast<UHawkeyeBowIKAnimInstance>(Body->GetPostProcessInstance()) : nullptr;
+}
+
+FRotator UBowComponent::ComputeHandsAimRotation(const FVector& From) const
+{
+	const AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return FRotator::ZeroRotator;
+	}
+	if (bHasAimOverride && !(AimOverridePoint - From).IsNearlyZero())
+	{
+		return (AimOverridePoint - From).Rotation();
+	}
+	const APawn* Pawn = Cast<APawn>(Owner);
+	if (Pawn && Pawn->GetController())
+	{
+		const FRotator View = Pawn->GetControlRotation();
+		return FRotator(FRotator::NormalizeAxis(View.Pitch), View.Yaw, 0.f);
+	}
+	return FRotator(0.f, Owner->GetActorRotation().Yaw, 0.f);
 }
 
 void UBowComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -115,9 +161,14 @@ float UBowComponent::GetCurrentSpreadDegrees() const
 	return Bow ? Bow->ComputeSpread(GetDrawFraction()) : 0.f;
 }
 
-bool UBowComponent::IsBowInHand() const
+bool UBowComponent::IsBowRaised() const
 {
 	return bDrawing || GetNowSeconds() < FollowThroughUntilSeconds;
+}
+
+bool UBowComponent::IsBowInHand() const
+{
+	return IsBowRaised() || !bHolsterWhenIdle;
 }
 
 bool UBowComponent::IsInPerfectWindow() const
@@ -489,18 +540,68 @@ void UBowComponent::PlaceString(UStaticMeshComponent* String, const FVector& Tip
 	String->SetWorldScale3D(FVector(StringThickness / 100.f, StringThickness / 100.f, Length / 100.f));
 }
 
+FName UBowComponent::FindGripSocket(const USkeletalMeshComponent& Body, bool bWithHandsIK) const
+{
+	const UBowDefinition* Bow = GetBow();
+	if (Bow && !Bow->HandSocket.IsNone() && Body.DoesSocketExist(Bow->HandSocket))
+	{
+		return Bow->HandSocket;
+	}
+	// An archer's bow names no socket (his clip-driven hand used to hang at his hip); with hands IK
+	// the hand is where the bow should be, so the plain hand bone does.
+	if (bWithHandsIK && Body.DoesSocketExist(HandsIK.GripFallbackBone))
+	{
+		return HandsIK.GripFallbackBone;
+	}
+	return HolsterBone;
+}
+
+void UBowComponent::PlaceBowWithHandsIK(const USkeletalMeshComponent& Body, const UHawkeyeBowIKAnimInstance& Hands,
+	FName Grip, FVector& OutLocation, FQuat& OutRotation) const
+{
+	// The hand is already on the grip (IK ran this frame, before this tick); the bow turns from
+	// hanging in the palm to the aim as the bow hand blends up.
+	const FVector Hand = Body.GetSocketLocation(Grip);
+	const FVector Anchor = Body.DoesSocketExist(HandsIK.AnchorBone) ? Body.GetSocketLocation(HandsIK.AnchorBone) : Hand;
+	const FRotator Aim = ComputeHandsAimRotation(Anchor);
+	const FQuat Resting = FRotator(RestPitchDegrees, GetOwner()->GetActorRotation().Yaw, 0.f).Quaternion();
+	const FQuat Raised = FRotator(Aim.Pitch, Aim.Yaw, DrawnCantDegrees).Quaternion();
+	OutRotation = FQuat::Slerp(Resting, Raised, FMath::SmoothStep(0.f, 1.f, Hands.GetBowAlpha()));
+	OutLocation = Hand + OutRotation.RotateVector(HandGripOffset);
+}
+
+void UBowComponent::PlaceBowHeldOut(const USkeletalMeshComponent& Body, FName Grip, FVector& OutLocation,
+	FQuat& OutRotation) const
+{
+	// Up from the hand and round to the aim in the first part of the draw, then held there while
+	// the string comes back, and for the follow-through after the shot.
+	const ACharacter* Character = CastChecked<ACharacter>(GetOwner());
+	const FRotator Aim = Character->GetControlRotation();
+	const float Draw = GetDrawFraction();
+	const bool bRaised = IsBowRaised();
+	const float Raise = !bRaised ? 0.f
+		: bDrawing ? FMath::SmoothStep(0.f, 1.f, FMath::Min(1.f, Draw / RaiseByDrawFraction)) : 1.f;
+	const FQuat Lowered = bRaised ? FRotator(LoweredPitchDegrees, Aim.Yaw, 0.f).Quaternion()
+		: FRotator(RestPitchDegrees, Character->GetActorRotation().Yaw, 0.f).Quaternion();
+	const FQuat Raised = FRotator(Aim.Pitch, Aim.Yaw, DrawnCantDegrees).Quaternion();
+	OutRotation = FQuat::Slerp(Lowered, Raised, Raise);
+	const FVector Hand = Body.GetSocketLocation(Grip) + OutRotation.RotateVector(HandGripOffset);
+	const FVector Held = Body.GetSocketLocation(DrawShoulderBone) + Raised.RotateVector(DrawnGripOffset);
+	OutLocation = FMath::Lerp(Hand, Held, Raise);
+}
+
 void UBowComponent::UpdateBowVisual()
 {
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	USkeletalMeshComponent* Body = Character ? Character->GetMesh() : nullptr;
-	const UBowDefinition* Bow = GetBow();
-	if (!BowMesh || !Body || !Bow)
+	if (!BowMesh || !Body || !GetBow())
 	{
 		return;
 	}
 
+	const UHawkeyeBowIKAnimInstance* Hands = GetHandsIKInstance();
 	const bool bInHand = IsBowInHand();
-	const FName Socket = bInHand && Body->DoesSocketExist(Bow->HandSocket) ? Bow->HandSocket : HolsterBone;
+	const FName Socket = bInHand ? FindGripSocket(*Body, Hands != nullptr) : HolsterBone;
 	if (BowMesh->GetAttachSocketName() != Socket)
 	{
 		BowMesh->AttachToComponent(Body, FAttachmentTransformRules::KeepWorldTransform, Socket);
@@ -508,44 +609,65 @@ void UBowComponent::UpdateBowVisual()
 
 	// Positions come from the bones; orientation from the actor and the aim, so the bow never
 	// depends on how a bone's axes happen to be authored.
-	const FRotator ActorRotation = Character->GetActorRotation();
 	FVector Location;
 	FQuat Rotation;
-	const float Draw = GetDrawFraction();
-	if (bInHand)
+	if (bInHand && Socket != HolsterBone && Hands)
 	{
-		// Up from the hand and round to the aim in the first part of the draw, then held there
-		// while the string comes back, and for the follow-through after the shot.
-		const FRotator Aim = Character->GetControlRotation();
-		const float Raise = bDrawing ? FMath::SmoothStep(0.f, 1.f, FMath::Min(1.f, Draw / RaiseByDrawFraction)) : 1.f;
-		const FQuat Lowered = FRotator(LoweredPitchDegrees, Aim.Yaw, 0.f).Quaternion();
-		const FQuat Raised = FRotator(Aim.Pitch, Aim.Yaw, DrawnCantDegrees).Quaternion();
-		Rotation = FQuat::Slerp(Lowered, Raised, Raise);
-		const FVector Hand = Body->GetSocketLocation(Socket) + Rotation.RotateVector(HandGripOffset);
-		const FVector Held = Body->GetSocketLocation(DrawShoulderBone) + Raised.RotateVector(DrawnGripOffset);
-		Location = FMath::Lerp(Hand, Held, Raise);
+		PlaceBowWithHandsIK(*Body, *Hands, Socket, Location, Rotation);
+	}
+	else if (bInHand)
+	{
+		PlaceBowHeldOut(*Body, Socket, Location, Rotation);
 	}
 	else
 	{
 		// Flat across the back: the bow's X (where an arrow would go) to the actor's right, then
 		// tipped HolsterRollDegrees about the actor's forward axis so it lies diagonally.
+		const FRotator ActorRotation = Character->GetActorRotation();
 		Rotation = ActorRotation.Quaternion()
 			* FQuat(FVector::ForwardVector, FMath::DegreesToRadians(HolsterRollDegrees))
 			* FRotator(0.f, 90.f, 0.f).Quaternion();
 		Location = Body->GetSocketLocation(HolsterBone) + ActorRotation.RotateVector(HolsterOffset);
 	}
 	BowMesh->SetWorldLocationAndRotation(Location, Rotation);
+	PlaceStringAndArrow(*Body, Hands);
 
+	// The body hides from its own camera when a wall pulls the lens in; the bow goes with it.
+	const bool bHidden = Body->bOwnerNoSee;
+	for (UStaticMeshComponent* Part : { BowMesh.Get(), StringUpper.Get(), StringLower.Get(), NockedShaft.Get(), NockedNock.Get() })
+	{
+		if (Part && Part->bOwnerNoSee != bHidden)
+		{
+			Part->SetOwnerNoSee(bHidden);
+		}
+	}
+}
+
+void UBowComponent::PlaceStringAndArrow(const USkeletalMeshComponent& Body, const UHawkeyeBowIKAnimInstance* Hands)
+{
 	const FTransform BowTransform = BowMesh->GetComponentTransform();
-	const FVector Nock = BowTransform.TransformPosition(FVector(StringTip.X - StringPullAtFullDraw * Draw, 0.f, 0.f));
+	FVector Nock = BowTransform.TransformPosition(FVector(StringTip.X - StringPullAtFullDraw * GetDrawFraction(), 0.f, 0.f));
+	FVector Along = BowTransform.GetUnitAxis(EAxis::X);
+	const float StringHand = Hands && IsBowInHand() ? Hands->GetDrawAlpha() : 0.f;
+	if (StringHand > 0.f)
+	{
+		// The string goes where the string hand is, so the fingers are always on it; the arrow runs
+		// from there forward through the grip.
+		const FName Socket = Body.DoesSocketExist(HandsIK.StringHandSocket) ? HandsIK.StringHandSocket : FName(TEXT("hand_r"));
+		if (Body.DoesSocketExist(Socket))
+		{
+			Nock = FMath::Lerp(Nock, Body.GetSocketLocation(Socket), StringHand);
+			const FVector ToGrip = BowTransform.GetLocation() - Nock;
+			Along = ToGrip.SizeSquared() > 1.f ? ToGrip.GetSafeNormal() : Along;
+		}
+	}
 	PlaceString(StringUpper, BowTransform.TransformPosition(StringTip), Nock);
 	PlaceString(StringLower, BowTransform.TransformPosition(FVector(StringTip.X, StringTip.Y, -StringTip.Z)), Nock);
 
-	// The arrow on the string, from the nock forward along the bow through the grip, while drawing.
+	// The arrow on the string, from the nock forward through the grip, while drawing.
 	const bool bShowArrow = bDrawing && NockedShaft && NockedNock;
 	if (bShowArrow)
 	{
-		const FVector Along = BowTransform.GetUnitAxis(EAxis::X);
 		NockedArrowTip = Nock + Along * NockedArrowLength;
 		PlaceString(NockedShaft, Nock, Nock + Along * NockedArrowLength);
 		NockedShaft->SetWorldScale3D(FVector(0.015f, 0.015f, NockedArrowLength / 100.f));
@@ -557,16 +679,6 @@ void UBowComponent::UpdateBowVisual()
 		if (Part && Part->IsVisible() != bShowArrow)
 		{
 			Part->SetVisibility(bShowArrow);
-		}
-	}
-
-	// The body hides from its own camera when a wall pulls the lens in; the bow goes with it.
-	const bool bHidden = Body->bOwnerNoSee;
-	for (UStaticMeshComponent* Part : { BowMesh.Get(), StringUpper.Get(), StringLower.Get(), NockedShaft.Get(), NockedNock.Get() })
-	{
-		if (Part && Part->bOwnerNoSee != bHidden)
-		{
-			Part->SetOwnerNoSee(bHidden);
 		}
 	}
 }
