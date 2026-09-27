@@ -6,6 +6,7 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequenceBase.h"
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
 #include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -360,6 +361,7 @@ bool UParkourComponent::TryParkour(bool bAuto)
 	{
 		LastMove = Move;
 		LastRoute = EHawkeyeParkourRoute::SampleTraversal;
+		PlayEffortSound(Move);
 		OnParkourStarted.Broadcast(Move, LastRoute);
 		return true;
 	}
@@ -459,8 +461,19 @@ bool UParkourComponent::BeginMove(EHawkeyeParkourMove Move, const FVector& End, 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: parkour %s from %s to %s over %.2f s (%s)"), *GetNameSafe(Character),
 		*UEnum::GetValueAsString(Move), *MoveStart.ToCompactString(), *MoveEnd.ToCompactString(), Seconds,
 		MoveClip ? *MoveClip->GetName() : TEXT("plain arc"));
+	PlayEffortSound(Move);
 	OnParkourStarted.Broadcast(Move, LastRoute);
 	return true;
+}
+
+void UParkourComponent::PlayEffortSound(EHawkeyeParkourMove Move) const
+{
+	const bool bEffort = Move == EHawkeyeParkourMove::Vault || Move == EHawkeyeParkourMove::Mantle
+		|| Move == EHawkeyeParkourMove::LedgeGrab || Move == EHawkeyeParkourMove::Climb;
+	if (const AActor* Owner = GetOwner(); bEffort && Owner)
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, EffortSound, Owner->GetActorLocation(), TEXT("parkour effort"));
+	}
 }
 
 // --- Running ------------------------------------------------------------------------------------

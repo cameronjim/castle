@@ -4,6 +4,8 @@
 
 #include "Camera/CameraComponent.h"
 #include "Hawkeye.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
+#include "Components/AudioComponent.h"
 #include "Combat/ArrowDefinition.h"
 #include "Combat/BowComponent.h"
 #include "CollisionQueryParams.h"
@@ -25,6 +27,20 @@ namespace HawkeyeGrapple
 
 	/** How far below an anchor's landing point its building is looked for. */
 	static constexpr float SupportProbeDepth = 150.f;
+}
+
+const FName UGrappleComponent::SpeedParameter(TEXT("Speed"));
+
+void UGrappleComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	UHawkeyeAudioSubsystem::StopLoop(ZipLoop, TEXT("grapple zip"));
+	Super::EndPlay(EndPlayReason);
+}
+
+float UGrappleComponent::ComputeZipSoundSpeed() const
+{
+	const float Full = FMath::Clamp(ZipSpeed / 2400.f, 0.2f, 1.f);
+	return bHopping ? Full * 0.4f : Full;
 }
 
 UGrappleComponent::UGrappleComponent()
@@ -285,6 +301,10 @@ bool UGrappleComponent::TryFire()
 
 	const AActor* Owner = GetOwner();
 	AGrappleArrowProjectile* Arrow = SpawnGrappleArrow(Definition, Anchor);
+	if (Owner)
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, FireSound, Owner->GetActorLocation(), TEXT("grapple fire"));
+	}
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: grapple arrow at %s, %.0f cm away, %d left"), *GetNameSafe(Owner),
 		*GetNameSafe(Anchor), Owner ? FVector::Dist(Owner->GetActorLocation(), Anchor->GetMarkerLocation()) : 0.f,
@@ -689,6 +709,15 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 		Character->SetActorRotation(FRotator(0.f, Direction.Rotation().Yaw, 0.f));
 	}
 
+	if (!ZipLoop)
+	{
+		ZipLoop = UHawkeyeAudioSubsystem::PlayAttached(ZipSound, Character->GetRootComponent(), TEXT("grapple zip"));
+	}
+	if (ZipLoop)
+	{
+		ZipLoop->SetFloatParameter(SpeedParameter, ComputeZipSoundSpeed());
+	}
+
 	UE_LOG(LogHawkeye, Log, TEXT("%s: zip to %s, %.0f cm at %.0f cm/s (%.2f s), %s, line %+.0f cm, ignoring %s%s and %d start support(s)"),
 		*GetNameSafe(Character), *GetNameSafe(Anchor), ZipLength, ZipSpeed, ZipLength / ZipSpeed,
 		bRedirecting ? *FString::Printf(TEXT("mid-air redirect over %.2f s"), RedirectBlendSeconds)
@@ -718,6 +747,10 @@ void UGrappleComponent::AdvanceZip(float DeltaSeconds)
 			Movement->Velocity = FVector::ZeroVector;
 		}
 		bHopping = Alpha < 1.f;
+		if (!bHopping && ZipLoop)
+		{
+			ZipLoop->SetFloatParameter(SpeedParameter, ComputeZipSoundSpeed());
+		}
 		return;
 	}
 
@@ -806,6 +839,11 @@ void UGrappleComponent::FinishZip()
 	ZipProgress = 0.f;
 	EndZipMovement();
 	ZipAnchor.Reset();
+	UHawkeyeAudioSubsystem::StopLoop(ZipLoop, TEXT("grapple zip"));
+	if (Character)
+	{
+		UHawkeyeAudioSubsystem::PlayAt(this, LandSound, Character->GetActorLocation(), TEXT("grapple land"));
+	}
 
 	if (Character && Character->GetCharacterMovement())
 	{
@@ -835,6 +873,7 @@ void UGrappleComponent::CancelZip()
 	ZipProgress = 0.f;
 	EndZipMovement();
 	ZipAnchor.Reset();
+	UHawkeyeAudioSubsystem::StopLoop(ZipLoop, TEXT("grapple zip"));
 
 	if (Character && Character->GetCharacterMovement())
 	{

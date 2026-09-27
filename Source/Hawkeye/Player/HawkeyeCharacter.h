@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Audio/HawkeyeAudioTypes.h"
 #include "Combat/MeleeComponent.h"
 #include "GameFramework/Character.h"
 #include "ISpudObject.h"
@@ -22,6 +23,7 @@ class UGrappleComponent;
 class UInventoryComponent;
 class UParkourComponent;
 class UPawnNoiseEmitterComponent;
+class USoundBase;
 class UTakedownComponent;
 class UWeaponComponent;
 struct FInputActionValue;
@@ -504,6 +506,35 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Hawkeye|Character")
 	void OnInteractPressed();
 
+	// --- Audio ------------------------------------------------------------------------------------
+
+	/** Snow crunches, one picked at random per step, never the same one twice running (MS_Foot_Snow_0N). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
+	TArray<TSoftObjectPtr<USoundBase>> FootstepSounds;
+
+	/** A step every 70 cm walking, 55 cm sprinting, on the ground only. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
+	FHawkeyeFootstepTracker Footsteps;
+
+	/** A landing from 40 cm or more; its Intensity input rises with the fall (MS_Land). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
+	TSoftObjectPtr<USoundBase> LandSound;
+
+	/** The landing roll going over (MS_Roll_Thump). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
+	TSoftObjectPtr<USoundBase> RollSound;
+
+	/** A hit that staggers her (MS_Melee_Stagger). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Audio")
+	TSoftObjectPtr<USoundBase> StaggerSound;
+
+	/** The landing sound's float input. */
+	static const FName IntensityParameter;
+
+	/** Steps taken since play began. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Audio")
+	int32 GetFootstepCount() const { return FootstepCount; }
+
 protected:
 	//~ Begin APawn interface
 	virtual void BeginPlay() override;
@@ -611,6 +642,12 @@ protected:
 
 	/** Roll, stumble or dip, and fall damage, for a landing FallHeight below the top of the arc. */
 	void ApplyLanding(float FallHeight);
+
+	/** Walks the footstep tracker on by this frame's ground travel and plays a step when one is due. */
+	void UpdateFootsteps();
+
+	/** One of FootstepSounds at the feet. */
+	void PlayFootstep();
 
 	/**
 	 * A roll along Direction: RollDistance over RollSeconds as a root motion force, the capsule down
@@ -1347,6 +1384,12 @@ protected:
 private:
 	FTimerHandle NoiseTimerHandle;
 	FTimerHandle HitStopTimerHandle;
+
+	/** Where the feet were last frame, for the footstep distance. */
+	FVector LastFootLocation = FVector::ZeroVector;
+	bool bHasFootLocation = false;
+	int32 LastFootstepIndex = INDEX_NONE;
+	int32 FootstepCount = 0;
 
 	/** V is held and has not yet become a heavy. */
 	bool bMeleeHeld = false;

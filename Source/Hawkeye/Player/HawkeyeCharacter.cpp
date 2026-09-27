@@ -9,6 +9,9 @@
 #include "HawkeyeGameMode.h"
 #include "Combat/BowComponent.h"
 #include "HawkeyePlayerController.h"
+#include "Audio/HawkeyeAudioMath.h"
+#include "Audio/HawkeyeAudioSubsystem.h"
+#include "Components/AudioComponent.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
 #include "Combat/TakedownComponent.h"
@@ -1448,6 +1451,7 @@ void AHawkeyeCharacter::Tick(float DeltaSeconds)
 	UpdateSlide(DeltaSeconds);
 	UpdateFalling(DeltaSeconds);
 	UpdateLanding(DeltaSeconds);
+	UpdateFootsteps();
 	UpdateMaxWalkSpeed();
 	UpdateCamera(DeltaSeconds);
 	UpdateBodyVisibilityForCamera();
@@ -1794,6 +1798,7 @@ void AHawkeyeCharacter::HandleStaggered(UHealthComponent* /*Health*/, AActor* Da
 	}
 	StaggerRemaining = PlayerStaggerSeconds;
 	bMeleeHeld = false;
+	UHawkeyeAudioSubsystem::PlayAt(this, StaggerSound, GetActorLocation(), TEXT("stagger"));
 	if (MeleeComponent)
 	{
 		MeleeComponent->CancelAttack();
@@ -2029,9 +2034,52 @@ float AHawkeyeCharacter::ComputeFallDamageFraction(float FallHeight) const
 	return FMath::Lerp(FallDamageMinFraction, FallDamageMaxFraction, Alpha);
 }
 
+const FName AHawkeyeCharacter::IntensityParameter(TEXT("Intensity"));
+
+void AHawkeyeCharacter::UpdateFootsteps()
+{
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const FVector Feet = GetActorLocation();
+	const float Travelled = bHasFootLocation ? FVector::Dist2D(Feet, LastFootLocation) : 0.f;
+	LastFootLocation = Feet;
+	bHasFootLocation = true;
+	const bool bAlive = !HealthComponent || HealthComponent->IsAlive();
+	const bool bGrounded = Movement && Movement->IsMovingOnGround() && !IsZipping() && bAlive;
+	if (Footsteps.Advance(Travelled, bIsSprinting, bGrounded))
+	{
+		PlayFootstep();
+	}
+}
+
+void AHawkeyeCharacter::PlayFootstep()
+{
+	++FootstepCount;
+	if (FootstepSounds.Num() == 0)
+	{
+		return;
+	}
+	int32 Index = FMath::RandRange(0, FootstepSounds.Num() - 1);
+	if (FootstepSounds.Num() > 1 && Index == LastFootstepIndex)
+	{
+		Index = (Index + 1) % FootstepSounds.Num();
+	}
+	LastFootstepIndex = Index;
+	const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
+	UHawkeyeAudioSubsystem::PlayAt(this, FootstepSounds[Index], GetActorLocation() - FVector(0.f, 0.f, HalfHeight),
+		TEXT("footstep"), bIsSprinting ? 1.f : 0.8f);
+}
+
 void AHawkeyeCharacter::ApplyLanding(float FallHeight)
 {
 	LastFallHeight = FallHeight;
+	const float LandIntensity = HawkeyeAudioMath::ComputeLandingIntensity(FallHeight);
+	if (LandIntensity > 0.f)
+	{
+		if (UAudioComponent* Thud = UHawkeyeAudioSubsystem::PlayAt(this, LandSound, GetActorLocation(), TEXT("land")))
+		{
+			Thud->SetFloatParameter(IntensityParameter, LandIntensity);
+		}
+	}
 	if (FallHeight >= 50.f)
 	{
 		UE_LOG(LogHawkeye, Log, TEXT("%s: landed from %.0f cm at %.0f cm/s"),
@@ -2120,6 +2168,7 @@ void AHawkeyeCharacter::StartRoll(const FVector& Direction)
 	{
 		return;
 	}
+	UHawkeyeAudioSubsystem::PlayAt(this, RollSound, GetActorLocation(), TEXT("roll"));
 	if (IsRolling())
 	{
 		EndRoll();

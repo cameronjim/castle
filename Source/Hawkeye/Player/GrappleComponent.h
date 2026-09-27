@@ -10,6 +10,8 @@ class ACharacter;
 class AGrappleAnchor;
 class AGrappleArrowProjectile;
 class UArrowDefinition;
+class UAudioComponent;
+class USoundBase;
 class UInventoryComponent;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleLandedSignature, AGrappleAnchor*, Anchor);
@@ -258,9 +260,32 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple")
 	TSubclassOf<AGrappleArrowProjectile> ArrowClass;
 
+	/** The whoosh as the grapple arrow leaves (MS_Grapple_Fire). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple|Audio")
+	TSoftObjectPtr<USoundBase> FireSound;
+
+	/** Loops along the line; its Speed input follows the zip (MS_Grapple_Zip). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple|Audio")
+	TSoftObjectPtr<USoundBase> ZipSound;
+
+	/** The landing on the anchor's roof (MS_Grapple_Land). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple|Audio")
+	TSoftObjectPtr<USoundBase> LandSound;
+
+	/** The zip loop's float input, 0..1. */
+	static const FName SpeedParameter;
+
 protected:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	/** The zip hum while on the line, or null. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> ZipLoop = nullptr;
+
+	/** 0..1 for the zip loop: low on the hop up to the line, full along it at ZipSpeed. */
+	float ComputeZipSoundSpeed() const;
 
 	/** True when Anchor passes range, cone and sight; OutAngleDegrees is its angle from ViewForward. */
 	bool IsAnchorValid(const AGrappleAnchor* Anchor, const FVector& ViewLocation, const FVector& ViewForward,

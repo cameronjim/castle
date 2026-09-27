@@ -12,6 +12,7 @@ class ACharacter;
 class UAnimMontage;
 class UAnimSequenceBase;
 class UCharacterMovementComponent;
+class USoundBase;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnParkourStartedSignature, EHawkeyeParkourMove, Move, EHawkeyeParkourRoute, Route);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnParkourFinishedSignature, EHawkeyeParkourMove, Move);
@@ -174,6 +175,13 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Parkour")
 	FOnParkourStartedSignature OnParkourStarted;
+
+	/** The effort of a vault, mantle, grab or climb: a short low grunt (MS_Vault_Grunt). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Audio")
+	TSoftObjectPtr<USoundBase> EffortSound;
+
+	/** Plays EffortSound for the moves that take effort (not a drop to a hang). */
+	void PlayEffortSound(EHawkeyeParkourMove Move) const;
 
 	UPROPERTY(BlueprintAssignable, Category = "Parkour")
 	FOnParkourFinishedSignature OnParkourFinished;
