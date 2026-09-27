@@ -8,6 +8,7 @@ output can be eyeballed or grepped after a content run.
 """
 
 import os
+import re
 import sys
 
 import unreal
@@ -28,7 +29,7 @@ IA_NAMES = [
     "IA_Move", "IA_Look", "IA_LookStick", "IA_Jump", "IA_Sprint", "IA_Crouch", "IA_Fire",
     "IA_Aim", "IA_Reload", "IA_Takedown", "IA_Interact", "IA_Pause", "IA_Skip",
     "IA_Slot1", "IA_Slot2", "IA_Slot3", "IA_Slot4", "IA_Slot5", "IA_Slot6", "IA_SlotScroll",
-    "IA_Inventory", "IA_Grapple", "IA_Melee", "IA_SwitchCharacter", "IA_PartnerMark",
+    "IA_Inventory", "IA_Grapple", "IA_Melee", "IA_SwitchCharacter", "IA_PartnerMark", "IA_Phone",
 ]
 
 CHARACTER_INPUT_PROPS = [
@@ -66,7 +67,7 @@ GAMEPAD_MAPPINGS = [
 CONTROLLER_PROPS = [
     "flashback_widget_class", "hud_widget_class", "pause_widget_class",
     "settings_widget_class", "pause_action", "pause_mapping_context", "end_card_widget_class",
-    "inventory_widget_class",
+    "inventory_widget_class", "phone_action",
 ]
 
 EXPECTED = (
@@ -126,6 +127,12 @@ EXPECTED = (
         "/Game/Characters/Archer/M_ArcherTrim",
         c.asset_path(AI_PATH, "BP_Thug_Heavy"),
         "/Game/Characters/Thug/M_HeavyTracksuit",
+        "/Game/Data/DT_Messages",
+        "/Game/Data/DT_DialogueSequences",
+        "/Game/Missions/DA_Scene_Placeholder",
+        "/Game/Flashbacks/Definitions/DA_FB00_Placeholder",
+        "/Game/Maps/L_Scene_Placeholder",
+        c.asset_path(PLAYER_PATH, "BP_GameMode_ScenePlaceholder"),
     ]
 )
 
@@ -733,6 +740,102 @@ def check_data_assets():
             fail("DA_CH01_Rooftops.starting_arrows is {0}, expected {1}".format(grants, wanted))
 
 
+def _placeholder(text):
+    """Story text is Cameron's: everything the narrative scripts write is a [bracketed] placeholder."""
+    text = str(text or "").strip()
+    # A text column reads back as its export form (NSLOCTEXT("", "key", "[text]")): the last quoted part.
+    quoted = re.findall(r'"((?:[^"\\]|\\.)*)"', text)
+    if quoted:
+        text = quoted[-1]
+    return text.startswith("[") and text.endswith("]")
+
+
+def _table_rows(path):
+    table = c.load_or_none(path)
+    if table is None:
+        return None
+    names = [str(n) for n in unreal.DataTableFunctionLibrary.get_data_table_row_names(table)]
+    columns = {}
+    for column in ("Sender", "Text", "Trigger", "TriggerObjectiveId", "Sequence", "Line", "GapSeconds", "Speaker"):
+        try:
+            columns[column] = [str(v) for v in unreal.DataTableFunctionLibrary.get_data_table_column_as_string(table, column)]
+        except Exception:  # noqa: BLE001 - a column the table does not have
+            continue
+    return names, columns
+
+
+def check_narrative():
+    """DT_Messages, DT_DialogueSequences, the placeholder flashback and scene, and chapter 1's opening."""
+    say("---- narrative ----")
+    messages = _table_rows("/Game/Data/DT_Messages")
+    if messages is None:
+        fail("DT_Messages")
+    else:
+        names, cols = messages
+        say("  DT_Messages: {0} rows, triggers {1} on {2}".format(len(names), cols.get("Trigger"), cols.get("TriggerObjectiveId")))
+        if len(names) != 4:
+            fail("DT_Messages has {0} rows, expected 4".format(len(names)))
+        if not all(_placeholder(t) for t in cols.get("Sender", []) + cols.get("Text", [])):
+            fail("DT_Messages has text that is not a [placeholder]")
+        known = {"reach_roof", "cross_block", "clear_roof", "find_arrow"}
+        if not all(o in known for o in cols.get("TriggerObjectiveId", [])):
+            fail("DT_Messages names an objective CH01 does not have")
+    sequences = _table_rows("/Game/Data/DT_DialogueSequences")
+    dialogue = _table_rows("/Game/Data/DT_Dialogue")
+    if sequences is None or dialogue is None:
+        fail("DT_DialogueSequences or DT_Dialogue")
+    else:
+        names, cols = sequences
+        say("  DT_DialogueSequences: {0} rows, lines {1}".format(len(names), cols.get("Line")))
+        lines = dialogue[0]
+        if len(names) != 3 or any(s != "seq_ch01_open" for s in cols.get("Sequence", [])):
+            fail("DT_DialogueSequences is not the three seq_ch01_open steps")
+        if not all(line in lines for line in cols.get("Line", [])):
+            fail("DT_DialogueSequences names a line DT_Dialogue does not have")
+        texts = dict(zip(lines, dialogue[1].get("Text", [])))
+        if not all(_placeholder(texts.get(line)) for line in cols.get("Line", [])):
+            fail("a sequence line is not a [placeholder]")
+        say("  DT_Dialogue: {0} rows".format(len(lines)))
+        if len(lines) != 51:
+            fail("DT_Dialogue has {0} rows, expected 48 banter lines and 3 scripted".format(len(lines)))
+
+    flashback = c.load_or_none("/Game/Flashbacks/Definitions/DA_FB00_Placeholder")
+    if flashback is None:
+        fail("DA_FB00_Placeholder")
+    else:
+        slides = list(prop(flashback, "slides") or [])
+        scene = prop(flashback, "playable_scene")
+        label = str(prop(flashback, "return_point_label"))
+        say("  DA_FB00_Placeholder: {0} slides, scene {1}, back to {2}".format(len(slides), scene, label))
+        if len(slides) != 3 or not all(_placeholder(prop(sl, "caption")) for sl in slides):
+            fail("DA_FB00_Placeholder does not have three [Slide N] slides")
+        if "L_Scene_Placeholder" not in str(scene) or label != "City_SceneReturn_FB00":
+            fail("DA_FB00_Placeholder does not end in L_Scene_Placeholder and return to City_SceneReturn_FB00")
+
+    chapter = c.load_or_none("/Game/Missions/DA_CH01_Rooftops")
+    if chapter is not None:
+        fields = [(f, prop(chapter, f)) for f in ("opening_title", "opening_subtitle", "end_card_line", "chapter_complete_toast")]
+        say("  DA_CH01_Rooftops: {0}, sequence {1}, roaming {2}, flashback {3}".format(
+            ", ".join("{0}={1}".format(f, v) for f, v in fields), prop(chapter, "opening_dialogue_sequence"),
+            prop(chapter, "return_to_roaming_at_end"), prop(chapter, "flashback_to_play")))
+        if not all(_placeholder(v) for _f, v in fields):
+            fail("DA_CH01_Rooftops opening or ending text is not a [placeholder]")
+        if str(prop(chapter, "opening_dialogue_sequence")) != "seq_ch01_open" or not prop(chapter, "return_to_roaming_at_end"):
+            fail("DA_CH01_Rooftops does not open with seq_ch01_open and return to roaming")
+        if "DA_FB00_Placeholder" not in str(prop(chapter, "flashback_to_play")):
+            fail("DA_CH01_Rooftops.flashback_to_play is not DA_FB00_Placeholder")
+
+    scene = c.load_or_none("/Game/Missions/DA_Scene_Placeholder")
+    ids = [str(prop(obj, "objective_id")) for obj in list(prop(scene, "objectives") or [])] if scene else []
+    say("  DA_Scene_Placeholder: objectives {0}".format(ids))
+    if ids != ["reach_marker"]:
+        fail("DA_Scene_Placeholder objectives are {0}, expected reach_marker".format(ids))
+    mode = unreal.load_class(None, PLAYER_PATH + "/BP_GameMode_ScenePlaceholder.BP_GameMode_ScenePlaceholder_C")
+    starting = prop(unreal.get_default_object(mode), "starting_mission") if mode else None
+    if "DA_Scene_Placeholder" not in str(starting):
+        fail("BP_GameMode_ScenePlaceholder does not start DA_Scene_Placeholder")
+
+
 SKELETAL_MESH_COMPONENTS = (
     (AI_PATH, "BP_Thug", ("mesh",)),
     ("/Game/Blueprints/Bosses", "BP_Archer", ("mesh",)),
@@ -903,6 +1006,7 @@ def main():
     check_skeletal_material_usage()
     check_weapon_data()
     check_data_assets()
+    check_narrative()
     check_audio()
     check_vfx()
     if PROBLEMS:
