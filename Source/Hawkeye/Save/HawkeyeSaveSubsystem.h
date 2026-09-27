@@ -114,6 +114,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Save|Safehouse")
 	TArray<FName> GetDiscoveredSafehouses() const;
 
+	/** Records the safehouse last used (menu opened or travelled to); saved with the next save. */
+	UFUNCTION(BlueprintCallable, Category = "Save|Safehouse")
+	void SetLastSafehouse(FName SafehouseId);
+
+	UFUNCTION(BlueprintPure, Category = "Save|Safehouse")
+	FName GetLastSafehouse() const;
+
 	// --- Autosave ---------------------------------------------------------------------------------
 
 	/**

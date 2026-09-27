@@ -538,6 +538,19 @@ TArray<FName> UHawkeyeSaveSubsystem::GetDiscoveredSafehouses() const
 	return Campaign ? Campaign->DiscoveredSafehouses : TArray<FName>();
 }
 
+void UHawkeyeSaveSubsystem::SetLastSafehouse(FName SafehouseId)
+{
+	if (Campaign && !SafehouseId.IsNone())
+	{
+		Campaign->LastSafehouse = SafehouseId;
+	}
+}
+
+FName UHawkeyeSaveSubsystem::GetLastSafehouse() const
+{
+	return Campaign ? Campaign->LastSafehouse : NAME_None;
+}
+
 // --- Main menu --------------------------------------------------------------------------------------
 
 bool UHawkeyeSaveSubsystem::ConsumeBootMenu()

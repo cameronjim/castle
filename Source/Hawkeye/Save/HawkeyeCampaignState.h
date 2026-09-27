@@ -55,6 +55,10 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save")
 	TArray<FName> DiscoveredSafehouses;
 
+	/** The safehouse whose menu was last opened or that was last travelled to; None before any. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save")
+	FName LastSafehouse;
+
 	/** Seconds of play in this campaign, across sessions. */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save")
 	float PlayTimeSeconds = 0.f;
