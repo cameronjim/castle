@@ -155,6 +155,9 @@ namespace HawkeyeBowIKShots
 		const FVector Eye = Chest + Facing.RotateVector(FVector(190.f, -180.f, 15.f));
 		Camera->SetActorLocationAndRotation(Eye, (Chest - Eye).Rotation());
 		Camera->GetCameraComponent()->SetFieldOfView(55.f);
+		// The camera jumps between shots; with time stopped motion blur would smear the whole frame.
+		Camera->GetCameraComponent()->PostProcessSettings.bOverride_MotionBlurAmount = true;
+		Camera->GetCameraComponent()->PostProcessSettings.MotionBlurAmount = 0.f;
 		Camera->GetCameraComponent()->bConstrainAspectRatio = false;
 		PC->SetViewTarget(Camera);
 
@@ -581,14 +584,16 @@ namespace HawkeyeBowDrawShots
 		Test->AddInfo(FString::Printf(
 			TEXT("%s: %.2f s since the draw began; drawing %d draw %.2f; clip %s (%s) at %.2f s, UpperBody weight %.2f; ")
 			TEXT("alphas bow %.2f draw %.2f clip %.2f left %.2f right %.2f; spine %.1f; hand_l %.1f cm off its target, hand_r %.1f; ")
-			TEXT("arrow %.1f deg off the launch (arrow pitch %.1f, launch pitch %.1f, control pitch %.1f); speed %.0f"),
+			TEXT("arrow %.1f deg off the launch (arrow pitch %.1f, launch pitch %.1f, control pitch %.1f); ")
+			TEXT("string hand %.1f cm off the arrow line, correction %.2f; aim offset %.2f at yaw %.1f pitch %.1f; speed %.0f"),
 			*Label, SinceDraw, Bow->IsDrawing() ? 1 : 0, Bow->GetDrawFraction(), *GetNameSafe(Clip),
 			*UEnum::GetValueAsString(Bow->GetBowClipRole()), Position, SlotWeight, Hands->GetBowAlpha(), Hands->GetDrawAlpha(),
 			Hands->GetClipAlpha(), Hands->LeftArmAlpha, Hands->RightArmAlpha, Hands->SpineTwist.Yaw,
 			FVector::Dist(Body->GetSocketLocation(TEXT("hand_l")), Component.TransformPosition(Hands->LeftHandTarget)),
 			FVector::Dist(Body->GetSocketLocation(TEXT("hand_r")), Component.TransformPosition(Hands->RightHandTarget)),
 			Bow->IsDrawing() ? DegreesBetween(ArrowDir, Launch) : -1.f, ArrowDir.Rotation().Pitch, Launch.Rotation().Pitch,
-			FRotator::NormalizeAxis(Control.Pitch), Kate->GetVelocity().Size2D()));
+			FRotator::NormalizeAxis(Control.Pitch), Hands->GetStringOffLine(), Hands->GetStringCorrectionAlpha(),
+			Hands->AimOffsetAlpha, Hands->AimOffsetYaw, Hands->AimOffsetPitch, Kate->GetVelocity().Size2D()));
 		Report(Test, Kate, *Label);
 	}
 
