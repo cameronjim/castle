@@ -53,11 +53,12 @@ public class Hawkeye : ModuleRules
 
 		// UHawkeyePartnerTreeBuilder authors ST_Partner headless through the StateTree editor API;
 		// UHawkeyeBowIKGraphBuilder authors the bow hands AnimBlueprints through the anim graph nodes;
-		// UHawkeyeVfxBuilder authors the Niagara systems through the Niagara editor's stack view model.
+		// UHawkeyeVfxBuilder authors the Niagara systems through the Niagara editor's stack view model;
+		// UHawkeyeCombatMontageBuilder lays out the combat montages through the animation library's notify calls.
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] { "StateTreeEditorModule", "PropertyBindingUtils", "UnrealEd",
-				"AnimGraph", "AnimGraphRuntime", "BlueprintGraph", "NiagaraEditor", "NiagaraCore" });
+				"AnimGraph", "AnimGraphRuntime", "BlueprintGraph", "NiagaraEditor", "NiagaraCore", "AnimationBlueprintLibrary" });
 		}
 	}
 }
