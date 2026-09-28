@@ -34,14 +34,14 @@ struct HAWKEYE_API FHawkeyeComboSettings
 /**
  * The chain and the counter, pure (the character feeds it hits, misses and time).
  *
- * Chain: the step of the next light. A light that lands opens ChainWindowSeconds for the next step;
- * the third wraps back to the first. A miss, a heavy or the window running out puts the next light
- * back at step 0.
+ * Chain: the step of the next light. A light that lands, or misses, opens ChainWindowSeconds for the
+ * next step (a miss from the moment its hit window ends); the third wraps back to the first. A heavy or
+ * the window running out puts the next light back at step 0.
  *
  * With a strike clip that carries ANS_ComboWindow, the character holds the window open
- * (SetChainHeld) from the hit until the clip's window closes, instead of the timer.
+ * (SetChainHeld) from the hit (or the miss) until the clip's window closes, instead of the timer.
  *
- * Counter: every melee hit that lands counts one; CounterResetSeconds without a hit clears it. A hit
+ * Counter: every melee hit that lands counts one (a missed light carries the chain, never the count); CounterResetSeconds without a hit clears it. A hit
  * struck while the counter already reads BonusAtCount or more does BonusMultiplier.
  */
 USTRUCT(BlueprintType)
@@ -83,6 +83,17 @@ struct HAWKEYE_API FHawkeyeComboTracker
 		ChainWindowRemaining = NextStep == 0 ? 0.f : Settings.ChainWindowSeconds;
 	}
 
+	/**
+	 * A light of chain step Step hit nothing (or a shield): the chain carries on to the next step exactly
+	 * as if it had landed, but the counter does not move.
+	 */
+	void NotifyLightMissed(int32 Step)
+	{
+		NextStep = (FMath::Max(Step, 0) + 1) % FMath::Max(Settings.ChainLength, 1);
+		ChainWindowRemaining = NextStep == 0 ? 0.f : Settings.ChainWindowSeconds;
+		bChainHeld = false;
+	}
+
 	/** Any other melee hit landed (a heavy, a finisher): counts, and ends the chain. */
 	void NotifyHit()
 	{
@@ -91,7 +102,7 @@ struct HAWKEYE_API FHawkeyeComboTracker
 		EndChain();
 	}
 
-	/** A swing that hit nothing (or a shield): the next light starts the chain again. */
+	/** A heavy (or any swing but a light) that hit nothing: the next light starts the chain again. */
 	void NotifyMiss() { EndChain(); }
 
 	void EndChain()

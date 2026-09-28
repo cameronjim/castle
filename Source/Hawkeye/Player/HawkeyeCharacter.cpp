@@ -1780,7 +1780,9 @@ bool AHawkeyeCharacter::StartLightAttack()
 	{
 		// Inside the chain window, a light pressed during the last one's recovery goes when it ends
 		// (with a clip: when its combo window opens).
-		if (MeleeComponent->GetPhase() == EMeleePhase::Recover && bSwingIsLight && Combo.IsChainOpen())
+		// A press while the hit window is still open waits for the hit or the miss to open the chain.
+		if (MeleeComponent->GetPhase() == EMeleePhase::Recover && bSwingIsLight
+			&& (Combo.IsChainOpen() || MeleeComponent->IsHitWindowOpen()))
 		{
 			bLightBuffered = true;
 			return true;
@@ -2004,8 +2006,18 @@ void AHawkeyeCharacter::HandleMeleeLanded(AActor* HitActor, float /*DamageDealt*
 
 void AHawkeyeCharacter::HandleMeleeMissed(FName /*AttackName*/)
 {
-	Combo.NotifyMiss();
-	bLightBuffered = false;
+	if (!bSwingIsLight)
+	{
+		Combo.NotifyMiss();
+		bLightBuffered = false;
+		return;
+	}
+	// Punching the air still runs the chain on (Light1, Light2, Light3); only a landed hit counts.
+	Combo.NotifyLightMissed(SwingStep);
+	if (MeleeComponent && MeleeComponent->IsComboFromNotify())
+	{
+		Combo.SetChainHeld(true);
+	}
 }
 
 void AHawkeyeCharacter::HandleComboWindowChanged(bool bOpen)
