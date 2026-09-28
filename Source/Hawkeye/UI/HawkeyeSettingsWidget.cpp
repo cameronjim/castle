@@ -25,6 +25,7 @@
 #include "Settings/DifficultySubsystem.h"
 #include "Settings/HawkeyeAccessibility.h"
 #include "Settings/HawkeyeSettingsSubsystem.h"
+#include "World/TimeOfDaySubsystem.h"
 
 namespace HawkeyeSettingsWidgetLayout
 {
@@ -418,6 +419,9 @@ TSharedRef<SWidget> UHawkeyeSettingsWidget::RebuildWidget()
 			ReduceFlashingLabelText, TEXT("ReduceFlashing"));
 		AddSliderRow(Right, NSLOCTEXT("Hawkeye", "SettingsHudScale", "HUD scale"), HudScaleSlider, HudScaleValueText,
 			HudScaleLabelText, TEXT("HudScale"));
+		AddHeading(Right, NSLOCTEXT("Hawkeye", "SettingsWorld", "World"), TEXT("WorldHeading"));
+		AddChoiceRow(Right, NSLOCTEXT("Hawkeye", "SettingsTimeOfDay", "Time of day"), TimeOfDayButton, TimeOfDayValueText,
+			TEXT("TimeOfDay"));
 
 		// --- Back ---------------------------------------------------------------------------------------
 		if (!BackButton)
@@ -510,6 +514,7 @@ void UHawkeyeSettingsWidget::BindControls(bool bBind)
 	HAWKEYE_BIND(SubtitleSizeButton, OnClicked, HandleSubtitleSizeClicked)
 	HAWKEYE_BIND(SubtitleBackgroundSlider, OnValueChanged, HandleSubtitleBackgroundChanged)
 	HAWKEYE_BIND(PaletteButton, OnClicked, HandlePaletteClicked)
+	HAWKEYE_BIND(TimeOfDayButton, OnClicked, HandleTimeOfDayClicked)
 	HAWKEYE_BIND(ReduceShakeCheckBox, OnCheckStateChanged, HandleReduceShakeChanged)
 	HAWKEYE_BIND(ReduceFlashingCheckBox, OnCheckStateChanged, HandleReduceFlashingChanged)
 	HAWKEYE_BIND(HudScaleSlider, OnValueChanged, HandleHudScaleChanged)
@@ -567,11 +572,17 @@ void UHawkeyeSettingsWidget::RefreshFromSettings()
 		UHawkeyeAccessibility::GetSubtitleSizeName(Current.SubtitleSize),
 		FText::AsNumber(UHawkeyeAccessibility::GetSubtitleFontSize(Current.SubtitleSize))));
 	SetText(PaletteValueText, UHawkeyeAccessibility::GetPaletteName(Current.ColorPalette));
+	SetText(TimeOfDayValueText, UTimeOfDaySubsystem::GetTimeOfDayName(Current.TimeOfDay));
 }
 
 FText UHawkeyeSettingsWidget::GetDifficultyShown() const
 {
 	return DifficultyValueText ? DifficultyValueText->GetText() : FText::GetEmpty();
+}
+
+FText UHawkeyeSettingsWidget::GetTimeOfDayShown() const
+{
+	return TimeOfDayValueText ? TimeOfDayValueText->GetText() : FText::GetEmpty();
 }
 
 void UHawkeyeSettingsWidget::UpdateVolumeText(UTextBlock* Text, float Value)
@@ -748,6 +759,20 @@ void UHawkeyeSettingsWidget::HandlePaletteClicked()
 	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
 	{
 		SettingsSubsystem->SetColorPalette(HawkeyeSettingsWidgetLayout::Next(SettingsSubsystem->GetSettings().ColorPalette, 4));
+	}
+	RefreshFromSettings();
+}
+
+void UHawkeyeSettingsWidget::HandleTimeOfDayClicked()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
+	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		// Steps from what the player sees, and drops a hawkeye.TimeOfDay console override so the pick shows
+		// at once; a -TimeOfDay= on the command line still wins while it is there.
+		const EHawkeyeTimeOfDay Next = HawkeyeSettingsWidgetLayout::Next(SettingsSubsystem->GetTimeOfDay(), 2);
+		UTimeOfDaySubsystem::SetConsoleOverride({});
+		SettingsSubsystem->SetTimeOfDay(Next);
 	}
 	RefreshFromSettings();
 }

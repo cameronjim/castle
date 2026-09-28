@@ -71,6 +71,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	FText GetDifficultyShown() const;
 
+	/** What the time of day row shows now ("Night", "Day"). */
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	FText GetTimeOfDayShown() const;
+
 	/** Rows the screen built, both columns together. */
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	int32 GetRowCount() const { return RowCount; }
@@ -136,6 +140,9 @@ protected:
 
 	UFUNCTION()
 	void HandlePaletteClicked();
+
+	UFUNCTION()
+	void HandleTimeOfDayClicked();
 
 	/** Writes Value (0..1) into Text as a whole percentage. */
 	static void UpdateVolumeText(UTextBlock* Text, float Value);
@@ -288,6 +295,13 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings|Accessibility", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> HudScaleLabelText = nullptr;
+
+	/** World: a button reading Night / Day. */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|World", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> TimeOfDayButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|World", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> TimeOfDayValueText = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;
