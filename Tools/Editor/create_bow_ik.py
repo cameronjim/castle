@@ -4,8 +4,8 @@
                                                      Clint), built headless by UHawkeyeBowIKGraphBuilder
                                                      (C++, anim graph nodes): the mannequin's own
                                                      ABP_UEFN_Mannequin_PostProcess as a linked graph,
-                                                     then the spine and neck turn and two-bone IK on
-                                                     both arms
+                                                     then the full-body and upper-body clip slots, the spine
+                                                     and neck turn and two-bone IK on both arms
     /Game/Blueprints/Animation/ABP_BowIK_Post_Thug   the same graph for the old mannequin (BP_Archer),
                                                      with nothing to chain
 
@@ -29,7 +29,7 @@ import create_blueprints as cb  # noqa: E402
 
 ANIM_PATH = "/Game/Blueprints/Animation"
 BUILD_TAG = "HawkeyeBuild"
-IK_BUILD = "bow-ik-2"   # bump when UHawkeyeBowIKGraphBuilder's graph changes (2: hit lean, arm alphas)
+IK_BUILD = "bow-ik-3"   # bump when UHawkeyeBowIKGraphBuilder's graph changes (2: hit lean, arm alphas; 3: clip slots)
 
 # (asset, skeleton, the mesh's own post-process AnimBP class to chain or None, spine bone, neck bone)
 GRAPHS = [
@@ -80,6 +80,8 @@ def ensure_graph(name, skeleton_path, chained_path, spine, neck):
         return None
     unreal.EditorAssetLibrary.set_metadata_tag(abp, BUILD_TAG, IK_BUILD)
     c.save(abp)
+    # Compiling the slot nodes registers DefaultSlot and UpperBody on the skeleton.
+    c.save(skeleton, only_if_dirty=True)
     c.log("updated" if existing is not None else "created", full,
           "{0} nodes, skeleton {1}, chained {2}".format(builder.count_anim_graph_nodes(abp), skeleton.get_name(),
                                                         chained.get_name() if chained else "nothing"))
