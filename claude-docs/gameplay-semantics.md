@@ -42,6 +42,10 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 ## HUD (third person)
 - No crosshair. A 4 px reticle dot appears only while aiming and flashes white for 0.1 s
   on a hit. Hotbar slots are Hands, Bow, Reserved until arrows exist.
+- Grapple marker: a green hollow diamond with the key under it means a press zips there, always
+  (no use limit); grey means it would not (out of arrows, with "No grapple arrows" under it, or an
+  arrow still in flight); a smaller grey diamond marks an anchor in view whose line is blocked.
+  Rules in the traversal section; the look per state is `UHawkeyeHudWidget::GetGrappleMarkerLook`.
 
 ## PLANNED: traversal
 - Parkour (built 2026-09-26). Vault and mantle run through the Game Animation Sample's
@@ -58,6 +62,25 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   never throws the character off a roof. Durations: vault 0.5 s, mantle 0.8 s, jump to
   hang 0.35 s, catch 0.15 s, climb 1.0 s; input is locked only that long, except that the
   sample's montages hold input until they blend out.
+- The jump key (revised 2026-09-28 after "spamming jump doesn't help me get over the mini walls").
+  It probes a fan of 7 rays from -35 to +35 degrees around the stick direction (the facing when
+  the stick is centred), middle ray first, each up to 180 cm from the capsule, and takes tops from
+  40 cm (the sprint trigger still starts at 60) up to 260 cm, choosing vault, mantle, climb-over or
+  ledge grab by height and depth exactly as above; an angled press turns her to the wall before
+  the move (and before the sample's traversal, so it finds the same wall). Standing still against
+  a wall, the press mantles or grabs it when the height fits. When nothing fits and a plain jump
+  starts, the late catch re-probes every tick while airborne, rising or falling, for 0.8 s, 100 cm
+  ahead, probing from 5 cm above the feet: a top up to 200 cm above the feet with room to stand is
+  mantled (one less than 40 cm above them only when it is 40 cm above where she took off, so a
+  running jump at a waist-high wall pops onto it instead of sliding down its face) (a thin one vaulted only
+  within the sprint trigger's 150 cm drop), a ledge 150 cm or more above the feet is grabbed (up to
+  260 while rising, 330 while falling; a rising grab takes the 0.35 s jump-to-hang, a falling one the
+  0.15 s catch). Landing, a hang, a move, a zip or a slide ends the window. A press during a move
+  is held 0.3 s and fires when the move ends (a press into a hang climbs), so mashing chains
+  obstacles. Never a mantle onto a top the capsule does not fit on. Every press that does not
+  become a move logs why at Log (`jump: no parkour move: too tall (280 cm, up to 260) at +0
+  degrees, 66 cm away`, `no obstacle in the 35 degree fan within 180 cm`, `no room to stand`), and
+  a late catch that found nothing says so when its window closes.
 - Traversable ledges: the sample detects `LevelBlock_Traversable` actors on the
   `GameTraceChannel1` sweep (our Weapon channel) with four `Ledge_1..4` splines whose up
   vector is the ledge's outward normal. The generator places `BP_TraversableBlock`
@@ -106,13 +129,27 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Grapple arrow (built 2026-09-26): valid anchors are within 2500 cm, farther than 300 cm
   (so the anchor just landed beside doesn't stay lit), within 30 degrees of the camera
   forward, and in line of sight from the camera; the closest by angle wins and shows a
-  marker with a Q hint for the first five uses. Fire spawns a straight, gravity-free
+  marker (a green diamond with the key under it, Q or RB, every time; see the next bullet). Fire spawns a straight, gravity-free
   arrow at 6000 cm/s; on arrival the character zips in Flying mode along a straight line
   to the anchor's landing point at 1800 cm/s, input locked except the camera, and lands
   in Walking with no fall damage. Chaining is allowed once past 70% of the line, when
   the marker returns. A zip is cancelled by static geometry on the path except within
   150 cm of the anchor (corner anchors share walls with neighbours). Costs one grapple
   arrow; the arrow stays in the anchor and is recovered within 200 cm of it.
+- Grapple marker and arrows (revised 2026-09-28 after "there are green diamonds but it no longer
+  tells you what button to press"; the key hint used to vanish after the fifth arrow, the diamond
+  stayed green with an empty quiver, and anchors whose line was blocked were marked). The target
+  also needs a clear zip line from where she is (`IsZipClear`, the same sweep and start and anchor
+  allowances as the zip; mid-zip, the line she is on counts as her start), checked nearest the
+  middle first, at most 3 per 0.1 s refresh. `GetTargetState()` is what a press would do: Ready
+  (green diamond, key hint), NoArrows (grey diamond, "No grapple arrows"), ArrowInFlight (grey, no
+  hint), TooEarlyToChain (no marker), None. A press fires only when Ready. An anchor nearer the
+  middle than the target that passes everything but the line is drawn as a smaller dim grey
+  diamond and is never fired at; `hawkeye.DebugGrapple 1` writes why under it ("the line hits
+  FireEscapeLanding_34") and the state and arrow count next to the key. A zip blocked on the way,
+  or left by a chain, reels its arrow back into the quiver; letting go with jump or crouch leaves it
+  in the anchor. Stuck arrows belong to who shot them: the partner never pockets Kate's. Only the
+  player's pawn keeps a target (the partner's AI does not refresh one).
 - Anchors sit on the parapet centre (15 cm in from the roof edge) at every roof corner
   and at mid-edge on edges over 25 m, on buildings over 8 m, none within 4 m of another.
   Landing points are 60 cm further inboard so the capsule clears the parapet. The
