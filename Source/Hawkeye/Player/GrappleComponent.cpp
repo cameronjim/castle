@@ -23,6 +23,12 @@
 #include "World/GrappleAnchor.h"
 #include "World/GrappleArrowProjectile.h"
 
+static TAutoConsoleVariable<int32> CVarHawkeyeDebugGrapple(
+	TEXT("hawkeye.DebugGrapple"),
+	0,
+	TEXT("1 writes on the HUD why a grey grapple diamond cannot be zipped to, and the marked anchor's state."),
+	ECVF_Default);
+
 namespace HawkeyeGrapple
 {
 	/** Line-of-sight traces per refresh at most; the candidates are tried smallest angle first. */
@@ -73,7 +79,15 @@ void UGrappleComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	if (RefreshAccumulator >= RefreshSeconds)
 	{
 		RefreshAccumulator = 0.f;
-		RefreshTarget();
+		if (ShouldRefreshTarget())
+		{
+			RefreshTarget();
+		}
+		else
+		{
+			TargetAnchor.Reset();
+			BlockedAnchor.Reset();
+		}
 		RecoverNearbyArrows();
 	}
 }
@@ -215,8 +229,47 @@ bool UGrappleComponent::HasLineOfSight(const AGrappleAnchor* Anchor, const FVect
 	return Hit.Distance >= FVector::Dist(ViewLocation, Marker) - SightTolerance;
 }
 
+bool UGrappleComponent::IsDebugEnabled()
+{
+	return CVarHawkeyeDebugGrapple.GetValueOnGameThread() != 0;
+}
+
+bool UGrappleComponent::ShouldRefreshTarget() const
+{
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	return !Pawn || !Pawn->GetController() || Pawn->IsPlayerControlled();
+}
+
+EGrappleTargetState UGrappleComponent::GetTargetState() const
+{
+	const AGrappleAnchor* Anchor = TargetAnchor.Get();
+	if (!IsValid(Anchor) || !Anchor->bEnabled)
+	{
+		return EGrappleTargetState::None;
+	}
+	if (!CanChain())
+	{
+		return EGrappleTargetState::TooEarlyToChain;
+	}
+	if (IsArrowInFlight())
+	{
+		return EGrappleTargetState::ArrowInFlight;
+	}
+	return GetGrappleArrows() > 0 ? EGrappleTargetState::Ready : EGrappleTargetState::NoArrows;
+}
+
 AGrappleAnchor* UGrappleComponent::SelectBestAnchor(const FVector& ViewLocation, const FVector& ViewForward) const
 {
+	AGrappleAnchor* Blocked = nullptr;
+	FString Reason;
+	return SelectBestAnchor(ViewLocation, ViewForward, Blocked, Reason);
+}
+
+AGrappleAnchor* UGrappleComponent::SelectBestAnchor(const FVector& ViewLocation, const FVector& ViewForward,
+	AGrappleAnchor*& OutBlocked, FString& OutBlockedReason) const
+{
+	OutBlocked = nullptr;
+	OutBlockedReason.Reset();
 	const AActor* Owner = GetOwner();
 	if (!Owner)
 	{
@@ -240,12 +293,50 @@ AGrappleAnchor* UGrappleComponent::SelectBestAnchor(const FVector& ViewLocation,
 		return A.Key < B.Key;
 	});
 
+	// The zip line is checked from where she is now, the way StartZip would fly it: from the
+	// ground with the hop, mid-zip (a chain) from here with the line she is on counting as her start.
+	const ACharacter* Character = GetCharacter();
+	const UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
+	const bool bFromGround = !bZipping && Movement && Movement->IsMovingOnGround();
+	TArray<AActor*> CurrentSupports;
+	if (bZipping)
+	{
+		for (const TWeakObjectPtr<AActor>& Support : ZipIgnoredSupports)
+		{
+			if (AActor* Actor = Support.Get())
+			{
+				CurrentSupports.Add(Actor);
+			}
+		}
+	}
+
 	const int32 Traces = FMath::Min(Candidates.Num(), HawkeyeGrapple::MaxSightTraces);
+	int32 ClearChecks = 0;
 	for (int32 Index = 0; Index < Traces; ++Index)
 	{
-		if (HasLineOfSight(Candidates[Index].Value, ViewLocation))
+		AGrappleAnchor* Anchor = Candidates[Index].Value;
+		if (!HasLineOfSight(Anchor, ViewLocation))
 		{
-			return Candidates[Index].Value;
+			continue;
+		}
+		if (!bRequireClearZip || !Character)
+		{
+			return Anchor;
+		}
+		if (ClearChecks >= MaxClearChecks)
+		{
+			break;
+		}
+		++ClearChecks;
+		AActor* Blocker = nullptr;
+		if (IsZipClear(Character->GetActorLocation(), Anchor, bFromGround, &Blocker, bZipping ? &CurrentSupports : nullptr))
+		{
+			return Anchor;
+		}
+		if (!OutBlocked)
+		{
+			OutBlocked = Anchor;
+			OutBlockedReason = FString::Printf(TEXT("the line hits %s"), Blocker ? *Blocker->GetName() : TEXT("something"));
 		}
 	}
 	return nullptr;
@@ -253,7 +344,16 @@ AGrappleAnchor* UGrappleComponent::SelectBestAnchor(const FVector& ViewLocation,
 
 void UGrappleComponent::UpdateTarget(const FVector& ViewLocation, const FVector& ViewForward)
 {
-	TargetAnchor = SelectBestAnchor(ViewLocation, ViewForward);
+	AGrappleAnchor* Blocked = nullptr;
+	FString Reason;
+	TargetAnchor = SelectBestAnchor(ViewLocation, ViewForward, Blocked, Reason);
+	if (Blocked != BlockedAnchor.Get() && Blocked)
+	{
+		UE_LOG(LogHawkeye, Verbose, TEXT("%s: grapple anchor %s is in view but greyed: %s"), *GetNameSafe(GetOwner()),
+			*GetNameSafe(Blocked), *Reason);
+	}
+	BlockedAnchor = Blocked;
+	BlockedReason = Reason;
 }
 
 void UGrappleComponent::GetViewPoint(FVector& OutLocation, FVector& OutForward) const
@@ -286,16 +386,23 @@ void UGrappleComponent::RefreshTarget()
 
 bool UGrappleComponent::TryFire()
 {
-	if (IsArrowInFlight() || !CanChain())
+	const EGrappleTargetState State = GetTargetState();
+	if (State != EGrappleTargetState::Ready)
 	{
+		if (State == EGrappleTargetState::NoArrows)
+		{
+			UE_LOG(LogHawkeye, Log, TEXT("%s: no grapple arrows left"), *GetNameSafe(GetOwner()));
+		}
+		else
+		{
+			UE_LOG(LogHawkeye, Log, TEXT("%s: grapple press refused: %s%s"), *GetNameSafe(GetOwner()),
+				*UEnum::GetValueAsString(State),
+				BlockedAnchor.IsValid() ? *FString::Printf(TEXT(" (%s is greyed: %s)"), *BlockedAnchor->GetName(), *BlockedReason)
+					: TEXT(""));
+		}
 		return false;
 	}
-
 	AGrappleAnchor* Anchor = TargetAnchor.Get();
-	if (!IsValid(Anchor) || !Anchor->bEnabled)
-	{
-		return false;
-	}
 
 	// Whatever slot is nocked, Q (and a release with the grapple slot active) spends from the
 	// grapple slot of the quiver.
@@ -323,7 +430,7 @@ bool UGrappleComponent::TryFire()
 	if (!Arrow)
 	{
 		// No world to fly through: the arrow is there at once.
-		Anchor->AddStuckArrow(nullptr);
+		Anchor->AddStuckArrow(nullptr, GetOwner());
 		HandleArrowArrived(nullptr, Anchor);
 		return true;
 	}
@@ -446,10 +553,11 @@ int32 UGrappleComponent::RecoverNearbyArrows()
 	int32 Recovered = 0;
 	for (AGrappleAnchor* Anchor : Nearby)
 	{
-		if (Anchor->GetStuckArrowCount() > 0
+		if (Anchor->GetStuckArrowCountFor(Owner) > 0
 			&& FVector::Dist(Owner->GetActorLocation(), Anchor->GetActorLocation()) <= RecoverRadius)
 		{
-			Recovered += Anchor->RecoverStuckArrows();
+			// Only her own: the partner zipping in beside Kate's anchor used to pocket her arrow.
+			Recovered += Anchor->RecoverStuckArrows(const_cast<AActor*>(Owner));
 		}
 	}
 	if (Recovered > 0)
@@ -464,6 +572,28 @@ int32 UGrappleComponent::RecoverNearbyArrows()
 			GetGrappleArrows());
 	}
 	return Recovered;
+}
+
+void UGrappleComponent::ReelBackArrow(AGrappleAnchor* Anchor, const TCHAR* Why)
+{
+	AActor* Owner = GetOwner();
+	if (!Anchor || !Owner)
+	{
+		return;
+	}
+	const int32 Reeled = Anchor->RecoverStuckArrows(Owner);
+	if (Reeled <= 0)
+	{
+		return;
+	}
+	UInventoryComponent* Inventory = GetInventory();
+	const int32 Slot = FindGrappleSlot();
+	if (Inventory && Slot != INDEX_NONE)
+	{
+		Inventory->AddArrows(Inventory->GetArrowSlot(Slot).Arrow, Reeled);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: reeled %d grapple arrow(s) back from %s (%s), %d now"), *GetNameSafe(Owner), Reeled,
+		*GetNameSafe(Anchor), Why, GetGrappleArrows());
 }
 
 // --- Zip ----------------------------------------------------------------------------------------
@@ -553,7 +683,8 @@ FVector UGrappleComponent::ComputeZipLaunch(const FVector& Start, bool bFromGrou
 	return bFromGround ? Start + FVector(0.f, 0.f, ZipLaunchHeight) : Start;
 }
 
-bool UGrappleComponent::IsZipClear(const FVector& From, const AGrappleAnchor* Anchor, bool bFromGround, AActor** OutBlocker) const
+bool UGrappleComponent::IsZipClear(const FVector& From, const AGrappleAnchor* Anchor, bool bFromGround, AActor** OutBlocker,
+	const TArray<AActor*>* ExtraStartSupports) const
 {
 	const UWorld* World = GetWorld();
 	const ACharacter* Character = GetCharacter();
@@ -572,6 +703,13 @@ bool UGrappleComponent::IsZipClear(const FVector& From, const AGrappleAnchor* An
 	FindAnchorSupports(Anchor, AnchorSupports);
 	TArray<AActor*> StartSupports;
 	FindStartSupports(From, StartSupports);
+	if (ExtraStartSupports)
+	{
+		for (AActor* Support : *ExtraStartSupports)
+		{
+			StartSupports.AddUnique(Support);
+		}
+	}
 
 	// Where the start supports count again: the first point on the line that far from From.
 	const float Release = GetStartReleaseDistance();
@@ -686,8 +824,13 @@ bool UGrappleComponent::StartZip(AGrappleAnchor* Anchor)
 	}
 	if (bZipping)
 	{
-		// A chain: the old building stops being ignored, the new one starts.
+		// A chain: the old building stops being ignored, the new one starts, and the old line's
+		// arrow comes back (she never gets within reach of it to pull it out).
 		SetSupportsIgnored(false);
+		if (ZipAnchor.Get() != Anchor)
+		{
+			ReelBackArrow(ZipAnchor.Get(), TEXT("chained off it"));
+		}
 	}
 	else
 	{
@@ -883,6 +1026,7 @@ void UGrappleComponent::AdvanceZip(float DeltaSeconds)
 		UE_LOG(LogHawkeye, Log, TEXT("%s: zip to %s blocked by %s at %s (%.0f%% along); dropping"),
 			*GetNameSafe(Character), *GetNameSafe(ZipAnchor.Get()), *GetNameSafe(Hit.GetActor()),
 			*Hit.Location.ToCompactString(), ZipProgress * 100.f);
+		ReelBackArrow(ZipAnchor.Get(), TEXT("the zip was blocked"));
 		CancelZip();
 		return;
 	}

@@ -47,26 +47,47 @@ FVector AGrappleAnchor::GetMarkerLocation() const
 	return GetActorLocation() + GetActorUpVector() * MarkerHeight;
 }
 
-void AGrappleAnchor::AddStuckArrow(AGrappleArrowProjectile* Arrow)
+void AGrappleAnchor::AddStuckArrow(AGrappleArrowProjectile* Arrow, AActor* Shooter)
 {
-	++StuckArrowCount;
-	if (Arrow)
-	{
-		StuckArrows.Add(Arrow);
-	}
+	StuckArrows.Add(Arrow);
+	StuckArrowShooters.Add(Shooter);
+	StuckArrowCount = StuckArrowShooters.Num();
 }
 
-int32 AGrappleAnchor::RecoverStuckArrows()
+int32 AGrappleAnchor::GetStuckArrowCountFor(const AActor* Shooter) const
 {
-	const int32 Recovered = StuckArrowCount;
-	for (AGrappleArrowProjectile* Arrow : StuckArrows)
+	int32 Count = 0;
+	for (const TWeakObjectPtr<AActor>& ArrowShooter : StuckArrowShooters)
 	{
-		if (IsValid(Arrow))
+		if (!Shooter || !ArrowShooter.IsValid() || ArrowShooter.Get() == Shooter)
 		{
-			Arrow->Destroy();
+			++Count;
 		}
 	}
-	StuckArrows.Reset();
-	StuckArrowCount = 0;
+	return Count;
+}
+
+int32 AGrappleAnchor::RecoverStuckArrows(AActor* Shooter)
+{
+	int32 Recovered = 0;
+	for (int32 Index = StuckArrowShooters.Num() - 1; Index >= 0; --Index)
+	{
+		const TWeakObjectPtr<AActor> ArrowShooter = StuckArrowShooters[Index];
+		if (Shooter && ArrowShooter.IsValid() && ArrowShooter.Get() != Shooter)
+		{
+			continue;
+		}
+		if (StuckArrows.IsValidIndex(Index))
+		{
+			if (AGrappleArrowProjectile* Arrow = StuckArrows[Index].Get(); IsValid(Arrow))
+			{
+				Arrow->Destroy();
+			}
+			StuckArrows.RemoveAt(Index);
+		}
+		StuckArrowShooters.RemoveAt(Index);
+		++Recovered;
+	}
+	StuckArrowCount = StuckArrowShooters.Num();
 	return Recovered;
 }

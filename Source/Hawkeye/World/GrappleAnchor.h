@@ -44,15 +44,21 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Grapple")
 	USceneComponent* GetLandingPoint() const { return LandingPoint; }
 
-	/** Grapple arrows stuck in this anchor, waiting to be recovered. */
+	/** Grapple arrows stuck in this anchor, waiting to be recovered, whoever shot them. */
 	UFUNCTION(BlueprintPure, Category = "Grapple")
 	int32 GetStuckArrowCount() const { return StuckArrowCount; }
 
-	/** An arrow has arrived. The projectile, if any, stays here as the visible arrow until recovered. */
-	void AddStuckArrow(AGrappleArrowProjectile* Arrow);
+	/** The stuck arrows Shooter can take back: the ones Shooter shot, and any nobody owns. */
+	int32 GetStuckArrowCountFor(const AActor* Shooter) const;
 
-	/** Hands back every stuck arrow and removes their projectiles. Returns how many there were. */
-	int32 RecoverStuckArrows();
+	/** An arrow has arrived, shot by Shooter. The projectile, if any, stays here as the visible arrow until recovered. */
+	void AddStuckArrow(AGrappleArrowProjectile* Arrow, AActor* Shooter = nullptr);
+
+	/**
+	 * Hands back the stuck arrows Shooter can take (every one when Shooter is null) and removes their
+	 * projectiles. Returns how many. Clint walking past Kate's anchor does not pocket her arrow.
+	 */
+	int32 RecoverStuckArrows(AActor* Shooter = nullptr);
 
 	/** Height of the marker above the actor origin: the centre of the 40 cm fitting. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
@@ -73,6 +79,9 @@ protected:
 	UPROPERTY(Transient)
 	int32 StuckArrowCount = 0;
 
+	/** One entry per stuck arrow: its projectile (null when it had none) and who shot it (null: anyone's). */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<AGrappleArrowProjectile>> StuckArrows;
+
+	TArray<TWeakObjectPtr<AActor>> StuckArrowShooters;
 };

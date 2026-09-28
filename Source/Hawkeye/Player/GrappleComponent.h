@@ -16,6 +16,22 @@ class UNiagaraSystem;
 class USoundBase;
 class UInventoryComponent;
 
+/** What a grapple press would do at the marked anchor right now; the HUD draws the marker from it. */
+UENUM(BlueprintType)
+enum class EGrappleTargetState : uint8
+{
+	/** Nothing marked. */
+	None,
+	/** A press fires at the target: green diamond and the key hint. */
+	Ready,
+	/** The target is fine but the quiver has no grapple arrows: grey diamond, "no grapple arrows". */
+	NoArrows,
+	/** The last grapple arrow has not arrived yet: grey diamond, no hint. */
+	ArrowInFlight,
+	/** Mid-zip before the chain window: no marker. */
+	TooEarlyToChain,
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleLandedSignature, AGrappleAnchor*, Anchor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrappleAnchor*, Anchor);
 
@@ -75,8 +91,32 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Grapple")
 	void CancelZip();
 
-	/** The best anchor seen from ViewLocation looking along ViewForward. Does not change the target. */
+	/** Ready, NoArrows, ArrowInFlight or TooEarlyToChain for the target; None without one. TryFire fires only when Ready. */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	EGrappleTargetState GetTargetState() const;
+
+	/**
+	 * An anchor nearer the middle of the view than the target (or seen with no target at all) that
+	 * passes range, cone and sight but whose zip would hit something on the way: drawn as a dim
+	 * grey diamond, never fired at. Null when there is none.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Grapple")
+	AGrappleAnchor* GetBlockedAnchor() const { return BlockedAnchor.Get(); }
+
+	/** Why GetBlockedAnchor cannot be zipped to ("the line hits FireEscapeLanding_34"). */
+	const FString& GetBlockedReason() const { return BlockedReason; }
+
+	/** hawkeye.DebugGrapple: the HUD writes the blocked reason under the grey diamond. */
+	static bool IsDebugEnabled();
+
+	/**
+	 * The best anchor seen from ViewLocation looking along ViewForward: range, cone, sight, and a
+	 * clear zip line from where the character is (IsZipClear). Does not change the target. The
+	 * nearest-the-middle candidate that failed only the zip line comes back in OutBlocked.
+	 */
 	AGrappleAnchor* SelectBestAnchor(const FVector& ViewLocation, const FVector& ViewForward) const;
+	AGrappleAnchor* SelectBestAnchor(const FVector& ViewLocation, const FVector& ViewForward, AGrappleAnchor*& OutBlocked,
+		FString& OutBlockedReason) const;
 
 	/** Re-picks the target from this view. RefreshTarget passes the camera's. */
 	void UpdateTarget(const FVector& ViewLocation, const FVector& ViewForward);
@@ -121,7 +161,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Grapple")
 	void SetGrappleArrows(int32 Count);
 
-	/** Arrows fired this session. The HUD shows the key hint for the first few. */
+	/** Arrows fired this session. */
 	UFUNCTION(BlueprintPure, Category = "Grapple")
 	int32 GetUseCount() const { return UseCount; }
 
@@ -142,7 +182,8 @@ public:
 	 * ignoring the start supports until ZipStartIgnoreRadius (plus the capsule radius) from From
 	 * and the anchor supports all the way. OutBlocker names what stops it.
 	 */
-	bool IsZipClear(const FVector& From, const AGrappleAnchor* Anchor, bool bFromGround, AActor** OutBlocker = nullptr) const;
+	bool IsZipClear(const FVector& From, const AGrappleAnchor* Anchor, bool bFromGround, AActor** OutBlocker = nullptr,
+		const TArray<AActor*>* ExtraStartSupports = nullptr) const;
 
 	/** In the hop before the straight line. */
 	UFUNCTION(BlueprintPure, Category = "Grapple")
@@ -211,6 +252,17 @@ public:
 	/** A chain turns the direction of travel from the old line onto the new one over this long, s. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
 	float RedirectBlendSeconds = 0.1f;
+
+	/**
+	 * The target must have a clear zip line (IsZipClear), so a marked anchor never drops her into a
+	 * fire escape half way. Candidates are checked nearest the middle first, at most MaxClearChecks
+	 * per refresh.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple")
+	bool bRequireClearZip = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "1"))
+	int32 MaxClearChecks = 3;
 
 	/** Seconds between target refreshes. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.01"))
@@ -368,7 +420,18 @@ protected:
 	/** Spawns the grapple arrow at the bow hand (or ArrowLaunchOffset) aimed at Anchor. */
 	AGrappleArrowProjectile* SpawnGrappleArrow(UArrowDefinition* Definition, const AGrappleAnchor* Anchor) const;
 
+	/**
+	 * A zip that ends without landing on Anchor (blocked on the way, or redirected by a chain) reels
+	 * its arrow back into the quiver; only letting go with jump or crouch leaves it in the anchor.
+	 */
+	void ReelBackArrow(AGrappleAnchor* Anchor, const TCHAR* Why);
+
+	/** Only the player's pawn (or a pawn nobody controls, in a test) keeps a target; the partner's AI does not need one. */
+	bool ShouldRefreshTarget() const;
+
 	TWeakObjectPtr<AGrappleAnchor> TargetAnchor;
+	TWeakObjectPtr<AGrappleAnchor> BlockedAnchor;
+	FString BlockedReason;
 	TWeakObjectPtr<AGrappleAnchor> ZipAnchor;
 	TArray<TWeakObjectPtr<AActor>> ZipIgnoredSupports;
 	TArray<TWeakObjectPtr<AActor>> ZipStartSupports;

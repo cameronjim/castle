@@ -99,7 +99,8 @@ void AGrappleArrowProjectile::Arrive()
 	AGrappleAnchor* Anchor = TargetAnchor.Get();
 	if (Anchor)
 	{
-		Anchor->AddStuckArrow(this);
+		const UGrappleComponent* ShooterGrapple = Grapple.Get();
+		Anchor->AddStuckArrow(this, ShooterGrapple ? ShooterGrapple->GetOwner() : GetOwner());
 	}
 	if (UGrappleComponent* Component = Grapple.Get())
 	{
