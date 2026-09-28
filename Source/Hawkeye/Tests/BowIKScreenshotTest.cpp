@@ -30,6 +30,10 @@
 #include "UnrealClient.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Combat/CombatAnimPlayback.h"
+#include "Kismet/GameplayStatics.h"
 
 #include "Tests/HawkeyeShots.h"
 
@@ -485,6 +489,321 @@ bool FHawkeyeScreenshotBowIK::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeBowIKFreeze());
 	HawkeyeAddBowIKShots(this);
 	// Fails the test for any capture that did not reach the disk.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
+	return true;
+}
+
+
+/**
+ * The bow in motion (Hawkeye.Screenshot.BowDraw, Saved/Screenshots/BowDraw/): the stills above hold the
+ * draw on the bow's test clock, so they cannot show what a real draw looks like while it plays. This one
+ * draws on the world clock and stops time (global dilation 0.0001) at each moment named, captures, and
+ * lets time go on:
+ *
+ *   draw_0.10 .. draw_1.00  0.1, 0.3, 0.6 and 1.0 s into a draw
+ *   aim_up_30, aim_down_30  held at full draw, the camera pitched 30 degrees up, then down
+ *   release_0.10            0.1 s after the release
+ *   redraw_0.30             a new draw started 0.25 s after the release, 0.3 s into it
+ *   strafe_0.40, _0.80      walking right while held at full draw, the camera riding along
+ *   settle_0.60             0.6 s after the second release, as the bow goes away
+ *
+ * Each moment is two files: <name>.png from a camera in front of her and to her left (the pose), and
+ * <name>_view.png through her own camera over the shoulder (what the player sees, with the reticle).
+ * Every frame logs the bow clip, its slot weight, the IK alphas, each hand against its target and the
+ * nocked arrow's direction against the launch direction (the arrow must look where it flies). Motion
+ * plays at 0.25x between the moments so each stop lands within a few milliseconds of its time.
+ */
+namespace HawkeyeBowDrawShots
+{
+	using namespace HawkeyeBowIKShots;
+
+	static constexpr float Crawl = 0.25f;
+	static constexpr float Stopped = 0.0001f;
+
+	enum class EAction : uint8
+	{
+		Setup,
+		StartDraw,
+		Wait,
+		PitchUp,
+		PitchDown,
+		PitchLevel,
+		Release,
+		StrafeStart,
+		StrafeStop,
+		Done,
+	};
+
+	struct FStep
+	{
+		EAction Action = EAction::Wait;
+		/** Game seconds after the previous step before this one runs. */
+		float After = 0.f;
+		/** A capture taken (time stopped) once this step has run, or null. */
+		const TCHAR* Shot = nullptr;
+	};
+
+	static FString DrawShotPath(const FString& FileName)
+	{
+		return FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Screenshots") / TEXT("BowDraw") / FileName);
+	}
+
+	static float DegreesBetween(const FVector& A, const FVector& B)
+	{
+		const FVector NA = A.GetSafeNormal();
+		const FVector NB = B.GetSafeNormal();
+		return (NA.IsNearlyZero() || NB.IsNearlyZero()) ? -1.f
+			: FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(NA, NB), -1.f, 1.f)));
+	}
+
+	/** One line per frame: the clip and its weight, the IK, and the nocked arrow against where it would fly. */
+	static void ReportMotion(FAutomationTestBase* Test, const AHawkeyeCharacter* Kate, const FString& Label, double SinceDraw)
+	{
+		const UBowComponent* Bow = Kate ? Kate->GetBowComponent() : nullptr;
+		const USkeletalMeshComponent* Body = Kate ? Kate->GetMesh() : nullptr;
+		const UHawkeyeBowIKAnimInstance* Hands = Bow ? Bow->GetHandsIKInstance() : nullptr;
+		if (!Bow || !Body || !Hands)
+		{
+			Test->AddWarning(FString::Printf(TEXT("%s: no bow, body or bow hands post-process."), *Label));
+			return;
+		}
+		const UAnimMontage* Clip = Bow->GetBowClip();
+		const UAnimInstance* Post = Body->GetPostProcessInstance();
+		const float SlotWeight = Post ? Post->GetSlotMontageGlobalWeight(HawkeyeCombatAnim::UpperBodySlot) : 0.f;
+		const float Position = (Post && Clip) ? Post->Montage_GetPosition(Clip) : -1.f;
+		const FVector Tip = Bow->GetNockedArrowTip();
+		const FVector Nock = Body->DoesSocketExist(Bow->HandsIK.StringHandSocket) ? Body->GetSocketLocation(Bow->HandsIK.StringHandSocket)
+			: Body->GetSocketLocation(TEXT("hand_r"));
+		const FVector Launch = Bow->ComputeAimPoint() - Bow->GetArrowSpawnLocation();
+		const FVector ArrowDir = Tip - Nock;
+		const FTransform Component = Body->GetComponentTransform();
+		const FRotator Control = Kate->GetControlRotation();
+		Test->AddInfo(FString::Printf(
+			TEXT("%s: %.2f s since the draw began; drawing %d draw %.2f; clip %s (%s) at %.2f s, UpperBody weight %.2f; ")
+			TEXT("alphas bow %.2f draw %.2f clip %.2f left %.2f right %.2f; spine %.1f; hand_l %.1f cm off its target, hand_r %.1f; ")
+			TEXT("arrow %.1f deg off the launch (arrow pitch %.1f, launch pitch %.1f, control pitch %.1f); speed %.0f"),
+			*Label, SinceDraw, Bow->IsDrawing() ? 1 : 0, Bow->GetDrawFraction(), *GetNameSafe(Clip),
+			*UEnum::GetValueAsString(Bow->GetBowClipRole()), Position, SlotWeight, Hands->GetBowAlpha(), Hands->GetDrawAlpha(),
+			Hands->GetClipAlpha(), Hands->LeftArmAlpha, Hands->RightArmAlpha, Hands->SpineTwist.Yaw,
+			FVector::Dist(Body->GetSocketLocation(TEXT("hand_l")), Component.TransformPosition(Hands->LeftHandTarget)),
+			FVector::Dist(Body->GetSocketLocation(TEXT("hand_r")), Component.TransformPosition(Hands->RightHandTarget)),
+			Bow->IsDrawing() ? DegreesBetween(ArrowDir, Launch) : -1.f, ArrowDir.Rotation().Pitch, Launch.Rotation().Pitch,
+			FRotator::NormalizeAxis(Control.Pitch), Kate->GetVelocity().Size2D()));
+		Report(Test, Kate, *Label);
+	}
+
+	static const TArray<FStep>& Steps()
+	{
+		static const TArray<FStep> All = {
+			{ EAction::Setup, 0.f, nullptr },
+			{ EAction::Wait, 1.5f, nullptr },
+			{ EAction::StartDraw, 0.f, nullptr },
+			{ EAction::Wait, 0.1f, TEXT("draw_0.10.png") },
+			{ EAction::Wait, 0.2f, TEXT("draw_0.30.png") },
+			{ EAction::Wait, 0.3f, TEXT("draw_0.60.png") },
+			{ EAction::Wait, 0.4f, TEXT("draw_1.00.png") },
+			{ EAction::PitchUp, 0.3f, nullptr },
+			{ EAction::Wait, 0.5f, TEXT("aim_up_30.png") },
+			{ EAction::PitchDown, 0.f, nullptr },
+			{ EAction::Wait, 0.5f, TEXT("aim_down_30.png") },
+			{ EAction::PitchLevel, 0.f, nullptr },
+			{ EAction::Release, 0.8f, nullptr },
+			{ EAction::Wait, 0.1f, TEXT("release_0.10.png") },
+			{ EAction::StartDraw, 0.15f, nullptr },
+			{ EAction::Wait, 0.3f, TEXT("redraw_0.30.png") },
+			{ EAction::StrafeStart, 0.7f, nullptr },
+			{ EAction::Wait, 0.4f, TEXT("strafe_0.40.png") },
+			{ EAction::Wait, 0.4f, TEXT("strafe_0.80.png") },
+			{ EAction::StrafeStop, 0.f, nullptr },
+			{ EAction::Release, 0.2f, nullptr },
+			{ EAction::Wait, 0.6f, TEXT("settle_0.60.png") },
+			{ EAction::Done, 0.3f, nullptr },
+		};
+		return All;
+	}
+}
+
+/** Runs HawkeyeBowDrawShots::Steps on the world clock, stopping time for each capture. */
+class FHawkeyeBowDrawSequence : public IAutomationLatentCommand
+{
+public:
+	explicit FHawkeyeBowDrawSequence(FAutomationTestBase* InTest) : Test(InTest) {}
+
+	virtual bool Update() override
+	{
+		using namespace HawkeyeBowDrawShots;
+		UWorld* World = FindWorld();
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+		UBowComponent* Bow = Kate ? Kate->GetBowComponent() : nullptr;
+		if (!Bow || !Bow->GetBow())
+		{
+			Test->AddError(TEXT("bow draw shots: no Kate with a bow."));
+			return true;
+		}
+		if (bWaitingForShot)
+		{
+			if (HawkeyeShots::GetOutstanding(Test) > 0)
+			{
+				return false;
+			}
+			if (!bTookView)
+			{
+				// Time is stopped: the same pose again, through her own camera.
+				bTookView = true;
+				PC->SetViewTarget(Kate);
+				HawkeyeShots::Request(Test, DrawShotPath(PendingLabel.Replace(TEXT(".png"), TEXT("_view.png"))), /*bShowUI=*/true);
+				return false;
+			}
+			bWaitingForShot = false;
+			FrameFrontLeft(World, PC, Kate);
+			UGameplayStatics::SetGlobalTimeDilation(World, Crawl);
+			StepStart = World->GetTimeSeconds();
+			++Index;
+		}
+		if (bStrafing)
+		{
+			// To her right, across the street's length she faces along.
+			Kate->AddMovementInput(FVector::CrossProduct(FVector::UpVector, Along).GetSafeNormal(), 1.f);
+			FrameFrontLeft(World, PC, Kate);
+		}
+		const TArray<FStep>& All = Steps();
+		if (!All.IsValidIndex(Index))
+		{
+			return true;
+		}
+		const FStep& Step = All[Index];
+		if (StepStart < 0.0)
+		{
+			StepStart = World->GetTimeSeconds();
+		}
+		if (World->GetTimeSeconds() - StepStart < Step.After)
+		{
+			return false;
+		}
+		Run(Step.Action, World, PC, Kate, Bow);
+		if (Step.Shot)
+		{
+			UGameplayStatics::SetGlobalTimeDilation(World, Stopped);
+			PendingLabel = FString(Step.Shot);
+			ReportMotion(Test, Kate, PendingLabel, DrawStart >= 0.0 ? World->GetTimeSeconds() - DrawStart : -1.0);
+			// Drawing puts the view back on her camera; the pose shot is from the close one.
+			FrameFrontLeft(World, PC, Kate);
+			HawkeyeShots::Request(Test, DrawShotPath(PendingLabel), /*bShowUI=*/true);
+			bWaitingForShot = true;
+			bTookView = false;
+			return false;
+		}
+		StepStart = World->GetTimeSeconds();
+		++Index;
+		return !All.IsValidIndex(Index);
+	}
+
+private:
+	void Run(HawkeyeBowDrawShots::EAction Action, UWorld* World, APlayerController* PC, AHawkeyeCharacter* Kate, UBowComponent* Bow)
+	{
+		using namespace HawkeyeBowDrawShots;
+		switch (Action)
+		{
+		case EAction::Setup:
+		{
+			AHawkeyeCharacter* Clint = FindClint(World);
+			FVector Ground;
+			if (!FindStreet(World, { Kate, Clint }, Ground, Along))
+			{
+				Test->AddError(TEXT("bow draw shots: no street spot."));
+				return;
+			}
+			Yaw = Along.Rotation().Yaw;
+			LetDown(Bow);
+			Kate->StopAim();
+			Stand(Kate, Ground, Yaw);
+			PC->SetControlRotation(FRotator(0.f, Yaw, 0.f));
+			if (Clint)
+			{
+				Stand(Clint, Ground - Along * 1500.f, Yaw);
+			}
+			FrameFrontLeft(World, PC, Kate);
+			UGameplayStatics::SetGlobalTimeDilation(World, Crawl);
+			break;
+		}
+		case EAction::StartDraw:
+			Bow->ClearTestTime();
+			if (!Bow->StartDraw())
+			{
+				Test->AddError(TEXT("bow draw shots: the draw did not start."));
+			}
+			DrawStart = World->GetTimeSeconds();
+			break;
+		case EAction::PitchUp:
+			PC->SetControlRotation(FRotator(30.f, Yaw, 0.f));
+			break;
+		case EAction::PitchDown:
+			PC->SetControlRotation(FRotator(-30.f, Yaw, 0.f));
+			break;
+		case EAction::PitchLevel:
+			PC->SetControlRotation(FRotator(0.f, Yaw, 0.f));
+			break;
+		case EAction::Release:
+			if (!Bow->ReleaseDraw())
+			{
+				Test->AddWarning(TEXT("bow draw shots: the release loosed nothing."));
+			}
+			DrawStart = -1.0;
+			break;
+		case EAction::StrafeStart:
+			bStrafing = true;
+			break;
+		case EAction::StrafeStop:
+			bStrafing = false;
+			break;
+		case EAction::Done:
+			UGameplayStatics::SetGlobalTimeDilation(World, 1.f);
+			LetDown(Bow);
+			Kate->StopAim();
+			if (ACameraActor* Camera = ShotCamera.Get())
+			{
+				Camera->Destroy();
+			}
+			ShotCamera.Reset();
+			if (APointLight* Light = FillLight.Get())
+			{
+				Light->Destroy();
+			}
+			FillLight.Reset();
+			PC->SetViewTarget(Kate);
+			break;
+		default:
+			break;
+		}
+	}
+
+	FAutomationTestBase* Test = nullptr;
+	int32 Index = 0;
+	double StepStart = -1.0;
+	double DrawStart = -1.0;
+	bool bWaitingForShot = false;
+	bool bTookView = false;
+	bool bStrafing = false;
+	FString PendingLabel;
+	FVector Along = FVector::ForwardVector;
+	float Yaw = 0.f;
+};
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeScreenshotBowDraw, "Hawkeye.Screenshot.BowDraw",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeScreenshotBowDraw::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddInfo(TEXT("No RHI: skipping the bow draw screenshots."));
+		return true;
+	}
+	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(6.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeBowIKFreeze());
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeBowDrawSequence(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
