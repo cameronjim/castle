@@ -4,8 +4,10 @@
                                                      Clint), built headless by UHawkeyeBowIKGraphBuilder
                                                      (C++, anim graph nodes): the mannequin's own
                                                      ABP_UEFN_Mannequin_PostProcess as a linked graph,
-                                                     then the full-body and upper-body clip slots, the spine
-                                                     and neck turn and two-bone IK on both arms
+                                                     then the full-body and upper-body clip slots, the
+                                                     upper body's aim offset (BS_BowAimOffset_Sparrow, when
+                                                     import-anims.ps1 has built it), the spine and neck turn
+                                                     and two-bone IK on both arms
     /Game/Blueprints/Animation/ABP_BowIK_Post_Thug   the same graph for the old mannequin (BP_Archer),
                                                      with nothing to chain
 
@@ -18,6 +20,7 @@ build tag and are rebuilt only when it changes; the class references are compare
 written.
 """
 
+import json
 import os
 import sys
 
@@ -29,16 +32,35 @@ import create_blueprints as cb  # noqa: E402
 
 ANIM_PATH = "/Game/Blueprints/Animation"
 BUILD_TAG = "HawkeyeBuild"
-IK_BUILD = "bow-ik-3"   # bump when UHawkeyeBowIKGraphBuilder's graph changes (2: hit lean, arm alphas; 3: clip slots)
+IK_BUILD = "bow-ik-4"   # bump when UHawkeyeBowIKGraphBuilder's graph changes (2: hit lean, arm alphas; 3: clip slots; 4: aim offset)
+MANIFEST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Data", "Anims", "manifest.json")
 
-# (asset, skeleton, the mesh's own post-process AnimBP class to chain or None, spine bone, neck bone)
+# (asset, skeleton, the mesh's own post-process AnimBP class to chain or None, spine bone, neck bone,
+#  the manifest target whose aim offset it plays)
 GRAPHS = [
     ("ABP_BowIK_Post", "/Game/Characters/UEFN_Mannequin/Meshes/SK_UEFN_Mannequin",
      "/Game/Characters/UEFN_Mannequin/Rigs/ABP_UEFN_Mannequin_PostProcess.ABP_UEFN_Mannequin_PostProcess_C",
-     "spine_03", "neck_01"),
+     "spine_03", "neck_01", "uefn"),
     ("ABP_BowIK_Post_Thug", "/Game/Mannequin/Character/Mesh/SK_Mannequin_Skeleton", None,
-     "spine_03", "neck_01"),
+     "spine_03", "neck_01", "thug"),
 ]
+
+
+def find_aim_offset(target_name):
+    """The first of the manifest's aim offsets that import_combat_anims.py has built for this target, or None."""
+    try:
+        with open(MANIFEST, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    target = manifest.get("targets", {}).get(target_name)
+    if not target:
+        return None
+    for aim in manifest.get("aim_offsets", []):
+        space = c.load_or_none(target["output"] + "/" + aim["name"])
+        if isinstance(space, unreal.BlendSpace):
+            return space
+    return None
 
 # (Blueprint folder, Blueprint, AnimBP it runs, other BowComponent values)
 USERS = [
@@ -53,14 +75,17 @@ USERS = [
 ]
 
 
-def ensure_graph(name, skeleton_path, chained_path, spine, neck):
+def ensure_graph(name, skeleton_path, chained_path, spine, neck, target_name):
     full = c.asset_path(ANIM_PATH, name)
     builder = getattr(unreal, "HawkeyeBowIKGraphBuilder", None)
     if builder is None:
         c.log("FAILED", full, "UHawkeyeBowIKGraphBuilder not exposed; build the module")
         return None
+    aim_offset = find_aim_offset(target_name)
+    # The graph is rebuilt when its layout changes or its aim offset appears (or goes).
+    build = "{0}:{1}".format(IK_BUILD, aim_offset.get_path_name() if aim_offset is not None else "no-aim-offset")
     existing = c.load_or_none(full)
-    if existing is not None and unreal.EditorAssetLibrary.get_metadata_tag(existing, BUILD_TAG) == IK_BUILD:
+    if existing is not None and unreal.EditorAssetLibrary.get_metadata_tag(existing, BUILD_TAG) == build:
         c.log("exists", full, "{0} nodes".format(builder.count_anim_graph_nodes(existing)))
         return existing
     skeleton = c.load_or_none(skeleton_path)
@@ -74,17 +99,18 @@ def ensure_graph(name, skeleton_path, chained_path, spine, neck):
             c.log("skipped", full, "no {0} to chain".format(chained_path))
             return existing
     c.ensure_directory(ANIM_PATH)
-    abp = builder.build_bow_ik_post_process(full, skeleton, chained, spine, neck)
+    abp = builder.build_bow_ik_post_process(full, skeleton, chained, spine, neck, aim_offset)
     if abp is None:
         c.log("FAILED", full, "the AnimBlueprint did not build or compile; see LogHawkeye")
         return None
-    unreal.EditorAssetLibrary.set_metadata_tag(abp, BUILD_TAG, IK_BUILD)
+    unreal.EditorAssetLibrary.set_metadata_tag(abp, BUILD_TAG, build)
     c.save(abp)
     # Compiling the slot nodes registers DefaultSlot and UpperBody on the skeleton.
     c.save(skeleton, only_if_dirty=True)
     c.log("updated" if existing is not None else "created", full,
-          "{0} nodes, skeleton {1}, chained {2}".format(builder.count_anim_graph_nodes(abp), skeleton.get_name(),
-                                                        chained.get_name() if chained else "nothing"))
+          "{0} nodes, skeleton {1}, chained {2}, aim offset {3}".format(
+              builder.count_anim_graph_nodes(abp), skeleton.get_name(), chained.get_name() if chained else "nothing",
+              aim_offset.get_name() if aim_offset is not None else "none (import-anims.ps1 builds it)"))
     return abp
 
 
@@ -118,8 +144,8 @@ def assign(folder, bp_name, abp_name, abp, values):
 
 def run():
     graphs = {}
-    for name, skeleton, chained, spine, neck in GRAPHS:
-        graphs[name] = ensure_graph(name, skeleton, chained, spine, neck)
+    for name, skeleton, chained, spine, neck, target_name in GRAPHS:
+        graphs[name] = ensure_graph(name, skeleton, chained, spine, neck, target_name)
     for folder, bp_name, abp_name, values in USERS:
         assign(folder, bp_name, abp_name, graphs.get(abp_name), values)
     return graphs
