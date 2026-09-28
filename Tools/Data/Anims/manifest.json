@@ -156,13 +156,32 @@
     {"source": "Mixamo", "file": "Knocked Out (1).fbx", "role": "Knockdown", "variant": "KnockedOut1", "characters": ["thug"]},
     {"source": "Mixamo", "file": "Sweep Fall.fbx", "role": "FinisherVictim", "variant": "SweepFall", "characters": ["thug"], "start_s": 0.6, "end_s": 2.0},
     {"source": "Mixamo", "file": "Knocked Out.fbx", "role": "FinisherVictim", "variant": "KnockedOut", "characters": ["thug"]},
-    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/RMB_Drawback", "role": "BowDraw", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
-    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/RMB_Loop", "role": "BowAimIdle", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
-    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/RMB_Fire", "role": "BowFire", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/Primary_Fire_Med", "role": "BowDraw", "variant": "Sparrow", "characters": ["kate", "clint", "archer"], "start_s": 0.43, "end_s": 0.93},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/idle", "role": "BowAimIdle", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/Primary_Fire_Med", "role": "BowFire", "variant": "Sparrow", "characters": ["kate", "clint", "archer"], "start_s": 0.0, "end_s": 0.43},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_CC", "role": "BowAimOffset_CC", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_CU", "role": "BowAimOffset_CU", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_CD", "role": "BowAimOffset_CD", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_LC", "role": "BowAimOffset_LC", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_LU", "role": "BowAimOffset_LU", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_LD", "role": "BowAimOffset_LD", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_RC", "role": "BowAimOffset_RC", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_RU", "role": "BowAimOffset_RU", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
+    {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/idle_AO_RD", "role": "BowAimOffset_RD", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/HitReact_Fwd", "role": "HitFront", "variant": "Sparrow", "characters": "all"},
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/HitReact_Bwd", "role": "HitBack", "variant": "Sparrow", "characters": "all"},
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/HitReact_Left", "role": "HitLeft", "variant": "Sparrow", "characters": "all"},
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/HitReact_Right", "role": "HitRight", "variant": "Sparrow", "characters": "all"}
+  ],
+  "aim_offsets": [
+    {
+      "about": "An AimOffset blend space per target, built after the clips from the BowAimOffset_<pose> clips of this source and variant: laid out as the source's own aim offset (its axes, ranges and each pose's yaw and pitch), each pose made additive in mesh space on base_role's pose. The bow hands post-process plays it on the upper body while a bow clip holds the arms (create_bow_ik.py wires it in).",
+      "name": "BS_BowAimOffset_Sparrow",
+      "source": "ParagonSparrow",
+      "variant": "Sparrow",
+      "layout": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/AimOffset/AO_idle",
+      "base_role": "BowAimOffset_CC"
+    }
   ],
   "selftest": {
     "about": "--selftest: GASP's UE5 mannequin clips (another skeleton) and the engine's FBX automation character through the same code, into .../Combat/SelfTest, then deleted (--keep keeps them).",

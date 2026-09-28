@@ -87,9 +87,18 @@ ROLE_DEFAULTS = {
     "GetUp": {"slot": "DefaultSlot"},
     "FinisherAttacker": {"slot": "DefaultSlot"}, "FinisherVictim": {"slot": "DefaultSlot"},
     "FinisherBow": {"slot": "DefaultSlot"},
-    "BowDraw": {"slot": "UpperBody"}, "BowAimIdle": {"slot": "UpperBody", "loop": True},
-    "BowFire": {"slot": "UpperBody"}, "BowNock": {"slot": "UpperBody"},
+    # The bow's clips over locomotion: 0.15 s in, 0.25 s out. The draw holds its last frame (the anchor)
+    # until the aim clip takes over, so it never blends out toward locomotion on the way.
+    "BowDraw": {"slot": "UpperBody", "hold": True, "blend_in": 0.15, "blend_out": 0.25},
+    "BowAimIdle": {"slot": "UpperBody", "loop": True, "blend_in": 0.15, "blend_out": 0.25},
+    "BowFire": {"slot": "UpperBody", "blend_in": 0.15, "blend_out": 0.25},
+    "BowNock": {"slot": "UpperBody", "blend_in": 0.15, "blend_out": 0.25},
 }
+
+# Single-frame aim poses (BowAimOffset_CC, _CU, ...): retargeted, then made mesh-space additive and laid
+# into the manifest's aim_offsets blend spaces. No montage.
+AIM_POSE_PREFIX = "BowAimOffset_"
+FROM_TAG = "HawkeyeFrom"
 
 _MIXAMO_PREFIX = re.compile(r"^mixamorig\d*[:_]", re.IGNORECASE)
 
@@ -534,7 +543,8 @@ def _assets_in(folder):
 
 def import_project_source(source, clips, content):
     """Copies the clips and the mesh (with their hard closure) from another Content folder. {index: anim}."""
-    roots = [source["skeletal_mesh"]] + [clip["asset"] for _index, clip in clips]
+    # Plus anything else of this source's the run needs (an aim offset's layout).
+    roots = [source["skeletal_mesh"]] + [clip["asset"] for _index, clip in clips] + list(source.get("_extra_roots", []))
     plan = _packages.plan(content, roots)
     for package in plan["missing"]:
         if package in roots:
@@ -568,8 +578,13 @@ def import_project_source(source, clips, content):
 
 def retarget_clip(anim, source_mesh, rtg, target, out_folder, seq_name):
     seq_path = out_folder + "/" + seq_name
+    source_path = anim.get_path_name().split(".")[0]
     if c.exists(seq_path) and not FORCE:
-        return c.load_or_none(seq_path), "exists"
+        existing = c.load_or_none(seq_path)
+        # Only if retargeted from this clip: the same name from another clip (a manifest line pointed
+        # elsewhere), or one from before the tag, is redone.
+        if existing is not None and tag_of(existing, FROM_TAG) == source_path:
+            return existing, "exists"
     delete_if_exists(seq_path)
     c.ensure_directory(out_folder)
     inputs = unreal.IKRetargetBatchOperationInputs()
@@ -587,6 +602,7 @@ def retarget_clip(anim, source_mesh, rtg, target, out_folder, seq_name):
     if seq is None:
         names = [str(r.get_editor_property("package_name")) for r in (results or [])]
         return None, "retarget produced {0}, not {1}".format(names or "nothing", seq_path)
+    set_tag(seq, source_path, FROM_TAG)
     return seq, "retargeted"
 
 
@@ -618,7 +634,8 @@ def montage_windows(layout, length):
     return window("hit"), window("combo"), warp_end
 
 
-def build_montage(seq, montage_path, layout, root_motion, characters, source_name):
+def build_montage(seq, montage_path, layout, root_motion, characters, source_name, fresh_sequence=False):
+    """fresh_sequence: the sequence was (re)made this run, so an existing montage points at the old one."""
     spec = unreal.HawkeyeCombatMontageSpec()
     hit, combo, warp_end = montage_windows(layout, unreal.AnimationLibrary.get_sequence_length(seq))
     c.set_props(spec, [
@@ -633,9 +650,9 @@ def build_montage(seq, montage_path, layout, root_motion, characters, source_nam
     ], "montage spec")
     stamp = fingerprint(SCRIPT_BUILD, layout, root_motion, seq.get_path_name())
     existing = c.load_or_none(montage_path)
-    if existing is not None and not FORCE and tag_of(existing) == stamp:
+    if existing is not None and not FORCE and not fresh_sequence and tag_of(existing) == stamp:
         return existing, "exists"
-    if existing is not None and FORCE:
+    if existing is not None and (FORCE or fresh_sequence):
         delete_if_exists(montage_path)
     montage = unreal.HawkeyeCombatMontageBuilder.build_combat_montage(seq, montage_path, spec)
     if montage is None:
@@ -669,7 +686,15 @@ def process_clip(clip, anim, source, source_mesh, retargeters, targets, output_o
             continue
         root_motion = apply_root_motion(seq, layout, target)
         c.save(seq, only_if_dirty=True)
-        montage, built = build_montage(seq, out_folder + "/" + montage_name, layout, root_motion, characters, source["name"])
+        if clip["role"].startswith(AIM_POSE_PREFIX):
+            # An aim pose: no montage; build_aim_offsets makes it additive and lays it into its blend space.
+            c.log("created" if how == "retargeted" else "exists", where, "aim pose {0} for {1}".format(
+                clip.get("asset", "").rsplit("/", 1)[-1], ",".join(characters)))
+            results.append({"clip": clip, "anim": anim, "target": target_name, "sequence": seq, "montage": None,
+                            "fresh": how == "retargeted"})
+            continue
+        montage, built = build_montage(seq, out_folder + "/" + montage_name, layout, root_motion, characters, source["name"],
+                                       fresh_sequence=how == "retargeted")
         if montage is None:
             c.log("FAILED", out_folder + "/" + montage_name, built)
             continue
@@ -772,7 +797,10 @@ def run(manifest=None, args=None, output_override=None):
         target = ensure_target(name, config, chain_maps)
         if target is not None:
             targets[name] = target
-    sources = dict((s["name"], s) for s in manifest["sources"])
+    sources = dict((s["name"], dict(s)) for s in manifest["sources"])
+    for aim in manifest.get("aim_offsets", []):
+        if aim.get("source") in sources:
+            sources[aim["source"]].setdefault("_extra_roots", []).append(aim["layout"])
     results = []
     for name, source in sources.items():
         if args.get("only") and args["only"] != name:
@@ -784,7 +812,61 @@ def run(manifest=None, args=None, output_override=None):
             results += process_source(source, clips, targets, chain_maps, output_override)
         except Exception as exc:  # noqa: BLE001 - one broken source must not stop the rest
             c.log_error("source " + name, exc)
+    for aim in manifest.get("aim_offsets", []):
+        if args.get("only") and args["only"] != aim.get("source"):
+            continue
+        try:
+            build_aim_offsets(aim, results, targets, output_override)
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("aim offset " + aim.get("name", "?"), exc)
     return results
+
+
+# --------------------------------------------------------------------------------------------------
+# aim offsets
+# --------------------------------------------------------------------------------------------------
+
+
+def build_aim_offsets(aim, results, targets, output_override=None):
+    """Per target: the aim poses of aim's source and variant made mesh-space additive on base_role's pose,
+    then the AimOffset blend space laid out as aim["layout"] (the source's own aim offset)."""
+    layout = load_path(aim["layout"])
+    if not isinstance(layout, unreal.BlendSpace):
+        c.log("missing", aim["layout"], "no source aim offset to lay {0} out from".format(aim["name"]))
+        return
+    for target_name in sorted(targets):
+        poses = [r for r in results if r["target"] == target_name and r["clip"]["role"].startswith(AIM_POSE_PREFIX)
+                 and r["clip"].get("source") == aim["source"] and r["clip"].get("variant") == aim.get("variant")]
+        if not poses:
+            continue
+        base = next((r for r in poses if r["clip"]["role"] == aim["base_role"]), None)
+        folder = output_override(targets[target_name]) if output_override else targets[target_name]["config"]["output"]
+        path = folder + "/" + aim["name"]
+        if base is None:
+            c.log("FAILED", path, "no {0} pose retargeted to {1}".format(aim["base_role"], target_name))
+            continue
+        # The base first: Sparrow's centre pose is additive on itself (a zero offset), like the source's.
+        made = []
+        for r in [base] + [p for p in poses if p is not base]:
+            if unreal.HawkeyeCombatMontageBuilder.make_mesh_space_additive(r["sequence"], base["sequence"]):
+                c.save(r["sequence"])
+                made.append(r["sequence"].get_name())
+        stamp = fingerprint(SCRIPT_BUILD, aim, sorted(r["sequence"].get_path_name() for r in poses))
+        existing = c.load_or_none(path)
+        fresh = made or any(r.get("fresh") for r in poses)
+        if existing is not None and not FORCE and not fresh and tag_of(existing) == stamp:
+            c.log("exists", path, unreal.HawkeyeCombatMontageBuilder.describe_blend_space(existing))
+            continue
+        space = unreal.HawkeyeCombatMontageBuilder.build_aim_offset(path, layout, [r["anim"] for r in poses],
+                                                                   [r["sequence"] for r in poses])
+        if space is None:
+            c.log("FAILED", path, "the aim offset builder refused (see LogHawkeye)")
+            continue
+        set_tag(space, stamp)
+        c.save(space)
+        c.log("updated" if existing is not None else "created", path, "{0} on {1}{2}: {3}".format(
+            len(poses), target_name, ", made additive: " + ", ".join(made) if made else "",
+            unreal.HawkeyeCombatMontageBuilder.describe_blend_space(space)))
 
 
 # --------------------------------------------------------------------------------------------------
