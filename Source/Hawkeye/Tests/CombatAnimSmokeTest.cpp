@@ -2,8 +2,10 @@
 
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Combat/AnimNotifyState_HitWindow.h"
 #include "Combat/CombatAnimPlayback.h"
 #include "Combat/CombatAnimSet.h"
+#include "Combat/MeleeComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "EngineUtils.h"
 #include "Engine/World.h"
@@ -20,7 +22,9 @@
  * claude-docs/animation.md says: Kate's full-body clips on the sample's AnimBP, her bow clips on the
  * post-process graph's UpperBody slot, a thug's clips on the post-process graph's DefaultSlot, an
  * archer's bow clips on his UpperBody slot. It reads the slot weight after a few frames, which is
- * the graph actually blending the clip in, not only the montage being started.
+ * the graph actually blending the clip in, not only the montage being started. Then Kate throws a
+ * light: with a Light1 clip that carries ANS_HitWindow the swing must still be winding up before the
+ * window and recovering after it, which is the notify arriving from a real montage.
  *
  * Like the other smoke tests it loads the map; the rule-level tests are in CombatAnimTest.cpp.
  */
@@ -153,6 +157,62 @@ bool FHawkeyeCheckCombatClips::Update()
 	return true;
 }
 
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FHawkeyeStartClipSwing, FAutomationTestBase*, Test);
+
+bool FHawkeyeStartClipSwing::Update()
+{
+	using namespace HawkeyeCombatClipSmoke;
+	UWorld* World = FindGameWorld();
+	AHawkeyeCharacter* Kate = nullptr;
+	for (TActorIterator<AHawkeyeCharacter> It(World); World && It; ++It)
+	{
+		Kate = It->IsPlayerControlled() ? *It : Kate;
+	}
+	UMeleeComponent* Melee = Kate ? Kate->GetMeleeComponent() : nullptr;
+	if (!Melee || !UCombatAnimSet::Resolve(Kate->GetCombatAnimSet(), ECombatAnimRole::Light1))
+	{
+		Test->AddInfo(TEXT("Kate has no Light1 clip; the notify-timed swing is covered by CombatAnimTest."));
+		return true;
+	}
+	Kate->GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	Test->TestTrue(TEXT("Kate throws a light"), Kate->StartLightAttack());
+	Test->TestNotNull(TEXT("It plays her Light1 clip"), Melee->GetCurrentMontage());
+	Test->TestTrue(TEXT("Timed by the clip's ANS_HitWindow"), Melee->IsHitFromNotify());
+	return true;
+}
+
+DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeCheckClipSwing, FAutomationTestBase*, Test, bool, bAfterWindow);
+
+bool FHawkeyeCheckClipSwing::Update()
+{
+	using namespace HawkeyeCombatClipSmoke;
+	UWorld* World = FindGameWorld();
+	AHawkeyeCharacter* Kate = nullptr;
+	for (TActorIterator<AHawkeyeCharacter> It(World); World && It; ++It)
+	{
+		Kate = It->IsPlayerControlled() ? *It : Kate;
+	}
+	UMeleeComponent* Melee = Kate ? Kate->GetMeleeComponent() : nullptr;
+	if (!Melee || !Melee->IsHitFromNotify())
+	{
+		return true;
+	}
+	float Start = 0.f;
+	float End = 0.f;
+	HawkeyeCombatAnim::FindNotifyWindow(Melee->GetCurrentMontage(), UAnimNotifyState_HitWindow::StaticClass(), Start, End);
+	if (bAfterWindow)
+	{
+		Test->TestTrue(*FString::Printf(TEXT("Past the hit window (%.2f s) the swing has struck and is recovering"), Start),
+			Melee->GetPhase() == EMeleePhase::Recover || !Melee->IsAttacking());
+	}
+	else
+	{
+		Test->TestTrue(*FString::Printf(TEXT("Before the hit window (%.2f s) the swing is still winding up"), Start),
+			Melee->IsWindingUp());
+	}
+	return true;
+}
+
 bool FHawkeyeSmokeCombatClipsPlay::RunTest(const FString& Parameters)
 {
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
@@ -161,6 +221,14 @@ bool FHawkeyeSmokeCombatClipsPlay::RunTest(const FString& Parameters)
 	// Past the 0.1 s blend in, inside the shortest clip (the 0.6 s hit reactions).
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.25f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeCheckCombatClips(this));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeStartClipSwing(this));
+	// Every Light1 clip the manifest's defaults lay out opens its hit window at a quarter of its length
+	// or later; 0.1 s is before it, and the clip's end is well past it.
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.1f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeCheckClipSwing(this, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeCheckClipSwing(this, true));
 	return true;
 }
 
