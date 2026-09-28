@@ -47,11 +47,16 @@
  *   hit_lean.png      from in front of him, 0.1 s after she hits him from his left: his upper body leant right
  *   strike_pose.png   side on, a light at the moment it strikes (its hit window opening, or 0.1 s in without
  *                     a clip): her right hand out at chest height
- *   heavy_strike.png  side on, her heavy (held V) at the moment its hit window opens: AM_Heavy_SurpriseUppercut
+ *   heavy_strike.png  side on, her heavy (held V) at the moment its hit window opens: an AM_Heavy_ clip (the
+ *                     first heavy of a run is AM_Heavy_SurpriseUppercut)
+ *   heavy_strike_2.png the same, her next heavy: the next variant (AM_Heavy_Roundhouse), never the same clip
  *   kick.png          side on, the Kick role (AM_Kick_*) at the moment its hit window opens
  *
- * The heavy and the kick fail the test when another montage plays, or when her pelvis at the capture is more
- * than 15 cm off its height standing just before the press (read from the mesh's pelvis bone).
+ * The heavies and the kick fail the test when another montage plays (the second heavy: the first's clip
+ * again), or when her pelvis at the capture is more than 15 cm below its height standing just before the press,
+ * or more than 20 cm above it (read from the mesh's pelvis bone). The drop is the check that matters (a clip
+ * with the hips' height on its root knelt everyone); the rise allows a kick's standing leg straightening from
+ * her bent-knee idle (the roundhouse: +16 cm, the standing foot flat on the ground).
  *
  * The world is slowed to a crawl for each capture that is about a moment (all but the finisher, whose
  * own slow motion is the subject) and put back after.
@@ -240,8 +245,11 @@ namespace HawkeyeMeleeShots
 
 	/** Her pelvis above her feet standing, cm, read just before the heavy or the kick is pressed. */
 	static float StandingPelvis = 0.f;
-	static constexpr float PelvisTolerance = 15.f;
-	static const TCHAR* HeavyMontage = TEXT("AM_Heavy_SurpriseUppercut");
+	static constexpr float PelvisDropTolerance = 15.f;
+	static constexpr float PelvisRiseTolerance = 20.f;
+	static const TCHAR* HeavyMontagePrefix = TEXT("AM_Heavy_");
+	/** The clip heavy_strike.png caught; heavy_strike_2.png must catch another. */
+	static FString FirstHeavyMontage;
 	static const TCHAR* KickMontagePrefix = TEXT("AM_Kick_");
 
 	/** The pelvis bone above the bottom of the capsule, cm. */
@@ -699,9 +707,10 @@ public:
 			}
 			return true;
 		}
-		if (Label == TEXT("heavy_strike.png") || Label == TEXT("kick.png"))
+		if (Label == TEXT("heavy_strike.png") || Label == TEXT("heavy_strike_2.png") || Label == TEXT("kick.png"))
 		{
-			const bool bHeavy = Label == TEXT("heavy_strike.png");
+			const bool bHeavy = Label != TEXT("kick.png");
+			const bool bSecondHeavy = Label == TEXT("heavy_strike_2.png");
 			const UMeleeComponent* Melee = Kate->GetMeleeComponent();
 			const FString Name = GetNameSafe(Melee ? Melee->GetCurrentMontage() : nullptr);
 			const float Pelvis = PelvisHeight(Kate);
@@ -721,15 +730,23 @@ public:
 				TEXT("hips face %.0f deg off her facing; %s, %s, %s, %s (forward/right/up cm)."),
 				*Label, *Name, Melee && Melee->IsHitWindowOpen() ? 1 : 0, Pelvis, StandingPelvis, Head.Z - Feet, HipsYaw,
 				*Limb(TEXT("hand_r")), *Limb(TEXT("hand_l")), *Limb(TEXT("foot_r")), *Limb(TEXT("foot_l"))));
-			const bool bRightClip = bHeavy ? Name == HeavyMontage : Name.StartsWith(KickMontagePrefix);
+			const bool bRightClip = Name.StartsWith(bHeavy ? HeavyMontagePrefix : KickMontagePrefix)
+				&& !(bSecondHeavy && Name == FirstHeavyMontage);
 			if (!bRightClip)
 			{
-				Test->AddError(FString::Printf(TEXT("%s: plays %s, not %s."), *Label, *Name, bHeavy ? HeavyMontage : TEXT("an AM_Kick_ clip")));
+				Test->AddError(FString::Printf(TEXT("%s: plays %s, not %s."), *Label, *Name,
+					bSecondHeavy ? *FString::Printf(TEXT("an AM_Heavy_ clip other than %s"), *FirstHeavyMontage)
+						: bHeavy ? TEXT("an AM_Heavy_ clip") : TEXT("an AM_Kick_ clip")));
 			}
-			if (FMath::Abs(Pelvis - StandingPelvis) > PelvisTolerance)
+			if (Label == TEXT("heavy_strike.png"))
 			{
-				Test->AddError(FString::Printf(TEXT("%s: her pelvis is %.0f cm up, %.0f cm off her standing %.0f (over %.0f)."), *Label,
-					Pelvis, Pelvis - StandingPelvis, StandingPelvis, PelvisTolerance));
+				FirstHeavyMontage = Name;
+			}
+			const float Off = Pelvis - StandingPelvis;
+			if (Off < -PelvisDropTolerance || Off > PelvisRiseTolerance)
+			{
+				Test->AddError(FString::Printf(TEXT("%s: her pelvis is %.0f cm up, %.0f cm off her standing %.0f (allowed %.0f down, %.0f up)."),
+					*Label, Pelvis, Off, StandingPelvis, PelvisDropTolerance, PelvisRiseTolerance));
 			}
 			return true;
 		}
@@ -836,6 +853,15 @@ void HawkeyeAddMeleeShots(FAutomationTestBase* Test)
 	Shot(EShot::Crawl, 0.05f);
 	Wait(TEXT("heavy_strike.png"), 0.f);
 	Take(TEXT("heavy_strike.png"));
+	Shot(EShot::Uncrawl, 1.2f);
+
+	// Her next heavy takes the next clip.
+	Shot(EShot::HeavySetup, 1.2f);
+	Shot(EShot::Heavy, 0.f);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeWaitForStrike(Test, 1.5f, TEXT("heavy_strike_2.png")));
+	Shot(EShot::Crawl, 0.05f);
+	Wait(TEXT("heavy_strike_2.png"), 0.f);
+	Take(TEXT("heavy_strike_2.png"));
 	Shot(EShot::Uncrawl, 1.2f);
 
 	Shot(EShot::KickSetup, 1.2f);
