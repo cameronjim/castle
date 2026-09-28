@@ -22,11 +22,12 @@ that are always on this machine.
 | Aiming strikes at the target | The engine's Motion Warping plugin: the `MotionWarping` component the sample already puts on Kate (one is added only to a character without one), a skew-warp window in each strike montage, the warp target `CombatTarget` | GASP's traversal already uses it on Kate; a second component would warp every clip twice. |
 | Upper body over locomotion | Slots in the bow-IK post-process graph (`ABP_BowIK_Post`, `_Thug`): `DefaultSlot`, cached, then `UpperBody` layered from `spine_01` up in mesh space, then the existing lean, spine turn and two-bone IK | The graph was already built headless by `UHawkeyeBowIKGraphBuilder`, runs on every character, and runs after the main AnimBP, so IK can correct a clip's hands. The sample's own AnimBP is left untouched. |
 | FBX import | `AssetImportTask` with `FbxImportUI` options, which 5.8 converts for Interchange | The documented scripted import; the self-test runs it on the engine's own FBX automation file. |
+| Bow aim up, down and round | An engine Aim Offset (`UAimOffsetBlendSpace`, played by the anim graph's Aim Offset node, `UAnimGraphNode_RotationOffsetBlendSpace`), `BS_BowAimOffset_Sparrow` per skeleton: Sparrow's own `AO_idle` layout and its nine `idle_AO_*` poses retargeted, made mesh-space additive on the centre pose. Built by `UHawkeyeCombatMontageBuilder::BuildAimOffset` (C++, editor-only) | Aim offsets are Epic's tool for exactly this. The asset route worked, so no spine twist was hand-rolled for pitch. C++ because a blend space's axes are protected and its samples are added through editor-only calls. |
 
 ## Where clips play
 
 - A montage whose slot is `UpperBody` (the bow clips) plays on the post-process instance, over
-  locomotion from `spine_01` up.
+  locomotion from `spine_01` up, with the bow's aim offset on top of it (see "The bow clips").
 - Any other montage plays full body: on Kate and Clint in the sample AnimBP's `DefaultSlot` (the same
   slot the parkour clips use), on thugs and archers in the post-process graph's `DefaultSlot`
   (their main instance is a single looping sequence and has no slots).
@@ -147,6 +148,64 @@ Out plays 0.80-2.60 s (0.9 s of standing still cut; on the floor by 1.4 s, holdi
 there), Sweep Fall 0.60-2.00 s (starts as his feet go). Receive Punch To The Face starts reacting on
 its second frame and is untrimmed.
 
+## The bow clips
+
+Rebuilt 2026-09-28 after Cameron's playtest ("the bow animation is not natural"). The still
+`bow_aim_full.png` looked right; the draw in motion did not. `Hawkeye.Screenshot.BowDraw` (below)
+stopped time at each moment of a real draw and showed why, with numbers in its log:
+
+1. **The draw clip was stretched to the draw time.** `RMB_Drawback` is Sparrow's 2.47 s charged shot
+   (the string hand creeps back from 0.2 s to 2.2 s), and the code fitted it to Kate's 0.8 s draw at
+   3.1x. Its auto blend-out then started before its end: 0.6 s into the draw its montage read position
+   0 and the clip alpha was falling, the bow hand's IK coming back on, before `BowAimIdle` blended in at
+   full draw. A dip in the middle of every draw.
+2. **No aim offset.** At 30 degrees up or down the bow arm did not move (hand_l height the same to a
+   centimetre); the bow turned in the hand and the string hand IK, keeping its offset from the grip
+   along the aim, dragged the draw hand down to her stomach (aiming up) or over her head (aiming down).
+3. **The IK overrode the clip's string hand.** Its target under a clip was the grip plus the procedural
+   offsets, which put the string hand 20 cm to the right of the bow: the nocked arrow pointed 20 to 25
+   degrees off where the arrow would fly (logged as "arrow ... deg off the launch").
+4. **The bow went on her back with the arms still up.** The follow-through ended at 0.6 s while the
+   fire clip still held the arms at full weight, so her bow hand held nothing. (With the shorter fire
+   clip the opposite showed next: the clip was gone by 0.43 s and the follow-through's IK lifted the
+   empty-handed arm back up. A shot on a clip now follows through only until the clip blends out.)
+
+After (same log): the nocked arrow is 2 to 6 degrees off the launch direction when held (was 20 to
+31), the string hand 3 to 7 cm off the arrow line at level aim with a correction of 0 to 0.13, and the
+bow arm pitches with the aim: the bow hand is 39 cm above the actor at level aim, 60 at 30 degrees up
+and 17 at 30 down (it was 50 at all three).
+
+What plays now (numbers in `gameplay-semantics.md`, "Combat animation clips"):
+
+| Role | Sparrow clip | Stretch | Montage | Notes |
+|------|--------------|---------|---------|-------|
+| BowDraw | Primary_Fire_Med | 0.43-0.93 s, rate 1 | 0.50 s, holds its last frame | The hand from the arrow rest to the anchor; the pull itself is 0.33 s. Ends on the idle's first pose. |
+| BowAimIdle | idle | all 10 s, loops | 10 s | Sparrow's idle is her drawn stance, breathing. |
+| BowFire | Primary_Fire_Med | 0.00-0.43 s | 0.43 s | The snap, then the hand back to the string: where BowDraw starts, so a re-draw runs on. |
+
+Sparrow's `Primary_Fire_*` clips are whole shots (release, nock, draw); the stretches above were found
+by reading the hands per frame (`GetRawBoneLocation`: the string hand's distance from the bow hand goes
+74 cm at the anchor, 101 at the release's follow-through, 19 at the nock, back to 74). The bow roles blend
+in over 0.15 s and out over 0.25 s. The draw's pace is the clip's; the draw fraction (damage, the
+perfect window) keeps its own clock, so Kate is at the anchor at 0.5 s and at full strength at 0.8 s.
+
+Under a clip the IK follows it: the clip alpha is the UpperBody slot's weight, so the bow hand's IK is
+exactly as far off as the clip is in; the bow rides in the clip's hand; the string hand stays on the
+clip with a correction toward the arrow line of at most 0.5 (none within 3 cm), its pole the clip's
+own elbow. The correction needs the clip's hand before the IK moved it: the post-process instance
+recovers it from the last pose, since the two-bone IK blends the hand's component-space position
+linearly by its alpha (`clip = (final - alpha * target) / (1 - alpha)`).
+
+The aim offset is built by `import_combat_anims.py` from the manifest's `aim_offsets` block: the nine
+`BowAimOffset_<pose>` clips (CC, CU, CD, LC, LU, LD, RC, RU, RD) are retargeted like any clip (full
+poses, additive off), then made mesh-space additive on the retargeted CC pose, and
+`BS_BowAimOffset_Sparrow` is laid out as Sparrow's `AO_idle` (its axes, ranges and each pose's place);
+the back poses (LB*, RB*) are left out since she always turns to face the aim. `create_bow_ik.py` puts an
+Aim Offset node after the UpperBody slot in both bow graphs, fed `AimOffsetYaw`, `AimOffsetPitch` and
+`AimOffsetAlpha` (clip alpha times bow alpha) from `UHawkeyeBowIKAnimInstance`, and sets the asset on
+the Blueprint's defaults so the instance clamps its inputs to its range. Without the asset the graph
+has no node and everything is as before.
+
 ## Sources
 
 - `mixamo_fbx`: a folder of FBX. The source's `mesh_file` (one clip downloaded With Skin) imports as
@@ -208,6 +267,12 @@ Nobody can watch a headless run, so the scripts read bones:
 - `Hawkeye.Smoke.CombatClipsPlay` loads the district and plays each character's clips: the slot's
   global weight must be above 0 a quarter second later, and Kate's Light1 must still be winding up
   before its `ANS_HitWindow` and recovering after it (the notify firing from a real montage).
+- `Hawkeye.Screenshot.BowDraw` (standalone game) draws on the world clock at 0.25x and stops time
+  (global dilation 0.0001) at 0.1, 0.3, 0.6 and 1.0 s into a draw, held 30 degrees up and down, 0.1 s
+  after the release, 0.3 s into a re-draw, twice while strafing, and 0.6 s after a second release;
+  each moment is a side-front shot and one through her own camera (`Saved/Screenshots/BowDraw/`). Its
+  log gives the clip, the slot weight, every IK alpha, the string hand's distance off the arrow line
+  and the nocked arrow's angle to the launch direction for each.
 
 ## Known limits
 
@@ -217,8 +282,15 @@ Nobody can watch a headless run, so the scripts read bones:
   (the Jab To Elbow jab) would need no hold.
 - There is no GetUp clip yet: a Mixamo knockdown holds its last frame on the floor, then blends back
   to locomotion over 0.4 s.
-- No aim offset: the bow clips aim where the clip aims and the spine turn adds the yaw to the camera;
-  pitch comes from the bow mesh only. Sparrow's AO set (`AO_idle` and the `idle_AO_*` poses) is
-  there to build one from.
+- The aim offset under-pitches a little: Sparrow's CU and CD poses sit at +-90 on the axis but aim
+  less far, so at 30 degrees up the nocked arrow points 24 up (6 degrees off the launch, the string
+  hand 16 cm off the line with the correction at its 0.5 cap). The arrow still flies to the reticle;
+  only its look is off. Scaling the pitch input would fix it if it shows in play.
+- The first 0.1 s of a draw is still a blend from locomotion: the bow turns up in the hand while the
+  arms rise, and the nocked arrow points down across the body (28 degrees off) for a few frames.
+- `bow_aim_half.png` (the BowIK still at half draw) shows the anchor: the draw clip is at its end
+  after 0.5 s whatever the draw fraction, which is the new rule, not a fault.
+- The clip set has no BowNock: after the fire clip the arms blend to locomotion and the bow goes on the
+  back once the clip weight is under 0.05. There is no holster clip, so that last step is still a cut.
 - Sparrow's `Knock_Bwd` is a standing knock-back (pelvis never drops), not a knockdown; it is not
   mapped.
