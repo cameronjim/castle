@@ -29,8 +29,10 @@ and per clip, per target its characters need (uefn: Kate and Clint; thug: thugs 
                                           warping window, loop or hold, by role (ROLE_DEFAULTS),
                                           overridable per clip in the manifest
 
-Targets: IK_UEFN_Mannequin (Epic's, copied from the sample if missing) on SKM_UEFN_Mannequin, and
-IK_Thug_Mannequin, built here on the UE4 mannequin the thugs wear.
+Targets: IK_Kate_UEFN on SKM_UEFN_Mannequin and IK_Thug_Mannequin on the UE4 mannequin the thugs
+wear, both built here from the manifest's chain maps. (Epic's IK_UEFN_Mannequin from the sample was
+tried first and dropped: its stored skeleton lacks this project's "attach" bone, and every retargeted
+track landed one bone down, the pelvis at the origin; the self-test's raw-bone checks catch that.)
 
 Idempotent: every asset that exists is kept unless --force; only what changed is saved; one log
 line per clip. A missing source folder, file or asset is reported and skipped, never fatal.
@@ -50,7 +52,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sys
 
 import unreal
@@ -67,7 +68,6 @@ SOURCE_TAG = "HawkeyeSource"
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 MANIFEST = os.path.join(REPO, "Tools", "Data", "Anims", "manifest.json")
 SOURCES_ROOT = "/Game/AnimSources"
-GASP_CONTENT = os.environ.get("HAWKEYE_GASP_CONTENT", r"C:\Users\camer\code\GASP\Content")
 
 ALL_CHARACTERS = ("kate", "clint", "thug", "archer")
 
@@ -276,37 +276,12 @@ def ensure_ik_rig(path, mesh, chain_map_name, chain_maps):
     return rig
 
 
-def ensure_uefn_rig(target, chain_maps):
-    """Epic's IK_UEFN_Mannequin, copied from the sample when the GASP import left it out."""
-    path = target["ik_rig"]
-    if not c.exists(path) and target.get("ik_rig_from_gasp"):
-        source = os.path.join(GASP_CONTENT, target["ik_rig_from_gasp"].replace("/", os.sep))
-        destination = os.path.join(c.project_dir(), "Content", path[len("/Game/"):].replace("/", os.sep) + ".uasset")
-        if os.path.isfile(source) and not os.path.exists(destination):
-            os.makedirs(os.path.dirname(destination), exist_ok=True)
-            shutil.copy2(source, destination)
-            scan([path.rsplit("/", 1)[0]])
-            c.log("copied", path, "Epic's rig from the Game Animation Sample")
-    rig = c.load_or_none(path)
-    if rig is not None:
-        c.log("exists", path, "target rig")
-        return rig
-    mesh = c.load_or_none(target["skeletal_mesh"])
-    if mesh is None:
-        c.log("skipped", path, "no {0} (run import_gasp first)".format(target["skeletal_mesh"]))
-        return None
-    return ensure_ik_rig(path, mesh, target["chains"], chain_maps)
-
-
 def ensure_target(name, target, chain_maps):
     mesh = c.load_or_none(target["skeletal_mesh"])
     if mesh is None:
         c.log("skipped", "target " + name, "no " + target["skeletal_mesh"])
         return None
-    if target.get("ik_rig_from_gasp"):
-        rig = ensure_uefn_rig(target, chain_maps)
-    else:
-        rig = ensure_ik_rig(target["ik_rig"], mesh, target["chains"], chain_maps)
+    rig = ensure_ik_rig(target["ik_rig"], mesh, target["chains"], chain_maps)
     if rig is None:
         return None
     return {"name": name, "mesh": mesh, "rig": rig, "config": target}
@@ -446,12 +421,18 @@ def import_fbx_source(source, clips, folder):
     skeleton = mesh_skeleton(mesh)
 
     found = {}
+    this_run = {}
     for index, clip in clips:
         filename = os.path.join(folder, clip["file"])
+        if clip["file"] in this_run:
+            # Two roles from one file (Knocked Out is a knockdown and a finisher's victim): one import.
+            found[index] = this_run[clip["file"]]
+            continue
         anim_path = base + "/A_Src_" + _fbx_name(clip["file"])
         anim = c.load_or_none(anim_path)
         if anim is not None and not FORCE:
             found[index] = anim
+            this_run[clip["file"]] = anim
             continue
         if not os.path.isfile(filename):
             c.log("missing", filename, "not downloaded yet; skipped")
@@ -468,6 +449,7 @@ def import_fbx_source(source, clips, folder):
             continue
         c.save(imported[0])
         found[index] = imported[0]
+        this_run[clip["file"]] = imported[0]
         c.log("imported", imported[0].get_path_name().split(".")[0], "{0:.2f} s".format(
             unreal.AnimationLibrary.get_sequence_length(imported[0])))
     return mesh, found
@@ -528,7 +510,10 @@ def retarget_clip(anim, source_mesh, rtg, target, out_folder, seq_name):
         ("source_mesh", source_mesh), ("target_mesh", target["mesh"]), ("ik_retarget_asset", rtg),
         ("search", anim.get_name()), ("replace", seq_name), ("prefix", ""), ("suffix", ""),
         ("target_path", out_folder), ("use_source_path", False), ("include_referenced_assets", False),
-        ("overwrite_existing_files", True)], "batch retarget")
+        # Paragon's hit reactions are additive over its idle. Additive off retargets the full pose
+        # (idle plus the hit), which is what a full-body slot plays; kept on, the copy would point at
+        # Sparrow's idle on Sparrow's skeleton.
+        ("overwrite_existing_files", True), ("retain_additive_flags", False)], "batch retarget")
     results = unreal.IKRetargetBatchOperation.run_batch_retarget(inputs)
     seq = c.load_or_none(seq_path)
     if seq is None:
@@ -602,8 +587,40 @@ def process_clip(clip, anim, source, source_mesh, retargeters, targets, output_o
         c.log("created" if how == "retargeted" or built == "built" else "exists", out_folder + "/" + montage_name,
               "{0} for {1}: {2}".format(clip.get("file") or clip.get("asset", "").rsplit("/", 1)[-1], ",".join(characters),
                                         unreal.HawkeyeCombatMontageBuilder.describe_montage(montage)))
+        report_pose(clip, seq, target_name)
         results.append({"clip": clip, "anim": anim, "target": target_name, "sequence": seq, "montage": montage})
     return results
+
+
+LYING_ROLES = ("Knockdown", "FinisherVictim")
+AIRBORNE_OR_LOW_ROLES = ("GetUp", "FinisherAttacker", "FinisherBow")
+
+
+def report_pose(clip, seq, target_name):
+    """One line of raw-bone measures per retargeted clip, flagged "check" when the pose is not what
+    the role expects: a standing clip whose pelvis is far from the reference height (a track on the
+    wrong bone, a bad scale), or a knockdown that never reaches the floor. Nobody has to open it."""
+    try:
+        length = unreal.AnimationLibrary.get_sequence_length(seq)
+        start, mid, end = (pose_metrics(seq, length * f) for f in (0.0, 0.5, 1.0))
+    except Exception as exc:  # noqa: BLE001 - a report, never a failure
+        c.log("check", seq.get_path_name().split(".")[0], "could not measure: {0}".format(exc))
+        return
+    role = clip["role"]
+    if role in LYING_ROLES:
+        ok = end["pelvis_height"] < 45.0
+        expect = "ends on the floor"
+    elif role in AIRBORNE_OR_LOW_ROLES:
+        ok = True
+        expect = "free"
+    else:
+        ok = all(abs(m["pelvis_vs_reference"]) < 35.0 and m["hip_height"] > 45.0 and 40.0 < m["head_height"] < 95.0
+                 for m in (start, mid, end))
+        expect = "stands"
+    c.log("pose" if ok else "check", seq.get_path_name().split(".")[0],
+          "{0} on {1} ({2}): pelvis {3:.0f}/{4:.0f}/{5:.0f} cm (ref {6:+.0f}), head +{7:.0f}, bow hand fwd {8:.0f}, hands apart {9:.0f}".format(
+              role, target_name, expect, start["pelvis_height"], mid["pelvis_height"], end["pelvis_height"],
+              mid["pelvis_vs_reference"], mid["head_height"], mid["bow_hand_forward"], mid["hands_apart"]))
 
 
 # --------------------------------------------------------------------------------------------------
@@ -684,37 +701,53 @@ def run(manifest=None, args=None, output_override=None):
 # --------------------------------------------------------------------------------------------------
 
 
-def _pose_at(anim, time):
-    options = unreal.AnimPoseEvaluationOptions()
-    return unreal.AnimPoseExtensions.get_anim_pose_at_time(anim, time, options)
+def _bone(anim, name, time):
+    return unreal.HawkeyeCombatMontageBuilder.get_raw_bone_location(anim, name, time)
 
 
-def _bone(pose, name):
-    return unreal.AnimPoseExtensions.get_bone_pose(pose, name, unreal.AnimPoseSpaces.WORLD).translation
+def _ref_bone(skeleton, name):
+    ref = unreal.AnimPoseExtensions.get_reference_pose(skeleton)
+    return unreal.AnimPoseExtensions.get_ref_bone_pose(ref, name, unreal.AnimPoseSpaces.WORLD).translation
 
 
 def _dist(a, b):
     return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2) ** 0.5
 
 
-def bow_pose_metrics(anim, time, names):
-    """Component-space checks on a bow draw: arm extension, hands forward, above the pelvis."""
-    pose = _pose_at(anim, time)
-    ref = unreal.AnimPoseExtensions.get_reference_pose(anim.get_editor_property("skeleton"))
-    at = dict((key, _bone(pose, bone)) for key, bone in names.items())
-    ref_at = dict((key, unreal.AnimPoseExtensions.get_ref_bone_pose(ref, bone, unreal.AnimPoseSpaces.WORLD).translation)
-                  for key, bone in names.items())
-    arm = _dist(ref_at["upperarm_l"], ref_at["lowerarm_l"]) + _dist(ref_at["lowerarm_l"], ref_at["hand_l"])
-    forward_axis = "y"   # the mannequins, Paragon heroes included, face their own +Y
-    fwd = lambda v: getattr(v, forward_axis)  # noqa: E731
+POSE_BONES = ("pelvis", "spine_01", "head", "upperarm_l", "lowerarm_l", "hand_l", "hand_r", "thigh_l", "foot_l")
+
+
+def pose_metrics(anim, time):
+    """Component-space measures of anim at time, from its raw bone tracks (UHawkeyeCombatMontageBuilder::
+    GetRawBoneLocation): the pelvis against the skeleton's reference height, the hips and head against
+    it, the bow arm's extension, the hands forward of the body (the mannequins and Paragon heroes face +Y)."""
+    skeleton = anim.get_editor_property("skeleton")
+    at = dict((bone, _bone(anim, bone, time)) for bone in POSE_BONES)
+    ref = dict((bone, _ref_bone(skeleton, bone)) for bone in ("pelvis", "upperarm_l", "lowerarm_l", "hand_l"))
+    arm = _dist(ref["upperarm_l"], ref["lowerarm_l"]) + _dist(ref["lowerarm_l"], ref["hand_l"])
+    pelvis = at["pelvis"]
     return {
+        "pelvis_height": pelvis.z,
+        "pelvis_vs_reference": pelvis.z - ref["pelvis"].z,
+        "hip_height": at["thigh_l"].z,
+        "head_height": at["head"].z - pelvis.z,
         "bow_arm_extension": _dist(at["upperarm_l"], at["hand_l"]) / max(arm, 1.0),
-        "bow_hand_forward": fwd(at["hand_l"]) - fwd(at["pelvis"]),
-        "string_hand_forward": fwd(at["hand_r"]) - fwd(at["pelvis"]),
-        "bow_hand_height": at["hand_l"].z - at["pelvis"].z,
-        "head_height": at["head"].z - at["pelvis"].z,
+        "bow_hand_forward": at["hand_l"].y - pelvis.y,
+        "string_hand_forward": at["hand_r"].y - pelvis.y,
+        "bow_hand_height": at["hand_l"].z - pelvis.z,
         "hands_apart": _dist(at["hand_l"], at["hand_r"]),
     }
+
+
+def check_standing(test, name, target, anim, length):
+    """A clip that should stand (all but the knockdowns) has its pelvis near the reference height, the
+    hips on it and the head above it: a track written onto the wrong bone puts the pelvis on the floor."""
+    for when in (0.0, 0.5):
+        m = pose_metrics(anim, length * when)
+        ok = abs(m["pelvis_vs_reference"]) < 35.0 and m["hip_height"] > 50.0 and 45.0 < m["head_height"] < 90.0
+        test.check(ok, "{0} on {1} at {2:.0%}: standing (pelvis {3:.0f} cm, {4:+.0f} from reference; hips {5:.0f};"
+                   " head {6:.0f} above)".format(name, target, when, m["pelvis_height"], m["pelvis_vs_reference"],
+                                                  m["hip_height"], m["head_height"]))
 
 
 class SelfTest(object):
@@ -777,26 +810,36 @@ def run_selftest(args):
         test.check(len(tracks) > 0 and not strays, "{0}: {1} bone tracks, all on the target skeleton{2}".format(
             key[0], len(tracks), " (not on it: " + ", ".join(strays[:8]) + ")" if strays else ""))
         test.check(len(wanted) == 5, "{0}: target skeleton has pelvis, spine_01, upperarm_l, hand_r, thigh_r".format(key[0]))
+        additive = seq.get_editor_property("additive_anim_type")
+        test.check(additive == unreal.AdditiveAnimationType.AAT_NONE,
+                   "{0}: a full pose, not additive ({1})".format(key[0], additive))
         described = unreal.HawkeyeCombatMontageBuilder.describe_montage(montage)
         layout = clip_layout(clip)
         if layout.get("hit"):
             test.check("hit=-" not in described, "{0}: montage has its ANS_HitWindow ({1})".format(key[0], described))
         test.check("slot=" + layout.get("slot", "DefaultSlot") in described, "{0}: montage slot {1}".format(key[0], layout.get("slot")))
+        if clip["role"] not in ("Knockdown", "GetUp", "FinisherVictim"):
+            check_standing(test, key[0], key[1], seq, out_len)
         if clip["role"] == "BowDraw":
-            names = dict((k, k) for k in ("pelvis", "head", "upperarm_l", "lowerarm_l", "hand_l", "hand_r"))
             for when in (0.5, 1.0):
-                src_m = bow_pose_metrics(anim, src_len * when, names)
-                out_m = bow_pose_metrics(seq, out_len * when, names)
+                src_m = pose_metrics(anim, src_len * when)
+                out_m = pose_metrics(seq, out_len * when)
                 c.log("info", "selftest bow pose at {0:.0%}".format(when), "source {0} | {1} {2}".format(
                     _fmt(src_m), key[1], _fmt(out_m)))
-                test.check(out_m["head_height"] > 40.0, "{0} at {1:.0%}: head well above the pelvis".format(key[0], when))
                 test.check(abs(out_m["bow_arm_extension"] - src_m["bow_arm_extension"]) < 0.15,
-                           "{0} at {1:.0%}: bow arm extended as in the source ({2:.2f} vs {3:.2f})".format(
-                               key[0], when, out_m["bow_arm_extension"], src_m["bow_arm_extension"]))
-                test.check((out_m["bow_hand_forward"] > 0) == (src_m["bow_hand_forward"] > 0),
-                           "{0} at {1:.0%}: bow hand on the same side of the body as the source's ({2:.0f} cm)".format(
-                               key[0], when, out_m["bow_hand_forward"]))
-                test.check(out_m["bow_hand_height"] > 0.0, "{0} at {1:.0%}: bow hand above the pelvis".format(key[0], when))
+                           "{0} on {1} at {2:.0%}: bow arm extended as in the source ({3:.2f} vs {4:.2f})".format(
+                               key[0], key[1], when, out_m["bow_arm_extension"], src_m["bow_arm_extension"]))
+                test.check(out_m["bow_hand_forward"] > 30.0,
+                           "{0} on {1} at {2:.0%}: bow hand out in front ({3:.0f} cm; source {4:.0f})".format(
+                               key[0], key[1], when, out_m["bow_hand_forward"], src_m["bow_hand_forward"]))
+                test.check(out_m["bow_hand_height"] > 0.0, "{0} on {1} at {2:.0%}: bow hand above the hips".format(
+                    key[0], key[1], when))
+            full_src, full_out = pose_metrics(anim, src_len), pose_metrics(seq, out_len)
+            test.check(full_out["string_hand_forward"] < full_out["bow_hand_forward"] - 40.0,
+                       "{0} on {1} at full draw: string hand drawn back behind the bow hand ({2:.0f} vs {3:.0f} cm;"
+                       " source {4:.0f} vs {5:.0f})".format(key[0], key[1], full_out["string_hand_forward"],
+                                                           full_out["bow_hand_forward"], full_src["string_hand_forward"],
+                                                           full_src["bow_hand_forward"]))
     if not args.get("keep"):
         for target in manifest["targets"].values():
             folder = target["output"] + "/SelfTest"
