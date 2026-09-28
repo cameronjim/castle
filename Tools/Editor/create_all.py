@@ -20,6 +20,10 @@
                                   the world blueprints and the weapon data)
     4d. create_bow_ik             ABP_BowIK_Post(_Thug), the bow hands post-process AnimBPs, set on
                                   BP_Kate, BP_Clint and BP_Archer (after the partner and the enemies)
+    4d2. create_combat_anims      DA_AnimSet_Kate/_Clint/_Thug/_Archer filled from whatever AM_ combat
+                                  montages Tools/import-anims.ps1 has made (none on a fresh clone), set
+                                  on BP_Kate, BP_Clint, BP_Thug and BP_Archer (after the bow IK graph,
+                                  whose slots the clips play in)
     4e. apply_audio_defaults      (create_blueprints) the sounds on BP_HawkeyeCharacter, BP_Thug,
                                   BP_HawkeyePlayerController and the trick arrows' data assets
     4f. apply_vfx_defaults        (create_blueprints) the effects on the same classes and data assets
@@ -72,6 +76,7 @@ STEPS = [
     ("partner", "create_partner"),
     ("enemies", "create_enemies"),
     ("bow ik", "create_bow_ik"),
+    ("combat anims", "create_combat_anims"),
     ("audio defaults", "create_blueprints", "apply_audio_defaults"),
     ("vfx defaults", "create_blueprints", "apply_vfx_defaults"),
     ("fix up redirectors", "fixup_redirectors"),
