@@ -83,8 +83,32 @@ bool UMeleeComponent::StartAttack(const FHawkeyeMeleeAttack& Attack)
 	return true;
 }
 
+UAnimMontage* UMeleeComponent::PickSwingVariant(const FHawkeyeMeleeAttack& Attack)
+{
+	PickedMontage = nullptr;
+	PickedVariantIndex = -1;
+	const int32 Count = AnimSet ? AnimSet->GetVariantCount(Attack.AnimRole) : 0;
+	if (Count <= 0)
+	{
+		return nullptr;
+	}
+	const int32 Index = UCombatAnimSet::PickNextVariant(VariantCursors.FindOrAdd(Attack.AnimRole), Count);
+	UAnimMontage* Montage = AnimSet->ResolveVariant(Attack.AnimRole, Index);
+	if (!Montage && Index > 0)
+	{
+		// A variant that does not load gives way to the role's own clip.
+		Montage = AnimSet->ResolveVariant(Attack.AnimRole, 0);
+	}
+	PickedMontage = Montage;
+	PickedVariantIndex = Montage ? Index : -1;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s variant %d of %d for %s: %s."), *GetNameSafe(GetOwner()), *Attack.Name.ToString(),
+		Index + 1, Count, *UEnum::GetValueAsString(Attack.AnimRole), *GetNameSafe(Montage));
+	return Montage;
+}
+
 bool UMeleeComponent::TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack)
 {
+	UAnimMontage* Montage = PickSwingVariant(Attack);
 	if (bForceNotifyTimingForTest)
 	{
 		bForceNotifyTimingForTest = false;
@@ -93,7 +117,6 @@ bool UMeleeComponent::TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack)
 		ClipTimeRemaining = 5.f;
 		return true;
 	}
-	UAnimMontage* Montage = UCombatAnimSet::Resolve(AnimSet, Attack.AnimRole);
 	const ACharacter* Character = Cast<ACharacter>(GetOwner());
 	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
 	if (!Montage || !Mesh)

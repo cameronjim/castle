@@ -48,6 +48,22 @@ enum class ECombatAnimRole : uint8
 };
 
 /**
+ * More clips for one role, after the role's own slot: the slot is variant 0, these are 1, 2, ...
+ * (claude-docs/gameplay-semantics.md, "Combat animation clips": strikes cycle through them per swing).
+ */
+USTRUCT(BlueprintType)
+struct HAWKEYE_API FCombatAnimVariants
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat Anim")
+	ECombatAnimRole Role = ECombatAnimRole::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat Anim")
+	TArray<TSoftObjectPtr<UAnimMontage>> Montages;
+};
+
+/**
  * One character's combat clips (claude-docs/gameplay-semantics.md, "Combat animation clips").
  * Filled by Tools/Editor/create_combat_anims.py from the AM_<Role>_<Variant> montages the import
  * script made; every slot may be empty, and an empty slot means the procedural fallback.
@@ -75,6 +91,30 @@ public:
 	/** Roles that name a montage, not counting fallbacks. */
 	UFUNCTION(BlueprintPure, Category = "Combat Anim")
 	int32 CountAssigned() const;
+
+	/**
+	 * How many clips Role has: its slot (after the Light3 fallback) plus its entry in MoreVariants.
+	 * 0 for an empty role. A role whose slot is empty has no variants either.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat Anim")
+	int32 GetVariantCount(ECombatAnimRole Role) const;
+
+	/** Variant Index of Role (0 is GetMontage(Role)); null past the end. */
+	TSoftObjectPtr<UAnimMontage> GetVariant(ECombatAnimRole Role, int32 Index) const;
+
+	/** GetVariant, loaded. Null for an index past the end or a clip that does not load. */
+	UFUNCTION(BlueprintCallable, Category = "Combat Anim")
+	UAnimMontage* ResolveVariant(ECombatAnimRole Role, int32 Index) const;
+
+	/** Set->ResolveVariant(Role, Index), or null with no set (the static form of it). */
+	static UAnimMontage* ResolveVariantIn(const UCombatAnimSet* Set, ECombatAnimRole Role, int32 Index);
+
+	/**
+	 * The variant to play next of Count, from Cursor (a per-role counter its user keeps), and moves the
+	 * cursor on: 0, 1, ..., Count - 1, 0, ... in order, so no clip plays twice running when there are two
+	 * or more. 0 for Count of 1 or less.
+	 */
+	static int32 PickNextVariant(int32& Cursor, int32 Count);
 
 	/** Loads every assigned montage now and keeps it, so the first strike does not hitch. */
 	void Preload();
@@ -158,9 +198,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat Anim|Bow")
 	TSoftObjectPtr<UAnimMontage> BowNock;
 
+	/**
+	 * Further clips per role, in the order they cycle after the role's slot. Filled by
+	 * create_combat_anims.py from every AM_<Role>_* the character wears, in manifest order.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat Anim|Variants")
+	TArray<FCombatAnimVariants> MoreVariants;
+
 private:
 	/** The slot for Role, no fallback. Null for None. */
 	const TSoftObjectPtr<UAnimMontage>* FindSlot(ECombatAnimRole Role) const;
+
+	/** The role whose clips Role plays: Role, or Kick for a Light3 with no slot of its own. */
+	ECombatAnimRole SourceRole(ECombatAnimRole Role) const;
+
+	/** Role's MoreVariants entry (no fallback), or null. */
+	const FCombatAnimVariants* FindVariants(ECombatAnimRole Role) const;
 
 	/** What Preload loaded, held so the soft references stay resident. */
 	UPROPERTY(Transient)

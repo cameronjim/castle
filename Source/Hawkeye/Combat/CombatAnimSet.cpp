@@ -72,6 +72,78 @@ UAnimMontage* UCombatAnimSet::Resolve(const UCombatAnimSet* Set, ECombatAnimRole
 	return Set ? Set->ResolveMontage(Role) : nullptr;
 }
 
+ECombatAnimRole UCombatAnimSet::SourceRole(ECombatAnimRole Role) const
+{
+	const TSoftObjectPtr<UAnimMontage>* Slot = FindSlot(Role);
+	if (Role == ECombatAnimRole::Light3 && (!Slot || Slot->IsNull()))
+	{
+		return ECombatAnimRole::Kick;
+	}
+	return Role;
+}
+
+const FCombatAnimVariants* UCombatAnimSet::FindVariants(ECombatAnimRole Role) const
+{
+	return MoreVariants.FindByPredicate([Role](const FCombatAnimVariants& Entry) { return Entry.Role == Role; });
+}
+
+int32 UCombatAnimSet::GetVariantCount(ECombatAnimRole Role) const
+{
+	if (GetMontage(Role).IsNull())
+	{
+		return 0;
+	}
+	const FCombatAnimVariants* More = FindVariants(SourceRole(Role));
+	return 1 + (More ? More->Montages.Num() : 0);
+}
+
+TSoftObjectPtr<UAnimMontage> UCombatAnimSet::GetVariant(ECombatAnimRole Role, int32 Index) const
+{
+	if (Index <= 0)
+	{
+		return Index == 0 ? GetMontage(Role) : TSoftObjectPtr<UAnimMontage>();
+	}
+	if (GetMontage(Role).IsNull())
+	{
+		return TSoftObjectPtr<UAnimMontage>();
+	}
+	const FCombatAnimVariants* More = FindVariants(SourceRole(Role));
+	return More && More->Montages.IsValidIndex(Index - 1) ? More->Montages[Index - 1] : TSoftObjectPtr<UAnimMontage>();
+}
+
+UAnimMontage* UCombatAnimSet::ResolveVariant(ECombatAnimRole Role, int32 Index) const
+{
+	const TSoftObjectPtr<UAnimMontage> Soft = GetVariant(Role, Index);
+	if (Soft.IsNull())
+	{
+		return nullptr;
+	}
+	UAnimMontage* Montage = Soft.LoadSynchronous();
+	if (!Montage)
+	{
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: the %s variant %d montage %s does not load."), *GetName(),
+			*UEnum::GetValueAsString(Role), Index, *Soft.ToString());
+	}
+	return Montage;
+}
+
+UAnimMontage* UCombatAnimSet::ResolveVariantIn(const UCombatAnimSet* Set, ECombatAnimRole Role, int32 Index)
+{
+	return Set ? Set->ResolveVariant(Role, Index) : nullptr;
+}
+
+int32 UCombatAnimSet::PickNextVariant(int32& Cursor, int32 Count)
+{
+	if (Count <= 1)
+	{
+		Cursor = 0;
+		return 0;
+	}
+	const int32 Pick = ((Cursor % Count) + Count) % Count;
+	Cursor = (Pick + 1) % Count;
+	return Pick;
+}
+
 int32 UCombatAnimSet::CountAssigned() const
 {
 	int32 Count = 0;
@@ -97,7 +169,23 @@ void UCombatAnimSet::Preload()
 			}
 		}
 	}
-	UE_LOG(LogHawkeye, Log, TEXT("%s: %d combat montages loaded of %d assigned."), *GetName(), Preloaded.Num(), CountAssigned());
+	int32 Variants = 0;
+	for (const FCombatAnimVariants& Entry : MoreVariants)
+	{
+		for (const TSoftObjectPtr<UAnimMontage>& Soft : Entry.Montages)
+		{
+			if (!Soft.IsNull())
+			{
+				++Variants;
+				if (UAnimMontage* Montage = Soft.LoadSynchronous())
+				{
+					Preloaded.AddUnique(Montage);
+				}
+			}
+		}
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %d combat montages loaded of %d assigned and %d more variants."), *GetName(), Preloaded.Num(),
+		CountAssigned(), Variants);
 }
 
 ECombatAnimRole UCombatAnimSet::HitRoleFor(EHawkeyeHitDirection Side)

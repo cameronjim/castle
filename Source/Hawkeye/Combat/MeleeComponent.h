@@ -143,6 +143,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Melee|Animation")
 	UAnimMontage* GetCurrentMontage() const { return CurrentMontage; }
 
+	/**
+	 * The clip the current (or last) swing picked from its role's variants, whether or not it played;
+	 * null when the role has none. Each swing of a role takes the next variant in order
+	 * (UCombatAnimSet::PickNextVariant), so with two or more no clip plays twice running.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Melee|Animation")
+	UAnimMontage* GetPickedMontage() const { return PickedMontage; }
+
+	/** Which variant of its role the current (or last) swing picked (0 is the role's slot); -1 for none. */
+	UFUNCTION(BlueprintPure, Category = "Melee|Animation")
+	int32 GetPickedVariantIndex() const { return PickedVariantIndex; }
+
 	/** True when the current swing's hit comes from ANS_HitWindow rather than WindupSeconds. */
 	UFUNCTION(BlueprintPure, Category = "Melee|Animation")
 	bool IsHitFromNotify() const { return bHitFromNotify; }
@@ -322,6 +334,9 @@ protected:
 	/** Plays the attack's clip when it has one that will play, and takes the swing's timing from it. */
 	bool TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack);
 
+	/** Picks the next variant of Attack's role and logs it; null when the role has none. */
+	UAnimMontage* PickSwingVariant(const FHawkeyeMeleeAttack& Attack);
+
 	/** Points the owner's motion warping at the swing's target (or clears it) for a root-motion clip. */
 	void UpdateWarpTarget() const;
 
@@ -369,6 +384,15 @@ protected:
 	TObjectPtr<UAnimMontage> CurrentMontage;
 
 	TWeakObjectPtr<UAnimInstance> MontageInstance;
+
+	/** The variant the current (or last) swing picked, and its index. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> PickedMontage;
+
+	int32 PickedVariantIndex = -1;
+
+	/** Per role, the variant its next swing takes. */
+	TMap<ECombatAnimRole, int32> VariantCursors;
 
 	/** SetNextAttackTarget's value, and the one the current swing took. */
 	TWeakObjectPtr<AActor> PendingTarget;
