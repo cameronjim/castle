@@ -75,3 +75,7 @@ Content/Input/IA_Traverse.uasset
 Content/Input/IA_TriggerRagdoll.uasset
 Content/Input/IA_TwinStick_AimDirection.uasset
 Content/Input/IA_Walk.uasset
+
+# Free Epic packs added from Fab; read by Tools/Editor/import_combat_anims.py, never committed
+Content/ParagonSparrow/
+Content/Paragon*/
