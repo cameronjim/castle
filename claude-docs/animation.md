@@ -58,9 +58,49 @@ retargeter maps them by exact name.
 
 | Map | Source | Retarget root | Root bone | Notes |
 |-----|--------|---------------|-----------|-------|
-| `mixamo` | Mixamo's rig: Hips, Spine..Spine2, Neck, Head, LeftShoulder, LeftArm..LeftHand, LeftHandThumb1..3 (and Index, Middle, Ring, Pinky), LeftUpLeg..LeftFoot, LeftToeBase | Hips | none | Bone names match with or without a `mixamorig:` prefix. With no root bone the root motion op generates root motion from the target pelvis. |
+| `mixamo` | Mixamo's rig: Hips, Spine..Spine2, Neck, Head, LeftShoulder, LeftArm..LeftHand, LeftHandThumb1..3 (and Index, Middle, Ring, Pinky), LeftUpLeg..LeftFoot, LeftToeBase | Hips | none | Bone names match with or without a `mixamorig:` prefix. With no root bone the root motion op generates root motion from the target pelvis: root straight under the pelvis, height snapped to the ground, reference rotation (see "Root motion from a rig with no root"). |
 | `ue4` | UE4 mannequin and Paragon heroes (Sparrow): root, pelvis, spine_01..03, neck_01, head, clavicle, upperarm..hand, three-joint fingers, thigh..foot, ball | pelvis | root | 22 chains on Sparrow. |
 | `uefn` | UEFN and UE5 mannequins: spine_01..05, neck_01..02 | pelvis | root | Kate's target; the self-test's UE5 source. |
+
+## Root motion from a rig with no root
+
+The IK Retargeter's root motion op, set to Generate From Target Pelvis, still defaults its height to
+Copy Height From Source, which reads the source's root bone; Mixamo has none, so that is its first
+bone, the hips. Every Mixamo clip came out with the root track at 85 to 92 cm and the pelvis's own
+track about 2 cm above it (A_Light1_Cross: root z 89, pelvis 91 in component space at frame 0). The
+import's pose line read the pelvis through the root and looked right; the game extracts the root as
+root motion (Kate's strikes) or locks it (everything else), and the pelvis dropped to the floor. The
+script now sets the op to Snap To Ground with no offset from the pelvis and no pelvis rotation, so the
+root carries only the hips' horizontal travel (A_Light1_Cross after: root z 0, pelvis 91 to 94).
+
+Two more things made that fix look like it did nothing: `IKRetargetFactory` can create the retargeter
+with the default op stack already in, and a retargeter the script could not delete (still loaded)
+came back with every earlier run's stack, so `add_default_ops` stacked more copies whose root motion
+op sat at its defaults and ran last. The script clears the stack and adds exactly one. The import log
+prints the op count ("5 ops").
+
+## Timing a clip for play
+
+Mixamo strikes are demo-paced: about a second of wind-up before the punch. A clip can say, in its
+source's seconds, which stretch to play and how fast (`start_s`, `end_s`, `rate`) and where its windows
+are (`hit_s`, `combo_s`, optional `warp_end_s`; the warp defaults to the hit). The montage builder puts
+the stretch and rate into the montage's own segment (the montage editor's Start Time, End Time and
+Play Rate), so the montage is short and plays at rate 1, and maps the windows into it. A hit lands
+`(hit_s[0] - start_s) / rate` after the input. The numbers for Kate's clips come from the fist or foot's
+forward reach from the pelvis per frame (read with `GetRawBoneLocation`): the hit window opens when
+the striking hand is about two thirds out, and the stretch starts at or just before the cocked pose.
+
+| Clip | Stretch (s) | Rate | Hit after input | Combo window | Montage |
+|------|-------------|------|-----------------|--------------|---------|
+| AM_Light1_Cross | 0.60-1.70 | 1.7 | 0.25 s | 0.34-0.62 s | 0.65 s |
+| AM_Light2_Hook | 0.70-1.75 | 1.3 | 0.25 s | 0.35-0.77 s | 0.81 s |
+| AM_Light3_UppercutJab (the left uppercut) | 0.45-1.25 | 1.4 | 0.24 s | 0.34-0.55 s | 0.57 s |
+| AM_Kick_SideKick | 0.20-1.50 | 1.4 | 0.29 s | 0.46-0.89 s | 0.93 s |
+| AM_Heavy_SurpriseUppercut | 0.65-1.80 | 1.1 | 0.41 s | 0.59-1.00 s | 1.05 s |
+
+The second clip for each role (Punching, Boxing, JabElbow, Kicking, Roundhouse) is still on the role
+defaults: nothing plays it while the first exists. Thug clips are untouched: they are rate-fitted to
+their telegraphs at run time.
 
 ## Sources
 
@@ -83,7 +123,8 @@ as garbage in a full-body slot and pointed at Sparrow's idle on Sparrow's skelet
    `manifest.json` `clips`: `source`, `file` or `asset`, `role`, `variant`, `characters`
    (`kate`, `clint`, `thug`, `archer`, `all`, or a list).
 2. Optional per clip: `hit`, `combo` (fractions of the clip), `warp_end`, `loop`, `hold`,
-   `root_motion`, `blend_in`, `blend_out`, `slot`. Leave them out to take `ROLE_DEFAULTS` in
+   `root_motion`, `blend_in`, `blend_out`, `slot`; or the timing keys in seconds of the source clip,
+   `start_s`, `end_s`, `rate`, `hit_s`, `combo_s`, `warp_end_s` (see "Timing a clip for play"). Leave them out to take `ROLE_DEFAULTS` in
    `import_combat_anims.py` (strikes: hit 25-45%, combo 45-80%, warp to the hit; heavy 40-55%, 60-85%;
    Knockdown holds its last frame; BowAimIdle loops; bow roles play `UpperBody`).
 3. `.\Tools\import-anims.ps1` (add `-Force` to redo existing assets). Read the log: one `created`
@@ -104,9 +145,11 @@ Nobody can watch a headless run, so the scripts read bones:
   and Sparrow's `RMB_Drawback` and `HitReact_Fwd` to both targets, then asserts: on the target
   skeleton, the source's length, only target bones in the tracks, full-pose not additive, the right
   slot and windows, standing clips standing (pelvis within 35 cm of the reference, hips and head
-  where they belong), and for the bow draw: the bow arm as extended as the source's, the bow hand
-  30+ cm in front, the string hand drawn back 40+ cm behind it at full draw. 98 checks.
-- Poses are read from the raw bone tracks with `UHawkeyeCombatMontageBuilder::GetRawBoneLocation`.
+  where they belong, and the pelvis within 15 cm of the reference with the root locked: the engine's
+  FBX character has no root bone, so this is the check that fails if the root takes the hips' height), and for the bow draw: the bow arm as extended as the source's, the bow hand
+  30+ cm in front, the string hand drawn back 40+ cm behind it at full draw. 116 checks.
+- Poses are read from the raw bone tracks with `UHawkeyeCombatMontageBuilder::GetRawBoneLocation`
+  (`bRootLocked` holds the root at its reference pose, as the game does; the `pose` line prints both).
   `AnimPoseExtensions` evaluation gave the pelvis as the origin on some UEFN clips while its children
   were right, so it is not trusted for this.
 - `Hawkeye.Smoke.CombatClipsPlay` loads the district and plays each character's clips: the slot's
@@ -115,9 +158,7 @@ Nobody can watch a headless run, so the scripts read bones:
 
 ## Known limits
 
-- Mixamo strike clips are long (Cross Punch 2.0 s, hit at 0.5 s with the default window). A clip-timed
-  light lands much later than the procedural 0.1 s. Tune the clip's `hit` and `combo` in the manifest
-  after playing it.
+- Kate's clip-timed lights land at 0.25 s, not the procedural 0.1 s (a clip needs a visible swing).
 - Thug clips play at the rate that opens their hit window at the telegraph's end (fists 0.6 s), so a
   1.0 s Mixamo punch with its hit at 25% plays at about 0.4x. Tighten the clip's `hit` to fix it.
 - There is no GetUp clip yet: a Mixamo knockdown holds its last frame on the floor, then blends back

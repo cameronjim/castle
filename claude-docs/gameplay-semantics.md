@@ -720,7 +720,10 @@ the last input came from a pad.
 - Clips are retargeted, never used on their source skeleton: Kate and Clint's onto the UEFN
   mannequin, thugs' and archers' onto the UE4 mannequin they wear. Additive source clips (Paragon's
   hit reactions) are baked to full poses. Standing clips must keep the pelvis within 35 cm of the
-  reference height; the import reports any that do not.
+  reference height with the root held where the game holds it (locked, or extracted as root motion);
+  the import reports any that do not, and the self-test fails past 15 cm. The root track carries only
+  horizontal travel on the ground, never the pelvis's height (2026-09-28: Mixamo clips had the hips'
+  90 cm on the root, and everyone playing one knelt).
 - Strikes: Kate's light chain is Light1, Light2, Light3; her hold is Heavy; a thug's fists
   are Light1, his bat and the heavy's bash and slow swing are Heavy. `FHawkeyeMeleeAttack.AnimRole`
   names the role. A montage whose slot is `UpperBody` plays on the post-process instance
@@ -736,6 +739,12 @@ the last input came from a pad.
   strike starts at once, cutting the current montage. A press between the hit and the window
   is held and goes when the window opens. A montage with no `ANS_ComboWindow` keeps the
   0.35 s timer and ends the swing at RecoverSeconds.
+- Kate's strike timing with clips (2026-09-28; each clip's start, end, rate and windows are in the
+  manifest, in the source clip's seconds): Light1, Light2 and Light3 land 0.24 to 0.26 s after the
+  input, Kick 0.29 s, Heavy 0.41 s. A light's montage lasts 0.57 to 0.81 s; its combo window opens
+  about 0.1 s after its hit and closes 0.3 to 0.5 s after it, so the 0.35 s chain rule holds to within
+  about 0.15 s either way. Pressed as each lands, three lights land at about 0.25, 0.6 and 1.0 s and the
+  chain is over by about 1.4 s. The procedural lights still land at 0.1 s.
 - Thugs keep their telegraphs: a thug's strike montage is played at the rate that puts its
   `ANS_HitWindow` start at the attack's WindupSeconds (0.6 s fists and bat, 0.8 s bash, 1.0 s
   slow swing), so parry and dodge windows are unchanged. Kate's clips play at rate 1.
