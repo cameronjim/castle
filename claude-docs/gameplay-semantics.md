@@ -190,8 +190,8 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   the input pose without a Blueprint graph.
 - Superseded note: before IK, the bow blended from the left palm socket to a
   point in front of the left shoulder while drawing and rides across the back when
-  holstered. Upper-body bow clips now layer over locomotion (see "Combat animation clips"); an
-  aim offset is still stage 3 work.
+  holstered. Upper-body bow clips now layer over locomotion, with an aim offset on top (see
+  "Combat animation clips").
 
 ## Trick arrows (built 2026-09-26; effects are custom actors, no GAS; smoke, EMP ring and fireball are placeholder shapes until Niagara systems exist)
 - Slot order is fixed: 1 standard, 2 grapple, 3 putty, 4 bola, 5 smoke, 6 EMP, 7
@@ -838,9 +838,35 @@ the last input came from a pad.
   its length (with no GetUp clip the knockdown clip blends out over GetUpSeconds). The
   explosive's blast always ragdolls. A clip knockdown counts as knocked down for the finisher
   gate exactly as the ragdoll does.
-- Bow with clips (upper body, over locomotion): BowDraw fitted to the draw time
-  (FullDrawSeconds over DrawRate), BowAimIdle looping from full draw until release, BowFire on
-  release, BowNock after it while not drawing again; a let-down or cancel blends them out over
-  0.2 s. While a bow clip plays the clip holds the bow arm (the bow rides in that hand), the
-  string hand IK is anchored to where the bow hand actually is, and the spine keeps only the
-  turn toward the aim (the clip supplies the side-on stance).
+- Bow with clips (upper body, over locomotion; rewritten 2026-09-28 after "the bow animation is not
+  natural"): BowDraw plays at its own pace, rate 1, whatever the bow's draw time or DrawRate, and holds
+  its last frame (the anchor); once it is at its end BowAimIdle takes over and loops until the release.
+  The draw fraction (damage, speed, spread, the perfect window, the HUD) still counts on its own clock,
+  FullDrawSeconds over DrawRate, so the pose never waits on the number or the number on the pose.
+  Release plays BowFire; a new draw during it starts BowDraw at once. A let-down, cancel or a release
+  below MinDrawFraction blends the clip out over 0.25 s. Bow clips blend in over 0.15 s and out over
+  0.25 s on the UpperBody slot (spine_01 up); the legs stay on locomotion.
+  Sparrow's clips as trimmed in the manifest: BowDraw is Primary_Fire_Med 0.43-0.93 s (the hand from the
+  arrow rest back to the anchor, 0.50 s; the pull itself 0.33 s), BowAimIdle Sparrow's drawn idle (a
+  10 s loop that starts on the anchor pose), BowFire Primary_Fire_Med 0.00-0.43 s (the snap, then the
+  hand back to the string, which is where BowDraw starts). RMB_Drawback is not used: it is a 2.5 s
+  charged draw, and fitted to 0.8 s it rushed and blended out before the aim clip came in.
+- A clip holds the arms exactly as much as it is blended in: the IK's clip alpha is the UpperBody slot's
+  weight (UBowComponent::GetBowClipWeight), so the bow hand's IK is off by that weight and the bow rides
+  in the clip's bow hand. The bow stays in the hand while a bow clip is still blended in above 0.05,
+  even after the follow-through; it goes on the back only once the arms are the locomotion's again.
+- The string hand under a clip stays on the clip. The IK only corrects it toward the arrow line: the
+  line back from the bow through where the arrow will fly (the launch direction, from the bow hand
+  socket to the aim point), at the clip's own draw length, so the correction never fights the pull. Its
+  alpha is the draw alpha times the correction: 0 within ClipCorrectionDeadZone (3 cm) of the line,
+  rising smoothly to ClipCorrectionMaxAlpha (0.5) at ClipCorrectionFullDistance (15 cm). The draw
+  elbow's pole is the clip's own elbow, so the elbow never swings to a hint. The nock and the arrow
+  follow the string hand as before, so the arrow is always on the string.
+- Aim offset (2026-09-28): `BS_BowAimOffset_Sparrow` per skeleton, an AimOffset blend space built by
+  the import script from Sparrow's AO_idle layout and its nine idle_AO poses retargeted (additive in
+  mesh space on the centre pose). It plays on the UpperBody branch after the slot, at alpha clip alpha
+  times bow alpha, so only while a bow clip holds the arms (the IK-only bow never gets it). Its inputs:
+  yaw is the aim's yaw off the actor's, pitch the aim's pitch (the control rotation for the player, the
+  aim override for the AI), each clamped to the blend space's own axis range and to
+  MaxAimOffsetYaw/Pitch (90). Under it the spine's turn toward the aim is not added (the aim offset
+  turns the body); with no aim offset asset the old turn stays.
