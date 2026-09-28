@@ -62,7 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
 import _packages  # noqa: E402
 
-SCRIPT_BUILD = "combat-anims-2"   # bump when the rig, retargeter or montage layout below changes
+SCRIPT_BUILD = "combat-anims-3"   # bump when the rig, retargeter or montage layout below changes
 BUILD_TAG = "HawkeyeBuild"
 CHARACTERS_TAG = "HawkeyeCharacters"
 SOURCE_TAG = "HawkeyeSource"
@@ -341,6 +341,44 @@ def _configure_root_motion_op(op, source_root, target_bones):
     return "root motion generated from the target pelvis: ground height, horizontal only"
 
 
+# The target's IK bones and the bones they follow. The Game Animation Sample's AnimBP runs leg IK toward
+# ik_foot_l and ik_foot_r; a retarget leaves them at their reference pose unless something moves them,
+# and every Mixamo clip then had both feet pulled back to the reference stance in game (a kick never
+# left the ground). Epic's own clips carry them on the feet and hands; the Pin Bones op does the same.
+IK_BONE_PINS = (("foot_l", "ik_foot_l"), ("foot_r", "ik_foot_r"), ("hand_l", "ik_hand_l"), ("hand_r", "ik_hand_r"),
+                ("hand_r", "ik_hand_gun"))
+
+
+def _add_ik_bone_pins(ctl, target_mesh):
+    """A Pin Bones op at the bottom of the stack that puts each IK bone exactly on the bone it follows
+    (they coincide in both mannequins' reference poses). Not "maintain offset": the op measures that
+    offset in the retarget pose, where the aligned legs have moved off the IK bones, and it came out
+    3 to 8 cm. Returns a note for the log."""
+    bones = skeleton_bones(mesh_skeleton(target_mesh))
+    pairs = [(frm, to) for frm, to in IK_BONE_PINS if frm in bones and to in bones]
+    if not pairs:
+        return "no IK bones to pin"
+    index = ctl.add_retarget_op("/Script/IKRig.IKRetargetPinBoneOp")
+    op = ctl.get_op_controller(index) if index is not None and index >= 0 else None
+    if op is None or not hasattr(op, "set_bone_pair"):
+        return "FAILED: no Pin Bones op; the IK bones stay at their reference pose"
+    for frm, to in pairs:
+        op.set_bone_pair(frm, to)
+    settings = op.get_settings()
+    translation = getattr(unreal, "PinBoneTranslationMode", None)
+    rotation = getattr(unreal, "PinBoneRotationMode", None)
+    if translation is None or rotation is None:
+        return "FAILED: the Pin Bones modes are not exposed to Python"
+    applied = c.set_props(settings, [
+        ("skeleton_to_copy_from", unreal.RetargetSourceOrTarget.TARGET),
+        ("translation_mode", translation.COPY_GLOBAL_POSITION),
+        ("rotation_mode", rotation.COPY_GLOBAL_ROTATION)], "pin bones op")
+    if len(applied) != 3:
+        return "FAILED: pin bones op took only " + ", ".join(applied)
+    op.set_settings(settings)
+    return "{0} IK bones pinned".format(len(op.get_all_bone_pairs()))
+
+
 def ensure_retargeter(path, source_rig, source_mesh, source_chain_map, target):
     stamp = fingerprint(SCRIPT_BUILD, source_rig.get_path_name(), target["rig"].get_path_name(), tag_of(source_rig),
                         tag_of(target["rig"]))
@@ -366,6 +404,7 @@ def ensure_retargeter(path, source_rig, source_mesh, source_chain_map, target):
     # onto the root.
     ctl.remove_all_ops()
     ctl.add_default_ops()
+    pin_note = _add_ik_bone_pins(ctl, target["mesh"])
     ctl.assign_ik_rig_to_all_ops(side.SOURCE, source_rig)
     ctl.assign_ik_rig_to_all_ops(side.TARGET, target["rig"])
     ctl.auto_map_chains(unreal.AutoMapChainType.EXACT, True)
@@ -381,7 +420,8 @@ def ensure_retargeter(path, source_rig, source_mesh, source_chain_map, target):
             mapped += 1
     set_tag(rtg, stamp)
     c.save(rtg)
-    c.log("created", path, "{0} ops, {1} target chains mapped, {2}".format(ctl.get_num_retarget_ops(), mapped, root_note))
+    c.log("FAILED" if pin_note.startswith("FAILED") else "created", path, "{0} ops, {1} target chains mapped, {2}, {3}".format(
+        ctl.get_num_retarget_ops(), mapped, root_note, pin_note))
     return rtg
 
 
@@ -796,6 +836,25 @@ def pose_metrics(anim, time):
     }
 
 
+def check_ik_bones_follow(test, name, anim, length):
+    """The IK bones sit on the feet they follow, at their reference-pose offset, on the clip's keys: the
+    sample's leg IK pulls the feet to ik_foot_l and ik_foot_r, so a stray one plants a foot. (Between keys
+    a foot swinging on its thigh arcs while the IK bone's track goes straight, so only keys are compared.)"""
+    skeleton = anim.get_editor_property("skeleton")
+    bones = skeleton_bones(skeleton)
+    frames = max(int(unreal.AnimationLibrary.get_num_frames(anim)), 1)
+    for frm, to in IK_BONE_PINS[:2]:
+        if frm not in bones or to not in bones:
+            continue
+        ref_offset = _ref_bone(skeleton, to) - _ref_bone(skeleton, frm)
+        worst = 0.0
+        for f in (0.0, 0.25, 0.5, 0.75, 1.0):
+            t = length * round(f * frames) / frames
+            offset = _bone(anim, to, t) - _bone(anim, frm, t)
+            worst = max(worst, _dist(offset, ref_offset))
+        test.check(worst < 3.0, "{0}: {1} follows {2} (off by up to {3:.1f} cm)".format(name, to, frm, worst))
+
+
 def check_standing(test, name, target, anim, length):
     """A clip that should stand (all but the knockdowns) has its pelvis near the reference height, the
     hips on it and the head above it: a track written onto the wrong bone puts the pelvis on the floor."""
@@ -882,6 +941,7 @@ def run_selftest(args):
         test.check("slot=" + layout.get("slot", "DefaultSlot") in described, "{0}: montage slot {1}".format(key[0], layout.get("slot")))
         if clip["role"] not in ("Knockdown", "GetUp", "FinisherVictim"):
             check_standing(test, key[0], key[1], seq, out_len)
+        check_ik_bones_follow(test, key[0], seq, out_len)
         if clip["role"] == "BowDraw":
             for when in (0.5, 1.0):
                 src_m = pose_metrics(anim, src_len * when)
