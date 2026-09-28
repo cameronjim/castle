@@ -7,8 +7,11 @@
 
 Then CombatAnimSet on BP_Kate, BP_Clint, BP_Thug (the gunner and the heavy inherit it) and BP_Archer.
 
-Which montage fills a role when there are several: the first clip for that role and character in
-Tools/Data/Anims/manifest.json whose montage exists, then any others (hand-made ones) by name.
+Which montages fill a role when there are several: every clip for that role and character in
+Tools/Data/Anims/manifest.json whose montage exists, in manifest order, then any others (hand-made ones)
+by name. The first goes in the role's slot (variant 0); the rest go in MoreVariants for that role, in
+that order, and the melee component cycles through them per swing. A manifest clip with
+"in_set": false is imported but left out of the set (the thugs' run-jump attack).
 Safe with no clips at all: the sets are made empty and stay that way. Idempotent: a set or a
 Blueprint is saved only when a slot actually changes. Runs after create_bow_ik (create_all.py), whose
 graph has the clip slots these montages play in.
@@ -50,8 +53,17 @@ def property_name(role):
     return out
 
 
+def clip_characters(clip):
+    wanted = clip.get("characters", "all")
+    if wanted == "all":
+        return None
+    return [wanted] if isinstance(wanted, str) else list(wanted)
+
+
 def manifest_order():
-    """Montage names in manifest order, per role: {role: [AM_Role_Variant, ...]}."""
+    """Per role, the montages in manifest order and who each clip is for:
+    {role: [(AM_Role_Variant, [characters] or None for all, in_set), ...]}. One montage can come from
+    several clip lines (Jab To Elbow is Kate's Light3 and a thug's Light1; they land in different folders)."""
     try:
         with open(MANIFEST, encoding="utf-8") as handle:
             clips = json.load(handle).get("clips", [])
@@ -60,7 +72,8 @@ def manifest_order():
     order = {}
     for clip in clips:
         variant = "".join(ch for ch in clip.get("variant", "Clip") if ch.isalnum()) or "Clip"
-        order.setdefault(clip["role"], []).append("AM_{0}_{1}".format(clip["role"], variant))
+        order.setdefault(clip["role"], []).append(
+            ("AM_{0}_{1}".format(clip["role"], variant), clip_characters(clip), clip.get("in_set", True)))
     return order
 
 
@@ -85,13 +98,42 @@ def worn_by(montage, character):
     return not tag or character in [t.strip() for t in tag.split(",")]
 
 
-def pick(role, character, montages, order):
-    ranked = [n for n in order.get(role, []) if n in montages]
-    ranked += sorted(n for n in montages if n.startswith("AM_{0}_".format(role)) and n not in ranked)
-    for name in ranked:
-        if worn_by(montages[name], character):
-            return montages[name]
-    return None
+def pick_all(role, character, montages, order):
+    """Every montage for role that character wears, in manifest order, then hand-made ones by name."""
+    ranked, left_out = [], set()
+    for name, characters, in_set in order.get(role, []):
+        if characters is not None and character not in characters:
+            continue
+        if not in_set:
+            left_out.add(name)
+        elif name in montages and name not in ranked:
+            ranked.append(name)
+    listed = set(n for n, _, _ in order.get(role, []))
+    ranked += sorted(n for n in montages if n.startswith("AM_{0}_".format(role)) and n not in listed)
+    return [montages[n] for n in ranked if n not in left_out and worn_by(montages[n], character)]
+
+
+def variants_of(anim_set):
+    """{role name: [montage path, ...]} as the set holds MoreVariants now."""
+    current = {}
+    try:
+        entries = anim_set.get_editor_property("more_variants") or []
+    except Exception as exc:  # noqa: BLE001
+        c.log_error("{0}.more_variants".format(anim_set.get_name()), exc)
+        return None
+    for entry in entries:
+        role = entry.get_editor_property("role")
+        key = getattr(role, "name", None) or str(role).split(".")[-1].split(":")[0].strip(" <>")
+        current[key.replace("_", "").upper()] = [soft_path(m) for m in entry.get_editor_property("montages")]
+    return current
+
+
+def role_enum(role):
+    """ECombatAnimRole value for a role name (Python spells DodgeForward DODGE_FORWARD)."""
+    for attr in dir(unreal.CombatAnimRole):
+        if attr.replace("_", "").upper() == role.upper() and attr.isupper():
+            return getattr(unreal.CombatAnimRole, attr)
+    raise KeyError(role)
 
 
 def soft_path(value):
@@ -121,9 +163,13 @@ def ensure_set(name):
 def fill_set(anim_set, character, folder, order):
     montages = montages_in(folder)
     changed, filled = [], []
+    more = []
     for role in ROLES:
         prop = property_name(role)
-        montage = pick(role, character, montages, order)
+        picked = pick_all(role, character, montages, order)
+        montage = picked[0] if picked else None
+        if len(picked) > 1:
+            more.append((role, picked[1:]))
         try:
             current = soft_path(anim_set.get_editor_property(prop))
         except Exception as exc:  # noqa: BLE001
@@ -136,6 +182,19 @@ def fill_set(anim_set, character, folder, order):
             continue
         anim_set.set_editor_property(prop, montage)
         changed.append(role)
+
+    wanted = dict((role.upper(), [m.get_path_name().split(".")[0] for m in extra]) for role, extra in more)
+    if variants_of(anim_set) != wanted:
+        entries = []
+        for role, extra in more:
+            entry = unreal.CombatAnimVariants()
+            entry.set_editor_property("role", role_enum(role))
+            entry.set_editor_property("montages", extra)
+            entries.append(entry)
+        anim_set.set_editor_property("more_variants", entries)
+        changed.append("MoreVariants")
+    for role, extra in more:
+        filled[filled.index(role)] = "{0} (+{1})".format(role, ", ".join(m.get_name() for m in extra))
     return changed, filled
 
 
