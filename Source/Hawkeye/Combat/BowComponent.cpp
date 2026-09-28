@@ -408,7 +408,14 @@ bool UBowComponent::ReleaseDraw()
 		return false;
 	}
 	const bool bFired = FireArrow(Elapsed);
-	if (!bFired || !PlayBowClip(ECombatAnimRole::BowFire))
+	if (bFired && PlayBowClip(ECombatAnimRole::BowFire))
+	{
+		// A shot on a clip follows through until its fire clip starts to blend out, so the IK never
+		// raises the arm again while the clip lets it down.
+		FollowThroughUntilSeconds = FMath::Min(FollowThroughUntilSeconds,
+			GetNowSeconds() + ComputeClipFollowThrough(BowClip->GetPlayLength(), BowClip->BlendOut.GetBlendTime()));
+	}
+	else
 	{
 		StopBowClip(ClipLetDownSeconds);
 	}

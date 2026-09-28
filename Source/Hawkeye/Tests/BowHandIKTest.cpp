@@ -201,6 +201,9 @@ bool FHawkeyeBowClipOwnPace::RunTest(const FString& Parameters)
 	TestTrue(TEXT("A clip still holding the arms keeps it in the hand"), UBowComponent::KeepsBowInHand(false, true, 0.5f));
 	TestFalse(TEXT("Once the clip has let go it goes on the back"), UBowComponent::KeepsBowInHand(false, true, 0.04f));
 	TestEqual(TEXT("A let-down blends the clip out over 0.25 s"), UBowComponent::ClipLetDownSeconds, 0.25f);
+	TestEqual(TEXT("Sparrow's 0.43 s fire clip follows through until it starts to blend out, 0.18 s"),
+		UBowComponent::ComputeClipFollowThrough(0.43f, 0.25f), 0.18f, 0.001f);
+	TestEqual(TEXT("Never negative"), UBowComponent::ComputeClipFollowThrough(0.1f, 0.25f), 0.f);
 	return true;
 }
 

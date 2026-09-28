@@ -855,6 +855,9 @@ the last input came from a pad.
   weight (UBowComponent::GetBowClipWeight), so the bow hand's IK is off by that weight and the bow rides
   in the clip's bow hand. The bow stays in the hand while a bow clip is still blended in above 0.05,
   even after the follow-through; it goes on the back only once the arms are the locomotion's again.
+  A shot on a fire clip follows through only until that clip starts to blend out (its length less its
+  blend-out, 0.18 s for Sparrow's), never longer than FollowThroughSeconds, so the IK does not lift the
+  arm back up while the clip lowers it. Without a fire clip the 0.6 s follow-through stands.
 - The string hand under a clip stays on the clip. The IK only corrects it toward the arrow line: the
   line back from the bow through where the arrow will fly (the launch direction, from the bow hand
   socket to the aim point), at the clip's own draw length, so the correction never fights the pull. Its

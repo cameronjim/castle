@@ -196,6 +196,15 @@ public:
 	/** True while the bow belongs in the hand: raised, or held there by bHolsterWhenIdle off, or by a clip still blended in above ClipKeepsBowWeight. Pure. */
 	static bool KeepsBowInHand(bool bRaised, bool bHolsterWhenIdle, float ClipWeight);
 
+	/**
+	 * A shot on a fire clip of ClipSeconds that blends out over BlendOutSeconds follows through for this
+	 * long (capped by FollowThroughSeconds): until the clip starts to let the arms down. Pure.
+	 */
+	static float ComputeClipFollowThrough(float ClipSeconds, float BlendOutSeconds)
+	{
+		return FMath::Max(0.f, ClipSeconds - FMath::Max(0.f, BlendOutSeconds));
+	}
+
 	/** Bow clips blend out over this on a let-down, a cancel or a release too early to fire, seconds. */
 	static constexpr float ClipLetDownSeconds = 0.25f;
 
