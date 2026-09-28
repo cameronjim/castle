@@ -47,6 +47,11 @@
  *   hit_lean.png      from in front of him, 0.1 s after she hits him from his left: his upper body leant right
  *   strike_pose.png   side on, a light at the moment it strikes (its hit window opening, or 0.1 s in without
  *                     a clip): her right hand out at chest height
+ *   heavy_strike.png  side on, her heavy (held V) at the moment its hit window opens: AM_Heavy_SurpriseUppercut
+ *   kick.png          side on, the Kick role (AM_Kick_*) at the moment its hit window opens
+ *
+ * The heavy and the kick fail the test when another montage plays, or when her pelvis at the capture is more
+ * than 15 cm off its height standing just before the press (read from the mesh's pelvis bone).
  *
  * The world is slowed to a crawl for each capture that is about a moment (all but the finisher, whose
  * own slow motion is the subject) and put back after.
@@ -69,6 +74,10 @@ namespace HawkeyeMeleeShots
 		LeanHit,
 		StrikeSetup,
 		Strike,
+		HeavySetup,
+		Heavy,
+		KickSetup,
+		Kick,
 		Crawl,
 		Uncrawl,
 		Cleanup,
@@ -228,6 +237,32 @@ namespace HawkeyeMeleeShots
 	}
 
 	static FString Vec(const FVector& V) { return V.ToCompactString(); }
+
+	/** Her pelvis above her feet standing, cm, read just before the heavy or the kick is pressed. */
+	static float StandingPelvis = 0.f;
+	static constexpr float PelvisTolerance = 15.f;
+	static const TCHAR* HeavyMontage = TEXT("AM_Heavy_SurpriseUppercut");
+	static const TCHAR* KickMontagePrefix = TEXT("AM_Kick_");
+
+	/** The pelvis bone above the bottom of the capsule, cm. */
+	static float PelvisHeight(const ACharacter* Character)
+	{
+		const USkeletalMeshComponent* Body = Character ? Character->GetMesh() : nullptr;
+		if (!Body || Body->GetBoneIndex(TEXT("pelvis")) == INDEX_NONE)
+		{
+			return 0.f;
+		}
+		const float Feet = Character->GetActorLocation().Z - Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		return Body->GetBoneLocation(TEXT("pelvis")).Z - Feet;
+	}
+
+	/** Side on to her, like strike_pose.png, centred Ahead cm in front of her, the lens Back cm out. */
+	static void FrameSideOn(UWorld* World, APlayerController* PC, const AHawkeyeCharacter* Kate, float Ahead, float Back)
+	{
+		const FVector Side = FVector::CrossProduct(FVector::UpVector, Along);
+		const FVector Chest = Kate->GetActorLocation() + Along * Ahead + FVector(0.f, 0.f, 25.f);
+		Frame(World, PC, Chest + Side * Back + FVector(0.f, 0.f, 10.f), Chest - FVector(0.f, 0.f, 15.f), 50.f);
+	}
 }
 
 DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeMeleeShot, FAutomationTestBase*, Test, uint8, Shot);
@@ -392,6 +427,54 @@ bool FHawkeyeMeleeShot::Update()
 		Kate->StartLightAttack();
 		break;
 
+	case EShot::HeavySetup:
+		// Far enough that the soft lock leaves him be: the clip's own root motion, no warp toward him.
+		if (!FaceOff(World, Kate, 450.f))
+		{
+			Test->AddWarning(TEXT("heavy_strike.png: no street spot."));
+			break;
+		}
+		PC->SetControlRotation(FRotator(-10.f, Kate->GetActorRotation().Yaw, 0.f));
+		FrameSideOn(World, PC, Kate, 45.f, 400.f);
+		break;
+
+	case EShot::Heavy:
+		StandingPelvis = PelvisHeight(Kate);
+		if (!Kate->StartHeavyAttack())
+		{
+			Test->AddError(TEXT("heavy_strike.png: the heavy did not start."));
+		}
+		break;
+
+	case EShot::KickSetup:
+		if (!FaceOff(World, Kate, 450.f))
+		{
+			Test->AddWarning(TEXT("kick.png: no street spot."));
+			break;
+		}
+		PC->SetControlRotation(FRotator(-10.f, Kate->GetActorRotation().Yaw, 0.f));
+		FrameSideOn(World, PC, Kate, 45.f, 400.f);
+		break;
+
+	case EShot::Kick:
+	{
+		// Nothing in the game presses the Kick role on its own (it stands in for a missing Light3), so the
+		// shot swings it straight through her melee component: a light's numbers with the Kick clip.
+		StandingPelvis = PelvisHeight(Kate);
+		FHawkeyeMeleeAttack Kick;
+		Kick.Name = FName(TEXT("kick"));
+		Kick.AnimRole = ECombatAnimRole::Kick;
+		Kick.Damage = 0.f;
+		Kick.WindupSeconds = 0.1f;
+		Kick.RecoverSeconds = 0.2f;
+		Kate->GetMeleeComponent()->SetNextAttackDirection(Kate->GetActorForwardVector());
+		if (!Kate->GetMeleeComponent()->StartAttack(Kick))
+		{
+			Test->AddError(TEXT("kick.png: the kick did not start."));
+		}
+		break;
+	}
+
 	case EShot::Crawl:
 		SetCrawl(World, true);
 		break;
@@ -495,11 +578,12 @@ private:
 	FString Log;
 };
 
-/** Waits (up to Timeout) until Kate's light has struck: its hit window opened (a clip) or its wind-up ran out. */
+/** Waits (up to Timeout) until Kate's swing has struck: its hit window opened (a clip) or its wind-up ran out. */
 class FHawkeyeMeleeWaitForStrike : public IAutomationLatentCommand
 {
 public:
-	FHawkeyeMeleeWaitForStrike(FAutomationTestBase* InTest, float InTimeout) : Test(InTest), Timeout(InTimeout) {}
+	FHawkeyeMeleeWaitForStrike(FAutomationTestBase* InTest, float InTimeout, FString InLabel = TEXT("strike_pose.png"))
+		: Test(InTest), Timeout(InTimeout), Label(MoveTemp(InLabel)) {}
 
 	virtual bool Update() override
 	{
@@ -521,7 +605,7 @@ public:
 		{
 			return false;
 		}
-		Test->AddInfo(FString::Printf(TEXT("strike_pose.png: struck %.2f s after the press (%s)."), Now - Start,
+		Test->AddInfo(FString::Printf(TEXT("%s: struck %.2f s after the press (%s)."), *Label, Now - Start,
 			Melee->IsHitFromNotify() ? TEXT("the clip's hit window") : TEXT("the wind-up timer")));
 		return true;
 	}
@@ -529,6 +613,7 @@ public:
 private:
 	FAutomationTestBase* Test;
 	float Timeout;
+	FString Label;
 	double Start = -1.0;
 };
 
@@ -611,6 +696,40 @@ public:
 			if (!ThugHands)
 			{
 				Test->AddWarning(TEXT("hit_lean.png: the thug runs no bow-IK graph, so nothing leans him."));
+			}
+			return true;
+		}
+		if (Label == TEXT("heavy_strike.png") || Label == TEXT("kick.png"))
+		{
+			const bool bHeavy = Label == TEXT("heavy_strike.png");
+			const UMeleeComponent* Melee = Kate->GetMeleeComponent();
+			const FString Name = GetNameSafe(Melee ? Melee->GetCurrentMontage() : nullptr);
+			const float Pelvis = PelvisHeight(Kate);
+			const float Feet = Kate->GetActorLocation().Z - Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+			const FVector Head = Body ? Body->GetBoneLocation(TEXT("head")) : FVector::ZeroVector;
+			// Each limb as (forward, right, up) from her feet, in her actor's frame; and the way her hips face.
+			auto Limb = [&](const TCHAR* Bone)
+			{
+				const FVector At = Body ? Body->GetBoneLocation(Bone) : Kate->GetActorLocation();
+				const FVector Local = Kate->GetActorTransform().InverseTransformVectorNoScale(At - Kate->GetActorLocation());
+				return FString::Printf(TEXT("%s %.0f/%.0f/%.0f"), Bone, Local.X, Local.Y, At.Z - Feet);
+			};
+			const FVector HipsAcross = Body ? Body->GetBoneLocation(TEXT("thigh_r")) - Body->GetBoneLocation(TEXT("thigh_l")) : FVector::RightVector;
+			const FVector HipsFacing = FVector::CrossProduct(HipsAcross.GetSafeNormal2D(), FVector::UpVector);
+			const float HipsYaw = FMath::FindDeltaAngleDegrees(Kate->GetActorRotation().Yaw, HipsFacing.Rotation().Yaw);
+			Test->AddInfo(FString::Printf(TEXT("%s: montage %s, hit window open %d; pelvis %.0f cm up (standing %.0f), head %.0f cm up; ")
+				TEXT("hips face %.0f deg off her facing; %s, %s, %s, %s (forward/right/up cm)."),
+				*Label, *Name, Melee && Melee->IsHitWindowOpen() ? 1 : 0, Pelvis, StandingPelvis, Head.Z - Feet, HipsYaw,
+				*Limb(TEXT("hand_r")), *Limb(TEXT("hand_l")), *Limb(TEXT("foot_r")), *Limb(TEXT("foot_l"))));
+			const bool bRightClip = bHeavy ? Name == HeavyMontage : Name.StartsWith(KickMontagePrefix);
+			if (!bRightClip)
+			{
+				Test->AddError(FString::Printf(TEXT("%s: plays %s, not %s."), *Label, *Name, bHeavy ? HeavyMontage : TEXT("an AM_Kick_ clip")));
+			}
+			if (FMath::Abs(Pelvis - StandingPelvis) > PelvisTolerance)
+			{
+				Test->AddError(FString::Printf(TEXT("%s: her pelvis is %.0f cm up, %.0f cm off her standing %.0f (over %.0f)."), *Label,
+					Pelvis, Pelvis - StandingPelvis, StandingPelvis, PelvisTolerance));
 			}
 			return true;
 		}
@@ -709,6 +828,23 @@ void HawkeyeAddMeleeShots(FAutomationTestBase* Test)
 	Wait(TEXT("strike_pose.png"), 0.f);
 	Take(TEXT("strike_pose.png"));
 	Shot(EShot::Uncrawl, 0.5f);
+
+	// The heavy and the kick at the moment their hit windows open, nobody in reach.
+	Shot(EShot::HeavySetup, 1.2f);
+	Shot(EShot::Heavy, 0.f);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeWaitForStrike(Test, 1.5f, TEXT("heavy_strike.png")));
+	Shot(EShot::Crawl, 0.05f);
+	Wait(TEXT("heavy_strike.png"), 0.f);
+	Take(TEXT("heavy_strike.png"));
+	Shot(EShot::Uncrawl, 1.2f);
+
+	Shot(EShot::KickSetup, 1.2f);
+	Shot(EShot::Kick, 0.f);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeWaitForStrike(Test, 1.f, TEXT("kick.png")));
+	Shot(EShot::Crawl, 0.05f);
+	Wait(TEXT("kick.png"), 0.f);
+	Take(TEXT("kick.png"));
+	Shot(EShot::Uncrawl, 1.f);
 
 	Shot(EShot::Cleanup, 0.5f);
 }
