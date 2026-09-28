@@ -121,6 +121,28 @@ bash in the scripted street fight, and no bow nock clip. Pipeline docs are in
 `claude-docs/animation.md`; the clip list and folder layout in `Tools/Data/Anims/README.md`.
 Clips and retargets are not in git; the script rebuilds them from your downloads.
 
+## Afternoon note, 2026-09-28: Cameron's first combat notes, answered
+Cameron played: traversal okay, punching the air always threw the same punch and heavy,
+the bow draw looked unnatural, jumping at low walls and ledges often did nothing, and the
+grapple stopped showing its key while diamonds still showed. He asked for a day setting.
+All five landed, each with builds, the full suite (357 tests) and screenshots read by eye:
+- **Air combos.** A missed light advances the chain, so the air throws cross, hook,
+  uppercut-jab. Every strike role rotates through its downloaded clips with no repeat.
+- **Bow.** The draw plays at its own pace to the anchor (Sparrow's shot, 0.5 s) and holds
+  the aim loop; an aim offset built from Sparrow's poses pitches the torso with the
+  camera; the string-hand IK only nudges toward the arrow line. Re-draws run straight on.
+- **Jump at walls.** A fan of seven probes out to 180 cm, tops 40 to 260 cm, angled
+  approaches turn her to the wall, the probe keeps running 0.8 s through the jump, and a
+  press during a move is buffered. A running jump at a 90 cm wall used to arrive with her
+  feet just below the probe; that was the "hop and nothing".
+- **Grapple.** The key hint used to hide itself after five uses. Gone. The diamond goes
+  grey with "No grapple arrows" when the quiver is out. Blocked lines are refused before
+  the shot, and a blocked zip or a chain reels the arrow back (this makes chains free;
+  Cameron to confirm he wants that). Clint no longer takes Kate's stuck arrows.
+- **Day and night.** Settings, World, Time of day. `-TimeOfDay=Day` on the command line
+  or `hawkeye.TimeOfDay Day` in the console for testing. Day is a cool overcast; night is
+  unchanged.
+
 ## Known rough edges
 - Challenge pedestal cap and icon read white instead of purple.
 - Distant archery targets are small at 30 to 40 m.
