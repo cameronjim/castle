@@ -376,6 +376,20 @@ the last input came from a pad.
   open. Escape in Settings returns to the pause menu, not to the game. Back does the same.
 - Sliders apply live: the value changes the game before the player leaves the screen, so
   they can feel it after resuming without a second trip.
+- Time of day (built 2026-09-28): Night (default, the story's) or Day, a choice row under
+  World in Settings, saved with the rest (settings version 6; a version 5 save migrates and
+  comes up Night, anything older still yields defaults). `UTimeOfDaySubsystem` relights the
+  district live on the change and at map load. Night is the level exactly as generated and
+  is never touched on the default; Day is one row of its table (`GetPreset`): the Moon light
+  becomes a 7 lux warm-white sun 35 degrees up from the south-west, sky light 6.0 (from
+  3.0) and faintly blue, fog 0.002 starting 30 m out, PP_Global's exposure bias +2 to -0.5
+  (exposure stays pinned), the purple/cream grade neutral, vignette 0.2, stars hidden, street lamps and their heads
+  off, lit windows at a quarter. Snow falls in both. Going back to Night restores every
+  recorded value exactly. Interiors and flashback scenes (no outdoor weather) and anything
+  tagged Interior are left alone. `-TimeOfDay=Day|Night` overrides without saving, like
+  `-Difficulty=`; the `hawkeye.TimeOfDay Day|Night` console command overrides both, also
+  unsaved, until `hawkeye.TimeOfDay Saved` or the player changes the row. The engine's
+  SunPosition plugin is the route to a real cycle later (more rows, blended by the clock).
 - Aiming blends FOV from `HipFOV` 90 to `AimFOV` 70 over 0.15 s, multiplies walk speed by
   0.6, and shrinks the crosshair gap from 8 px to 4 px. Sprinting cancels aim and reload
   and fades the crosshair to 40%.
@@ -660,7 +674,8 @@ the last input came from a pad.
   10 HP/s (regen didn't exist before and applies to Kate only); fall damage 0.5 / 1.0 /
   1.0; Story adds 2 to each trick arrow cap. `-Difficulty=Story|Normal|Hard` on the
   command line overrides without saving. Every scripted fight is won on all three.
-- Accessibility, all persisted (settings version 5): subtitle size 20 / 26 / 34 px with a
+- Accessibility, all persisted (settings version 5; 6 adds the time of day): subtitle size
+  20 / 26 / 34 px with a
   background opacity slider; hold or toggle for aim (default hold) and crouch (default
   toggle); a 1 px outline on the alert glyphs; four colour palettes (default,
   deuteranopia, protanopia, tritanopia) for the reticle, markers, hotbar, glyphs, and
