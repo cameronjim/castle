@@ -6,7 +6,20 @@
 #include "Blueprint/UserWidget.h"
 #include "Settings/HawkeyeAccessibility.h"
 #include "Settings/HawkeyeSettings.h"
+#include "Player/GrappleComponent.h"
 #include "HawkeyeHudWidget.generated.h"
+
+/** How the grapple marker looks for one target state (UHawkeyeHudWidget::GetGrappleMarkerLook). */
+struct FHawkeyeGrappleMarkerLook
+{
+	/** The diamond is drawn at all. */
+	bool bVisible = false;
+	/** Green (a press fires) rather than dim grey. */
+	bool bReady = false;
+	/** A line under the diamond: the key when ready, "No grapple arrows" when the quiver is out. */
+	bool bHint = false;
+	bool bNoArrowsHint = false;
+};
 
 class UBorder;
 class UBowComponent;
@@ -171,17 +184,33 @@ public:
 	// --- Grapple marker -------------------------------------------------------------------------
 
 	/**
-	 * True while the pawn's grapple has a target and a press would fire: hidden during a zip
-	 * until the chain window opens, so the next anchor can be picked on the way in.
+	 * True while the pawn's grapple has a target on screen: green with the key hint when a press
+	 * fires, dim grey when it would not (no grapple arrows, or one still in flight). Hidden during a
+	 * zip until the chain window opens, so the next anchor can be picked on the way in.
 	 */
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
 	bool IsGrappleMarkerVisible() const { return bGrappleMarkerVisible; }
+
+	/** The marker is green: a press fires at it. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
+	bool IsGrappleMarkerReady() const { return bGrappleMarkerVisible && GrappleLook.bReady; }
+
+	/** The grey diamond on an anchor in view that the zip line cannot reach. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
+	bool IsGrappleBlockedMarkerVisible() const { return bGrappleBlockedVisible; }
+
+	/** The line under the marker now: the key, "No grapple arrows", or empty. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
+	FText GetGrappleHintShown() const { return GrappleHintShown; }
+
+	/** The marker's look for a target state: the rule the HUD draws by, pure so a test can read it. */
+	static FHawkeyeGrappleMarkerLook GetGrappleMarkerLook(EGrappleTargetState State);
 
 	/** Centre of the marker in viewport widget space, where the anchor projects to. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
 	FVector2D GetGrappleMarkerPosition() const { return GrappleMarkerPosition; }
 
-	/** The key hint under the marker, shown for the first GrappleHintUses arrows. */
+	/** The line under the marker: always the key while a press fires, "No grapple arrows" when out. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
 	bool IsGrappleHintVisible() const;
 
@@ -485,6 +514,21 @@ protected:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Grapple")
 	TObjectPtr<UTextBlock> GrappleHint = nullptr;
 
+	/** The dim grey diamond on an anchor whose zip line is blocked. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Grapple")
+	TObjectPtr<UImage> GrappleBlockedMarker = nullptr;
+
+	/** Why it is grey, under it, only with hawkeye.DebugGrapple 1. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Grapple")
+	TObjectPtr<UTextBlock> GrappleBlockedText = nullptr;
+
+	/** A grapple diamond a press would not fire at. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")
+	FLinearColor GrappleUnavailableColor = FLinearColor(0.45f, 0.45f, 0.45f, 0.7f);
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")
+	FText GrappleNoArrowsText;
+
 	/** The green of the old first-person crosshair: nothing else on screen is that colour. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")
 	FLinearColor GrappleMarkerColor = FLinearColor(0.22f, 1.f, 0.08f, 1.f);
@@ -496,15 +540,17 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple", meta = (ClampMin = "0.5"))
 	float GrappleMarkerLineWidth = 2.f;
 
-	/** The hint shows until this many grapple arrows have been fired. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple", meta = (ClampMin = "0"))
-	int32 GrappleHintUses = 5;
-
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")
 	FText GrappleHintText;
 
 	UPROPERTY(Transient)
 	bool bGrappleMarkerVisible = false;
+
+	FHawkeyeGrappleMarkerLook GrappleLook;
+	bool bGrappleBlockedVisible = false;
+	FText GrappleHintShown;
+	/** The colour the marker's outline was last painted, so the brush is only rebuilt on a change. */
+	FLinearColor GrappleMarkerPainted = FLinearColor::Transparent;
 
 	UPROPERTY(Transient)
 	FVector2D GrappleMarkerPosition = FVector2D::ZeroVector;

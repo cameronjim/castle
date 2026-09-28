@@ -490,19 +490,62 @@ void UHawkeyeHudWidget::BuildGrappleMarker(UOverlay* Root)
 		HintSlot->SetAutoSize(true);
 	}
 
+	// The grey one: the same diamond, dim and a touch smaller, on an anchor the zip cannot reach.
+	FSlateBrush Grey = Brush;
+	Grey.OutlineSettings.Color = FSlateColor(GrappleUnavailableColor);
+	GrappleBlockedMarker = WidgetTree->ConstructWidget<UImage>(UImage::StaticClass(), TEXT("GrappleBlockedMarker"));
+	GrappleBlockedMarker->SetBrush(Grey);
+	GrappleBlockedMarker->SetRenderTransformPivot(FVector2D(0.5f, 0.5f));
+	GrappleBlockedMarker->SetRenderTransformAngle(45.f);
+	if (UCanvasPanelSlot* BlockedSlot = Cast<UCanvasPanelSlot>(GrappleCanvas->AddChild(GrappleBlockedMarker)))
+	{
+		BlockedSlot->SetAnchors(FAnchors(0.f, 0.f));
+		BlockedSlot->SetAlignment(FVector2D(0.5f, 0.5f));
+		BlockedSlot->SetAutoSize(false);
+		BlockedSlot->SetSize(FVector2D(Side, Side) * 0.8f);
+	}
+	GrappleBlockedMarker->SetVisibility(ESlateVisibility::Collapsed);
+
+	GrappleBlockedText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("GrappleBlockedText"));
+	GrappleBlockedText->SetColorAndOpacity(FSlateColor(GrappleUnavailableColor));
+	FSlateFontInfo ReasonFont = GrappleBlockedText->GetFont();
+	ReasonFont.Size = 10;
+	GrappleBlockedText->SetFont(ReasonFont);
+	if (UCanvasPanelSlot* ReasonSlot = Cast<UCanvasPanelSlot>(GrappleCanvas->AddChild(GrappleBlockedText)))
+	{
+		ReasonSlot->SetAnchors(FAnchors(0.f, 0.f));
+		ReasonSlot->SetAlignment(FVector2D(0.5f, 0.f));
+		ReasonSlot->SetAutoSize(true);
+	}
+	GrappleBlockedText->SetVisibility(ESlateVisibility::Collapsed);
+
+	GrappleMarkerPainted = GrappleMarkerColor;
 	GrappleCanvas->SetVisibility(ESlateVisibility::Collapsed);
+}
+
+FHawkeyeGrappleMarkerLook UHawkeyeHudWidget::GetGrappleMarkerLook(EGrappleTargetState State)
+{
+	FHawkeyeGrappleMarkerLook Look;
+	switch (State)
+	{
+	case EGrappleTargetState::Ready:
+		Look.bVisible = Look.bReady = Look.bHint = true;
+		break;
+	case EGrappleTargetState::NoArrows:
+		Look.bVisible = Look.bHint = Look.bNoArrowsHint = true;
+		break;
+	case EGrappleTargetState::ArrowInFlight:
+		Look.bVisible = true;
+		break;
+	default:
+		break;
+	}
+	return Look;
 }
 
 bool UHawkeyeHudWidget::IsGrappleHintVisible() const
 {
-	if (!bGrappleMarkerVisible)
-	{
-		return false;
-	}
-	const APlayerController* PC = GetOwningPlayer();
-	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
-	const UGrappleComponent* Grapple = Pawn ? Pawn->FindComponentByClass<UGrappleComponent>() : nullptr;
-	return Grapple && Grapple->GetUseCount() < GrappleHintUses;
+	return bGrappleMarkerVisible && GrappleLook.bHint;
 }
 
 void UHawkeyeHudWidget::UpdateGrappleMarker()
@@ -511,24 +554,64 @@ void UHawkeyeHudWidget::UpdateGrappleMarker()
 	const APawn* Pawn = PC ? PC->GetPawn() : nullptr;
 	const UGrappleComponent* Grapple = Pawn ? Pawn->FindComponentByClass<UGrappleComponent>() : nullptr;
 	const AGrappleAnchor* Anchor = Grapple ? Grapple->GetTargetAnchor() : nullptr;
+	const EGrappleTargetState State = Grapple ? Grapple->GetTargetState() : EGrappleTargetState::None;
+	GrappleLook = GetGrappleMarkerLook(State);
 
 	FVector2D Position = FVector2D::ZeroVector;
-	bGrappleMarkerVisible = Anchor && Grapple->CanChain()
+	bGrappleMarkerVisible = Anchor && GrappleLook.bVisible
 		&& UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Anchor->GetMarkerLocation(), Position, false);
 	if (bGrappleMarkerVisible)
 	{
 		GrappleMarkerPosition = Position;
 	}
+	const AGrappleAnchor* Blocked = Grapple ? Grapple->GetBlockedAnchor() : nullptr;
+	FVector2D BlockedPosition = FVector2D::ZeroVector;
+	bGrappleBlockedVisible = Blocked && Grapple->CanChain()
+		&& UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Blocked->GetMarkerLocation(), BlockedPosition, false);
+	GrappleHintShown = !bGrappleMarkerVisible || !GrappleLook.bHint ? FText::GetEmpty()
+		: (GrappleLook.bNoArrowsHint ? GrappleNoArrowsText : ApplyGamepadHint(GrappleHintText));
 
 	if (!GrappleCanvas || !GrappleMarker || !GrappleHint)
 	{
 		return;
 	}
-	GrappleCanvas->SetVisibility(
-		bGrappleMarkerVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	const bool bAnything = bGrappleMarkerVisible || bGrappleBlockedVisible;
+	GrappleCanvas->SetVisibility(bAnything ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	if (GrappleBlockedMarker)
+	{
+		GrappleBlockedMarker->SetVisibility(bGrappleBlockedVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		if (UCanvasPanelSlot* BlockedSlot = bGrappleBlockedVisible ? Cast<UCanvasPanelSlot>(GrappleBlockedMarker->Slot) : nullptr)
+		{
+			BlockedSlot->SetPosition(BlockedPosition);
+		}
+	}
+	if (GrappleBlockedText)
+	{
+		const bool bReason = bGrappleBlockedVisible && UGrappleComponent::IsDebugEnabled();
+		GrappleBlockedText->SetVisibility(bReason ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+		if (bReason)
+		{
+			GrappleBlockedText->SetText(FText::FromString(Grapple->GetBlockedReason()));
+			if (UCanvasPanelSlot* TextSlot = Cast<UCanvasPanelSlot>(GrappleBlockedText->Slot))
+			{
+				TextSlot->SetPosition(BlockedPosition + FVector2D(0.f, GrappleMarkerSizePixels * 0.5f + 4.f));
+			}
+		}
+	}
+	GrappleMarker->SetVisibility(bGrappleMarkerVisible ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	GrappleHint->SetVisibility(IsGrappleHintVisible() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
 	if (!bGrappleMarkerVisible)
 	{
 		return;
+	}
+	const FLinearColor Colour = GrappleLook.bReady ? GrappleMarkerColor : GrappleUnavailableColor;
+	if (Colour != GrappleMarkerPainted)
+	{
+		GrappleMarkerPainted = Colour;
+		FSlateBrush Brush = GrappleMarker->GetBrush();
+		Brush.OutlineSettings.Color = FSlateColor(Colour);
+		GrappleMarker->SetBrush(Brush);
+		GrappleHint->SetColorAndOpacity(FSlateColor(Colour));
 	}
 	if (UCanvasPanelSlot* MarkerSlot = Cast<UCanvasPanelSlot>(GrappleMarker->Slot))
 	{
@@ -538,9 +621,13 @@ void UHawkeyeHudWidget::UpdateGrappleMarker()
 	{
 		HintSlot->SetPosition(Position + FVector2D(0.f, GrappleMarkerSizePixels * 0.5f + 4.f));
 	}
-	GrappleHint->SetText(ApplyGamepadHint(GrappleHintText));
-	GrappleHint->SetVisibility(
-		IsGrappleHintVisible() ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	GrappleHint->SetText(GrappleHintShown);
+	if (UGrappleComponent::IsDebugEnabled())
+	{
+		GrappleHint->SetText(FText::FromString(FString::Printf(TEXT("%s  [%s, %d arrows]"), *GrappleHintShown.ToString(),
+			*UEnum::GetDisplayValueAsText(State).ToString(), Grapple->GetGrappleArrows())));
+		GrappleHint->SetVisibility(ESlateVisibility::HitTestInvisible);
+	}
 }
 
 FLinearColor UHawkeyeHudWidget::GetReticleColor() const
@@ -637,6 +724,10 @@ void UHawkeyeHudWidget::NativeConstruct()
 	if (GrappleHintText.IsEmpty())
 	{
 		GrappleHintText = NSLOCTEXT("Hawkeye", "GrappleHint", "Q");
+	}
+	if (GrappleNoArrowsText.IsEmpty())
+	{
+		GrappleNoArrowsText = NSLOCTEXT("Hawkeye", "GrappleNoArrows", "No grapple arrows");
 	}
 
 	BindToGame();
@@ -1114,6 +1205,7 @@ void UHawkeyeHudWidget::ApplyPalette(EHawkeyeColorPalette Palette)
 		FSlateBrush Brush = GrappleMarker->GetBrush();
 		Brush.OutlineSettings.Color = FSlateColor(GrappleMarkerColor);
 		GrappleMarker->SetBrush(Brush);
+		GrappleMarkerPainted = GrappleMarkerColor;
 	}
 	if (GrappleHint)
 	{
@@ -1171,6 +1263,7 @@ void UHawkeyeHudWidget::ApplyHudScale(float Scale)
 	ScaleAbout(CrimePanel, FVector2D(1.f, 0.f));
 	ScaleAbout(Hotbar, FVector2D(0.5f, 1.f));
 	ScaleAbout(GrappleMarker, FVector2D(0.5f, 0.5f));
+	ScaleAbout(GrappleBlockedMarker, FVector2D(0.5f, 0.5f));
 	if (ObjectiveMarker)
 	{
 		ObjectiveMarker->SetHudScale(Scale);
