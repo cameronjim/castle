@@ -71,7 +71,7 @@ in `HawkeyeTestUtils.h`.
 Run all:
 
 ```powershell
-& "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Users\camer\code\fps-game\Hawkeye.uproject" -ExecCmds="Automation RunTests Hawkeye; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -ReportExportPath="C:\Users\camer\code\fps-game\Saved\Automation"
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Users\camer\code\hawkeye\Hawkeye.uproject" -ExecCmds="Automation RunTests Hawkeye; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -ReportExportPath="C:\Users\camer\code\hawkeye\Saved\Automation"
 ```
 
 Run one group: replace `Hawkeye` with `Hawkeye.Health`. The report is JSON under

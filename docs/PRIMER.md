@@ -64,7 +64,7 @@ different feeling. That's why "make it brighter" was a one-number change.
 Unreal is the engine (the simulation loop, rendering, physics, AI tools) plus an editor
 (the app for building levels and assets). Our project is a folder that the engine loads.
 
-### The project folder (`C:\Users\camer\code\fps-game`)
+### The project folder (`C:\Users\camer\code\hawkeye`)
 | Folder | What it is |
 |--------|------------|
 | `Hawkeye.uproject` | The project file. Double-clicking it is unreliable on Windows 11; use the shortcuts instead. |

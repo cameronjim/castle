@@ -47,12 +47,12 @@ Exact commands are in `claude-docs/infrastructure.md`. The two you'll use consta
 
 ```powershell
 # Build the editor target
-& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" HawkeyeEditor Win64 Development -project="C:\Users\camer\code\fps-game\Hawkeye.uproject" -waitmutex
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" HawkeyeEditor Win64 Development -project="C:\Users\camer\code\hawkeye\Hawkeye.uproject" -waitmutex
 ```
 
 ```powershell
 # Run automation tests headless
-& "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Users\camer\code\fps-game\Hawkeye.uproject" -ExecCmds="Automation RunTests Hawkeye; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -ReportExportPath="C:\Users\camer\code\fps-game\Saved\Automation"
+& "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "C:\Users\camer\code\hawkeye\Hawkeye.uproject" -ExecCmds="Automation RunTests Hawkeye; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -ReportExportPath="C:\Users\camer\code\hawkeye\Saved\Automation"
 ```
 
 ## Rules that matter

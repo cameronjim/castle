@@ -68,6 +68,6 @@ is in git. Nothing about the game yet.
 ## Things that will bite you
 - 16 GB RAM: the editor plus Visual Studio plus Chrome is about the limit. Close the
   browser while building.
-- Don't put the project in OneDrive or any synced folder. `C:\Users\camer\code\fps-game`
+- Don't put the project in OneDrive or any synced folder. `C:\Users\camer\code\hawkeye`
   is fine.
 - Don't rename the project. Renaming an Unreal C++ project is a half-day of pain.

@@ -10,21 +10,21 @@ Prison content removed 2026-09-26; the district is the only map.
 
 | Thing | Path |
 |-------|------|
-| Project | `C:\Users\camer\code\fps-game` |
+| Project | `C:\Users\camer\code\hawkeye` |
 | Engine | `C:\Program Files\Epic Games\UE_5.8` |
 | Editor | `...\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe` |
 | Headless editor | `...\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe` |
 | Build script | `...\UE_5.8\Engine\Build\BatchFiles\Build.bat` |
 | UAT (packaging) | `...\UE_5.8\Engine\Build\BatchFiles\RunUAT.bat` |
 | Visual Studio | `C:\Program Files\Microsoft Visual Studio\2022\Community` |
-| Logs | `C:\Users\camer\code\fps-game\Saved\Logs\Hawkeye.log` |
-| Crash dumps | `C:\Users\camer\code\fps-game\Saved\Crashes\` |
+| Logs | `C:\Users\camer\code\hawkeye\Saved\Logs\Hawkeye.log` |
+| Crash dumps | `C:\Users\camer\code\hawkeye\Saved\Crashes\` |
 
 Set these as variables at the top of any script:
 
 ```powershell
 $UE = "C:\Program Files\Epic Games\UE_5.8"
-$Proj = "C:\Users\camer\code\fps-game\Hawkeye.uproject"
+$Proj = "C:\Users\camer\code\hawkeye\Hawkeye.uproject"
 ```
 
 ## Build
@@ -91,13 +91,13 @@ Common flags: `-unattended` (no dialogs), `-nosplash`, `-nop4`, `-stdout`,
 Run automation tests:
 
 ```powershell
-& "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" -ExecCmds="Automation RunTests Hawkeye; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -ReportExportPath="C:\Users\camer\code\fps-game\Saved\Automation"
+& "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" -ExecCmds="Automation RunTests Hawkeye; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -ReportExportPath="C:\Users\camer\code\hawkeye\Saved\Automation"
 ```
 
 Run a Python script in the editor (asset creation, batch edits):
 
 ```powershell
-& "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" -run=pythonscript -script="C:\Users\camer\code\fps-game\Tools\Editor\create_input_assets.py" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput
+& "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" -run=pythonscript -script="C:\Users\camer\code\hawkeye\Tools\Editor\create_input_assets.py" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput
 ```
 
 Requires `PythonScriptPlugin` enabled in the .uproject. Scripts live in `Tools/Editor/`.
@@ -181,7 +181,7 @@ Facts that matter:
 ## Packaging
 
 ```powershell
-& "$UE\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="$Proj" -platform=Win64 -clientconfig=Shipping -build -cook -stage -pak -archive -archivedirectory="C:\Users\camer\code\fps-game\Saved\Packaged" -nop4 -utf8output
+& "$UE\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="$Proj" -platform=Win64 -clientconfig=Shipping -build -cook -stage -pak -archive -archivedirectory="C:\Users\camer\code\hawkeye\Saved\Packaged" -nop4 -utf8output
 ```
 
 Takes 15-40 minutes. Output under `Saved\Packaged\Windows\`. Stage 6 only.
@@ -218,7 +218,7 @@ Takes 15-40 minutes. Output under `Saved\Packaged\Windows\`. Stage 6 only.
 & "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.VisualStudio.Workload.NativeGame -property installationPath
 Get-ChildItem "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"
 git lfs ls-files | Measure-Object -Line
-Get-Content "C:\Users\camer\code\fps-game\Saved\Logs\Hawkeye.log" -Tail 50 | Select-String -Pattern "Error|Fatal|Warning: .*Hawkeye"
+Get-Content "C:\Users\camer\code\hawkeye\Saved\Logs\Hawkeye.log" -Tail 50 | Select-String -Pattern "Error|Fatal|Warning: .*Hawkeye"
 ```
 
 ## Load time (measured 2026-09-27)
