@@ -12,6 +12,7 @@
 #include "Misc/AutomationTest.h"
 #include "Player/HawkeyeCharacter.h"
 #include "Tests/AutomationCommon.h"
+#include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -210,6 +211,172 @@ bool FHawkeyeCheckClipSwing::Update()
 		Test->TestTrue(*FString::Printf(TEXT("Before the hit window (%.2f s) the swing is still winding up"), Start),
 			Melee->IsWindingUp());
 	}
+	return true;
+}
+
+/**
+ * A thug's strike clips, on the real thugs in the district, open their ANS_HitWindow when his telegraph
+ * ends: the fists, the bat, the heavy's bash and his slow swing, each fitted by the melee component
+ * (a rate between 0.8x and 1.3x, the start of a long wind-up skipped or the first frame of a short one
+ * held). Swings them one at a time with the thugs not thinking, and measures in game time from the
+ * swing starting to the wind-up ending. A thug with no clip for the role is noted and skipped.
+ */
+class FHawkeyeThugSwingTiming : public IAutomationLatentCommand
+{
+public:
+	explicit FHawkeyeThugSwingTiming(FAutomationTestBase* InTest) : Test(InTest) {}
+
+	virtual bool Update() override
+	{
+		using namespace HawkeyeCombatClipSmoke;
+		UWorld* World = FindGameWorld();
+		if (!World)
+		{
+			Test->AddError(TEXT("No game world for the thug swings."));
+			return true;
+		}
+		if (!bListed)
+		{
+			List(World);
+			bListed = true;
+		}
+		const double Now = World->GetTimeSeconds();
+		if (Current >= 0)
+		{
+			FSwing& Swing = Swings[Current];
+			AThugCharacter* Thug = Swing.Thug.Get();
+			UMeleeComponent* Melee = Thug ? Thug->GetMeleeComponent() : nullptr;
+			const float Elapsed = static_cast<float>(Now - Start);
+			if (Melee && Melee->IsWindingUp() && Elapsed < Swing.Attack.WindupSeconds + 2.f)
+			{
+				MaxStep = FMath::Max(MaxStep, World->GetDeltaSeconds());
+				return false;
+			}
+			// A frame either side: the notify and this poll both land on tick boundaries.
+			const float Tolerance = FMath::Max(0.05f, MaxStep * 1.5f);
+			Test->TestTrue(*FString::Printf(TEXT("%s's %s (%s) strikes at the end of its %.2f s telegraph (%.3f s, within %.3f)"),
+				*GetNameSafe(Thug), *Swing.Attack.Name.ToString(), *Swing.Clip, Swing.Attack.WindupSeconds, Elapsed, Tolerance),
+				FMath::Abs(Elapsed - Swing.Attack.WindupSeconds) <= Tolerance);
+			if (Melee)
+			{
+				Melee->CancelAttack();
+			}
+			if (Thug)
+			{
+				Thug->Weapon = Swing.WeaponBefore;
+			}
+			Current = -1;
+		}
+		// The next swing, once the last one's clip has blended away.
+		if (Now < NextAt)
+		{
+			return false;
+		}
+		while (++Next < Swings.Num())
+		{
+			FSwing& Swing = Swings[Next];
+			AThugCharacter* Thug = Swing.Thug.Get();
+			UMeleeComponent* Melee = Thug ? Thug->GetMeleeComponent() : nullptr;
+			if (!Melee || !Melee->CanStartAttack())
+			{
+				continue;
+			}
+			Thug->Weapon = Swing.Weapon;
+			if (!Melee->StartAttack(Swing.Attack) || !Melee->GetCurrentMontage() || !Melee->IsHitFromNotify())
+			{
+				Test->AddInfo(FString::Printf(TEXT("%s's %s has no clip with a hit window; its timer is covered by MeleeCombatTest."),
+					*GetNameSafe(Thug), *Swing.Attack.Name.ToString()));
+				Melee->CancelAttack();
+				Thug->Weapon = Swing.WeaponBefore;
+				continue;
+			}
+			Swing.Clip = Melee->GetCurrentMontage()->GetName();
+			++Measured;
+			Current = Next;
+			Start = Now;
+			MaxStep = 0.f;
+			NextAt = Now + Swing.Attack.WindupSeconds + 0.6f;
+			return false;
+		}
+		Test->AddInfo(FString::Printf(TEXT("Measured %d thug swings with clips."), Measured));
+		return true;
+	}
+
+private:
+	struct FSwing
+	{
+		TWeakObjectPtr<AThugCharacter> Thug;
+		EThugWeapon Weapon = EThugWeapon::Fists;
+		EThugWeapon WeaponBefore = EThugWeapon::Fists;
+		FHawkeyeMeleeAttack Attack;
+		FString Clip;
+	};
+
+	void List(UWorld* World)
+	{
+		AThugCharacter* Street = nullptr;
+		AThugCharacter* Heavy = nullptr;
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			if (AThugAIController* Brain = Cast<AThugAIController>(It->GetController()))
+			{
+				Brain->SetThinkingEnabled(false);
+			}
+			It->GetMesh()->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+			if (It->ActorHasTag(FName(TEXT("ArcherPair"))))
+			{
+				continue;
+			}
+			if (It->IsHeavy())
+			{
+				Heavy = Heavy ? Heavy : *It;
+			}
+			else if (!Street)
+			{
+				Street = *It;
+			}
+		}
+		auto Add = [this](AThugCharacter* Thug, EThugWeapon Weapon, int32 SwingIndex)
+		{
+			if (!Thug)
+			{
+				return;
+			}
+			FSwing Swing;
+			Swing.Thug = Thug;
+			Swing.WeaponBefore = Thug->Weapon;
+			Swing.Weapon = Weapon;
+			Thug->Weapon = Weapon;
+			Swing.Attack = Thug->GetMeleeAttack(SwingIndex);
+			Thug->Weapon = Swing.WeaponBefore;
+			Swings.Add(Swing);
+		};
+		Add(Street, EThugWeapon::Fists, 0);
+		Add(Street, EThugWeapon::Bat, 0);
+		Add(Heavy, EThugWeapon::Shield, 0);
+		Add(Heavy, EThugWeapon::Shield, 1);
+		Test->TestTrue(TEXT("A street thug and the heavy were found"), Street && Heavy);
+	}
+
+	FAutomationTestBase* Test;
+	TArray<FSwing> Swings;
+	bool bListed = false;
+	int32 Current = -1;
+	int32 Next = -1;
+	int32 Measured = 0;
+	double Start = 0.0;
+	double NextAt = 0.0;
+	float MaxStep = 0.f;
+};
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeSmokeThugClipTiming, "Hawkeye.Smoke.ThugClipsStrikeOnTheTelegraph",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeSmokeThugClipTiming::RunTest(const FString& Parameters)
+{
+	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(5.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeThugSwingTiming(this));
 	return true;
 }
 
