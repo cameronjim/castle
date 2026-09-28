@@ -77,7 +77,18 @@ Two more things made that fix look like it did nothing: `IKRetargetFactory` can 
 with the default op stack already in, and a retargeter the script could not delete (still loaded)
 came back with every earlier run's stack, so `add_default_ops` stacked more copies whose root motion
 op sat at its defaults and ran last. The script clears the stack and adds exactly one. The import log
-prints the op count ("5 ops").
+prints the op count ("6 ops": the default five and the Pin Bones op below).
+
+## The IK bones
+
+The UEFN and UE4 mannequins carry `ik_foot_l`, `ik_foot_r`, `ik_hand_l`, `ik_hand_r` and `ik_hand_gun`,
+and the Game Animation Sample's AnimBP runs foot placement and leg IK toward the foot ones. A retarget
+leaves them at their reference pose, so until 2026-09-28 every Mixamo clip had Kate's feet pulled back
+to the reference stance in game: the kick's foot stayed on the floor at its hit and the strikes lost
+their split stance. The retargeter now ends with a Pin Bones op that copies each from the foot or hand
+it follows (translation and rotation, no offset: they coincide in both reference poses; the op's
+"maintain offset" measures in the retarget pose, where the aligned legs have moved, and was 3 to 8 cm
+off). The self-test checks the foot ones on the clip's keys.
 
 ## Timing a clip for play
 
@@ -95,12 +106,34 @@ the striking hand is about two thirds out, and the stretch starts at or just bef
 | AM_Light1_Cross | 0.60-1.70 | 1.7 | 0.25 s | 0.34-0.62 s | 0.65 s |
 | AM_Light2_Hook | 0.70-1.75 | 1.3 | 0.25 s | 0.35-0.77 s | 0.81 s |
 | AM_Light3_UppercutJab (the left uppercut) | 0.45-1.25 | 1.4 | 0.24 s | 0.34-0.55 s | 0.57 s |
-| AM_Kick_SideKick | 0.20-1.50 | 1.4 | 0.29 s | 0.46-0.89 s | 0.93 s |
+| AM_Kick_Kicking (the front kick) | 0.20-1.35 | 1.2 | 0.29 s | 0.46-0.92 s | 0.96 s |
+| AM_Kick_SideKick (not played) | 0.20-1.50 | 1.4 | 0.29 s | 0.46-0.89 s | 0.93 s |
 | AM_Heavy_SurpriseUppercut | 0.65-1.80 | 1.1 | 0.41 s | 0.59-1.00 s | 1.05 s |
 
-The second clip for each role (Punching, Boxing, JabElbow, Kicking, Roundhouse) is still on the role
-defaults: nothing plays it while the first exists. Thug clips are untouched: they are rate-fitted to
-their telegraphs at run time.
+The Kick role plays Kicking (2026-09-28): at the side kick's hit Kate's torso is near flat over her
+standing hip, head at 123 cm; the front kick stays upright (head 142 cm) and lands at the same time.
+The other second clips (Punching, Boxing, JabElbow, Roundhouse) are on the role defaults: nothing
+plays them while the first exists.
+
+Thug strikes are trimmed the same way but kept at rate 1 in the manifest; the melee component fits
+them to the attack's telegraph when they play (`HawkeyeCombatAnim::FitHitToWindup`): the rate that
+puts the hit window on the telegraph's end, held between 0.8x and 1.3x; past 1.3x the clip starts
+later in its wind-up, below 0.8x it holds its first frame first. The log line says which ("plays
+AM_Light1_MeleePunch at 0.80x from 0.00 s, held 0.29 s") and "hit window opens 0.61 s into the swing".
+The numbers come from the striking hand's forward reach per frame, as for Kate's.
+
+| Clip | Stretch (s) | Hit (s) | Swings | Fit, hit lands at | Hit to end |
+|------|-------------|---------|--------|-------------------|------------|
+| AM_Light1_MeleePunch | 0.00-0.75 | 0.25-0.35 | fists 0.6 s | held 0.29 s, 0.8x, 0.60 s | 0.63 s |
+| AM_Heavy_MeleeHorizontal | 0.00-1.50 | 0.87-0.97 | bat 0.6 s, bash 0.8 s, slow swing 1.0 s | 1.3x from 0.09 s, 0.60 s; 1.09x, 0.80 s; 0.87x, 1.00 s | 0.48, 0.58, 0.72 s |
+| AM_Light1_JabElbow (not played) | 0.30-1.40 | 0.85-0.95 | fists 0.6 s | 0.92x | 0.60 s |
+| AM_Heavy_RunJumpAttack (not played) | 0.55-2.40 | 1.64-1.74 | | a jump attack; its pelvis leaves the ground | |
+
+Standing Melee Punch has only 0.25 s of wind-up, hence the hold; the Jab To Elbow jab fits 0.6 s
+with none and could be promoted by putting it first in the manifest. The thug's reactions: Knocked
+Out plays 0.80-2.60 s (0.9 s of standing still cut; on the floor by 1.4 s, holding its last frame
+there), Sweep Fall 0.60-2.00 s (starts as his feet go). Receive Punch To The Face starts reacting on
+its second frame and is untrimmed.
 
 ## Sources
 
@@ -147,11 +180,16 @@ Nobody can watch a headless run, so the scripts read bones:
   slot and windows, standing clips standing (pelvis within 35 cm of the reference, hips and head
   where they belong, and the pelvis within 15 cm of the reference with the root locked: the engine's
   FBX character has no root bone, so this is the check that fails if the root takes the hips' height), and for the bow draw: the bow arm as extended as the source's, the bow hand
-  30+ cm in front, the string hand drawn back 40+ cm behind it at full draw. 116 checks.
+  30+ cm in front, the string hand drawn back 40+ cm behind it at full draw; and `ik_foot_l` and
+  `ik_foot_r` on the feet on every key. 134 checks.
 - Poses are read from the raw bone tracks with `UHawkeyeCombatMontageBuilder::GetRawBoneLocation`
   (`bRootLocked` holds the root at its reference pose, as the game does; the `pose` line prints both).
   `AnimPoseExtensions` evaluation gave the pelvis as the origin on some UEFN clips while its children
   were right, so it is not trusted for this.
+- `Hawkeye.Smoke.ThugClipsStrikeOnTheTelegraph` swings the district's street thug (fists, bat) and the
+  heavy (bash, slow swing) with their clips and checks each hit window opens on the telegraph's end.
+- `Hawkeye.Screenshot.Melee` shoots the heavy and the kick side on at their hit windows
+  (heavy_strike.png, kick.png) and fails on the wrong montage or a pelvis more than 15 cm off standing.
 - `Hawkeye.Smoke.CombatClipsPlay` loads the district and plays each character's clips: the slot's
   global weight must be above 0 a quarter second later, and Kate's Light1 must still be winding up
   before its `ANS_HitWindow` and recovering after it (the notify firing from a real montage).
@@ -159,8 +197,9 @@ Nobody can watch a headless run, so the scripts read bones:
 ## Known limits
 
 - Kate's clip-timed lights land at 0.25 s, not the procedural 0.1 s (a clip needs a visible swing).
-- Thug clips play at the rate that opens their hit window at the telegraph's end (fists 0.6 s), so a
-  1.0 s Mixamo punch with its hit at 25% plays at about 0.4x. Tighten the clip's `hit` to fix it.
+- The thug's fists hold their first frame for 0.29 s of the 0.6 s telegraph (Standing Melee Punch's
+  wind-up is short). It reads as squaring up, not as slow motion; a clip with a longer wind-up
+  (the Jab To Elbow jab) would need no hold.
 - There is no GetUp clip yet: a Mixamo knockdown holds its last frame on the floor, then blends back
   to locomotion over 0.4 s.
 - No aim offset: the bow clips aim where the clip aims and the spine turn adds the yaw to the camera;

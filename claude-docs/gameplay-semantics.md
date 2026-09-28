@@ -741,13 +741,23 @@ the last input came from a pad.
   0.35 s timer and ends the swing at RecoverSeconds.
 - Kate's strike timing with clips (2026-09-28; each clip's start, end, rate and windows are in the
   manifest, in the source clip's seconds): Light1, Light2 and Light3 land 0.24 to 0.26 s after the
-  input, Kick 0.29 s, Heavy 0.41 s. A light's montage lasts 0.57 to 0.81 s; its combo window opens
+  input, Kick (the Kicking front kick) 0.29 s, Heavy 0.41 s. A light's montage lasts 0.57 to 0.81 s; its combo window opens
   about 0.1 s after its hit and closes 0.3 to 0.5 s after it, so the 0.35 s chain rule holds to within
   about 0.15 s either way. Pressed as each lands, three lights land at about 0.25, 0.6 and 1.0 s and the
   chain is over by about 1.4 s. The procedural lights still land at 0.1 s.
-- Thugs keep their telegraphs: a thug's strike montage is played at the rate that puts its
-  `ANS_HitWindow` start at the attack's WindupSeconds (0.6 s fists and bat, 0.8 s bash, 1.0 s
-  slow swing), so parry and dodge windows are unchanged. Kate's clips play at rate 1.
+- Thugs keep their telegraphs: the telegraph decides when the hit lands, the clip only how it looks.
+  A thug's strike montage opens its `ANS_HitWindow` exactly at the attack's WindupSeconds (0.6 s
+  fists and bat, 0.8 s bash, 1.0 s slow swing), so parry and dodge windows are unchanged. It plays
+  at a rate between 0.8x and 1.3x (`ClipFitMinRate`, `ClipFitMaxRate` on the melee component): a
+  wind-up too long for 1.3x starts part way in, one too short for 0.8x holds its first frame (he
+  squares up) for the difference. Kate's clips play at rate 1.
+- Thug clip timings (2026-09-28; trims in the manifest, measured on the district's thugs by
+  `Hawkeye.Smoke.ThugClipsStrikeOnTheTelegraph`): fists (Standing Melee Punch, 0.25 s of wind-up)
+  hold 0.29 s then play at 0.8x and land at 0.60 s; bat (Standing Melee Attack Horizontal, 0.87 s of
+  wind-up, one clip for the bat, bash and slow swing) plays at 1.3x from 0.09 s in and lands at 0.60 s;
+  bash 1.09x, 0.80 s; slow swing 0.87x, 1.00 s. Each swing is over (montage ended) 0.48 to 0.72 s after
+  its hit. A clip knockdown falls within 1.4 s and holds on the floor; the finisher's victim clip
+  starts at the sweep, so he is off his feet before he is thrown at 0.35 s.
 - Motion warping (the engine's MotionWarping plugin, the component the sample already puts on
   Kate): a full-body strike clip with root motion is warped toward the soft-lock target, the
   warp target `CombatTarget` placed 90 cm short of him and facing him; with no target the warp
