@@ -287,11 +287,21 @@ public:
 	float WarpStandOffDistance = 90.f;
 
 	/**
-	 * Play each clip at the rate that opens its ANS_HitWindow at the attack's WindupSeconds, so the
-	 * telegraph keeps its length (thugs). Off: clips play at rate 1 (Kate).
+	 * Fit each clip so its ANS_HitWindow opens at the attack's WindupSeconds, so the telegraph keeps its
+	 * length (thugs): at a rate between ClipFitMinRate and ClipFitMaxRate, starting later in a wind-up that
+	 * is too long or holding the first frame of one that is too short (HawkeyeCombatAnim::FitHitToWindup).
+	 * Off: clips play at rate 1 (Kate).
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Animation")
 	bool bFitClipToWindup = false;
+
+	/** With bFitClipToWindup, the slowest a clip plays; a wind-up still too short holds its first frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Animation", meta = (ClampMin = "0.05"))
+	float ClipFitMinRate = 0.8f;
+
+	/** With bFitClipToWindup, the fastest a clip plays; a wind-up still too long starts part way in. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Animation", meta = (ClampMin = "0.05"))
+	float ClipFitMaxRate = 1.3f;
 
 	/** A clip-timed swing ends on its own this long after its montage should have, s (notifies that never came). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Animation", meta = (ClampMin = "0.0"))
@@ -379,6 +389,15 @@ protected:
 
 	/** Seconds until a clip-timed swing gives up on its notifies. */
 	float ClipTimeRemaining = 0.f;
+
+	/** Seconds the fitted clip still holds its first frame before it plays (a wind-up shorter than the telegraph). */
+	float ClipHoldRemaining = 0.f;
+
+	/** The fitted clip's play rate, for resuming it after the hold. */
+	float ClipRate = 1.f;
+
+	/** Game time the current swing started, for the log line when its hit window opens. */
+	double SwingStartTime = 0.0;
 
 	/** Counts swings, so a cut montage's end event is not taken for the swing that cut it. */
 	int32 SwingSerial = 0;

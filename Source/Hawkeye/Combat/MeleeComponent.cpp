@@ -55,6 +55,7 @@ bool UMeleeComponent::StartAttack(const FHawkeyeMeleeAttack& Attack)
 	PendingTarget = nullptr;
 	Phase = EMeleePhase::Windup;
 	PhaseRemaining = Attack.WindupSeconds;
+	SwingStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s swing winds up (%.2f s, %.0f damage)."),
 		*GetNameSafe(GetOwner()), *Attack.Name.ToString(), Attack.WindupSeconds, Attack.Damage);
@@ -107,12 +108,15 @@ bool UMeleeComponent::TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack)
 	const bool bHasHit = HawkeyeCombatAnim::FindNotifyWindow(Montage, UAnimNotifyState_HitWindow::StaticClass(), HitStart, HitEnd);
 	const bool bHasCombo = HawkeyeCombatAnim::FindNotifyWindow(Montage, UAnimNotifyState_ComboWindow::StaticClass(), ComboStart,
 		ComboEnd);
-	const float Rate = (bFitClipToWindup && bHasHit) ? HawkeyeCombatAnim::FitRate(HitStart, Attack.WindupSeconds) : 1.f;
+	const HawkeyeCombatAnim::FHitFit Fit = (bFitClipToWindup && bHasHit)
+		? HawkeyeCombatAnim::FitHitToWindup(HitStart, Attack.WindupSeconds, ClipFitMinRate, ClipFitMaxRate)
+		: HawkeyeCombatAnim::FHitFit();
+	const float Rate = Fit.Rate;
 
 	CurrentMontage = Montage;
 	bClipMovesOwner = HawkeyeCombatAnim::DrivesRootMotion(Mesh, Montage);
 	UpdateWarpTarget();
-	UAnimInstance* Instance = HawkeyeCombatAnim::Play(Mesh, Montage, Rate);
+	UAnimInstance* Instance = HawkeyeCombatAnim::Play(Mesh, Montage, Rate, Fit.StartAtSeconds);
 	if (!Instance)
 	{
 		ResetClipState();
@@ -123,7 +127,14 @@ bool UMeleeComponent::TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack)
 	MontageInstance = Instance;
 	bHitFromNotify = bHasHit;
 	bComboFromNotify = bHasCombo;
-	ClipTimeRemaining = Montage->GetPlayLength() / Rate + ClipTimeoutPadding;
+	ClipRate = Rate;
+	ClipHoldRemaining = Fit.HoldSeconds;
+	if (ClipHoldRemaining > 0.f)
+	{
+		// The wind-up is shorter than the telegraph: he squares up in the clip's first frame, then swings.
+		Instance->Montage_Pause(Montage);
+	}
+	ClipTimeRemaining = Fit.HoldSeconds + (Montage->GetPlayLength() - Fit.StartAtSeconds) / Rate + ClipTimeoutPadding;
 
 	FOnMontageEnded Ended = FOnMontageEnded::CreateWeakLambda(this,
 		[this, Serial = SwingSerial](UAnimMontage*, bool bInterrupted)
@@ -134,8 +145,9 @@ bool UMeleeComponent::TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack)
 			}
 		});
 	Instance->Montage_SetEndDelegate(Ended, Montage);
-	UE_LOG(LogHawkeye, Log, TEXT("%s: %s plays %s at %.2fx (hit %s, combo %s, %s)."), *GetNameSafe(GetOwner()),
-		*Attack.Name.ToString(), *Montage->GetName(), Rate, bHasHit ? TEXT("from the clip") : TEXT("on the timer"),
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s plays %s at %.2fx from %.2f s, held %.2f s (hit %s, combo %s, %s)."),
+		*GetNameSafe(GetOwner()), *Attack.Name.ToString(), *Montage->GetName(), Rate, Fit.StartAtSeconds, Fit.HoldSeconds,
+		bHasHit ? TEXT("from the clip") : TEXT("on the timer"),
 		bHasCombo ? TEXT("from the clip") : TEXT("on the timer"), bClipMovesOwner ? TEXT("root motion") : TEXT("lunge"));
 	return true;
 }
@@ -196,6 +208,8 @@ void UMeleeComponent::ResetClipState()
 	bSwingResolved = false;
 	bClipMovesOwner = false;
 	ClipTimeRemaining = 0.f;
+	ClipHoldRemaining = 0.f;
+	ClipRate = 1.f;
 }
 
 bool UMeleeComponent::IsCurrentClip(const UAnimSequenceBase* Animation) const
@@ -212,6 +226,9 @@ void UMeleeComponent::NotifyHitWindowBegin(const UAnimSequenceBase* Animation)
 	Phase = EMeleePhase::Recover;
 	PhaseRemaining = CurrentAttack.RecoverSeconds;
 	bHitWindowOpen = true;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: %s hit window opens %.2f s into the swing (wind-up %.2f s)."), *GetNameSafe(GetOwner()),
+		*CurrentAttack.Name.ToString(), GetWorld() ? GetWorld()->GetTimeSeconds() - SwingStartTime : 0.0,
+		CurrentAttack.WindupSeconds);
 	if (const AActor* Owner = GetOwner())
 	{
 		UHawkeyeAudioSubsystem::PlayAt(this, SwingSound, Owner->GetActorLocation(), TEXT("melee swing"));
@@ -312,6 +329,20 @@ void UMeleeComponent::EndClipSwing(bool bInterrupted)
 
 bool UMeleeComponent::AdvanceClipSwing(float DeltaSeconds)
 {
+	if (ClipHoldRemaining > 0.f)
+	{
+		ClipHoldRemaining -= FMath::Max(DeltaSeconds, 0.f);
+		if (ClipHoldRemaining <= 0.f)
+		{
+			// Resume where it would be had the hold ended mid-tick, so the hit keeps the telegraph's time.
+			if (UAnimInstance* Instance = MontageInstance.Get())
+			{
+				Instance->Montage_Resume(CurrentMontage);
+				Instance->Montage_SetPosition(CurrentMontage, Instance->Montage_GetPosition(CurrentMontage) - ClipHoldRemaining * ClipRate);
+			}
+			ClipHoldRemaining = 0.f;
+		}
+	}
 	const bool bWindupFromClip = Phase == EMeleePhase::Windup && bHitFromNotify;
 	const bool bRecoverFromClip = Phase == EMeleePhase::Recover && bComboFromNotify;
 	if (bHitWindowOpen && !bSwingResolved)

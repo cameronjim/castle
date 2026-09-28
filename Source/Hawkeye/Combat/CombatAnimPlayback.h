@@ -40,10 +40,11 @@ namespace HawkeyeCombatAnim
 	HAWKEYE_API UAnimInstance* PickInstance(const USkeletalMeshComponent* Mesh, const UAnimMontage* Montage);
 
 	/**
-	 * Plays Montage at PlayRate on the instance PickInstance chooses. Returns that instance, or null
+	 * Plays Montage at PlayRate, from StartAtSeconds into it, on the instance PickInstance chooses. Returns that instance, or null
 	 * when nothing played (no mesh, no instance, a skeleton that does not match).
 	 */
-	HAWKEYE_API UAnimInstance* Play(USkeletalMeshComponent* Mesh, UAnimMontage* Montage, float PlayRate = 1.f);
+	HAWKEYE_API UAnimInstance* Play(USkeletalMeshComponent* Mesh, UAnimMontage* Montage, float PlayRate = 1.f,
+		float StartAtSeconds = 0.f);
 
 	/**
 	 * Plays Role's montage from Set on Mesh: at rate 1, or fitted to take FitToSeconds when that is
@@ -60,6 +61,26 @@ namespace HawkeyeCombatAnim
 
 	/** The rate that makes a ClipSeconds clip take WantedSeconds, clamped to 0.25..4. 1 when either is not positive. */
 	HAWKEYE_API float FitRate(float ClipSeconds, float WantedSeconds);
+
+	/** How a strike clip plays so its hit lands on a telegraph's end: see FitHitToWindup. */
+	struct FHitFit
+	{
+		/** The montage's play rate. */
+		float Rate = 1.f;
+		/** Where in the montage it starts, seconds: past the start of a wind-up too long to fit. */
+		float StartAtSeconds = 0.f;
+		/** Seconds it holds its first frame before playing: a wind-up too short to fit. */
+		float HoldSeconds = 0.f;
+	};
+
+	/**
+	 * Fits a clip whose hit window opens HitSeconds into it to a WindupSeconds telegraph, at a rate
+	 * between MinRate and MaxRate: HitSeconds / WindupSeconds when that is inside them; above MaxRate it
+	 * plays at MaxRate from later in the wind-up, below MinRate at MinRate after holding its first frame.
+	 * Always HoldSeconds + (HitSeconds - StartAtSeconds) / Rate == WindupSeconds: the telegraph decides
+	 * when the hit lands, the clip only how it looks. Rate 1 from the start when either time is not positive.
+	 */
+	HAWKEYE_API FHitFit FitHitToWindup(float HitSeconds, float WindupSeconds, float MinRate, float MaxRate);
 
 	/**
 	 * The first notify state of class NotifyClass on Animation: its start and end, seconds. False when

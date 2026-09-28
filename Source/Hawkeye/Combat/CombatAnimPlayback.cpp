@@ -39,7 +39,7 @@ namespace HawkeyeCombatAnim
 		return PostProcess;
 	}
 
-	UAnimInstance* Play(USkeletalMeshComponent* Mesh, UAnimMontage* Montage, float PlayRate)
+	UAnimInstance* Play(USkeletalMeshComponent* Mesh, UAnimMontage* Montage, float PlayRate, float StartAtSeconds)
 	{
 		UAnimInstance* Instance = PickInstance(Mesh, Montage);
 		if (!Instance)
@@ -47,7 +47,8 @@ namespace HawkeyeCombatAnim
 			return nullptr;
 		}
 		// Montage_Play refuses a montage for another skeleton and returns 0, which is the fallback.
-		const float Length = Instance->Montage_Play(Montage, FMath::Max(PlayRate, 0.01f));
+		const float Length = Instance->Montage_Play(Montage, FMath::Max(PlayRate, 0.01f), EMontagePlayReturnType::MontageLength,
+			FMath::Max(StartAtSeconds, 0.f));
 		return Length > 0.f ? Instance : nullptr;
 	}
 
@@ -82,6 +83,33 @@ namespace HawkeyeCombatAnim
 			return 1.f;
 		}
 		return FMath::Clamp(ClipSeconds / WantedSeconds, 0.25f, 4.f);
+	}
+
+	FHitFit FitHitToWindup(float HitSeconds, float WindupSeconds, float MinRate, float MaxRate)
+	{
+		FHitFit Fit;
+		if (HitSeconds <= 0.f || WindupSeconds <= 0.f)
+		{
+			return Fit;
+		}
+		const float Low = FMath::Max(MinRate, 0.05f);
+		const float High = FMath::Max(MaxRate, Low);
+		const float Wanted = HitSeconds / WindupSeconds;
+		if (Wanted > High)
+		{
+			Fit.Rate = High;
+			Fit.StartAtSeconds = HitSeconds - WindupSeconds * High;
+		}
+		else if (Wanted < Low)
+		{
+			Fit.Rate = Low;
+			Fit.HoldSeconds = WindupSeconds - HitSeconds / Low;
+		}
+		else
+		{
+			Fit.Rate = Wanted;
+		}
+		return Fit;
 	}
 
 	bool FindNotifyWindow(const UAnimSequenceBase* Animation, const UClass* NotifyClass, float& OutStart, float& OutEnd)

@@ -117,6 +117,45 @@ bool FHawkeyeCombatAnimSetResolution::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeCombatAnimHitFit, "Hawkeye.CombatAnim.ThugClipHitLandsOnTheTelegraph",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeCombatAnimHitFit::RunTest(const FString& Parameters)
+{
+	using HawkeyeCombatAnim::FHitFit;
+	auto Lands = [](const FHitFit& Fit, float Hit) { return Fit.HoldSeconds + (Hit - Fit.StartAtSeconds) / Fit.Rate; };
+
+	// Inside the band: just the rate.
+	const FHitFit Inside = HawkeyeCombatAnim::FitHitToWindup(0.66f, 0.6f, 0.8f, 1.3f);
+	TestEqual(TEXT("A 0.66 s wind-up on a 0.6 s telegraph plays at 1.1x"), Inside.Rate, 1.1f, 0.001f);
+	TestEqual(TEXT("from the start"), Inside.StartAtSeconds, 0.f);
+	TestEqual(TEXT("with no hold"), Inside.HoldSeconds, 0.f);
+
+	// Too long a wind-up: the fastest rate, from later in it.
+	const FHitFit Long = HawkeyeCombatAnim::FitHitToWindup(0.9f, 0.6f, 0.8f, 1.3f);
+	TestEqual(TEXT("A 0.9 s wind-up on 0.6 s plays at the 1.3x ceiling"), Long.Rate, 1.3f, 0.001f);
+	TestEqual(TEXT("from 0.12 s in"), Long.StartAtSeconds, 0.12f, 0.001f);
+	TestEqual(TEXT("and lands at 0.6 s"), Lands(Long, 0.9f), 0.6f, 0.001f);
+
+	// Too short: the slowest rate, after holding the first frame.
+	const FHitFit Short = HawkeyeCombatAnim::FitHitToWindup(0.24f, 0.6f, 0.8f, 1.3f);
+	TestEqual(TEXT("A 0.24 s wind-up on 0.6 s plays at the 0.8x floor"), Short.Rate, 0.8f, 0.001f);
+	TestEqual(TEXT("after a 0.3 s hold"), Short.HoldSeconds, 0.3f, 0.001f);
+	TestEqual(TEXT("and lands at 0.6 s"), Lands(Short, 0.24f), 0.6f, 0.001f);
+
+	// One clip for the bat, the bash and the slow swing: every one lands on its own telegraph, in the band.
+	for (const float Windup : { 0.6f, 0.8f, 1.f })
+	{
+		const FHitFit Fit = HawkeyeCombatAnim::FitHitToWindup(0.85f, Windup, 0.8f, 1.3f);
+		TestEqual(FString::Printf(TEXT("A %.1f s telegraph lands on its end"), Windup), Lands(Fit, 0.85f), Windup, 0.001f);
+		TestTrue(FString::Printf(TEXT("at a rate in the band (%.2fx)"), Fit.Rate), Fit.Rate >= 0.8f - 1e-3f && Fit.Rate <= 1.3f + 1e-3f);
+	}
+
+	const FHitFit None = HawkeyeCombatAnim::FitHitToWindup(0.f, 0.6f, 0.8f, 1.3f);
+	TestTrue(TEXT("No hit window plays at 1x from the start"), None.Rate == 1.f && None.StartAtSeconds == 0.f && None.HoldSeconds == 0.f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeCombatAnimNotifyTiming, "Hawkeye.CombatAnim.NotifyWindowsTimeTheSwing",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
