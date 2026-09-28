@@ -153,7 +153,8 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   the input pose without a Blueprint graph.
 - Superseded note: before IK, the bow blended from the left palm socket to a
   point in front of the left shoulder while drawing and rides across the back when
-  holstered. A layered upper-body aim animation is stage 3 work.
+  holstered. Upper-body bow clips now layer over locomotion (see "Combat animation clips"); an
+  aim offset is still stage 3 work.
 
 ## Trick arrows (built 2026-09-26; effects are custom actors, no GAS; smoke, EMP ring and fireball are placeholder shapes until Niagara systems exist)
 - Slot order is fixed: 1 standard, 2 grapple, 3 putty, 4 bola, 5 smoke, 6 EMP, 7
@@ -427,7 +428,7 @@ the last input came from a pad.
   behind on F is unchanged.
 - A thug's bat hangs by his leg while walking, rises level behind him over the 0.6 s
   wind-up, swings across in 0.15 s, and drops back.
-  No attack animation exists yet; strikes are procedural lunges.
+  Without clips, strikes are procedural lunges; with them, see "Combat animation clips".
 - Dodge: tap Ctrl while moving and not sprinting dashes 300 cm in 0.4 s, invulnerable for
   the first 0.25 s, cooldown 0.8 s. Ctrl held crouches; Ctrl while sprinting slides.
 - Thug melee: `EThugWeapon {Fists, Bat}` plus the gunner's pistol. Alerted and within
@@ -702,7 +703,7 @@ the last input came from a pad.
 - Discovered safehouses show as house icons on the compass; the pause menu can mark the
   nearest one. Chapter select is still a stub. Crime spots keep 40 m clear of both.
 
-## Combat animation clips (built 2026-09-27; no clips are in the project yet, so every rule below runs on its fallback today)
+## Combat animation clips (built 2026-09-27/28; pipeline in claude-docs/animation.md)
 - A character's clips come from a `UCombatAnimSet` data asset (`DA_AnimSet_Kate`, `_Clint`,
   `_Thug`, `_Archer` under `/Game/Blueprints/Animation`), one soft montage per role: Light1,
   Light2, Light3, Heavy, Kick, Parry, DodgeForward/Back/Left/Right, HitFront/Back/Left/Right,
@@ -714,6 +715,12 @@ the last input came from a pad.
   0.4 s blend up, the IK bow. Every rule in the melee, dodge, finisher and bow sections holds
   either way; a clip changes how it looks and, for strikes only, when the hit lands.
 - Only Light3 has a data fallback: with no Light3 clip it uses Kick.
+- A role with several clips takes the first in `Tools/Data/Anims/manifest.json` order that exists for
+  that character; `create_combat_anims.py` writes it into the set.
+- Clips are retargeted, never used on their source skeleton: Kate and Clint's onto the UEFN
+  mannequin, thugs' and archers' onto the UE4 mannequin they wear. Additive source clips (Paragon's
+  hit reactions) are baked to full poses. Standing clips must keep the pelvis within 35 cm of the
+  reference height; the import reports any that do not.
 - Strikes: Kate's light chain is Light1, Light2, Light3; her hold is Heavy; a thug's fists
   are Light1, his bat and the heavy's bash and slow swing are Heavy. `FHawkeyeMeleeAttack.AnimRole`
   names the role. A montage whose slot is `UpperBody` plays on the post-process instance
@@ -746,7 +753,8 @@ the last input came from a pad.
 - Knockdown with clips: a heavy strike or a bola trip plays Knockdown, which holds its last
   frame, instead of the ragdoll; after KnockdownSeconds GetUp plays and he is getting up for
   its length (with no GetUp clip the knockdown clip blends out over GetUpSeconds). The
-  explosive's blast always ragdolls.
+  explosive's blast always ragdolls. A clip knockdown counts as knocked down for the finisher
+  gate exactly as the ragdoll does.
 - Bow with clips (upper body, over locomotion): BowDraw fitted to the draw time
   (FullDrawSeconds over DrawRate), BowAimIdle looping from full draw until release, BowFire on
   release, BowNock after it while not drawing again; a let-down or cancel blends them out over
