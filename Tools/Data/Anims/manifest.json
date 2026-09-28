@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Combat clips for Tools/Editor/import_combat_anims.py. See Tools/Data/Anims/README.md for the shopping list and claude-docs/animation.md for the pipeline. Windows are fractions of a clip's length; leave them out to take the role defaults in import_combat_anims.py.",
+  "about": "Combat clips for Tools/Editor/import_combat_anims.py. See Tools/Data/Anims/README.md for the shopping list and claude-docs/animation.md for the pipeline. Windows (hit, combo, warp_end) are fractions of a clip's length; leave them out to take the role defaults in import_combat_anims.py. Or, per clip, in seconds of the source clip: start_s and end_s keep only that stretch, rate plays it faster (baked into the montage), hit_s and combo_s are the windows; the montage then lands its hit (hit_s[0] - start_s) / rate after the input. Kate's strike numbers come from the fist or foot's forward reach per frame, see claude-docs/animation.md.",
   "targets": {
     "uefn": {
       "skeletal_mesh": "/Game/Characters/UEFN_Mannequin/Meshes/SKM_UEFN_Mannequin",
@@ -127,15 +127,15 @@
     }
   ],
   "clips": [
-    {"source": "Mixamo", "file": "Cross Punch.fbx", "role": "Light1", "variant": "Cross", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Cross Punch.fbx", "role": "Light1", "variant": "Cross", "characters": ["kate", "clint"], "start_s": 0.6, "end_s": 1.7, "rate": 1.7, "hit_s": [1.03, 1.17], "combo_s": [1.17, 1.66]},
     {"source": "Mixamo", "file": "Punching.fbx", "role": "Light1", "variant": "Punching", "characters": ["kate", "clint"]},
-    {"source": "Mixamo", "file": "Hook Punch.fbx", "role": "Light2", "variant": "Hook", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Hook Punch.fbx", "role": "Light2", "variant": "Hook", "characters": ["kate", "clint"], "start_s": 0.7, "end_s": 1.75, "rate": 1.3, "hit_s": [1.02, 1.15], "combo_s": [1.15, 1.7]},
     {"source": "Mixamo", "file": "Boxing.fbx", "role": "Light2", "variant": "Boxing", "characters": ["kate", "clint"]},
-    {"source": "Mixamo", "file": "Uppercut Jab.fbx", "role": "Light3", "variant": "UppercutJab", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Uppercut Jab.fbx", "role": "Light3", "variant": "UppercutJab", "characters": ["kate", "clint"], "start_s": 0.45, "end_s": 1.25, "rate": 1.4, "hit_s": [0.78, 0.92], "combo_s": [0.92, 1.22]},
     {"source": "Mixamo", "file": "Jab To Elbow Punch.fbx", "role": "Light3", "variant": "JabElbow", "characters": ["kate", "clint"]},
-    {"source": "Mixamo", "file": "Side Kick.fbx", "role": "Kick", "variant": "SideKick", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Side Kick.fbx", "role": "Kick", "variant": "SideKick", "characters": ["kate", "clint"], "start_s": 0.2, "end_s": 1.5, "rate": 1.4, "hit_s": [0.6, 0.8], "combo_s": [0.85, 1.45]},
     {"source": "Mixamo", "file": "Kicking.fbx", "role": "Kick", "variant": "Kicking", "characters": ["kate", "clint"]},
-    {"source": "Mixamo", "file": "Surprise Uppercut.fbx", "role": "Heavy", "variant": "SurpriseUppercut", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Surprise Uppercut.fbx", "role": "Heavy", "variant": "SurpriseUppercut", "characters": ["kate", "clint"], "start_s": 0.65, "end_s": 1.8, "rate": 1.1, "hit_s": [1.1, 1.25], "combo_s": [1.3, 1.75]},
     {"source": "Mixamo", "file": "Roundhouse Kick.fbx", "role": "Heavy", "variant": "Roundhouse", "characters": ["kate", "clint"]},
     {"source": "Mixamo", "file": "Block.fbx", "role": "Parry", "variant": "Block", "characters": ["kate", "clint"]},
     {"source": "Mixamo", "file": "Standing Dodge Forward.fbx", "role": "DodgeForward", "variant": "Standing", "characters": ["kate", "clint"]},
