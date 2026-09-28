@@ -105,4 +105,5 @@ Full table in `claude-docs/asset-conventions.md`.
 - Asset naming and Content layout: `claude-docs/asset-conventions.md`
 - Build, headless editor, Python scripting, git: `claude-docs/infrastructure.md`
 - Tests: `claude-docs/testing.md`
+- Combat clips (import, retarget, montages, the procedural fallback): `claude-docs/animation.md`
 - How to work in this repo as an agent: `claude-docs/workflow.md`

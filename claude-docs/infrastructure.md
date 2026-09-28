@@ -138,6 +138,17 @@ republished, and 2 GB is past the free LFS quota. Consequences:
 - The full `Hawkeye.Screenshot` group has hung once mid-run; run `Hawkeye.Screenshot.Kate`
   and the others separately.
 
+## Combat clips (not in git)
+
+Mixamo FBX downloads go in `Tools/Data/Anims/Mixamo/`; Paragon Sparrow is read from the Game
+Animation Sample's `Content/ParagonSparrow/` (Fab added it there). `.\Tools\import-anims.ps1`
+imports or copies them, retargets them to Kate's and the thugs' skeletons and builds the `AM_`
+montages (44 s for 29 Mixamo and 7 Sparrow clips), then fills the `DA_AnimSet_` assets.
+`-SelfTest` runs the pipeline on clips that are always on this machine and asserts on the bones.
+The downloads, the copies (`Content/AnimSources/`, `Content/ParagonSparrow/`,
+`Content/Characters/UE5_Mannequins/`) and the results (`.../Animations/Combat/`) are git-ignored; a
+fresh clone runs the script again. Details and the fallback rule: `claude-docs/animation.md`.
+
 ## Vendored plugins
 - `Plugins/SPUD` (Steve's Persistent Unreal Data, MIT, commit 12a30da, source checked in,
   not a submodule). Saves the world state; see the Save section of gameplay-semantics.md.
