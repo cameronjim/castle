@@ -99,6 +99,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
 	UMeleeComponent* GetMeleeComponent() const { return MeleeComponent; }
 
+	/**
+	 * Hands CombatAnimSet to the melee and bow components and loads its clips. BeginPlay calls it; a
+	 * test calls it after SetCombatAnimSet.
+	 */
+	void ApplyCombatAnimSet();
+
+	/** Replaces the combat clip set (tests, or a costume with its own clips); ApplyCombatAnimSet hands it on. */
+	void SetCombatAnimSet(UCombatAnimSet* InSet) { CombatAnimSet = InSet; }
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Animation")
+	UCombatAnimSet* GetCombatAnimSet() const { return CombatAnimSet; }
+
 	/** The finisher on F (after the takedown is tried). Always present on the player. */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Character")
 	UFinisherComponent* GetFinisherComponent() const { return FinisherComponent; }
@@ -820,6 +832,10 @@ protected:
 	UFUNCTION()
 	void HandleMeleeMissed(FName AttackName);
 
+	/** A strike clip's combo window closing lets go of the chain it held open. */
+	UFUNCTION()
+	void HandleComboWindowChanged(bool bOpen);
+
 	UFUNCTION()
 	void HandleFinisherStarted(AActor* Target, EHawkeyeFinisherStyle Style);
 
@@ -1051,6 +1067,13 @@ protected:
 	TObjectPtr<UInputAction> MeleeAction;
 
 	// --- Melee tuning ---------------------------------------------------------------------------
+
+	/**
+	 * Her combat clips (DA_AnimSet_Kate, DA_AnimSet_Clint). Empty roles, or none at all, keep the
+	 * procedural strikes, dash and reactions (claude-docs/gameplay-semantics.md, "Combat animation clips").
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Animation")
+	TObjectPtr<UCombatAnimSet> CombatAnimSet;
 
 	/** The tap: 15 damage, lands 0.1 s in, 0.3 s in all, staggers, 20 cm lunge. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee")

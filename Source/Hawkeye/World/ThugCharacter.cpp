@@ -3,12 +3,16 @@
 #include "World/ThugCharacter.h"
 
 #include "AIController.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
 #include "Hawkeye.h"
 #include "Audio/HawkeyeAudioSubsystem.h"
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowIKAnimInstance.h"
+#include "Combat/CombatAnimPlayback.h"
+#include "Combat/CombatAnimSet.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
 #include "Combat/MeleeRules.h"
@@ -55,6 +59,8 @@ AThugCharacter::AThugCharacter()
 	// A thug's swing never lands on the thug beside him.
 	MeleeComponent = CreateDefaultSubobject<UMeleeComponent>(TEXT("MeleeComponent"));
 	MeleeComponent->IgnoreTag = FName(TEXT("Thug"));
+	// His clips stretch so the hit still lands at the end of the telegraph: the parry and dodge windows hold.
+	MeleeComponent->bFitClipToWindup = true;
 
 	// The wind-up is the telegraph and the dodge window: long enough to read, not so long it
 	// stops being a threat. Recovery is what leaves room to hit back.
@@ -65,9 +71,11 @@ AThugCharacter::AThugCharacter()
 	FistsAttack.Range = 120.f;
 	FistsAttack.Radius = 35.f;
 	FistsAttack.bStagger = true;
+	FistsAttack.AnimRole = ECombatAnimRole::Light1;
 
 	BatAttack = FistsAttack;
 	BatAttack.Name = FName(TEXT("bat"));
+	BatAttack.AnimRole = ECombatAnimRole::Heavy;
 	BatAttack.Damage = 25.f;
 	BatAttack.Range = 140.f;
 
@@ -75,6 +83,7 @@ AThugCharacter::AThugCharacter()
 	// bat than the street thugs'. Neither is fast; he is dangerous because he does not flinch.
 	ShieldBashAttack = FistsAttack;
 	ShieldBashAttack.Name = FName(TEXT("bash"));
+	ShieldBashAttack.AnimRole = ECombatAnimRole::Heavy;
 	ShieldBashAttack.Damage = 30.f;
 	ShieldBashAttack.WindupSeconds = 0.8f;
 	ShieldBashAttack.RecoverSeconds = 0.8f;
@@ -216,6 +225,7 @@ void AThugCharacter::BeginPlay()
 	RefreshHeldWeapon();
 	CreateBodyMaterials();
 	UpdateLocomotionAnimation();
+	ApplyCombatAnimSet();
 
 	// The difficulty's toughness, on whatever the class gave him (100, the heavy's 200).
 	const float HealthScale = UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::ThugHealth);
@@ -581,6 +591,8 @@ void AThugCharacter::HitReaction(AActor* HitBy)
 			Away = -GetActorForwardVector();
 		}
 		LaunchCharacter(Away * HitShoveSpeed, true, false);
+		// The clip for the side it came from; the stagger and the shove are the same with or without one.
+		PlayCombatClip(UCombatAnimSet::HitRoleFor(UHawkeyeMeleeRules::ClassifyHitDirection(GetActorForwardVector(), -Away)));
 	}
 
 	AlertTo(HitBy);
@@ -636,11 +648,15 @@ void AThugCharacter::KnockdownFor(AActor* By, float Seconds, float LaunchSpeed)
 		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
 	}
 
-	bKnockdownRagdoll = BeginKnockdownRagdoll(By, LaunchSpeed < 0.f ? KnockdownLaunchSpeed : LaunchSpeed);
+	// A heavy or a trip goes over in the clip when he has one; a blast always throws the ragdoll.
+	const float Launch = LaunchSpeed < 0.f ? KnockdownLaunchSpeed : LaunchSpeed;
+	bKnockdownClip = Launch <= KnockdownLaunchSpeed && PlayKnockdownClip();
+	bKnockdownRagdoll = !bKnockdownClip && BeginKnockdownRagdoll(By, Launch);
 	AlertTo(By);
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: knocked down by %s for %.1f s (%s), health %.1f."), *GetName(), *GetNameSafe(By),
-		KnockdownRemaining, bKnockdownRagdoll ? TEXT("ragdoll") : TEXT("no ragdoll"), HealthComponent->GetCurrentHealth());
+		KnockdownRemaining, bKnockdownClip ? TEXT("clip") : (bKnockdownRagdoll ? TEXT("ragdoll") : TEXT("no ragdoll")),
+		HealthComponent->GetCurrentHealth());
 }
 
 bool AThugCharacter::BeginKnockdownRagdoll(AActor* By, float LaunchSpeed)
@@ -786,6 +802,11 @@ void AThugCharacter::UpdateHitLean(float DeltaSeconds)
 
 void AThugCharacter::StandUp()
 {
+	if (bKnockdownClip)
+	{
+		StandUpFromClip();
+		return;
+	}
 	USkeletalMeshComponent* SkeletalMesh = GetMesh();
 	UCapsuleComponent* Capsule = GetCapsuleComponent();
 	bool bBlendUp = false;
@@ -870,6 +891,14 @@ void AThugCharacter::UpdateGetUp(float DeltaSeconds)
 		return;
 	}
 	GetUpElapsed += DeltaSeconds;
+	if (bGetUpFromClip)
+	{
+		if (GetUpElapsed >= GetUpClipSeconds)
+		{
+			FinishGetUp();
+		}
+		return;
+	}
 	const float Alpha = FMath::Clamp(GetUpElapsed / GetUpSeconds, 0.f, 1.f);
 	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
 	{
@@ -887,6 +916,15 @@ void AThugCharacter::FinishGetUp()
 	{
 		return;
 	}
+	if (bGetUpFromClip)
+	{
+		// The clip never touched the physics; there is nothing to put back.
+		bGetUpFromClip = false;
+		bGettingUp = false;
+		GetUpElapsed = 0.f;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: back on his feet."), *GetName());
+		return;
+	}
 	if (USkeletalMeshComponent* SkeletalMesh = GetMesh())
 	{
 		SkeletalMesh->SetAllBodiesSimulatePhysics(false);
@@ -898,6 +936,68 @@ void AThugCharacter::FinishGetUp()
 	bGettingUp = false;
 	GetUpElapsed = 0.f;
 	UE_LOG(LogHawkeye, Log, TEXT("%s: back on his feet."), *GetName());
+}
+
+void AThugCharacter::ApplyCombatAnimSet()
+{
+	if (CombatAnimSet)
+	{
+		CombatAnimSet->Preload();
+	}
+	if (MeleeComponent)
+	{
+		MeleeComponent->SetAnimSet(CombatAnimSet);
+	}
+	if (BowComponent)
+	{
+		BowComponent->SetAnimSet(CombatAnimSet);
+	}
+}
+
+bool AThugCharacter::PlayCombatClip(ECombatAnimRole ClipRole, float FitToSeconds)
+{
+	return !bLimp && HawkeyeCombatAnim::PlayRole(GetMesh(), CombatAnimSet, ClipRole, FitToSeconds) != nullptr;
+}
+
+bool AThugCharacter::PlayKnockdownClip()
+{
+	UAnimMontage* Montage = UCombatAnimSet::Resolve(CombatAnimSet, ECombatAnimRole::Knockdown);
+	UAnimInstance* Instance = Montage ? HawkeyeCombatAnim::Play(GetMesh(), Montage) : nullptr;
+	KnockdownMontage = Instance ? Montage : nullptr;
+	KnockdownInstance = Instance;
+	return Instance != nullptr;
+}
+
+void AThugCharacter::StandUpFromClip()
+{
+	// The get-up cuts the knockdown clip; without one the knockdown clip blends back into his
+	// locomotion over GetUpSeconds, where the ragdoll would have blended.
+	UAnimInstance* GetUp = HawkeyeCombatAnim::PlayRole(GetMesh(), CombatAnimSet, ECombatAnimRole::GetUp);
+	UAnimMontage* GetUpMontage = GetUp ? UCombatAnimSet::Resolve(CombatAnimSet, ECombatAnimRole::GetUp) : nullptr;
+	if (!GetUp)
+	{
+		HawkeyeCombatAnim::Stop(KnockdownInstance.Get(), KnockdownMontage, GetUpSeconds);
+	}
+	GetUpClipSeconds = GetUpMontage ? GetUpMontage->GetPlayLength() : GetUpSeconds;
+	KnockdownMontage = nullptr;
+	KnockdownInstance = nullptr;
+
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	}
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->SetMovementMode(MOVE_Walking);
+	}
+	bKnockedDown = false;
+	bKnockdownClip = false;
+	KnockdownRemaining = 0.f;
+	bGettingUp = true;
+	bGetUpFromClip = true;
+	GetUpElapsed = 0.f;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: getting up (%s, %.2f s)."), *GetName(), GetUpMontage ? *GetUpMontage->GetName()
+		: TEXT("knockdown clip blending out"), GetUpClipSeconds);
 }
 
 UAnimSequence* AThugCharacter::SelectLocomotionAnim() const

@@ -12,6 +12,8 @@
 #include "ThugCharacter.generated.h"
 
 class APickupActor;
+class UAnimInstance;
+class UAnimMontage;
 class UAnimSequence;
 class UBowComponent;
 class UEnvQuery;
@@ -521,6 +523,26 @@ public:
 	// --- Animation ------------------------------------------------------------------------------
 
 	/**
+	 * His combat clips (DA_AnimSet_Thug, DA_AnimSet_Archer): swings, hit reactions, knockdown and
+	 * get-up, the finisher's victim, the archer's bow. Empty roles, or none at all, keep the procedural
+	 * reactions (claude-docs/gameplay-semantics.md, "Combat animation clips").
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Animation")
+	TObjectPtr<UCombatAnimSet> CombatAnimSet;
+
+	/** Hands CombatAnimSet to the melee and bow components and loads it. BeginPlay calls it. */
+	void ApplyCombatAnimSet();
+
+	void SetCombatAnimSet(UCombatAnimSet* InSet) { CombatAnimSet = InSet; }
+
+	/** Plays ClipRole's clip on him, at rate 1 or fitted to FitToSeconds; false when there is none that plays. */
+	bool PlayCombatClip(ECombatAnimRole ClipRole, float FitToSeconds = 0.f);
+
+	/** True while he is down in (or getting up through) his knockdown clip rather than the ragdoll. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Animation")
+	bool IsKnockdownFromClip() const { return bKnockdownClip || bGetUpFromClip; }
+
+	/**
 	 * Plays Idle, Walk or Run depending on ground speed, and only when the choice changes.
 	 *
 	 * The mannequin pack's AnimBP does not compile headless, so thugs drove nothing and stood
@@ -652,6 +674,12 @@ protected:
 	/** Puts the mesh back to an ordinary animated character mesh. */
 	void FinishGetUp();
 
+	/** The knockdown clip instead of the ragdoll. False when he has none that plays. */
+	bool PlayKnockdownClip();
+
+	/** Ends a clip knockdown: the get-up clip (or the knockdown clip blending out) and back on his feet. */
+	void StandUpFromClip();
+
 	/** Tells the brain (or, without one, the state) that By just hurt him. */
 	void AlertTo(AActor* By);
 
@@ -763,6 +791,16 @@ private:
 	float KnockdownRemaining = 0.f;
 	bool bGettingUp = false;
 	float GetUpElapsed = 0.f;
+
+	/** Down in the knockdown clip, not the ragdoll; getting up through a clip, and how long it takes. */
+	bool bKnockdownClip = false;
+	bool bGetUpFromClip = false;
+	float GetUpClipSeconds = 0.f;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> KnockdownMontage;
+
+	TWeakObjectPtr<UAnimInstance> KnockdownInstance;
 	float HitFlashRemaining = 0.f;
 
 	/** What the materials were last given, so the parameters are only written on a change. */
