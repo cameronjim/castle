@@ -89,7 +89,23 @@ bool FHawkeyeMeleeComboWindowAndDamage::RunTest(const FString& Parameters)
 	TestFalse(TEXT("With no window after it"), Chain.IsChainOpen());
 	Chain.NotifyLightLanded(0);
 	Chain.NotifyMiss();
-	TestEqual(TEXT("A miss starts it over"), Chain.GetNextStep(), 0);
+	TestEqual(TEXT("A heavy's miss starts it over"), Chain.GetNextStep(), 0);
+
+	// A light that misses carries the chain on, with the same window, and never counts.
+	FHawkeyeComboTracker Air;
+	Air.NotifyLightMissed(0);
+	TestEqual(TEXT("A missed first light opens step 1"), Air.GetNextStep(), 1);
+	TestEqual(TEXT("For the same 0.35 s"), Air.GetChainWindowRemaining(), 0.35f, 0.001f);
+	TestEqual(TEXT("The miss does not count"), Air.GetCount(), 0);
+	Air.NotifyLightMissed(1);
+	TestEqual(TEXT("A missed second opens the third"), Air.GetNextStep(), 2);
+	Air.NotifyLightMissed(2);
+	TestEqual(TEXT("A missed third ends the chain"), Air.GetNextStep(), 0);
+	TestFalse(TEXT("With no window after it"), Air.IsChainOpen());
+	Air.NotifyLightMissed(0);
+	Air.Advance(0.36f);
+	TestEqual(TEXT("A miss's window lapses like a hit's"), Air.GetNextStep(), 0);
+	TestEqual(TEXT("And nothing ever counted"), Air.GetCount(), 0);
 
 	// Kate's three lights on a thug: 15, 15, 25 and the knockback, the second pressed in the recovery.
 	FHawkeyeTestWorld TestWorld;
@@ -151,6 +167,63 @@ bool FHawkeyeMeleeComboWindowAndDamage::RunTest(const FString& Parameters)
 	TestEqual(TEXT("35"), Before - Health->GetCurrentHealth(), 35.f, 0.01f);
 	TestTrue(TEXT("He is on the floor"), Thug->IsKnockedDown());
 	TestEqual(TEXT("And the chain is over"), Kate->GetCombo().GetNextStep(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeMeleeAirChain, "Hawkeye.Melee.AirChainAdvancesOnMiss",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeMeleeAirChain::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeMeleeDepthTest;
+
+	// Nobody to hit: three lights pressed in time still play the chain's first, second and third.
+	FHawkeyeTestWorld TestWorld;
+	AHawkeyeCharacter* Kate = SpawnKate(TestWorld);
+	if (!Kate)
+	{
+		AddError(TEXT("Failed to spawn Kate."));
+		return false;
+	}
+	UMeleeComponent* Melee = Kate->GetMeleeComponent();
+	TestTrue(TEXT("The first light starts"), Kate->StartLightAttack());
+	TestEqual(TEXT("It is the chain's first"), Melee->GetCurrentAttack().Name, FName(TEXT("light")));
+	LandSwing(Melee);
+	TestTrue(TEXT("It hit the air, and the chain is open"), Kate->GetCombo().IsChainOpen());
+	TestEqual(TEXT("For the second"), Kate->GetCombo().GetNextStep(), 1);
+	TestEqual(TEXT("The counter did not move"), Kate->GetComboCount(), 0);
+	TestTrue(TEXT("Pressed in the recovery, the next light waits"), Kate->StartLightAttack());
+	Melee->AdvanceAttack(0.2f);
+	Kate->AdvanceMeleeFlow(0.2f);
+	TestEqual(TEXT("It went when the recovery ended: the chain's second"), Melee->GetCurrentAttack().Name, FName(TEXT("light2")));
+	LandSwing(Melee);
+	Melee->AdvanceAttack(0.2f);
+	Kate->AdvanceMeleeFlow(0.2f);
+	TestTrue(TEXT("The third, inside the window the second's miss opened"), Kate->StartLightAttack());
+	TestEqual(TEXT("The chain's third"), Melee->GetCurrentAttack().Name, FName(TEXT("light3")));
+	LandSwing(Melee);
+	TestEqual(TEXT("After the third the chain starts over"), Kate->GetCombo().GetNextStep(), 0);
+	TestEqual(TEXT("Three misses, no count"), Kate->GetComboCount(), 0);
+
+	// A miss's window lapses like a hit's.
+	Melee->AdvanceAttack(0.5f);
+	Kate->AdvanceMeleeFlow(0.1f);
+	TestTrue(TEXT("A new chain"), Kate->StartLightAttack());
+	LandSwing(Melee);
+	Melee->AdvanceAttack(0.5f);
+	Kate->AdvanceMeleeFlow(0.36f);
+	TestTrue(TEXT("A light 0.36 s after the miss"), Kate->StartLightAttack());
+	TestEqual(TEXT("Starts the chain over"), Melee->GetCurrentAttack().Name, FName(TEXT("light")));
+	LandSwing(Melee);
+
+	// A heavy at nobody still ends the chain.
+	Melee->AdvanceAttack(0.5f);
+	Kate->AdvanceMeleeFlow(0.05f);
+	TestTrue(TEXT("The chain is open after the light"), Kate->GetCombo().IsChainOpen());
+	TestTrue(TEXT("A heavy at the air"), Kate->StartHeavyAttack());
+	Melee->AdvanceAttack(2.f);
+	TestEqual(TEXT("And the chain is over"), Kate->GetCombo().GetNextStep(), 0);
+	TestFalse(TEXT("With no window"), Kate->GetCombo().IsChainOpen());
 	return true;
 }
 

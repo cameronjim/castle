@@ -352,6 +352,8 @@ private:
 			Swings.Add(Swing);
 		};
 		Add(Street, EThugWeapon::Fists, 0);
+		// Twice: the second fists swing takes the next Light1 variant (Jab To Elbow after Standing Melee Punch).
+		Add(Street, EThugWeapon::Fists, 0);
 		Add(Street, EThugWeapon::Bat, 0);
 		Add(Heavy, EThugWeapon::Shield, 0);
 		Add(Heavy, EThugWeapon::Shield, 1);

@@ -238,9 +238,149 @@ bool FHawkeyeCombatAnimNotifyTiming::RunTest(const FString& Parameters)
 	Thug->SetActorLocation(FVector(100.f, 0.f, 0.f));
 	Melee->AdvanceAttack(0.02f);
 	TestEqual(TEXT("After it closes nothing more is swept: he takes nothing"), Health->GetCurrentHealth(), 455.f, 0.01f);
-	TestEqual(TEXT("It was a miss: the chain starts over"), Kate->GetCombo().GetNextStep(), 0);
+	TestEqual(TEXT("It was a miss, and the chain carries on to the second"), Kate->GetCombo().GetNextStep(), 1);
+	TestTrue(TEXT("Held open for the clip's combo window"), Kate->GetCombo().IsChainHeld());
 	Melee->NotifyMontageEnded(true);
 	TestFalse(TEXT("Idle again"), Melee->IsAttacking());
+	TestEqual(TEXT("The clip ending lets the chain go"), Kate->GetCombo().GetNextStep(), 0);
+
+	// Punching the air with clips: the combo window governs, so three lights play first, second, third.
+	Thug->SetActorLocation(FVector(1000.f, 0.f, 0.f));
+	const int32 CountBefore = Kate->GetComboCount();
+	const FName Expected[] = { FName(TEXT("light")), FName(TEXT("light2")), FName(TEXT("light3")) };
+	for (int32 Press = 0; Press < 3; ++Press)
+	{
+		Melee->ForceNotifyTimingForTest();
+		if (Press == 0)
+		{
+			TestTrue(TEXT("An air light starts"), Kate->StartLightAttack());
+		}
+		else
+		{
+			// The last press was held through the miss; it goes when the combo window opens.
+			ComboWindow->NotifyBegin(Body, nullptr, 0.3f, Event);
+			Kate->AdvanceMeleeFlow(0.01f);
+		}
+		TestEqual(FString::Printf(TEXT("Air press %d plays the chain's step %d"), Press + 1, Press + 1),
+			Melee->GetCurrentAttack().Name, Expected[Press]);
+		HitWindow->NotifyBegin(Body, nullptr, 0.1f, Event);
+		if (Press < 2)
+		{
+			TestTrue(TEXT("A press while the hit window is open is held"), Kate->StartLightAttack());
+		}
+		HitWindow->NotifyEnd(Body, nullptr, Event);
+		Kate->AdvanceMeleeFlow(1.f);
+		if (Press < 2)
+		{
+			TestTrue(TEXT("The miss keeps the chain open past 0.35 s (the clip's window governs)"),
+				Kate->GetCombo().IsChainOpen());
+		}
+	}
+	TestEqual(TEXT("After the third the chain starts over"), Kate->GetCombo().GetNextStep(), 0);
+	TestTrue(TEXT("Misses never count"), Kate->GetComboCount() <= CountBefore);
+	Melee->NotifyMontageEnded(false);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeCombatAnimVariants, "Hawkeye.CombatAnim.StrikeVariantsCycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeCombatAnimVariants::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeCombatAnimTest;
+
+	// The picker on its own: in order, round again, never the same twice running.
+	int32 Cursor = 0;
+	TArray<int32> Picks;
+	for (int32 Index = 0; Index < 7; ++Index)
+	{
+		Picks.Add(UCombatAnimSet::PickNextVariant(Cursor, 3));
+	}
+	TestTrue(TEXT("Three variants go 0, 1, 2, 0, 1, 2, 0"), Picks == TArray<int32>({ 0, 1, 2, 0, 1, 2, 0 }));
+	int32 One = 0;
+	TestEqual(TEXT("One variant is always 0"), UCombatAnimSet::PickNextVariant(One, 1), 0);
+	TestEqual(TEXT("and again"), UCombatAnimSet::PickNextVariant(One, 1), 0);
+	int32 None = 5;
+	TestEqual(TEXT("None is 0"), UCombatAnimSet::PickNextVariant(None, 0), 0);
+
+	// The set: a role's slot is variant 0, MoreVariants the rest; the Light3 fallback takes Kick's list.
+	UCombatAnimSet* Set = NewObject<UCombatAnimSet>(GetTransientPackage());
+	UAnimMontage* Uppercut = MakeMontage();
+	UAnimMontage* Roundhouse = MakeMontage();
+	UAnimMontage* Jab = MakeMontage();
+	UAnimMontage* FrontKick = MakeMontage();
+	UAnimMontage* SideKick = MakeMontage();
+	Set->Heavy = Uppercut;
+	Set->Light1 = Jab;
+	Set->Kick = FrontKick;
+	FCombatAnimVariants& HeavyMore = Set->MoreVariants.AddDefaulted_GetRef();
+	HeavyMore.Role = ECombatAnimRole::Heavy;
+	HeavyMore.Montages.Add(Roundhouse);
+	FCombatAnimVariants& KickMore = Set->MoreVariants.AddDefaulted_GetRef();
+	KickMore.Role = ECombatAnimRole::Kick;
+	KickMore.Montages.Add(SideKick);
+	FCombatAnimVariants& Orphan = Set->MoreVariants.AddDefaulted_GetRef();
+	Orphan.Role = ECombatAnimRole::Light2;
+	Orphan.Montages.Add(MakeMontage());
+	TestEqual(TEXT("Heavy has two"), Set->GetVariantCount(ECombatAnimRole::Heavy), 2);
+	TestEqual(TEXT("Light1 has its one"), Set->GetVariantCount(ECombatAnimRole::Light1), 1);
+	TestEqual(TEXT("A role with an empty slot has none, whatever MoreVariants says"),
+		Set->GetVariantCount(ECombatAnimRole::Light2), 0);
+	TestEqual(TEXT("Light3 with no slot takes Kick's two"), Set->GetVariantCount(ECombatAnimRole::Light3), 2);
+	TestTrue(TEXT("Variant 0 is the slot"), Set->ResolveVariant(ECombatAnimRole::Heavy, 0) == Uppercut);
+	TestTrue(TEXT("Variant 1 is the next"), Set->ResolveVariant(ECombatAnimRole::Heavy, 1) == Roundhouse);
+	TestNull(TEXT("Past the end is nothing"), Set->ResolveVariant(ECombatAnimRole::Heavy, 2));
+	TestTrue(TEXT("Light3's second is the side kick"), Set->ResolveVariant(ECombatAnimRole::Light3, 1) == SideKick);
+	TestTrue(TEXT("GetMontage is still the slot"), Set->ResolveMontage(ECombatAnimRole::Heavy) == Uppercut);
+	TestEqual(TEXT("CountAssigned counts slots only"), Set->CountAssigned(), 3);
+
+	FHawkeyeTestWorld TestWorld;
+	AHawkeyeAimTestCharacter* Kate = SpawnKate(TestWorld);
+	if (!Kate)
+	{
+		AddError(TEXT("Failed to spawn Kate."));
+		return false;
+	}
+	Kate->SetCombatAnimSet(Set);
+	Kate->ApplyCombatAnimSet();
+	UMeleeComponent* Melee = Kate->GetMeleeComponent();
+
+	// Heavy: the uppercut, the roundhouse, the uppercut, the roundhouse; never the same twice running.
+	const UAnimMontage* HeavyOrder[] = { Uppercut, Roundhouse, Uppercut, Roundhouse };
+	const UAnimMontage* Last = nullptr;
+	for (int32 Swing = 0; Swing < 4; ++Swing)
+	{
+		TestTrue(FString::Printf(TEXT("Heavy %d starts"), Swing + 1), Kate->StartHeavyAttack());
+		TestTrue(FString::Printf(TEXT("Heavy %d picks variant %d"), Swing + 1, Swing % 2),
+			Melee->GetPickedMontage() == HeavyOrder[Swing]);
+		TestEqual(TEXT("and says which"), Melee->GetPickedVariantIndex(), Swing % 2);
+		TestTrue(TEXT("Not the one before it"), Melee->GetPickedMontage() != Last);
+		Last = Melee->GetPickedMontage();
+		TestNull(TEXT("It cannot play here, so the swing is procedural"), Melee->GetCurrentMontage());
+		Melee->AdvanceAttack(2.f);
+		Kate->AdvanceMeleeFlow(2.f);
+	}
+
+	// Light1 has one clip: every first light takes it, as before variants.
+	for (int32 Swing = 0; Swing < 3; ++Swing)
+	{
+		TestTrue(TEXT("A first light starts"), Kate->StartLightAttack());
+		TestEqual(TEXT("It is the chain's first"), Melee->GetCurrentAttack().Name, FName(TEXT("light")));
+		TestTrue(TEXT("Its one clip, every time"), Melee->GetPickedMontage() == Jab);
+		TestEqual(TEXT("Variant 0"), Melee->GetPickedVariantIndex(), 0);
+		Melee->AdvanceAttack(2.f);
+		Kate->AdvanceMeleeFlow(1.f);
+	}
+
+	// Light2 has none: nothing picked, the procedural swing.
+	TestTrue(TEXT("A first light"), Kate->StartLightAttack());
+	Melee->AdvanceAttack(0.11f);
+	Melee->AdvanceAttack(0.2f);
+	Kate->AdvanceMeleeFlow(0.05f);
+	TestTrue(TEXT("The second, on the first's miss"), Kate->StartLightAttack());
+	TestEqual(TEXT("It is light2"), Melee->GetCurrentAttack().Name, FName(TEXT("light2")));
+	TestNull(TEXT("With no clip picked"), Melee->GetPickedMontage());
+	TestEqual(TEXT("Index -1"), Melee->GetPickedVariantIndex(), -1);
 	return true;
 }
 
