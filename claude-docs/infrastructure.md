@@ -82,6 +82,11 @@ Play a specific map in a standalone window without the editor UI (fast iteration
 & "$UE\Engine\Binaries\Win64\UnrealEditor.exe" "$Proj" /Game/Maps/L_District_EastVillage -game -windowed -ResX=1600 -ResY=900 -log
 ```
 
+Day, to see the block: add `-TimeOfDay=Day` to that line or to any automation run (not saved), or
+type `hawkeye.TimeOfDay Day` in the console (`Night` to go back, `Saved` for the player's own
+setting; also unsaved). `Hawkeye.Screenshot.TimeOfDay` writes `night_street.png` and
+`day_street.png` to `Saved/Screenshots/Kate/` without the rest of the Kate pass.
+
 ## Headless editor
 
 Use `UnrealEditor-Cmd.exe` with `-nullrhi` for anything that doesn't need a screen.
