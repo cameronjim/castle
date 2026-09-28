@@ -79,3 +79,12 @@ Content/Input/IA_Walk.uasset
 # Free Epic packs added from Fab; read by Tools/Editor/import_combat_anims.py, never committed
 Content/ParagonSparrow/
 Content/Paragon*/
+
+# Combat clips: downloads, their imports and copies, and the retargeted results. Mixamo's and
+# Epic's clips are not republished here; Tools/import-anims.ps1 rebuilds all of it (claude-docs/animation.md).
+Tools/Data/Anims/*
+!Tools/Data/Anims/README.md
+!Tools/Data/Anims/manifest.json
+Content/AnimSources/
+Content/Mannequin/Animations/Combat/
+Content/Characters/UE5_Mannequins/
