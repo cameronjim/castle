@@ -19,7 +19,9 @@ then, per source:
                                      op stack (pelvis, FK chains, IK chains, IK solve, root motion),
                                      chains mapped by name, the target's retarget pose auto-aligned to
                                      the source's, root motion copied from the source root (generated
-                                     from the pelvis for Mixamo, which has no root bone)
+                                     from the pelvis for Mixamo, which has no root bone: the root goes
+                                     under the pelvis on the ground, horizontal translation only, so the
+                                     pelvis keeps its height when the game locks or extracts the root)
 
 and per clip, per target its characters need (uefn: Kate and Clint; thug: thugs and archers):
 
@@ -60,7 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _common as c  # noqa: E402
 import _packages  # noqa: E402
 
-SCRIPT_BUILD = "combat-anims-1"   # bump when the rig, retargeter or montage layout below changes
+SCRIPT_BUILD = "combat-anims-2"   # bump when the rig, retargeter or montage layout below changes
 BUILD_TAG = "HawkeyeBuild"
 CHARACTERS_TAG = "HawkeyeCharacters"
 SOURCE_TAG = "HawkeyeSource"
@@ -146,7 +148,9 @@ def targets_for(clip, targets):
 
 def clip_layout(clip):
     layout = dict(ROLE_DEFAULTS.get(clip["role"], {"slot": "DefaultSlot"}))
-    for key in ("slot", "hit", "combo", "warp_end", "loop", "hold", "root_motion", "blend_in", "blend_out"):
+    layout["_explicit"] = sorted(k for k in clip if k in ("hit", "combo", "warp_end"))
+    for key in ("slot", "hit", "combo", "warp_end", "loop", "hold", "root_motion", "blend_in", "blend_out",
+                "start_s", "end_s", "rate", "hit_s", "combo_s", "warp_end_s"):
         if key in clip:
             layout[key] = clip[key]
     return layout
@@ -293,29 +297,48 @@ def ensure_target(name, target, chain_maps):
 
 
 def _configure_root_motion(ctl, chain_map, target_mesh):
-    """Root motion from the source root, or generated from the target pelvis when the source has none."""
+    """Root motion from the source root, or generated from the target pelvis when the source has none.
+    Every root motion op in the stack gets the same settings; the note says what was done."""
     op_class = getattr(unreal, "IKRetargetRootMotionController", None)
     if op_class is None:
         return "no root motion op controller"
     source_root = (chain_map or {}).get("root_bone", "root")
+    target_bones = skeleton_bones(mesh_skeleton(target_mesh))
+    notes = []
     for index in range(ctl.get_num_retarget_ops()):
         op = ctl.get_op_controller(index)
-        if not isinstance(op, op_class):
-            continue
-        target_bones = skeleton_bones(mesh_skeleton(target_mesh))
-        op.set_target_root_bone("root" if "root" in target_bones else target_bones[0])
-        op.set_target_pelvis_bone("pelvis" if "pelvis" in target_bones else target_bones[1])
-        if source_root:
-            op.set_source_root_bone(source_root)
-            return "root motion copied from " + source_root
-        settings = op.get_settings()
-        source_enum = getattr(unreal, "RootMotionSource", None)
-        if source_enum is not None and hasattr(source_enum, "GENERATE_FROM_TARGET_PELVIS"):
-            settings.set_editor_property("root_motion_source", source_enum.GENERATE_FROM_TARGET_PELVIS)
-            op.set_settings(settings)
-            return "root motion generated from the target pelvis"
-        return "root motion source enum not exposed; left at copy-from-source"
-    return "no root motion op"
+        if isinstance(op, op_class):
+            notes.append(_configure_root_motion_op(op, source_root, target_bones))
+    if not notes:
+        return "no root motion op"
+    return notes[0] if len(set(notes)) == 1 else "; ".join(notes)
+
+
+def _configure_root_motion_op(op, source_root, target_bones):
+    op.set_target_root_bone("root" if "root" in target_bones else target_bones[0])
+    op.set_target_pelvis_bone("pelvis" if "pelvis" in target_bones else target_bones[1])
+    if source_root:
+        op.set_source_root_bone(source_root)
+        return "root motion copied from " + source_root
+    settings = op.get_settings()
+    source_enum = getattr(unreal, "RootMotionSource", None)
+    height_enum = getattr(unreal, "RootMotionHeightSource", None)
+    if source_enum is None or not hasattr(source_enum, "GENERATE_FROM_TARGET_PELVIS") or height_enum is None:
+        return "FAILED: root motion enums not exposed; the pelvis height would land on the root"
+    # The op's defaults copy the root's height "from the source root", which on a source with no
+    # root bone is its first bone, the hips: the root track then carries the hips' 90 cm and the
+    # pelvis sits at the root's feet. The game locks or extracts the root, so the character knelt.
+    # Instead: the root straight under the pelvis (no ref-pose offset, which the pelvis's tilt
+    # swung about), on the ground, keeping its reference rotation. Only the hips' horizontal
+    # travel becomes root motion; everything else stays on the pelvis.
+    applied = c.set_props(settings, [("root_motion_source", source_enum.GENERATE_FROM_TARGET_PELVIS),
+                                     ("root_height_source", height_enum.SNAP_TO_GROUND),
+                                     ("maintain_offset_from_pelvis", False), ("rotate_with_pelvis", False)],
+                          "root motion op")
+    if len(applied) != 4:
+        return "FAILED: root motion op took only " + ", ".join(applied)
+    op.set_settings(settings)
+    return "root motion generated from the target pelvis: ground height, horizontal only"
 
 
 def ensure_retargeter(path, source_rig, source_mesh, source_chain_map, target):
@@ -337,6 +360,11 @@ def ensure_retargeter(path, source_rig, source_mesh, source_chain_map, target):
     ctl.set_ik_rig(side.TARGET, target["rig"])
     ctl.set_preview_mesh(side.SOURCE, source_mesh)
     ctl.set_preview_mesh(side.TARGET, target["mesh"])
+    # Exactly one default stack. The factory may already have put one in, and a retargeter the delete
+    # above could not remove (still loaded) comes back with every earlier run's stack: a second root
+    # motion op at its defaults undid the settings made on the first, and the pelvis height went back
+    # onto the root.
+    ctl.remove_all_ops()
     ctl.add_default_ops()
     ctl.assign_ik_rig_to_all_ops(side.SOURCE, source_rig)
     ctl.assign_ik_rig_to_all_ops(side.TARGET, target["rig"])
@@ -353,7 +381,7 @@ def ensure_retargeter(path, source_rig, source_mesh, source_chain_map, target):
             mapped += 1
     set_tag(rtg, stamp)
     c.save(rtg)
-    c.log("created", path, "{0} target chains mapped, {1}".format(mapped, root_note))
+    c.log("created", path, "{0} ops, {1} target chains mapped, {2}".format(ctl.get_num_retarget_ops(), mapped, root_note))
     return rtg
 
 
@@ -530,15 +558,36 @@ def apply_root_motion(seq, layout, target):
     return wanted
 
 
+def montage_windows(layout, length):
+    """The montage spec's windows as fractions of the sequence: hit, combo and warp_end from the
+    manifest's seconds in the source clip (hit_s, combo_s, warp_end_s) when given, else its fractions
+    (hit, combo, warp_end) or the role's. With hit_s and no warp end, the warp runs to the hit."""
+    length = max(float(length), 1e-3)
+
+    def window(key):
+        if layout.get(key + "_s"):
+            return [float(t) / length for t in layout[key + "_s"]]
+        return [float(f) for f in (layout.get(key) or [-1.0, -1.0])]
+
+    if layout.get("warp_end_s") is not None:
+        warp_end = float(layout["warp_end_s"]) / length
+    elif layout.get("hit_s") and "warp_end" not in layout.get("_explicit", ()):
+        warp_end = float(layout["hit_s"][0]) / length
+    else:
+        warp_end = float(layout.get("warp_end", -1.0))
+    return window("hit"), window("combo"), warp_end
+
+
 def build_montage(seq, montage_path, layout, root_motion, characters, source_name):
     spec = unreal.HawkeyeCombatMontageSpec()
-    hit = layout.get("hit") or [-1.0, -1.0]
-    combo = layout.get("combo") or [-1.0, -1.0]
+    hit, combo, warp_end = montage_windows(layout, unreal.AnimationLibrary.get_sequence_length(seq))
     c.set_props(spec, [
         ("slot_name", layout.get("slot", "DefaultSlot")),
         ("hit_start", float(hit[0])), ("hit_end", float(hit[1])),
         ("combo_start", float(combo[0])), ("combo_end", float(combo[1])),
-        ("warp_end", float(layout.get("warp_end", -1.0)) if root_motion else -1.0),
+        ("clip_start_seconds", float(layout.get("start_s", 0.0))), ("clip_end_seconds", float(layout.get("end_s", -1.0))),
+        ("play_rate", float(layout.get("rate", 1.0))),
+        ("warp_end", warp_end if root_motion else -1.0),
         ("loop", bool(layout.get("loop", False))), ("hold_last_frame", bool(layout.get("hold", False))),
         ("blend_in_seconds", float(layout.get("blend_in", 0.1))), ("blend_out_seconds", float(layout.get("blend_out", 0.2))),
     ], "montage spec")
@@ -608,19 +657,21 @@ def report_pose(clip, seq, target_name):
         return
     role = clip["role"]
     if role in LYING_ROLES:
-        ok = end["pelvis_height"] < 45.0
+        ok = end["pelvis_locked_height"] < 45.0
         expect = "ends on the floor"
     elif role in AIRBORNE_OR_LOW_ROLES:
         ok = True
         expect = "free"
     else:
-        ok = all(abs(m["pelvis_vs_reference"]) < 35.0 and m["hip_height"] > 45.0 and 40.0 < m["head_height"] < 95.0
-                 for m in (start, mid, end))
+        ok = all(abs(m["pelvis_vs_reference"]) < 35.0 and abs(m["pelvis_locked_vs_reference"]) < 35.0
+                 and m["hip_height"] > 45.0 and 40.0 < m["head_height"] < 95.0 for m in (start, mid, end))
         expect = "stands"
     c.log("pose" if ok else "check", seq.get_path_name().split(".")[0],
-          "{0} on {1} ({2}): pelvis {3:.0f}/{4:.0f}/{5:.0f} cm (ref {6:+.0f}), head +{7:.0f}, bow hand fwd {8:.0f}, hands apart {9:.0f}".format(
+          "{0} on {1} ({2}): pelvis {3:.0f}/{4:.0f}/{5:.0f} cm (ref {6:+.0f}), root locked {7:.0f}/{8:.0f}/{9:.0f}, head +{10:.0f},"
+          " bow hand fwd {11:.0f}, hands apart {12:.0f}".format(
               role, target_name, expect, start["pelvis_height"], mid["pelvis_height"], end["pelvis_height"],
-              mid["pelvis_vs_reference"], mid["head_height"], mid["bow_hand_forward"], mid["hands_apart"]))
+              mid["pelvis_vs_reference"], start["pelvis_locked_height"], mid["pelvis_locked_height"],
+              end["pelvis_locked_height"], mid["head_height"], mid["bow_hand_forward"], mid["hands_apart"]))
 
 
 # --------------------------------------------------------------------------------------------------
@@ -701,8 +752,8 @@ def run(manifest=None, args=None, output_override=None):
 # --------------------------------------------------------------------------------------------------
 
 
-def _bone(anim, name, time):
-    return unreal.HawkeyeCombatMontageBuilder.get_raw_bone_location(anim, name, time)
+def _bone(anim, name, time, root_locked=False):
+    return unreal.HawkeyeCombatMontageBuilder.get_raw_bone_location(anim, name, time, root_locked)
 
 
 def _ref_bone(skeleton, name):
@@ -726,9 +777,15 @@ def pose_metrics(anim, time):
     ref = dict((bone, _ref_bone(skeleton, bone)) for bone in ("pelvis", "upperarm_l", "lowerarm_l", "hand_l"))
     arm = _dist(ref["upperarm_l"], ref["lowerarm_l"]) + _dist(ref["lowerarm_l"], ref["hand_l"])
     pelvis = at["pelvis"]
+    # With the root held at its reference pose, as the game holds it (root motion extracted or the
+    # root locked): a clip whose root track carries the pelvis's height reads right above and on the
+    # floor here.
+    locked = _bone(anim, "pelvis", time, True)
     return {
         "pelvis_height": pelvis.z,
         "pelvis_vs_reference": pelvis.z - ref["pelvis"].z,
+        "pelvis_locked_height": locked.z,
+        "pelvis_locked_vs_reference": locked.z - ref["pelvis"].z,
         "hip_height": at["thigh_l"].z,
         "head_height": at["head"].z - pelvis.z,
         "bow_arm_extension": _dist(at["upperarm_l"], at["hand_l"]) / max(arm, 1.0),
@@ -748,6 +805,11 @@ def check_standing(test, name, target, anim, length):
         test.check(ok, "{0} on {1} at {2:.0%}: standing (pelvis {3:.0f} cm, {4:+.0f} from reference; hips {5:.0f};"
                    " head {6:.0f} above)".format(name, target, when, m["pelvis_height"], m["pelvis_vs_reference"],
                                                   m["hip_height"], m["head_height"]))
+        # The game never plays the root track as a pose: it extracts it as root motion or locks it.
+        test.check(abs(m["pelvis_locked_vs_reference"]) < 15.0,
+                   "{0} on {1} at {2:.0%}: pelvis {3:.0f} cm with the root locked, {4:+.0f} from the reference"
+                   " (the root track must not carry the pelvis's height)".format(
+                       name, target, when, m["pelvis_locked_height"], m["pelvis_locked_vs_reference"]))
 
 
 class SelfTest(object):
