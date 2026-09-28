@@ -12,9 +12,13 @@ class UAnimSequence;
 class UAnimSequenceBase;
 
 /**
- * How one combat montage is laid out. Windows are fractions of the clip's length (0..1); a start
- * below 0 leaves that window out. Tools/Data/Anims/manifest.json gives these per clip, with per-role
- * defaults in Tools/Editor/import_combat_anims.py.
+ * How one combat montage is laid out. Windows are fractions of the source sequence's length (0..1); a
+ * start below 0 leaves that window out. The montage may play only part of the sequence
+ * (ClipStartSeconds to ClipEndSeconds) at PlayRate, which the builder bakes into the montage's segment,
+ * so the montage itself is short and fast and plays at rate 1; the windows are mapped from the
+ * sequence's time into the montage's ((t - ClipStartSeconds) / PlayRate) and clamped inside it.
+ * Tools/Data/Anims/manifest.json gives these per clip, with per-role defaults in
+ * Tools/Editor/import_combat_anims.py.
  */
 USTRUCT(BlueprintType)
 struct HAWKEYE_API FHawkeyeCombatMontageSpec
@@ -45,6 +49,18 @@ struct HAWKEYE_API FHawkeyeCombatMontageSpec
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Montage")
 	FName WarpTargetName = FName(TEXT("CombatTarget"));
+
+	/** Where in the sequence the montage starts, seconds (skips a clip's long wind-up). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Montage", meta = (ClampMin = "0.0"))
+	float ClipStartSeconds = 0.f;
+
+	/** Where in the sequence the montage ends, seconds. At or below ClipStartSeconds: the sequence's end. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Montage")
+	float ClipEndSeconds = -1.f;
+
+	/** The segment's play rate, baked into the montage (a 1.6 here makes a 0.8 s stretch a 0.5 s montage). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Montage", meta = (ClampMin = "0.05"))
+	float PlayRate = 1.f;
 
 	/** The one section loops (BowAimIdle). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Montage")
@@ -85,8 +101,10 @@ public:
 		const FHawkeyeCombatMontageSpec& Spec);
 
 	/**
-	 * "slot=DefaultSlot hit=0.18-0.30 combo=0.35-0.60 warp=0.00-0.18 loop=0 hold=0 length=1.20" for the
-	 * verify scripts and the import log. Times in seconds; a missing window reads "-".
+	 * "slot=DefaultSlot hit=0.18-0.30 combo=0.35-0.60 warp=0.00-0.18 loop=0 hold=0 rootmotion=1
+	 * clip=0.60-1.70x1.70 length=0.65" for the verify scripts and the import log. Times in the montage's
+	 * seconds (what the game sees at rate 1); clip is the stretch of the sequence and its rate; a missing
+	 * window reads "-".
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
 	static FString DescribeMontage(UAnimMontage* Montage);
@@ -95,9 +113,12 @@ public:
 	 * Where Bone is at Time in Sequence's raw data, component space (cm): each bone's own track, or
 	 * its reference pose where it has none, walked up the skeleton's hierarchy by name. The import
 	 * self-test reads poses this way because it does not depend on how the evaluated pose indexes bones.
+	 * bRootLocked puts the skeleton's root bone at its reference pose instead of its track, which is
+	 * where the game holds it (root motion extracted, or the root locked): a clip that parks the
+	 * pelvis's height on the root reads as standing without it and as sitting on the floor with it.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
-	static FVector GetRawBoneLocation(UAnimSequence* Sequence, FName Bone, float Time);
+	static FVector GetRawBoneLocation(UAnimSequence* Sequence, FName Bone, float Time, bool bRootLocked = false);
 
 	/** Bone names of Sequence's skeleton, in hierarchy order. */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")

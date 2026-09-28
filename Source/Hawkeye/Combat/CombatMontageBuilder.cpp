@@ -57,18 +57,61 @@ namespace HawkeyeCombatMontage
 		return Montage.SlotAnimTracks[0].AnimTrack.AnimSegments[0].GetAnimReference();
 	}
 
-	/** One window from Start to End (fractions of Length), clamped inside the clip. Null when Start < 0. */
-	static UAnimNotifyState* AddWindow(UAnimMontage& Montage, float Start, float End, float Length,
+	/** How the montage's one segment plays its sequence: the stretch kept and its rate. */
+	struct FClipMap
+	{
+		float SequenceLength = 0.f;
+		float Start = 0.f;
+		float Rate = 1.f;
+		float MontageLength = 0.f;
+
+		/** A fraction of the sequence as montage seconds, clamped inside the montage. */
+		float ToMontage(float Fraction) const
+		{
+			return FMath::Clamp((FMath::Clamp(Fraction, 0.f, 1.f) * SequenceLength - Start) / Rate, 0.f, MontageLength);
+		}
+	};
+
+	/** One window from Start to End (fractions of the sequence), mapped into the montage. Null when Start < 0. */
+	static UAnimNotifyState* AddWindow(UAnimMontage& Montage, float Start, float End, const FClipMap& Map,
 		TSubclassOf<UAnimNotifyState> Class)
 	{
-		if (Start < 0.f || Length <= 0.f)
+		if (Start < 0.f || Map.MontageLength <= 0.f)
 		{
 			return nullptr;
 		}
-		const float From = FMath::Clamp(Start, 0.f, 1.f) * Length;
-		const float To = FMath::Clamp(FMath::Max(End, Start + 0.01f), 0.f, 1.f) * Length;
-		return UAnimationBlueprintLibrary::AddAnimationNotifyStateEvent(&Montage, NotifyTrack, From,
-			FMath::Max(To - From, 1.f / 60.f), Class);
+		const float MinSpan = 1.f / 60.f;
+		const float From = FMath::Min(Map.ToMontage(Start), Map.MontageLength - MinSpan);
+		const float To = FMath::Max(Map.ToMontage(FMath::Max(End, Start + 0.01f)), From + MinSpan);
+		return UAnimationBlueprintLibrary::AddAnimationNotifyStateEvent(&Montage, NotifyTrack, FMath::Max(From, 0.f),
+			To - FMath::Max(From, 0.f), Class);
+	}
+
+	/**
+	 * Plays only [Spec.ClipStartSeconds, Spec.ClipEndSeconds] of the sequence at Spec.PlayRate, through the
+	 * montage's own segment (what the montage editor's Start Time, End Time and Play Rate set), and makes
+	 * the montage as long as that. Every build sets all three, so a relayout with no trim restores the whole clip.
+	 */
+	static FClipMap ApplyClip(UAnimMontage& Montage, const UAnimSequence& Sequence, const FHawkeyeCombatMontageSpec& Spec)
+	{
+		FClipMap Map;
+		Map.SequenceLength = Sequence.GetPlayLength();
+		Map.Start = FMath::Clamp(Spec.ClipStartSeconds, 0.f, FMath::Max(Map.SequenceLength - 1.f / 30.f, 0.f));
+		const float End = Spec.ClipEndSeconds > Map.Start ? FMath::Min(Spec.ClipEndSeconds, Map.SequenceLength) : Map.SequenceLength;
+		Map.Rate = FMath::Max(Spec.PlayRate, 0.05f);
+		FAnimSegment& Segment = Montage.SlotAnimTracks[0].AnimTrack.AnimSegments[0];
+		Segment.StartPos = 0.f;
+		Segment.AnimStartTime = Map.Start;
+		Segment.AnimEndTime = FMath::Max(End, Map.Start + 1.f / 30.f);
+		Segment.AnimPlayRate = Map.Rate;
+		Segment.LoopingCount = 1;
+		Montage.SetCompositeLength(Montage.CalculateSequenceLength());
+		if (Montage.CompositeSections.Num() > 0)
+		{
+			Montage.CompositeSections[0].SetTime(0.f);
+		}
+		Map.MontageLength = Montage.GetPlayLength();
+		return Map;
 	}
 
 	static FString WindowText(UAnimSequenceBase* Animation, const UClass* Class)
@@ -113,13 +156,15 @@ UAnimMontage* UHawkeyeCombatMontageBuilder::BuildCombatMontage(UAnimSequence* Se
 	Montage->Notifies.Reset();
 	Montage->AnimNotifyTracks.Reset();
 	UAnimationBlueprintLibrary::AddAnimationNotifyTrack(Montage, NotifyTrack);
-	const float Length = Montage->GetPlayLength();
-	AddWindow(*Montage, Spec.HitStart, Spec.HitEnd, Length, UAnimNotifyState_HitWindow::StaticClass());
-	AddWindow(*Montage, Spec.ComboStart, Spec.ComboEnd, Length, UAnimNotifyState_ComboWindow::StaticClass());
+	const FClipMap Map = ApplyClip(*Montage, *Sequence, Spec);
+	AddWindow(*Montage, Spec.HitStart, Spec.HitEnd, Map, UAnimNotifyState_HitWindow::StaticClass());
+	AddWindow(*Montage, Spec.ComboStart, Spec.ComboEnd, Map, UAnimNotifyState_ComboWindow::StaticClass());
 	if (Spec.WarpEnd > 0.f)
 	{
+		// From the montage's first frame, whatever stretch of the clip it starts on.
 		UAnimNotifyState_MotionWarping* Warp = Cast<UAnimNotifyState_MotionWarping>(
-			AddWindow(*Montage, 0.f, Spec.WarpEnd, Length, UAnimNotifyState_MotionWarping::StaticClass()));
+			AddWindow(*Montage, Map.Start / FMath::Max(Map.SequenceLength, UE_KINDA_SMALL_NUMBER), Spec.WarpEnd, Map,
+				UAnimNotifyState_MotionWarping::StaticClass()));
 		if (Warp)
 		{
 			URootMotionModifier_SkewWarp* Skew = NewObject<URootMotionModifier_SkewWarp>(Warp, NAME_None, RF_Transactional);
@@ -162,17 +207,23 @@ FString UHawkeyeCombatMontageBuilder::DescribeMontage(UAnimMontage* Montage)
 	const FName Slot = Montage->SlotAnimTracks.Num() > 0 ? Montage->SlotAnimTracks[0].SlotName : NAME_None;
 	const bool bLoop = Montage->CompositeSections.Num() > 0
 		&& Montage->CompositeSections[0].NextSectionName == Montage->CompositeSections[0].SectionName;
-	return FString::Printf(TEXT("slot=%s hit=%s combo=%s warp=%s loop=%d hold=%d rootmotion=%d length=%.2f"), *Slot.ToString(),
+	FString Clip(TEXT("-"));
+	if (Montage->SlotAnimTracks.Num() > 0 && Montage->SlotAnimTracks[0].AnimTrack.AnimSegments.Num() > 0)
+	{
+		const FAnimSegment& Segment = Montage->SlotAnimTracks[0].AnimTrack.AnimSegments[0];
+		Clip = FString::Printf(TEXT("%.2f-%.2fx%.2f"), Segment.AnimStartTime, Segment.AnimEndTime, Segment.AnimPlayRate);
+	}
+	return FString::Printf(TEXT("slot=%s hit=%s combo=%s warp=%s loop=%d hold=%d rootmotion=%d clip=%s length=%.2f"), *Slot.ToString(),
 		*WindowText(Montage, UAnimNotifyState_HitWindow::StaticClass()),
 		*WindowText(Montage, UAnimNotifyState_ComboWindow::StaticClass()),
 		*WindowText(Montage, UAnimNotifyState_MotionWarping::StaticClass()), bLoop ? 1 : 0,
-		Montage->bEnableAutoBlendOut ? 0 : 1, Montage->HasRootMotion() ? 1 : 0, Montage->GetPlayLength());
+		Montage->bEnableAutoBlendOut ? 0 : 1, Montage->HasRootMotion() ? 1 : 0, *Clip, Montage->GetPlayLength());
 #else
 	return Montage->GetName();
 #endif
 }
 
-FVector UHawkeyeCombatMontageBuilder::GetRawBoneLocation(UAnimSequence* Sequence, FName Bone, float Time)
+FVector UHawkeyeCombatMontageBuilder::GetRawBoneLocation(UAnimSequence* Sequence, FName Bone, float Time, bool bRootLocked)
 {
 #if WITH_EDITOR
 	const USkeleton* Skeleton = Sequence ? Sequence->GetSkeleton() : nullptr;
@@ -187,7 +238,8 @@ FVector UHawkeyeCombatMontageBuilder::GetRawBoneLocation(UAnimSequence* Sequence
 	for (int32 Index = Reference.FindBoneIndex(Bone); Index != INDEX_NONE; Index = Reference.GetParentIndex(Index))
 	{
 		const FName Name = Reference.GetBoneName(Index);
-		const FTransform Local = Model->IsValidBoneTrackName(Name)
+		const bool bLockedRoot = bRootLocked && Reference.GetParentIndex(Index) == INDEX_NONE;
+		const FTransform Local = !bLockedRoot && Model->IsValidBoneTrackName(Name)
 			? Model->EvaluateBoneTrackTransform(Name, Frame, EAnimInterpolationType::Linear)
 			: Reference.GetRefBonePose()[Index];
 		Accumulated = Accumulated * Local;
