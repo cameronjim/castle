@@ -35,6 +35,18 @@ enum class EHawkeyeColorPalette : uint8
 };
 
 /**
+ * The district's light: the moonlit night the chapters are set in, or a plain winter day for seeing the
+ * block. UTimeOfDaySubsystem holds what each one sets. New states (dusk, dawn) go on the end so saved
+ * values keep their meaning.
+ */
+UENUM(BlueprintType)
+enum class EHawkeyeTimeOfDay : uint8
+{
+	Night,
+	Day
+};
+
+/**
  * Every player-facing option, in one struct, so the save file is one blob and the Settings
  * screen has one thing to read. Adding an option means a new field here and a Version bump;
  * an old save then fails the version check and the player gets defaults rather than garbage.
@@ -117,10 +129,20 @@ struct HAWKEYE_API FHawkeyeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Flashbacks")
 	TArray<FSoftObjectPath> SeenFlashbacks;
 
+	/** Night (the story's) or Day. Applied live by UTimeOfDaySubsystem; -TimeOfDay= overrides it unsaved. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|World")
+	EHawkeyeTimeOfDay TimeOfDay = EHawkeyeTimeOfDay::Night;
+
 	/** Bumped whenever the meaning of a field changes. A mismatch on load yields defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-	int32 Version = 5;
+	int32 Version = 6;
 
-	/** The version this build writes and accepts. A save from an older version yields defaults. */
-	static constexpr int32 CurrentVersion = 5;
+	/** The version this build writes and accepts. */
+	static constexpr int32 CurrentVersion = 6;
+
+	/**
+	 * The oldest save this build migrates rather than dropping: version 5 lacks only TimeOfDay, which
+	 * loads as its default (Night), so everything else the player set is kept. Older yields defaults.
+	 */
+	static constexpr int32 OldestMigratedVersion = 5;
 };

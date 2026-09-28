@@ -1,0 +1,699 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#include "World/TimeOfDaySubsystem.h"
+
+#include "Hawkeye.h"
+#include "Components/DirectionalLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
+#include "Components/LightComponent.h"
+#include "Components/MeshComponent.h"
+#include "Components/SkyLightComponent.h"
+#include "Engine/DirectionalLight.h"
+#include "Engine/Engine.h"
+#include "Engine/ExponentialHeightFog.h"
+#include "Engine/PostProcessVolume.h"
+#include "Engine/SkyLight.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "HAL/IConsoleManager.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "Settings/HawkeyeSettingsSubsystem.h"
+#include "Vfx/SnowfallComponent.h"
+
+namespace HawkeyeTimeOfDay
+{
+	static const FName InteriorTag(TEXT("Interior"));
+	static const FName StarsTag(TEXT("CityNightSky"));
+	static const FName LampTag(TEXT("CityLamp"));
+	/** M_Facade's lit-window strength (Tools/Editor/_materials.py). */
+	static const FName WindowGlowParameter(TEXT("WindowGlow"));
+	/** A lamp head's glow (M_LampHead's EMISSIVE_INTENSITY_PARAM), the one the EMP also dims. */
+	static const FName LampGlowParameter(TEXT("Intensity"));
+
+	/**
+	 * The day. The sun 35 degrees up in the south-west (Unreal X is east and Y south, so it shines
+	 * toward the north-east, yaw -45), a warm white 7 lux. Exposure stays pinned at 1.0 EV100 as at
+	 * night; the bias drops from the night's +2 to -0.5 so snow in full sun sits just under white, and the
+	 * sky light at 6 (twice the night's) fills the streets the low sun leaves in shade. Tuned on day_street.png.
+	 */
+	static FTimeOfDayPreset MakeDay()
+	{
+		FTimeOfDayPreset Day;
+		Day.SunRotation = FRotator(-35.f, -45.f, 0.f);
+		Day.SunLux = 7.f;
+		Day.SunColor = FLinearColor(1.f, 0.95f, 0.88f);
+		Day.SunDiskColorScale = FLinearColor::White;
+		Day.SkyLightIntensity = 6.f;
+		Day.SkyLightColor = FLinearColor(0.95f, 0.97f, 1.f);
+		Day.FogDensity = 0.002f;
+		Day.FogInscattering = FLinearColor(0.10f, 0.13f, 0.17f);
+		Day.FogStartDistance = 3000.f;
+		Day.ExposureBias = -0.5f;
+		Day.GainShadows = FVector4(1.f, 1.f, 1.f, 1.f);
+		Day.GainHighlights = FVector4(1.f, 1.f, 1.f, 1.f);
+		Day.Vignette = 0.2f;
+		Day.bStars = false;
+		Day.LampScale = 0.f;
+		Day.WindowGlowScale = 0.25f;
+		return Day;
+	}
+
+	/** -TimeOfDay= as parsed at first use, replaceable by tests. */
+	static TOptional<EHawkeyeTimeOfDay>& CommandLineOverride()
+	{
+		static TOptional<EHawkeyeTimeOfDay> Parsed = UTimeOfDaySubsystem::ParseCommandLine(FCommandLine::Get());
+		return Parsed;
+	}
+
+	static TOptional<EHawkeyeTimeOfDay> ConsoleOverride;
+
+	static void RefreshAllWorlds()
+	{
+		if (!GEngine)
+		{
+			return;
+		}
+		for (const FWorldContext& Context : GEngine->GetWorldContexts())
+		{
+			UWorld* World = Context.World();
+			if (World && (Context.WorldType == EWorldType::Game || Context.WorldType == EWorldType::PIE))
+			{
+				if (UTimeOfDaySubsystem* Subsystem = World->GetSubsystem<UTimeOfDaySubsystem>())
+				{
+					Subsystem->Refresh();
+				}
+			}
+		}
+	}
+
+	static UWorld* FirstGameWorld()
+	{
+		if (GEngine)
+		{
+			for (const FWorldContext& Context : GEngine->GetWorldContexts())
+			{
+				if (Context.World() && (Context.WorldType == EWorldType::Game || Context.WorldType == EWorldType::PIE))
+				{
+					return Context.World();
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	static FAutoConsoleCommand TimeOfDayCommand(
+		TEXT("hawkeye.TimeOfDay"),
+		TEXT("hawkeye.TimeOfDay Day|Night relights the district now without saving (it wins over the setting and ")
+		TEXT("-TimeOfDay= until the Settings row is changed). hawkeye.TimeOfDay Saved drops it. No argument prints ")
+		TEXT("the time of day in force."),
+		FConsoleCommandWithArgsDelegate::CreateLambda([](const TArray<FString>& Args)
+		{
+			if (Args.Num() == 0)
+			{
+				const EHawkeyeTimeOfDay InForce = UHawkeyeSettingsSubsystem::GetCurrentSettings(FirstGameWorld()).TimeOfDay;
+				UE_LOG(LogHawkeye, Display, TEXT("hawkeye.TimeOfDay: %s%s."),
+					*UTimeOfDaySubsystem::GetTimeOfDayName(InForce).ToString(),
+					ConsoleOverride.IsSet() ? TEXT(" (console override)") : TEXT(""));
+				return;
+			}
+			if (Args[0].Equals(TEXT("Saved"), ESearchCase::IgnoreCase))
+			{
+				UTimeOfDaySubsystem::SetConsoleOverride({});
+				return;
+			}
+			EHawkeyeTimeOfDay State = EHawkeyeTimeOfDay::Night;
+			if (!UTimeOfDaySubsystem::ParseTimeOfDay(Args[0], State))
+			{
+				UE_LOG(LogHawkeye, Warning, TEXT("hawkeye.TimeOfDay: '%s' is not Day, Night or Saved."), *Args[0]);
+				return;
+			}
+			UTimeOfDaySubsystem::SetConsoleOverride(State);
+		}));
+}
+
+UTimeOfDaySubsystem* UTimeOfDaySubsystem::Get(const UObject* WorldContextObject)
+{
+	const UWorld* World = GEngine
+		? GEngine->GetWorldFromContextObject(WorldContextObject, EGetWorldErrorMode::ReturnNull)
+		: nullptr;
+	return World ? World->GetSubsystem<UTimeOfDaySubsystem>() : nullptr;
+}
+
+bool UTimeOfDaySubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const
+{
+	return WorldType == EWorldType::Game || WorldType == EWorldType::PIE;
+}
+
+void UTimeOfDaySubsystem::OnWorldBeginPlay(UWorld& InWorld)
+{
+	Super::OnWorldBeginPlay(InWorld);
+
+	// Interiors and flashback scenes have no outdoor weather and their own light; they stay as built.
+	if (!USnowfallComponent::ShouldSnowIn(&InWorld))
+	{
+		return;
+	}
+
+	if (UHawkeyeSettingsSubsystem* Settings = UHawkeyeSettingsSubsystem::Get(&InWorld))
+	{
+		Settings->OnSettingsChanged.AddUniqueDynamic(this, &UTimeOfDaySubsystem::HandleSettingsChanged);
+		bListening = true;
+	}
+
+	const EHawkeyeTimeOfDay InForce = UHawkeyeSettingsSubsystem::GetCurrentSettings(&InWorld).TimeOfDay;
+	if (InForce != EHawkeyeTimeOfDay::Night)
+	{
+		Apply(InForce);
+	}
+}
+
+void UTimeOfDaySubsystem::Deinitialize()
+{
+	if (bListening)
+	{
+		if (UHawkeyeSettingsSubsystem* Settings = UHawkeyeSettingsSubsystem::Get(GetWorld()))
+		{
+			Settings->OnSettingsChanged.RemoveDynamic(this, &UTimeOfDaySubsystem::HandleSettingsChanged);
+		}
+		bListening = false;
+	}
+	Super::Deinitialize();
+}
+
+void UTimeOfDaySubsystem::HandleSettingsChanged(FHawkeyeSettings NewSettings)
+{
+	if (NewSettings.TimeOfDay != Applied)
+	{
+		Apply(NewSettings.TimeOfDay);
+	}
+}
+
+void UTimeOfDaySubsystem::Refresh()
+{
+	const UWorld* World = GetWorld();
+	if (!World || !USnowfallComponent::ShouldSnowIn(World))
+	{
+		return;
+	}
+	const EHawkeyeTimeOfDay InForce = UHawkeyeSettingsSubsystem::GetCurrentSettings(World).TimeOfDay;
+	if (InForce != Applied)
+	{
+		Apply(InForce);
+	}
+}
+
+void UTimeOfDaySubsystem::Apply(EHawkeyeTimeOfDay State)
+{
+	if (!bCaptured)
+	{
+		Capture();
+	}
+
+	const FTimeOfDayPreset Preset = GetPreset(State);
+	if (Preset.bUseAuthored)
+	{
+		RestoreAuthored();
+	}
+	else
+	{
+		ApplyPreset(Preset);
+	}
+	Applied = State;
+
+	UE_LOG(LogHawkeye, Log,
+		TEXT("%s: %s (sun %d, sky light %d, fog %d, post process %d, stars %d, %d lamp lights, %d lamp heads, %d facade materials)."),
+		*GetNameSafe(GetWorld()), *GetTimeOfDayName(State).ToString(), Sun.IsValid() ? 1 : 0, SkyLight.IsValid() ? 1 : 0,
+		Fog.IsValid() ? 1 : 0, PostProcess.IsValid() ? 1 : 0, Stars.IsValid() ? 1 : 0, LampLights.Num(), LampGlows.Num(),
+		WindowMaterials.Num());
+}
+
+AActor* UTimeOfDaySubsystem::FindScenePiece(const TCHAR* Label, UClass* Class) const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+	AActor* FirstOfClass = nullptr;
+	for (TActorIterator<AActor> It(World, Class); It; ++It)
+	{
+		AActor* Actor = *It;
+		if (Actor->Tags.Contains(HawkeyeTimeOfDay::InteriorTag))
+		{
+			continue;
+		}
+#if WITH_EDITOR
+		if (Actor->GetActorLabel(false) == Label)
+		{
+			return Actor;
+		}
+#endif
+		if (Actor->GetFName() == FName(Label))
+		{
+			return Actor;
+		}
+		if (!FirstOfClass)
+		{
+			FirstOfClass = Actor;
+		}
+	}
+	return FirstOfClass;
+}
+
+void UTimeOfDaySubsystem::Capture()
+{
+	bCaptured = true;
+
+	if (const ADirectionalLight* Moon = Cast<ADirectionalLight>(FindScenePiece(TEXT("Moon"), ADirectionalLight::StaticClass())))
+	{
+		Sun = Cast<UDirectionalLightComponent>(Moon->GetLightComponent());
+	}
+	if (UDirectionalLightComponent* Light = Sun.Get())
+	{
+		Authored.SunRotation = Light->GetComponentRotation();
+		Authored.SunLux = Light->Intensity;
+		Authored.SunColor = Light->LightColor;
+		Authored.SunDiskColorScale = Light->GetAtmosphereSunDiskColorScale();
+		Authored.bSunUseTemperature = Light->bUseTemperature;
+	}
+
+	if (const ASkyLight* Sky = Cast<ASkyLight>(FindScenePiece(TEXT("SkyLight"), ASkyLight::StaticClass())))
+	{
+		SkyLight = Sky->GetLightComponent();
+	}
+	if (const USkyLightComponent* Light = SkyLight.Get())
+	{
+		Authored.SkyLightIntensity = Light->Intensity;
+		Authored.SkyLightColor = Light->LightColor;
+	}
+
+	if (const AExponentialHeightFog* HeightFog =
+			Cast<AExponentialHeightFog>(FindScenePiece(TEXT("HeightFog"), AExponentialHeightFog::StaticClass())))
+	{
+		Fog = HeightFog->GetComponent();
+	}
+	if (const UExponentialHeightFogComponent* Haze = Fog.Get())
+	{
+		Authored.FogDensity = Haze->FogDensity;
+		Authored.FogInscattering = Haze->FogInscatteringLuminance;
+		Authored.FogStartDistance = Haze->StartDistance;
+	}
+
+	// PP_Global by label; otherwise the first unbound volume (a bounded one is a room's, not the sky's).
+	APostProcessVolume* Global = nullptr;
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<APostProcessVolume> It(World); It; ++It)
+		{
+			if (It->Tags.Contains(HawkeyeTimeOfDay::InteriorTag))
+			{
+				continue;
+			}
+#if WITH_EDITOR
+			if (It->GetActorLabel(false) == TEXT("PP_Global"))
+			{
+				Global = *It;
+				break;
+			}
+#endif
+			if (!Global && It->bUnbound)
+			{
+				Global = *It;
+			}
+		}
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (It->Tags.Contains(HawkeyeTimeOfDay::StarsTag) && !It->Tags.Contains(HawkeyeTimeOfDay::InteriorTag))
+			{
+				Stars = *It;
+				break;
+			}
+		}
+	}
+	PostProcess = Global;
+	if (const APostProcessVolume* Volume = PostProcess.Get())
+	{
+		const FPostProcessSettings& Settings = Volume->Settings;
+		Authored.bOverrideExposureBias = Settings.bOverride_AutoExposureBias;
+		Authored.ExposureBias = Settings.AutoExposureBias;
+		Authored.bOverrideGainShadows = Settings.bOverride_ColorGainShadows;
+		Authored.GainShadows = Settings.ColorGainShadows;
+		Authored.bOverrideGainHighlights = Settings.bOverride_ColorGainHighlights;
+		Authored.GainHighlights = Settings.ColorGainHighlights;
+		Authored.bOverrideVignette = Settings.bOverride_VignetteIntensity;
+		Authored.Vignette = Settings.VignetteIntensity;
+	}
+	if (const AActor* Sphere = Stars.Get())
+	{
+		Authored.bStarsHidden = Sphere->IsHidden();
+	}
+
+	CaptureLamps();
+	CaptureWindows();
+}
+
+void UTimeOfDaySubsystem::CaptureLamps()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (!It->Tags.Contains(HawkeyeTimeOfDay::LampTag) || It->Tags.Contains(HawkeyeTimeOfDay::InteriorTag))
+		{
+			continue;
+		}
+		TArray<ULightComponent*> Lights;
+		It->GetComponents<ULightComponent>(Lights);
+		for (ULightComponent* Light : Lights)
+		{
+			if (Light)
+			{
+				LampLights.Emplace(Light, Light->Intensity);
+			}
+		}
+		TArray<UMeshComponent*> Meshes;
+		It->GetComponents<UMeshComponent>(Meshes);
+		for (UMeshComponent* Mesh : Meshes)
+		{
+			float Glow = 0.f;
+			UMaterialInterface* Material = Mesh ? Mesh->GetMaterial(0) : nullptr;
+			if (!Material || !Material->GetScalarParameterValue(FHashedMaterialParameterInfo(HawkeyeTimeOfDay::LampGlowParameter), Glow)
+				|| Glow <= 0.f)
+			{
+				continue;
+			}
+			// The same dynamic instance the EMP dims (CreateDynamicMaterialInstance reuses one already there).
+			if (UMaterialInstanceDynamic* Dynamic = Mesh->CreateDynamicMaterialInstance(0))
+			{
+				FLampGlow Entry;
+				Entry.Material = Dynamic;
+				Entry.Intensity = Glow;
+				LampGlows.Add(Entry);
+			}
+		}
+	}
+}
+
+void UTimeOfDaySubsystem::CaptureWindows()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	// One entry per facade material, however many buildings wear it.
+	TMap<UMaterialInterface*, int32> ByMaterial;
+	TSet<UMaterialInterface*> NotFacades;
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (It->Tags.Contains(HawkeyeTimeOfDay::InteriorTag) || It->Tags.Contains(HawkeyeTimeOfDay::LampTag))
+		{
+			continue;
+		}
+		TArray<UMeshComponent*> Meshes;
+		It->GetComponents<UMeshComponent>(Meshes);
+		for (UMeshComponent* Mesh : Meshes)
+		{
+			const int32 Count = Mesh ? Mesh->GetNumMaterials() : 0;
+			for (int32 Slot = 0; Slot < Count; ++Slot)
+			{
+				UMaterialInterface* Material = Mesh->GetMaterial(Slot);
+				if (!Material || NotFacades.Contains(Material))
+				{
+					continue;
+				}
+				int32* Index = ByMaterial.Find(Material);
+				if (!Index)
+				{
+					float Glow = 0.f;
+					if (!Material->GetScalarParameterValue(FHashedMaterialParameterInfo(HawkeyeTimeOfDay::WindowGlowParameter), Glow))
+					{
+						NotFacades.Add(Material);
+						continue;
+					}
+					FWindowMaterial Entry;
+					Entry.Authored = Material;
+					Entry.Glow = Glow;
+					Index = &ByMaterial.Add(Material, WindowMaterials.Add(Entry));
+				}
+				WindowMaterials[*Index].Slots.Emplace(Mesh, Slot);
+			}
+		}
+	}
+}
+
+void UTimeOfDaySubsystem::RestoreAuthored()
+{
+	if (UDirectionalLightComponent* Light = Sun.Get())
+	{
+		if (AActor* Owner = Light->GetOwner(); Owner && Owner->GetRootComponent() == Light)
+		{
+			Owner->SetActorRotation(Authored.SunRotation);
+		}
+		else
+		{
+			Light->SetWorldRotation(Authored.SunRotation);
+		}
+		Light->SetIntensity(Authored.SunLux);
+		Light->bUseTemperature = Authored.bSunUseTemperature;
+		Light->SetLightFColor(Authored.SunColor);
+		Light->SetAtmosphereSunDiskColorScale(Authored.SunDiskColorScale);
+	}
+	if (USkyLightComponent* Light = SkyLight.Get())
+	{
+		Light->SetIntensity(Authored.SkyLightIntensity);
+		// FColor -> linear -> FColor through the sRGB tables is exact, so this is the authored byte triple.
+		Light->SetLightColor(FLinearColor(Authored.SkyLightColor));
+	}
+	if (UExponentialHeightFogComponent* Haze = Fog.Get())
+	{
+		Haze->SetFogDensity(Authored.FogDensity);
+		Haze->SetFogInscatteringColor(Authored.FogInscattering);
+		Haze->SetStartDistance(Authored.FogStartDistance);
+	}
+	if (APostProcessVolume* Volume = PostProcess.Get())
+	{
+		FPostProcessSettings& Settings = Volume->Settings;
+		Settings.bOverride_AutoExposureBias = Authored.bOverrideExposureBias;
+		Settings.AutoExposureBias = Authored.ExposureBias;
+		Settings.bOverride_ColorGainShadows = Authored.bOverrideGainShadows;
+		Settings.ColorGainShadows = Authored.GainShadows;
+		Settings.bOverride_ColorGainHighlights = Authored.bOverrideGainHighlights;
+		Settings.ColorGainHighlights = Authored.GainHighlights;
+		Settings.bOverride_VignetteIntensity = Authored.bOverrideVignette;
+		Settings.VignetteIntensity = Authored.Vignette;
+	}
+	if (AActor* Sphere = Stars.Get())
+	{
+		Sphere->SetActorHiddenInGame(Authored.bStarsHidden);
+	}
+	for (const TPair<TWeakObjectPtr<ULightComponent>, float>& Lamp : LampLights)
+	{
+		if (ULightComponent* Light = Lamp.Key.Get())
+		{
+			Light->SetIntensity(Lamp.Value);
+		}
+	}
+	for (const FLampGlow& Glow : LampGlows)
+	{
+		if (UMaterialInstanceDynamic* Material = Glow.Material.Get())
+		{
+			Material->SetScalarParameterValue(HawkeyeTimeOfDay::LampGlowParameter, Glow.Intensity);
+		}
+	}
+	// The facades get their own materials back, not a copy at full glow.
+	for (const FWindowMaterial& Window : WindowMaterials)
+	{
+		UMaterialInterface* Material = Window.Authored.Get();
+		for (const TPair<TWeakObjectPtr<UMeshComponent>, int32>& Slot : Window.Slots)
+		{
+			UMeshComponent* Mesh = Slot.Key.Get();
+			if (Mesh && Material && Mesh->GetMaterial(Slot.Value) != Material)
+			{
+				Mesh->SetMaterial(Slot.Value, Material);
+			}
+		}
+	}
+}
+
+void UTimeOfDaySubsystem::ApplyPreset(const FTimeOfDayPreset& Preset)
+{
+	if (UDirectionalLightComponent* Light = Sun.Get())
+	{
+		if (AActor* Owner = Light->GetOwner(); Owner && Owner->GetRootComponent() == Light)
+		{
+			Owner->SetActorRotation(Preset.SunRotation);
+		}
+		else
+		{
+			Light->SetWorldRotation(Preset.SunRotation);
+		}
+		Light->SetIntensity(Preset.SunLux);
+		Light->bUseTemperature = false;
+		Light->SetLightColor(Preset.SunColor);
+		Light->SetAtmosphereSunDiskColorScale(Preset.SunDiskColorScale);
+	}
+	if (USkyLightComponent* Light = SkyLight.Get())
+	{
+		Light->SetIntensity(Preset.SkyLightIntensity);
+		Light->SetLightColor(Preset.SkyLightColor);
+	}
+	if (UExponentialHeightFogComponent* Haze = Fog.Get())
+	{
+		Haze->SetFogDensity(Preset.FogDensity);
+		Haze->SetFogInscatteringColor(Preset.FogInscattering);
+		Haze->SetStartDistance(Preset.FogStartDistance);
+	}
+	if (APostProcessVolume* Volume = PostProcess.Get())
+	{
+		FPostProcessSettings& Settings = Volume->Settings;
+		Settings.bOverride_AutoExposureBias = true;
+		Settings.AutoExposureBias = Preset.ExposureBias;
+		Settings.bOverride_ColorGainShadows = true;
+		Settings.ColorGainShadows = Preset.GainShadows;
+		Settings.bOverride_ColorGainHighlights = true;
+		Settings.ColorGainHighlights = Preset.GainHighlights;
+		Settings.bOverride_VignetteIntensity = true;
+		Settings.VignetteIntensity = Preset.Vignette;
+	}
+	if (AActor* Sphere = Stars.Get())
+	{
+		Sphere->SetActorHiddenInGame(!Preset.bStars);
+	}
+	for (const TPair<TWeakObjectPtr<ULightComponent>, float>& Lamp : LampLights)
+	{
+		if (ULightComponent* Light = Lamp.Key.Get())
+		{
+			Light->SetIntensity(Lamp.Value * Preset.LampScale);
+		}
+	}
+	for (const FLampGlow& Glow : LampGlows)
+	{
+		if (UMaterialInstanceDynamic* Material = Glow.Material.Get())
+		{
+			Material->SetScalarParameterValue(HawkeyeTimeOfDay::LampGlowParameter, Glow.Intensity * Preset.LampScale);
+		}
+	}
+
+	// One dimmed copy per facade material, swapped into every slot that wore the original.
+	WindowDimmers.SetNum(WindowMaterials.Num());
+	for (int32 Index = 0; Index < WindowMaterials.Num(); ++Index)
+	{
+		const FWindowMaterial& Window = WindowMaterials[Index];
+		UMaterialInterface* Material = Window.Authored.Get();
+		if (!Material)
+		{
+			continue;
+		}
+		if (!WindowDimmers[Index])
+		{
+			WindowDimmers[Index] = UMaterialInstanceDynamic::Create(Material, this);
+		}
+		UMaterialInstanceDynamic* Dimmer = WindowDimmers[Index];
+		Dimmer->SetScalarParameterValue(HawkeyeTimeOfDay::WindowGlowParameter, Window.Glow * Preset.WindowGlowScale);
+		for (const TPair<TWeakObjectPtr<UMeshComponent>, int32>& Slot : Window.Slots)
+		{
+			UMeshComponent* Mesh = Slot.Key.Get();
+			if (Mesh && Mesh->GetMaterial(Slot.Value) != Dimmer)
+			{
+				Mesh->SetMaterial(Slot.Value, Dimmer);
+			}
+		}
+	}
+}
+
+FTimeOfDayPreset UTimeOfDaySubsystem::GetPreset(EHawkeyeTimeOfDay State)
+{
+	switch (State)
+	{
+	case EHawkeyeTimeOfDay::Day:
+		return HawkeyeTimeOfDay::MakeDay();
+	default:
+	{
+		FTimeOfDayPreset Night;
+		Night.bUseAuthored = true;
+		Night.bStars = true;
+		return Night;
+	}
+	}
+}
+
+EHawkeyeTimeOfDay UTimeOfDaySubsystem::ResolveTimeOfDay(EHawkeyeTimeOfDay Stored)
+{
+	if (HawkeyeTimeOfDay::ConsoleOverride.IsSet())
+	{
+		return HawkeyeTimeOfDay::ConsoleOverride.GetValue();
+	}
+	const TOptional<EHawkeyeTimeOfDay>& CommandLine = HawkeyeTimeOfDay::CommandLineOverride();
+	return CommandLine.IsSet() ? CommandLine.GetValue() : Stored;
+}
+
+bool UTimeOfDaySubsystem::ParseTimeOfDay(const FString& Text, EHawkeyeTimeOfDay& OutState)
+{
+	const FString Trimmed = Text.TrimStartAndEnd();
+	if (Trimmed.Equals(TEXT("Night"), ESearchCase::IgnoreCase))
+	{
+		OutState = EHawkeyeTimeOfDay::Night;
+		return true;
+	}
+	if (Trimmed.Equals(TEXT("Day"), ESearchCase::IgnoreCase))
+	{
+		OutState = EHawkeyeTimeOfDay::Day;
+		return true;
+	}
+	return false;
+}
+
+FText UTimeOfDaySubsystem::GetTimeOfDayName(EHawkeyeTimeOfDay State)
+{
+	switch (State)
+	{
+	case EHawkeyeTimeOfDay::Day:
+		return NSLOCTEXT("Hawkeye", "TimeOfDayDay", "Day");
+	default:
+		return NSLOCTEXT("Hawkeye", "TimeOfDayNight", "Night");
+	}
+}
+
+void UTimeOfDaySubsystem::SetConsoleOverride(TOptional<EHawkeyeTimeOfDay> Override)
+{
+	if (HawkeyeTimeOfDay::ConsoleOverride == Override)
+	{
+		return;
+	}
+	HawkeyeTimeOfDay::ConsoleOverride = Override;
+	const FString What = Override.IsSet()
+		? FString::Printf(TEXT("%s (not saved)"), *GetTimeOfDayName(Override.GetValue()).ToString())
+		: FString(TEXT("back to the setting"));
+	UE_LOG(LogHawkeye, Log, TEXT("hawkeye.TimeOfDay: %s."), *What);
+	HawkeyeTimeOfDay::RefreshAllWorlds();
+}
+
+TOptional<EHawkeyeTimeOfDay> UTimeOfDaySubsystem::GetConsoleOverride()
+{
+	return HawkeyeTimeOfDay::ConsoleOverride;
+}
+
+TOptional<EHawkeyeTimeOfDay> UTimeOfDaySubsystem::SetCommandLineOverrideForTest(TOptional<EHawkeyeTimeOfDay> Override)
+{
+	TOptional<EHawkeyeTimeOfDay> Previous = HawkeyeTimeOfDay::CommandLineOverride();
+	HawkeyeTimeOfDay::CommandLineOverride() = Override;
+	return Previous;
+}
+
+TOptional<EHawkeyeTimeOfDay> UTimeOfDaySubsystem::ParseCommandLine(const TCHAR* CommandLine)
+{
+	FString Value;
+	EHawkeyeTimeOfDay State = EHawkeyeTimeOfDay::Night;
+	if (CommandLine && FParse::Value(CommandLine, TEXT("TimeOfDay="), Value) && ParseTimeOfDay(Value, State))
+	{
+		return State;
+	}
+	return {};
+}

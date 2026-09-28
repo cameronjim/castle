@@ -9,6 +9,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Settings/DifficultySubsystem.h"
 #include "Settings/HawkeyeSettingsSave.h"
+#include "World/TimeOfDaySubsystem.h"
 
 const TCHAR* UHawkeyeSettingsSubsystem::DefaultSlotName = TEXT("HawkeyeSettings");
 
@@ -175,6 +176,16 @@ void UHawkeyeSettingsSubsystem::SetHudScale(float NewScale)
 	Commit();
 }
 
+EHawkeyeTimeOfDay UHawkeyeSettingsSubsystem::GetTimeOfDay() const
+{
+	return UTimeOfDaySubsystem::ResolveTimeOfDay(Settings.TimeOfDay);
+}
+
+void UHawkeyeSettingsSubsystem::SetTimeOfDay(EHawkeyeTimeOfDay NewTimeOfDay)
+{
+	SetField(Settings.TimeOfDay, NewTimeOfDay);
+}
+
 void UHawkeyeSettingsSubsystem::MarkFlashbackSeen(const FSoftObjectPath& Flashback)
 {
 	if (Flashback.IsNull() || Settings.SeenFlashbacks.Contains(Flashback))
@@ -195,6 +206,7 @@ FHawkeyeSettings UHawkeyeSettingsSubsystem::GetSettings() const
 {
 	FHawkeyeSettings InForce = Settings;
 	InForce.Difficulty = GetDifficulty();
+	InForce.TimeOfDay = GetTimeOfDay();
 	return InForce;
 }
 
@@ -207,6 +219,7 @@ FHawkeyeSettings UHawkeyeSettingsSubsystem::GetCurrentSettings(const UObject* Wo
 	FHawkeyeSettings Fallback = HawkeyeSettingsSubsystem::TestOverride ? *HawkeyeSettingsSubsystem::TestOverride
 		: FHawkeyeSettings();
 	Fallback.Difficulty = UDifficultySubsystem::ResolveDifficulty(Fallback.Difficulty);
+	Fallback.TimeOfDay = UTimeOfDaySubsystem::ResolveTimeOfDay(Fallback.TimeOfDay);
 	return Fallback;
 }
 
@@ -247,7 +260,18 @@ void UHawkeyeSettingsSubsystem::Load()
 		return;
 	}
 
-	if (Loaded->Settings.Version != FHawkeyeSettings::CurrentVersion)
+	const int32 LoadedVersion = Loaded->Settings.Version;
+	if (LoadedVersion >= FHawkeyeSettings::OldestMigratedVersion && LoadedVersion < FHawkeyeSettings::CurrentVersion)
+	{
+		// Every field an older version lacks deserialises as its default (5 -> 6: TimeOfDay, Night), so
+		// the rest of what the player set carries over. ClampSettings stamps the current version.
+		UE_LOG(LogHawkeye, Log, TEXT("Settings slot %s is version %d; migrated to %d."), *Slot, LoadedVersion,
+			FHawkeyeSettings::CurrentVersion);
+		Settings = ClampSettings(Loaded->Settings);
+		return;
+	}
+
+	if (LoadedVersion != FHawkeyeSettings::CurrentVersion)
 	{
 		UE_LOG(LogHawkeye, Warning,
 			TEXT("Settings slot %s is version %d, this build writes %d; using defaults."),

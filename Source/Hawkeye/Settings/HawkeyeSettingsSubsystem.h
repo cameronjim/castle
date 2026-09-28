@@ -137,6 +137,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Settings|Accessibility")
 	static float ClampHudScale(float Value) { return FMath::Clamp(Value, MinHudScale, MaxHudScale); }
 
+	// --- World ---------------------------------------------------------------------------------------
+
+	/**
+	 * The time of day in force: the hawkeye.TimeOfDay console override, else -TimeOfDay= on the command
+	 * line, else the stored choice (UTimeOfDaySubsystem::ResolveTimeOfDay).
+	 */
+	UFUNCTION(BlueprintPure, Category = "Settings|World")
+	EHawkeyeTimeOfDay GetTimeOfDay() const;
+
+	/** Stores, saves and broadcasts; UTimeOfDaySubsystem relights the district on the broadcast. */
+	UFUNCTION(BlueprintCallable, Category = "Settings|World")
+	void SetTimeOfDay(EHawkeyeTimeOfDay NewTimeOfDay);
+
 	/** Adds Flashback to the seen list (once), saves and broadcasts. */
 	UFUNCTION(BlueprintCallable, Category = "Settings|Flashbacks")
 	void MarkFlashbackSeen(const FSoftObjectPath& Flashback);
@@ -148,7 +161,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Settings")
 	void SetSettings(const FHawkeyeSettings& NewSettings);
 
-	/** The options as the game uses them: the stored ones, with the difficulty in force. */
+	/** The options as the game uses them: the stored ones, with the difficulty and time of day in force. */
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	FHawkeyeSettings GetSettings() const;
 
@@ -168,7 +181,10 @@ public:
 	/** Every range clamped into place, and the version this build writes. */
 	static FHawkeyeSettings ClampSettings(const FHawkeyeSettings& InSettings);
 
-	/** Reads the slot. A missing file or a version mismatch leaves defaults in place. */
+	/**
+	 * Reads the slot. A missing file or a version mismatch leaves defaults in place; a save from
+	 * FHawkeyeSettings::OldestMigratedVersion up is migrated (the fields it lacks take their defaults).
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Settings")
 	void Load();
 
