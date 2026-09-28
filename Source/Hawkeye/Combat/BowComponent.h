@@ -161,8 +161,8 @@ public:
 	void ApplyHandsIK();
 
 	/**
-	 * The clips the bow plays over locomotion: BowDraw fitted to the draw, BowAimIdle from full draw,
-	 * BowFire on release, BowNock after it. Null, or empty roles, keep the IK-only bow.
+	 * The clips the bow plays over locomotion: BowDraw at its own pace, BowAimIdle once it is at the
+	 * anchor, BowFire on release, BowNock after it. Null, or empty roles, keep the IK-only bow.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Bow|Animation")
 	void SetAnimSet(UCombatAnimSet* InAnimSet) { AnimSet = InAnimSet; }
@@ -173,6 +173,34 @@ public:
 	/** True while one of the bow clips plays (not blending out): it holds the bow arm, IK fixes the string hand. */
 	UFUNCTION(BlueprintPure, Category = "Bow|Animation")
 	bool IsBowClipPlaying() const;
+
+	/** The bow clip last started (it may be blending out), or null. */
+	UAnimMontage* GetBowClip() const { return BowClip; }
+
+	/** The role of GetBowClip, or None. */
+	ECombatAnimRole GetBowClipRole() const { return static_cast<ECombatAnimRole>(BowClipRole); }
+
+	/**
+	 * 0..1, how much a bow clip holds the arms right now: the UpperBody slot's weight on the owner mesh's
+	 * post-process instance, blends included. 0 with no clip (the IK-only bow).
+	 */
+	float GetBowClipWeight() const;
+
+	/**
+	 * The bow clip to move on to from Current (gameplay-semantics.md, "Combat animation clips"): BowAimIdle
+	 * once a draw's BowDraw is at its end (it holds its last frame there), BowNock once a BowFire is over
+	 * while not drawing, else None (stay). Pure.
+	 */
+	static ECombatAnimRole NextBowClip(ECombatAnimRole Current, bool bDrawing, bool bClipAtEnd);
+
+	/** True while the bow belongs in the hand: raised, or held there by bHolsterWhenIdle off, or by a clip still blended in above ClipKeepsBowWeight. Pure. */
+	static bool KeepsBowInHand(bool bRaised, bool bHolsterWhenIdle, float ClipWeight);
+
+	/** Bow clips blend out over this on a let-down, a cancel or a release too early to fire, seconds. */
+	static constexpr float ClipLetDownSeconds = 0.25f;
+
+	/** The bow stays in the hand while a bow clip is blended in above this. */
+	static constexpr float ClipKeepsBowWeight = 0.05f;
 
 	/** Every tick while drawing, and 0 on release or cancel. */
 	UPROPERTY(BlueprintAssignable, Category = "Bow")
@@ -391,13 +419,13 @@ protected:
 	/** Ends the draw; the owner drops the forced aim. */
 	void EndDraw();
 
-	/** Plays Role's bow clip (fitted to FitToSeconds when positive); false when there is none that plays. */
-	bool PlayBowClip(ECombatAnimRole Role, float FitToSeconds = 0.f);
+	/** Plays Role's bow clip at rate 1 (its pace is the clip's own); false when there is none that plays. */
+	bool PlayBowClip(ECombatAnimRole Role);
 
 	/** Blends the bow clip out. */
 	void StopBowClip(float BlendOutSeconds);
 
-	/** Moves the clips on: the held aim at full draw, the nock once the release clip is over. Called from Tick. */
+	/** Moves the clips on (NextBowClip): the held aim once the draw clip is at the anchor, the nock after the release. Called from Tick. */
 	void UpdateBowClip();
 
 	/** Creates or removes the bow and string components to match whether a bow is owned. */

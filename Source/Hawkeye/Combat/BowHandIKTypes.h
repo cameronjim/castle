@@ -64,6 +64,32 @@ struct HAWKEYE_API FBowHandIKSettings
 	/** Bone the bow attaches to when the bow definition's HandSocket is not on this skeleton. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands")
 	FName GripFallbackBone = FName(TEXT("hand_l"));
+
+	// --- Under a bow clip (gameplay-semantics.md, "Combat animation clips") ----------------------------
+
+	/** How far the clip's string hand may be off the arrow line before the IK corrects it at all, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0"))
+	float ClipCorrectionDeadZone = 3.f;
+
+	/** How far off the line the correction reaches its most, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0"))
+	float ClipCorrectionFullDistance = 15.f;
+
+	/** The most the IK ever moves the clip's string hand toward the line: a correction, never an override. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ClipCorrectionMaxAlpha = 0.5f;
+
+	/** The shortest draw the arrow line keeps behind the bow, cm (the string hand at the rest). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0"))
+	float ClipMinDrawLength = 10.f;
+
+	/** The aim offset's yaw is held within this either side of the body, degrees (and within its asset's range). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float MaxAimOffsetYaw = 90.f;
+
+	/** The aim offset's pitch is held within this up and down, degrees (and within its asset's range). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float MaxAimOffsetPitch = 90.f;
 };
 
 /** One frame of hand and elbow targets, in whatever space the aim frame was given in. */

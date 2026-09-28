@@ -1,7 +1,9 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Animation/AimOffsetBlendSpace.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowDefinition.h"
+#include "Combat/CombatAnimSet.h"
 #include "Combat/BowIKAnimInstance.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
@@ -172,6 +174,110 @@ bool FHawkeyeBowIKHandsOnly::RunTest(const FString& Parameters)
 	Hands->UpdateFromBow(Bow, 0.15f);
 	TestEqual(TEXT("Bow hand let go"), Hands->GetBowAlpha(), 0.f, 0.001f);
 	TestEqual(TEXT("String hand let go"), Hands->GetDrawAlpha(), 0.f, 0.001f);
+	return true;
+}
+
+/**
+ * Bow clips at their own pace (gameplay-semantics.md, "Combat animation clips", 2026-09-28): the draw
+ * clip is never stretched to the draw time; the aim clip takes over when the draw clip is at its end,
+ * the nock when the fire clip is over; the bow stays in the hand while a clip still holds the arms.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeBowClipOwnPace, "Hawkeye.BowIK.ClipsPlayAtTheirOwnPace",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeBowClipOwnPace::RunTest(const FString& Parameters)
+{
+	using ERole = ECombatAnimRole;
+	TestTrue(TEXT("A draw clip still pulling stays"), UBowComponent::NextBowClip(ERole::BowDraw, true, false) == ERole::None);
+	TestTrue(TEXT("At the anchor the aim clip takes over, whatever the draw fraction"), UBowComponent::NextBowClip(ERole::BowDraw, true, true) == ERole::BowAimIdle);
+	TestTrue(TEXT("A draw clip let go of is not moved on"), UBowComponent::NextBowClip(ERole::BowDraw, false, true) == ERole::None);
+	TestTrue(TEXT("The aim clip loops until the release"), UBowComponent::NextBowClip(ERole::BowAimIdle, true, true) == ERole::None);
+	TestTrue(TEXT("The fire clip plays out"), UBowComponent::NextBowClip(ERole::BowFire, false, false) == ERole::None);
+	TestTrue(TEXT("Then the nock"), UBowComponent::NextBowClip(ERole::BowFire, false, true) == ERole::BowNock);
+	TestTrue(TEXT("A new draw over the fire clip is the draw's business"), UBowComponent::NextBowClip(ERole::BowFire, true, true) == ERole::None);
+
+	TestTrue(TEXT("Raised: in the hand"), UBowComponent::KeepsBowInHand(true, true, 0.f));
+	TestTrue(TEXT("Holstering off: in the hand"), UBowComponent::KeepsBowInHand(false, false, 0.f));
+	TestTrue(TEXT("A clip still holding the arms keeps it in the hand"), UBowComponent::KeepsBowInHand(false, true, 0.5f));
+	TestFalse(TEXT("Once the clip has let go it goes on the back"), UBowComponent::KeepsBowInHand(false, true, 0.04f));
+	TestEqual(TEXT("A let-down blends the clip out over 0.25 s"), UBowComponent::ClipLetDownSeconds, 0.25f);
+	return true;
+}
+
+/**
+ * Under a clip the string hand is the clip's: the IK only corrects it toward the arrow line, from 0 within
+ * 3 cm to at most 0.5 at 15 cm, at the clip's own draw length along the line.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeBowClipStringCorrection, "Hawkeye.BowIK.ClipStringHandOnlyCorrected",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeBowClipStringCorrection::RunTest(const FString& Parameters)
+{
+	const FBowHandIKSettings Settings;
+	TestEqual(TEXT("Dead zone 3 cm"), Settings.ClipCorrectionDeadZone, 3.f);
+	TestEqual(TEXT("Full at 15 cm"), Settings.ClipCorrectionFullDistance, 15.f);
+	TestEqual(TEXT("At most half way"), Settings.ClipCorrectionMaxAlpha, 0.5f);
+	TestEqual(TEXT("On the line: no correction"), UHawkeyeBowIKAnimInstance::ComputeStringCorrectionAlpha(0.f, Settings), 0.f);
+	TestEqual(TEXT("Within the dead zone: none"), UHawkeyeBowIKAnimInstance::ComputeStringCorrectionAlpha(2.9f, Settings), 0.f);
+	TestEqual(TEXT("Half way along: a quarter"), UHawkeyeBowIKAnimInstance::ComputeStringCorrectionAlpha(9.f, Settings), 0.25f, 0.001f);
+	TestEqual(TEXT("At 15 cm: the most"), UHawkeyeBowIKAnimInstance::ComputeStringCorrectionAlpha(15.f, Settings), 0.5f, 0.001f);
+	TestEqual(TEXT("Never an override"), UHawkeyeBowIKAnimInstance::ComputeStringCorrectionAlpha(80.f, Settings), 0.5f, 0.001f);
+
+	// The bow at the origin shooting along +X: the line runs back along -X.
+	const FVector Rest = FVector::ZeroVector;
+	const FVector Launch(1.f, 0.f, 0.f);
+	const FVector OnLine = UHawkeyeBowIKAnimInstance::ComputeArrowLinePoint(Rest, Launch, FVector(-70.f, 8.f, -3.f), 10.f);
+	TestTrue(TEXT("The nearest point on the line keeps the clip's draw length"), OnLine.Equals(FVector(-70.f, 0.f, 0.f), 0.01));
+	const FVector Short = UHawkeyeBowIKAnimInstance::ComputeArrowLinePoint(Rest, Launch, FVector(5.f, 4.f, 0.f), 10.f);
+	TestTrue(TEXT("Never less than the shortest draw behind the bow"), Short.Equals(FVector(-10.f, 0.f, 0.f), 0.01));
+
+	// The clip alpha is the slot's weight, applied as it is.
+	FHawkeyeTestWorld TestWorld;
+	AHawkeyeCharacter* Kate = HawkeyeBowIKTest::SpawnKate(TestWorld, UHawkeyeBowIKAnimInstance::StaticClass());
+	UBowComponent* Bow = Kate ? Kate->GetBowComponent() : nullptr;
+	if (!TestNotNull(TEXT("Kate with a bow component"), Bow))
+	{
+		return false;
+	}
+	Kate->GetInventoryComponent()->GiveBow(NewObject<UBowDefinition>(Kate));
+	UHawkeyeBowIKAnimInstance* Hands = NewObject<UHawkeyeBowIKAnimInstance>(Kate->GetMesh());
+	Hands->UpdateFromBowWithClipWeight(Bow, 0.01f, 0.4f);
+	TestEqual(TEXT("A clip 40% blended in is 40% of the arms"), Hands->GetClipAlpha(), 0.4f, 0.001f);
+	TestEqual(TEXT("With no clip playing the bow reads none"), Bow->GetBowClipWeight(), 0.f);
+	return true;
+}
+
+/** The aim offset's inputs: the aim's yaw off the body and its pitch, clamped to 90 and to the asset's own axes. */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeBowAimOffsetInput, "Hawkeye.BowIK.AimOffsetInputsClamped",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeBowAimOffsetInput::RunTest(const FString& Parameters)
+{
+	const FBowHandIKSettings Settings;
+	FVector2D In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(30.f, 100.f, 0.f), 90.f, Settings, nullptr);
+	TestEqual(TEXT("Yaw is off the body"), In.X, 10.0, 0.01);
+	TestEqual(TEXT("Pitch is the aim's"), In.Y, 30.0, 0.01);
+	In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(-30.f, 350.f, 0.f), 0.f, Settings, nullptr);
+	TestEqual(TEXT("Across the wrap: 350 is 10 left"), In.X, -10.0, 0.01);
+	TestEqual(TEXT("Down is negative"), In.Y, -30.0, 0.01);
+	In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(80.f, 180.f, 0.f), 0.f, Settings, nullptr);
+	TestEqual(TEXT("Behind her clamps to 90"), In.X, 90.0, 0.01);
+
+	// An asset whose axes are narrower: its range wins.
+	UAimOffsetBlendSpace* Space = NewObject<UAimOffsetBlendSpace>(GetTransientPackage());
+	const FProperty* Axes = UBlendSpace::StaticClass()->FindPropertyByName(TEXT("BlendParameters"));
+	if (!TestNotNull(TEXT("Blend spaces keep their axes in BlendParameters"), Axes))
+	{
+		return false;
+	}
+	FBlendParameter* Parameters3 = Axes->ContainerPtrToValuePtr<FBlendParameter>(Space);
+	Parameters3[0].Min = -60.f;
+	Parameters3[0].Max = 60.f;
+	Parameters3[1].Min = -45.f;
+	Parameters3[1].Max = 45.f;
+	In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(80.f, 170.f, 0.f), 0.f, Settings, Space);
+	TestEqual(TEXT("Yaw held to the asset's 60"), In.X, 60.0, 0.01);
+	TestEqual(TEXT("Pitch held to the asset's 45"), In.Y, 45.0, 0.01);
 	return true;
 }
 

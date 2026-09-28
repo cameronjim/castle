@@ -490,7 +490,11 @@ bool FHawkeyeBowIKClipAnchor::RunTest(const FString& Parameters)
 	TestEqual(TEXT("No clip, no clip alpha"), Procedural->GetClipAlpha(), 0.f);
 	TestEqual(TEXT("A clip takes the bow arm over in 0.15 s"), Clip->GetClipAlpha(), 1.f, 0.001f);
 	TestEqual(TEXT("So the bow hand's IK is off"), Clip->LeftArmAlpha, 0.f, 0.001f);
-	TestEqual(TEXT("The string hand stays on the IK"), Clip->RightArmAlpha, 1.f, 0.001f);
+	TestEqual(TEXT("Without a clip the string hand is on the IK"), Procedural->RightArmAlpha, 1.f, 0.001f);
+	// 2026-09-28: under a clip the string hand is the clip's; the IK only corrects it off the arrow line,
+	// and this mesh has no hand for it to be off with.
+	TestEqual(TEXT("Under a clip the string hand is the clip's"), Clip->RightArmAlpha, 0.f, 0.001f);
+	TestEqual(TEXT("No aim offset asset, no aim offset"), Clip->AimOffsetAlpha, 0.f);
 	TestTrue(TEXT("The procedural spine turns side-on"), Procedural->SpineTwist.Yaw > Settings.SideOnDegrees - 0.1f);
 	TestEqual(TEXT("Under a clip only the turn toward the aim is added (none here)"), Clip->SpineTwist.Yaw, 0.0, 0.01);
 	TestEqual(TEXT("And the neck is not turned back"), Clip->NeckTwist.Yaw, 0.0, 0.01);

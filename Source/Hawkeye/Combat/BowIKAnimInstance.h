@@ -8,6 +8,7 @@
 #include "Combat/StrikePose.h"
 #include "BowIKAnimInstance.generated.h"
 
+class UBlendSpace;
 class UBowComponent;
 
 /**
@@ -28,10 +29,12 @@ class UBowComponent;
  * above 0, and a hit lean (SetHitLean), a few degrees on spine_01 away from the hit. The graph reads
  * LeftArmAlpha and RightArmAlpha (the bow's or the strike's) and HitLean.
  *
- * With a bow clip playing (UBowComponent::IsBowClipPlaying: BowDraw, BowAimIdle, BowFire, BowNock on
- * the graph's UpperBody slot) the clip holds the bow arm, so the bow hand's IK blends off, the
- * string hand's target is measured from where the bow actually is rather than from the head, and
- * the spine drops the side-on turn the clip already has. ClipAlpha blends between the two.
+ * With a bow clip playing (BowDraw, BowAimIdle, BowFire, BowNock on the graph's UpperBody slot) the
+ * clip holds the arms, as much as the slot is blended in (ClipAlpha is UBowComponent::GetBowClipWeight):
+ * the bow hand's IK is off by that much, the string hand stays on the clip with only a small correction
+ * toward the arrow line (ComputeStringCorrectionAlpha), the spine drops the side-on turn the clip already
+ * has, and the aim offset (AimOffset, when the graph has one) pitches and turns the upper body toward
+ * the aim instead of the spine turn. See gameplay-semantics.md, "Combat animation clips".
  */
 UCLASS(Transient, Blueprintable)
 class HAWKEYE_API UHawkeyeBowIKAnimInstance : public UAnimInstance
@@ -54,6 +57,25 @@ public:
 	static FBowHandIKTargets ComputeHandTargetsOnGrip(const FVector& Grip, const FRotator& Aim, float DrawFraction,
 		const FBowHandIKSettings& Settings);
 
+	/**
+	 * How much the IK corrects a clip's string hand that is OffLineCm off the arrow line: 0 within the
+	 * dead zone, rising smoothly to ClipCorrectionMaxAlpha at ClipCorrectionFullDistance.
+	 */
+	static float ComputeStringCorrectionAlpha(float OffLineCm, const FBowHandIKSettings& Settings);
+
+	/**
+	 * The point on the arrow line nearest Point: the line runs back from Rest (the bow) against
+	 * LaunchDirection (where the arrow will fly), and the point is at least MinDraw behind Rest.
+	 */
+	static FVector ComputeArrowLinePoint(const FVector& Rest, const FVector& LaunchDirection, const FVector& Point, float MinDraw);
+
+	/**
+	 * The aim offset's inputs for Aim with the body at BodyYaw: X the yaw off the body, Y the pitch, each
+	 * clamped to MaxAimOffsetYaw/Pitch and, with an AimOffsetAsset, to its first two axes' ranges.
+	 */
+	static FVector2D ComputeAimOffsetInput(const FRotator& Aim, float BodyYaw, const FBowHandIKSettings& Settings,
+		const UBlendSpace* AimOffsetAsset);
+
 	/** Current moved toward Target at a rate that covers 0 to 1 in BlendSeconds. Snaps when BlendSeconds <= 0. */
 	static float StepAlpha(float Current, float Target, float DeltaSeconds, float BlendSeconds);
 
@@ -70,14 +92,23 @@ public:
 	 */
 	void UpdateFromBow(const UBowComponent* Bow, float DeltaSeconds);
 
-	/** UpdateFromBow, told whether a bow clip holds the bow (UpdateFromBow asks the bow; tests say). */
+	/** UpdateFromBow, told whether a bow clip holds the bow: the clip alpha blends toward it over BlendSeconds (tests). */
 	void UpdateFromBowWithClip(const UBowComponent* Bow, float DeltaSeconds, bool bClipHoldsBow);
+
+	/** UpdateFromBow with the clip alpha set to Weight, the clip's slot weight (UpdateFromBow asks the bow for it). */
+	void UpdateFromBowWithClipWeight(const UBowComponent* Bow, float DeltaSeconds, float Weight);
 
 	float GetBowAlpha() const { return BowAlpha; }
 	float GetDrawAlpha() const { return DrawAlpha; }
 
 	/** 0..1, how far a bow clip has taken over the bow arm. */
 	float GetClipAlpha() const { return ClipAlpha; }
+
+	/** How far the clip's string hand was off the arrow line at the last update, cm (0 without a clip). */
+	float GetStringOffLine() const { return StringOffLine; }
+
+	/** 0..1, the correction the IK put on the clip's string hand at the last update. */
+	float GetStringCorrectionAlpha() const { return StringCorrectionAlpha; }
 
 	/**
 	 * This frame's strike override: Sample's hands (in ActorFrame, the striker's actor transform) as
@@ -135,6 +166,26 @@ public:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
 	float RightArmAlpha = 0.f;
 
+	/**
+	 * The upper body's aim offset (BS_BowAimOffset_Sparrow for this skeleton), set on the Blueprint's
+	 * defaults by UHawkeyeBowIKGraphBuilder when its graph has the aim offset node. Null: no aim offset,
+	 * and the spine turns toward the aim as it did before.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Bow IK|Aim Offset")
+	TObjectPtr<UBlendSpace> AimOffset = nullptr;
+
+	/** The aim offset's yaw input, degrees off the body. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK|Aim Offset")
+	float AimOffsetYaw = 0.f;
+
+	/** The aim offset's pitch input, degrees. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK|Aim Offset")
+	float AimOffsetPitch = 0.f;
+
+	/** 0..1, the aim offset's weight: the clip alpha times the bow alpha, 0 without an AimOffset. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK|Aim Offset")
+	float AimOffsetAlpha = 0.f;
+
 	/** Added to spine_01, component space: the lean away from a hit. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
 	FRotator HitLean = FRotator::ZeroRotator;
@@ -176,4 +227,23 @@ protected:
 
 	/** Recomputes the component-space targets and the twists from Bow and the last pose's head bone. */
 	void UpdateTargets(const UBowComponent& Bow);
+
+	/** The alphas, targets and outputs for this update, once ClipAlpha is set. */
+	void UpdateAfterClipAlpha(const UBowComponent* Bow, float DeltaSeconds);
+
+	/**
+	 * Under a clip: the string hand's target, component space, where the clip put the hand moved toward
+	 * the arrow line; its correction alpha into StringCorrectionAlpha. Reads the last pose.
+	 */
+	FVector ComputeClipStringTarget(const UBowComponent& Bow, const FVector& Grip, FVector& OutElbow);
+
+	/** 0..1, the correction the IK puts on the clip's string hand (times the draw alpha, under a clip). */
+	float StringCorrectionAlpha = 0.f;
+
+	/** How far off the arrow line the clip's string hand was, cm. */
+	float StringOffLine = 0.f;
+
+	/** Last update's string hand target and alpha, component space: the IK's share of the last pose's hand. */
+	FVector LastRightTarget = FVector::ZeroVector;
+	float LastRightAlpha = 0.f;
 };
