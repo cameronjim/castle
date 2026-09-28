@@ -223,8 +223,9 @@ bool FHawkeyeSmokeCombatClipsPlay::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeCheckCombatClips(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeStartClipSwing(this));
-	// Every Light1 clip the manifest's defaults lay out opens its hit window at a quarter of its length
-	// or later; 0.1 s is before it, and the clip's end is well past it.
+	// Kate's Light1 clip opens its hit window 0.2 to 0.3 s in (the manifest's hit_s, start_s and rate;
+	// a clip on the role defaults opens it at a quarter of its length or later): 0.1 s is before it,
+	// and 1.3 s is past the end of the clip.
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.1f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeCheckClipSwing(this, false));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.2f));

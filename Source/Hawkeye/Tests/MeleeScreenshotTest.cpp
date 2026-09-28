@@ -6,6 +6,7 @@
 #include "Camera/CameraComponent.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowIKAnimInstance.h"
+#include "Combat/CombatAnimSet.h"
 #include "Combat/FinisherComponent.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
@@ -39,11 +40,13 @@
  * and on their own as Hawkeye.Screenshot.Melee. On the street by the PlayerStart, against a bat thug
  * the pass spawns (BP_Thug) and removes, every other thug frozen, Kate invulnerable:
  *
- *   combo_x3.png      her own camera, three lights chained into him: the counter at x3 just after the third
+ *   combo_x3.png      her own camera, three lights chained into him, each pressed the moment the last one
+ *                     lands (so it goes as soon as the chain lets it): the counter at x3 just after the third
  *   parry_flash.png   side on, a tap of V into his bat's wind-up: the purple ring between them, him staggering
  *   finisher_mid.png  her own camera 0.3 s into a finisher on him (staggered): time at 0.5, the lens pushed in
  *   hit_lean.png      from in front of him, 0.1 s after she hits him from his left: his upper body leant right
- *   strike_pose.png   side on, a light at the peak of the punch: her right hand out 70 cm at chest height
+ *   strike_pose.png   side on, a light at the moment it strikes (its hit window opening, or 0.1 s in without
+ *                     a clip): her right hand out at chest height
  *
  * The world is slowed to a crawl for each capture that is about a moment (all but the finisher, whose
  * own slow motion is the subject) and put back after.
@@ -57,7 +60,6 @@ namespace HawkeyeMeleeShots
 	{
 		Setup,
 		ComboSetup,
-		ComboHit,
 		ParrySetup,
 		ParrySwing,
 		Parry,
@@ -294,10 +296,6 @@ bool FHawkeyeMeleeShot::Update()
 		OwnCamera(PC, Kate, 35.f);
 		break;
 
-	case EShot::ComboHit:
-		Kate->StartLightAttack();
-		break;
-
 	case EShot::ParrySetup:
 	{
 		if (!FaceOff(World, Kate, 130.f))
@@ -430,6 +428,110 @@ bool FHawkeyeMeleeShot::Update()
 	return true;
 }
 
+/**
+ * Three lights chained into the foe the way a player who knows the rhythm would: the first at once,
+ * each next one the moment the last one lands (Kate's combo counter going up), which the chain holds
+ * until the clip's combo window opens, or the 0.35 s timer runs without a clip. Done when the third
+ * has landed (or on the timeout). Logs when each was pressed and when it landed.
+ */
+class FHawkeyeMeleeComboChain : public IAutomationLatentCommand
+{
+public:
+	FHawkeyeMeleeComboChain(FAutomationTestBase* InTest, int32 InPresses, float InTimeout)
+		: Test(InTest), Presses(InPresses), Timeout(InTimeout) {}
+
+	virtual bool Update() override
+	{
+		using namespace HawkeyeMeleeShots;
+		UWorld* World = FindWorld();
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+		if (!World || !Kate || !Foe.IsValid())
+		{
+			Test->AddError(TEXT("combo_x3.png: no world, no Kate or no foe for the chain."));
+			return true;
+		}
+		const double Now = FPlatformTime::Seconds();
+		if (Start < 0.0)
+		{
+			Start = Now;
+			BaseCount = Kate->GetComboCount();
+		}
+		const float Elapsed = static_cast<float>(Now - Start);
+		const int32 Count = Kate->GetComboCount() - BaseCount;
+		if (Count > Landed)
+		{
+			Landed = Count;
+			Log += FString::Printf(TEXT(" landed %d at %.2f s;"), Count, Elapsed);
+		}
+		if (Landed >= Presses)
+		{
+			Test->AddInfo(FString::Printf(TEXT("combo_x3.png: chain of %d:%s"), Presses, *Log));
+			return true;
+		}
+		// The next light goes once the last one has landed; a press it will not take yet is tried again.
+		if (Pressed == Landed && Pressed < Presses && Kate->StartLightAttack())
+		{
+			++Pressed;
+			Log += FString::Printf(TEXT(" pressed %d at %.2f s (%s);"), Pressed, Elapsed,
+				*Kate->GetMeleeComponent()->GetCurrentAttack().Name.ToString());
+		}
+		if (Elapsed >= Timeout)
+		{
+			Test->AddInfo(FString::Printf(TEXT("combo_x3.png: chain timed out after %.1f s:%s"), Timeout, *Log));
+			return true;
+		}
+		return false;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	int32 Presses;
+	float Timeout;
+	int32 Pressed = 0;
+	int32 Landed = 0;
+	int32 BaseCount = 0;
+	double Start = -1.0;
+	FString Log;
+};
+
+/** Waits (up to Timeout) until Kate's light has struck: its hit window opened (a clip) or its wind-up ran out. */
+class FHawkeyeMeleeWaitForStrike : public IAutomationLatentCommand
+{
+public:
+	FHawkeyeMeleeWaitForStrike(FAutomationTestBase* InTest, float InTimeout) : Test(InTest), Timeout(InTimeout) {}
+
+	virtual bool Update() override
+	{
+		using namespace HawkeyeMeleeShots;
+		UWorld* World = FindWorld();
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+		const UMeleeComponent* Melee = Kate ? Kate->GetMeleeComponent() : nullptr;
+		if (!Melee)
+		{
+			return true;
+		}
+		const double Now = FPlatformTime::Seconds();
+		if (Start < 0.0)
+		{
+			Start = Now;
+		}
+		if (Melee->IsWindingUp() && Now - Start < Timeout)
+		{
+			return false;
+		}
+		Test->AddInfo(FString::Printf(TEXT("strike_pose.png: struck %.2f s after the press (%s)."), Now - Start,
+			Melee->IsHitFromNotify() ? TEXT("the clip's hit window") : TEXT("the wind-up timer")));
+		return true;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float Timeout;
+	double Start = -1.0;
+};
+
 /** Waits (up to Timeout) for the moment a shot is about, then reports it. */
 class FHawkeyeMeleeWait : public IAutomationLatentCommand
 {
@@ -485,7 +587,17 @@ public:
 				Thug ? Thug->GetHealthComponent()->GetCurrentHealth() : -1.f));
 			if (Kate->GetComboCount() != 3)
 			{
-				Test->AddWarning(FString::Printf(TEXT("combo_x3.png: the counter reads x%d, not x3."), Kate->GetComboCount()));
+				// With a Light1 clip the chain is the clip's to time; the inputs above follow it, so a
+				// short count is the clips' windows not letting a chain through.
+				const FString Message = FString::Printf(TEXT("combo_x3.png: the counter reads x%d, not x3."), Kate->GetComboCount());
+				if (UCombatAnimSet::Resolve(Kate->GetCombatAnimSet(), ECombatAnimRole::Light1))
+				{
+					Test->AddError(Message);
+				}
+				else
+				{
+					Test->AddWarning(Message);
+				}
 			}
 			return true;
 		}
@@ -555,12 +667,12 @@ void HawkeyeAddMeleeShots(FAutomationTestBase* Test)
 
 	Shot(EShot::Setup, 0.3f);
 
-	// Three lights, each pressed in the last one's recovery: the third lands at about 0.72 s.
+	// Three lights, each pressed as the last one lands: the third lands about 1.0 s in with the
+	// clips (about 1.4 s for the whole chain with its recovery), 0.72 s with the procedural swing.
 	Shot(EShot::ComboSetup, 1.2f);
-	Shot(EShot::ComboHit, 0.25f);
-	Shot(EShot::ComboHit, 0.25f);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeComboChain(Test, 3, 4.f));
 	// Caught just after the third, once his hit flash has gone: the counter at x3, him shoved back.
-	Shot(EShot::ComboHit, 0.5f);
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.25f));
 	Shot(EShot::Crawl, 0.05f);
 	Wait(TEXT("combo_x3.png"), 0.f);
 	Take(TEXT("combo_x3.png"));
@@ -589,9 +701,10 @@ void HawkeyeAddMeleeShots(FAutomationTestBase* Test)
 	Take(TEXT("hit_lean.png"));
 	Shot(EShot::Uncrawl, 0.8f);
 
-	// A light at the peak of the punch (0.1 s in), nobody in reach so no hit stop.
+	// A light at the moment it strikes, nobody in reach so no hit stop.
 	Shot(EShot::StrikeSetup, 1.2f);
-	Shot(EShot::Strike, 0.1f);
+	Shot(EShot::Strike, 0.f);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeWaitForStrike(Test, 1.f));
 	Shot(EShot::Crawl, 0.05f);
 	Wait(TEXT("strike_pose.png"), 0.f);
 	Take(TEXT("strike_pose.png"));
