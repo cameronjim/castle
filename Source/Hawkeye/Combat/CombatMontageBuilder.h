@@ -91,6 +91,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
 	static FString DescribeMontage(UAnimMontage* Montage);
 
+	/**
+	 * Where Bone is at Time in Sequence's raw data, component space (cm): each bone's own track, or
+	 * its reference pose where it has none, walked up the skeleton's hierarchy by name. The import
+	 * self-test reads poses this way because it does not depend on how the evaluated pose indexes bones.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
+	static FVector GetRawBoneLocation(UAnimSequence* Sequence, FName Bone, float Time);
+
+	/** Bone names of Sequence's skeleton, in hierarchy order. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
+	static TArray<FName> GetSkeletonBoneNames(UAnimSequence* Sequence);
+
 	/** Animation's first window of NotifyClass: start and end in seconds. False when it has none. */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
 	static bool GetNotifyWindow(UAnimSequenceBase* Animation, TSubclassOf<UAnimNotifyState> NotifyClass, float& Start,

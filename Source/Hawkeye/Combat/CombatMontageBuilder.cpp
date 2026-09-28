@@ -10,6 +10,9 @@
 #include "Combat/CombatAnimPlayback.h"
 #include "Hawkeye.h"
 
+#include "Animation/AnimData/IAnimationDataModel.h"
+#include "Animation/Skeleton.h"
+
 #if WITH_EDITOR
 #include "AnimNotifyState_MotionWarping.h"
 #include "AnimationBlueprintLibrary.h"
@@ -167,6 +170,46 @@ FString UHawkeyeCombatMontageBuilder::DescribeMontage(UAnimMontage* Montage)
 #else
 	return Montage->GetName();
 #endif
+}
+
+FVector UHawkeyeCombatMontageBuilder::GetRawBoneLocation(UAnimSequence* Sequence, FName Bone, float Time)
+{
+#if WITH_EDITOR
+	const USkeleton* Skeleton = Sequence ? Sequence->GetSkeleton() : nullptr;
+	const IAnimationDataModel* Model = Sequence ? Sequence->GetDataModel() : nullptr;
+	if (!Skeleton || !Model)
+	{
+		return FVector::ZeroVector;
+	}
+	const FReferenceSkeleton& Reference = Skeleton->GetReferenceSkeleton();
+	const FFrameTime Frame = Model->GetFrameRate().AsFrameTime(FMath::Max(Time, 0.f));
+	FTransform Accumulated = FTransform::Identity;
+	for (int32 Index = Reference.FindBoneIndex(Bone); Index != INDEX_NONE; Index = Reference.GetParentIndex(Index))
+	{
+		const FName Name = Reference.GetBoneName(Index);
+		const FTransform Local = Model->IsValidBoneTrackName(Name)
+			? Model->EvaluateBoneTrackTransform(Name, Frame, EAnimInterpolationType::Linear)
+			: Reference.GetRefBonePose()[Index];
+		Accumulated = Accumulated * Local;
+	}
+	return Accumulated.GetLocation();
+#else
+	return FVector::ZeroVector;
+#endif
+}
+
+TArray<FName> UHawkeyeCombatMontageBuilder::GetSkeletonBoneNames(UAnimSequence* Sequence)
+{
+	TArray<FName> Names;
+	if (const USkeleton* Skeleton = Sequence ? Sequence->GetSkeleton() : nullptr)
+	{
+		const FReferenceSkeleton& Reference = Skeleton->GetReferenceSkeleton();
+		for (int32 Index = 0; Index < Reference.GetNum(); ++Index)
+		{
+			Names.Add(Reference.GetBoneName(Index));
+		}
+	}
+	return Names;
 }
 
 bool UHawkeyeCombatMontageBuilder::GetNotifyWindow(UAnimSequenceBase* Animation, TSubclassOf<UAnimNotifyState> NotifyClass,
