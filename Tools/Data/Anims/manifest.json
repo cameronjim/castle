@@ -1,12 +1,10 @@
 {
   "version": 1,
   "about": "Combat clips for Tools/Editor/import_combat_anims.py. See Tools/Data/Anims/README.md for the shopping list and claude-docs/animation.md for the pipeline. Windows are fractions of a clip's length; leave them out to take the role defaults in import_combat_anims.py.",
-
   "targets": {
     "uefn": {
       "skeletal_mesh": "/Game/Characters/UEFN_Mannequin/Meshes/SKM_UEFN_Mannequin",
-      "ik_rig": "/Game/Characters/UEFN_Mannequin/Rigs/IK_UEFN_Mannequin",
-      "ik_rig_from_gasp": "Characters/UEFN_Mannequin/Rigs/IK_UEFN_Mannequin.uasset",
+      "ik_rig": "/Game/Characters/UEFN_Mannequin/Animations/Combat/Rigs/IK_Kate_UEFN",
       "chains": "uefn",
       "output": "/Game/Characters/UEFN_Mannequin/Animations/Combat",
       "characters": ["kate", "clint"],
@@ -21,7 +19,6 @@
       "root_motion": false
     }
   },
-
   "chain_maps": {
     "mixamo": {
       "about": "Mixamo's rig. Bone names are matched with or without the mixamorig: (or mixamorig_, mixamorig1:) prefix the FBX importer may keep. No root bone: root motion is generated from the hips.",
@@ -81,7 +78,7 @@
       }
     },
     "uefn": {
-      "about": "The UEFN and UE5 mannequins (five spine bones, two neck bones, metacarpals). Only used when IK_UEFN_Mannequin cannot be copied from the Game Animation Sample, and for the self-test's UE5 source.",
+      "about": "The UEFN and UE5 mannequins (five spine bones, two neck bones, metacarpals): Kate's and Clint's target rig, and the self-test's UE5 source. Epic's IK_UEFN_Mannequin is not used: against this project's SK_UEFN_Mannequin (root, attach, pelvis, ...) it wrote every track one bone down the hierarchy.",
       "retarget_root": "pelvis",
       "root_bone": "root",
       "chains": {
@@ -110,15 +107,14 @@
       }
     }
   },
-
   "sources": [
     {
       "name": "Mixamo",
       "kind": "mixamo_fbx",
       "path": "Tools/Data/Anims/Mixamo",
       "chains": "mixamo",
-      "mesh_file": "Mixamo_Skin.fbx",
-      "about": "Download to Tools/Data/Anims/Mixamo/ (git-ignored). Mixamo_Skin.fbx is any one clip downloaded With Skin; every other file is Without Skin. Missing files are reported and skipped."
+      "mesh_file": "Punching.fbx",
+      "about": "Download to Tools/Data/Anims/Mixamo/ (git-ignored). mesh_file is the one clip downloaded With Skin (it defines the source skeleton and is also a clip); every other file is Without Skin. Missing files are reported and skipped."
     },
     {
       "name": "ParagonSparrow",
@@ -130,22 +126,36 @@
       "about": "Epic's free Paragon: Sparrow pack from Fab, added to a project whose Content folder is path (it lives in the Game Animation Sample's). The clips, the skeleton and the mesh (with its materials, about 730 MB) are copied to the same /Game/ParagonSparrow paths here, git-ignored."
     }
   ],
-
   "clips": [
-    {"source": "Mixamo", "file": "Punching.fbx", "role": "Light1", "variant": "Jab", "characters": "all"},
-    {"source": "Mixamo", "file": "Cross Punch.fbx", "role": "Light2", "variant": "Cross", "characters": "all"},
-    {"source": "Mixamo", "file": "Hook Punch.fbx", "role": "Light3", "variant": "Hook", "characters": "all"},
-    {"source": "Mixamo", "file": "Mma Kick.fbx", "role": "Kick", "variant": "MmaKick", "characters": "kate"},
-    {"source": "Mixamo", "file": "Roundhouse Kick.fbx", "role": "Heavy", "variant": "Roundhouse", "characters": "kate"},
-    {"source": "Mixamo", "file": "Standing Dodge Backward.fbx", "role": "DodgeBack", "variant": "Standing", "characters": "kate"},
-    {"source": "Mixamo", "file": "Standing Dodge Left.fbx", "role": "DodgeLeft", "variant": "Standing", "characters": "kate"},
-    {"source": "Mixamo", "file": "Standing Dodge Right.fbx", "role": "DodgeRight", "variant": "Standing", "characters": "kate"},
-    {"source": "Mixamo", "file": "Standing Dodge Forward.fbx", "role": "DodgeForward", "variant": "Standing", "characters": "kate"},
-    {"source": "Mixamo", "file": "Knocked Down.fbx", "role": "Knockdown", "variant": "Back", "characters": "thug"},
-    {"source": "Mixamo", "file": "Getting Up.fbx", "role": "GetUp", "variant": "Back", "characters": "thug"},
-    {"source": "Mixamo", "file": "Hit To Body.fbx", "role": "HitFront", "variant": "Body", "characters": "thug"},
-    {"source": "Mixamo", "file": "Standing Draw Arrow.fbx", "role": "BowNock", "variant": "Mixamo", "characters": "kate"},
-
+    {"source": "Mixamo", "file": "Cross Punch.fbx", "role": "Light1", "variant": "Cross", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Punching.fbx", "role": "Light1", "variant": "Punching", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Hook Punch.fbx", "role": "Light2", "variant": "Hook", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Boxing.fbx", "role": "Light2", "variant": "Boxing", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Uppercut Jab.fbx", "role": "Light3", "variant": "UppercutJab", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Jab To Elbow Punch.fbx", "role": "Light3", "variant": "JabElbow", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Side Kick.fbx", "role": "Kick", "variant": "SideKick", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Kicking.fbx", "role": "Kick", "variant": "Kicking", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Surprise Uppercut.fbx", "role": "Heavy", "variant": "SurpriseUppercut", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Roundhouse Kick.fbx", "role": "Heavy", "variant": "Roundhouse", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Block.fbx", "role": "Parry", "variant": "Block", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Standing Dodge Forward.fbx", "role": "DodgeForward", "variant": "Standing", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Standing Dodge Backward.fbx", "role": "DodgeBack", "variant": "Standing", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Standing Dodge Left.fbx", "role": "DodgeLeft", "variant": "Standing", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Standing Dodge Right.fbx", "role": "DodgeRight", "variant": "Standing", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Leg Sweep.fbx", "role": "FinisherAttacker", "variant": "LegSweep", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Flying Kick.fbx", "role": "FinisherBow", "variant": "FlyingKick", "characters": ["kate", "clint"]},
+    {"source": "Mixamo", "file": "Standing Melee Punch.fbx", "role": "Light1", "variant": "MeleePunch", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Jab To Elbow Punch.fbx", "role": "Light1", "variant": "JabElbow", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Standing Melee Attack Horizontal.fbx", "role": "Heavy", "variant": "MeleeHorizontal", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Standing Melee Run Jump Attack.fbx", "role": "Heavy", "variant": "RunJumpAttack", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Receive Punch To The Face.fbx", "role": "HitFront", "variant": "PunchToFace", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Receive Uppercut To The Face.fbx", "role": "HitFront", "variant": "UppercutToFace", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Receive Stomach Uppercut.fbx", "role": "HitFront", "variant": "StomachUppercut", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Hit Reaction.fbx", "role": "HitFront", "variant": "HitReaction", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Knocked Out.fbx", "role": "Knockdown", "variant": "KnockedOut", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Knocked Out (1).fbx", "role": "Knockdown", "variant": "KnockedOut1", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Sweep Fall.fbx", "role": "FinisherVictim", "variant": "SweepFall", "characters": ["thug"]},
+    {"source": "Mixamo", "file": "Knocked Out.fbx", "role": "FinisherVictim", "variant": "KnockedOut", "characters": ["thug"]},
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/RMB_Drawback", "role": "BowDraw", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/RMB_Loop", "role": "BowAimIdle", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/RMB_Fire", "role": "BowFire", "variant": "Sparrow", "characters": ["kate", "clint", "archer"]},
@@ -154,7 +164,6 @@
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/HitReact_Left", "role": "HitLeft", "variant": "Sparrow", "characters": "all"},
     {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/HitReact_Right", "role": "HitRight", "variant": "Sparrow", "characters": "all"}
   ],
-
   "selftest": {
     "about": "--selftest: GASP's UE5 mannequin clips (another skeleton) and the engine's FBX automation character through the same code, into .../Combat/SelfTest, then deleted (--keep keeps them).",
     "sources": [
@@ -193,7 +202,8 @@
       {"source": "SelfTestUE5", "asset": "/Game/Characters/UE5_Mannequins/Rigs/Poses/Manny/Manny_upperarm_l_anim", "role": "Light1", "variant": "SelfTestArm", "characters": "all"},
       {"source": "SelfTestUE5", "asset": "/Game/Characters/UE5_Mannequins/Rigs/Poses/Manny/Manny_thigh_r_anim", "role": "HitFront", "variant": "SelfTestLeg", "characters": "all"},
       {"source": "SelfTestFbx", "file": "AnimatedCharacter.fbx", "role": "Heavy", "variant": "SelfTestFbx", "characters": "kate"},
-      {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/RMB_Drawback", "role": "BowDraw", "variant": "SelfTestSparrow", "characters": ["kate", "archer"]}
+      {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/RMB_Drawback", "role": "BowDraw", "variant": "SelfTestSparrow", "characters": ["kate", "archer"]},
+      {"source": "ParagonSparrow", "asset": "/Game/ParagonSparrow/Characters/Heroes/Sparrow/Animations/HitReact_Fwd", "role": "HitFront", "variant": "SelfTestSparrowAdditive", "characters": ["kate", "thug"]}
     ]
   }
 }
