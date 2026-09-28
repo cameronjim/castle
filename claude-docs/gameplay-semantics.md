@@ -701,3 +701,55 @@ the last input came from a pad.
   a crime or challenge.
 - Discovered safehouses show as house icons on the compass; the pause menu can mark the
   nearest one. Chapter select is still a stub. Crime spots keep 40 m clear of both.
+
+## Combat animation clips (built 2026-09-27; no clips are in the project yet, so every rule below runs on its fallback today)
+- A character's clips come from a `UCombatAnimSet` data asset (`DA_AnimSet_Kate`, `_Clint`,
+  `_Thug`, `_Archer` under `/Game/Blueprints/Animation`), one soft montage per role: Light1,
+  Light2, Light3, Heavy, Kick, Parry, DodgeForward/Back/Left/Right, HitFront/Back/Left/Right,
+  Knockdown, GetUp, FinisherAttacker, FinisherVictim, FinisherBow, BowDraw, BowAimIdle,
+  BowFire, BowNock. `CombatAnimSet` on `AHawkeyeCharacter` and `AThugCharacter` picks it.
+- **The fallback rule.** A role whose montage is empty, fails to load, or will not play (no
+  anim instance, wrong skeleton) does exactly what the game did before clips existed: the
+  strike pose and lunge, the procedural dash, the hit lean, the ragdoll knockdown and its
+  0.4 s blend up, the IK bow. Every rule in the melee, dodge, finisher and bow sections holds
+  either way; a clip changes how it looks and, for strikes only, when the hit lands.
+- Only Light3 has a data fallback: with no Light3 clip it uses Kick.
+- Strikes: Kate's light chain is Light1, Light2, Light3; her hold is Heavy; a thug's fists
+  are Light1, his bat and the heavy's bash and slow swing are Heavy. `FHawkeyeMeleeAttack.AnimRole`
+  names the role. A montage whose slot is `UpperBody` plays on the post-process instance
+  over locomotion; any other slot plays full body (`DefaultSlot` on the sample's AnimBP for
+  Kate and Clint, the post-process graph's `DefaultSlot` for thugs, whose main instance is a
+  single clip).
+- Hit timing with a clip: the sweep runs when the montage's `ANS_HitWindow` begins, and
+  again each tick until it finds someone or the window ends; if nobody was found by the end,
+  the swing missed. A montage with no `ANS_HitWindow` keeps the attack's WindupSeconds and
+  RecoverSeconds timers while it plays.
+- Chain timing with a clip: after a light lands, the chain stays open (the 0.35 s timer does
+  not run) until the montage's `ANS_ComboWindow` ends; while that window is open the next
+  strike starts at once, cutting the current montage. A press between the hit and the window
+  is held and goes when the window opens. A montage with no `ANS_ComboWindow` keeps the
+  0.35 s timer and ends the swing at RecoverSeconds.
+- Thugs keep their telegraphs: a thug's strike montage is played at the rate that puts its
+  `ANS_HitWindow` start at the attack's WindupSeconds (0.6 s fists and bat, 0.8 s bash, 1.0 s
+  slow swing), so parry and dodge windows are unchanged. Kate's clips play at rate 1.
+- Motion warping (the engine's MotionWarping plugin, the component the sample already puts on
+  Kate): a full-body strike clip with root motion is warped toward the soft-lock target, the
+  warp target `CombatTarget` placed 90 cm short of him and facing him; with no target the warp
+  target is removed and the clip's own root motion plays. Such a clip replaces the lunge; an
+  in-place clip (no root motion) keeps the lunge.
+- Dodge, finisher, hit reactions: the rules (300 cm in 0.4 s, 0.25 s invulnerable; 1.2 s
+  finisher, lethal at 0.35 s) stay in C++. A dodge clip for the stick's direction relative to
+  her facing plays fitted to DodgeSeconds, pose only (the dash moves her). The finisher plays
+  FinisherAttacker (FinisherBow with the bow up) fitted to DurationSeconds and FinisherVictim on
+  the thug at rate 1 until he is thrown. Kate's stagger and a thug's hit reaction play the Hit
+  clip for the side the blow came from, on top of the lean.
+- Knockdown with clips: a heavy strike or a bola trip plays Knockdown, which holds its last
+  frame, instead of the ragdoll; after KnockdownSeconds GetUp plays and he is getting up for
+  its length (with no GetUp clip the knockdown clip blends out over GetUpSeconds). The
+  explosive's blast always ragdolls.
+- Bow with clips (upper body, over locomotion): BowDraw fitted to the draw time
+  (FullDrawSeconds over DrawRate), BowAimIdle looping from full draw until release, BowFire on
+  release, BowNock after it while not drawing again; a let-down or cancel blends them out over
+  0.2 s. While a bow clip plays the clip holds the bow arm (the bow rides in that hand), the
+  string hand IK is anchored to where the bow hand actually is, and the spine keeps only the
+  turn toward the aim (the clip supplies the side-on stance).
