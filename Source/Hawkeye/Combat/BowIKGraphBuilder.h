@@ -15,7 +15,9 @@ class USkeleton;
  * other asset here (Tools/Editor/create_bow_ik.py calls it). Parent class UHawkeyeBowIKAnimInstance,
  * whose variables the graph reads through variable-get nodes. The anim graph:
  *
- *   Input Pose -> [the mesh's own post-process AnimBP, as a linked anim graph] -> to component space
+ *   Input Pose -> [the mesh's own post-process AnimBP, as a linked anim graph]
+ *   -> Slot DefaultSlot (full-body clips) -> cached -> Layered blend per bone: UpperBody slot from spine_01 up
+ *   -> to component space
  *   -> ModifyBone spine_01 (add HitLean) -> ModifyBone SpineBone (add SpineTwist)
  *   -> ModifyBone NeckBone (add NeckTwist)
  *   -> TwoBoneIK hand_l to LeftHandTarget, elbow to LeftElbowTarget, alpha LeftArmAlpha

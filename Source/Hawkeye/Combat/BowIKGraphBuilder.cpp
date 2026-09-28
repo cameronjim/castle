@@ -8,12 +8,17 @@
 
 #if WITH_EDITOR
 #include "AnimGraphNode_ComponentToLocalSpace.h"
+#include "AnimGraphNode_LayeredBoneBlend.h"
 #include "AnimGraphNode_LinkedAnimGraph.h"
 #include "AnimGraphNode_LinkedInputPose.h"
 #include "AnimGraphNode_LocalToComponentSpace.h"
 #include "AnimGraphNode_ModifyBone.h"
 #include "AnimGraphNode_Root.h"
+#include "AnimGraphNode_SaveCachedPose.h"
+#include "AnimGraphNode_Slot.h"
 #include "AnimGraphNode_TwoBoneIK.h"
+#include "AnimGraphNode_UseCachedPose.h"
+#include "Combat/CombatAnimPlayback.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Combat/BowIKAnimInstance.h"
 #include "EdGraph/EdGraph.h"
@@ -31,6 +36,12 @@ namespace HawkeyeBowIKGraph
 {
 	/** Where the hit lean bends: the lowest spine bone, on both mannequins. */
 	static const FName HitLeanBone(TEXT("spine_01"));
+
+	/** The upper-body clips take over from here up (the arms, the spine, the head). */
+	static const FName UpperBodyRootBone(TEXT("spine_01"));
+
+	/** The pose under the upper-body layer, evaluated once and read twice. */
+	static const TCHAR* BodyCacheName = TEXT("HawkeyeBody");
 
 	static UEdGraph* FindAnimGraph(UAnimBlueprint& Blueprint)
 	{
@@ -189,6 +200,58 @@ namespace HawkeyeBowIKGraph
 		return Node;
 	}
 
+	/**
+	 * The clip slots, in local space after the mesh's own post-process: DefaultSlot (full body; a
+	 * thug's clips, whose main instance is a single sequence), cached, then UpperBody layered over it
+	 * from UpperBodyRootBone up in mesh space. Returns the layered blend, the node to carry on from.
+	 */
+	static UEdGraphNode* AddClipSlots(FWiring& Wiring, UEdGraphNode* Last)
+	{
+		UEdGraph& Graph = Wiring.Graph;
+		UEdGraphNode* FullBody = AddNode<UAnimGraphNode_Slot>(Graph, -1800, -300,
+			[](UAnimGraphNode_Slot& N) { N.Node.SlotName = HawkeyeCombatAnim::FullBodySlot; });
+		Wiring.Pose(Last, FullBody, TEXT("full-body clip slot"));
+
+		UAnimGraphNode_SaveCachedPose* Save = AddNode<UAnimGraphNode_SaveCachedPose>(Graph, -1700, -300,
+			[](UAnimGraphNode_SaveCachedPose& N) { N.CacheName = BodyCacheName; });
+		Wiring.Link(FindPosePin(FullBody, EGPD_Output), FindPosePin(Save, EGPD_Input), TEXT("cache the body"));
+
+		auto UseCache = [&Graph, Save](int32 Y)
+		{
+			return AddNode<UAnimGraphNode_UseCachedPose>(Graph, -1650, Y, [Save](UAnimGraphNode_UseCachedPose& N)
+				{
+					N.SaveCachedPoseNode = Save;
+					// Private; what the compiler matches the cache by if the weak pointer is ever lost.
+					if (FStrProperty* Name = FindFProperty<FStrProperty>(N.GetClass(), TEXT("NameOfCache")))
+					{
+						Name->SetPropertyValue_InContainer(&N, Save->CacheName);
+					}
+				});
+		};
+		UEdGraphNode* Base = UseCache(-200);
+		UEdGraphNode* ForUpper = UseCache(-100);
+		UEdGraphNode* Upper = AddNode<UAnimGraphNode_Slot>(Graph, -1600, -100,
+			[](UAnimGraphNode_Slot& N) { N.Node.SlotName = HawkeyeCombatAnim::UpperBodySlot; });
+		Wiring.Pose(ForUpper, Upper, TEXT("upper-body clip slot"));
+
+		UAnimGraphNode_LayeredBoneBlend* Layer = AddNode<UAnimGraphNode_LayeredBoneBlend>(Graph, -1500, -150,
+			[](UAnimGraphNode_LayeredBoneBlend& N)
+			{
+				if (N.Node.LayerSetup.Num() == 0)
+				{
+					N.Node.LayerSetup.AddDefaulted();
+				}
+				FBranchFilter Filter;
+				Filter.BoneName = UpperBodyRootBone;
+				Filter.BlendDepth = 0;
+				N.Node.LayerSetup[0].BranchFilters = { Filter };
+				N.Node.bMeshSpaceRotationBlend = true;
+			});
+		Wiring.Link(FindPosePin(Base, EGPD_Output), Layer->FindPin(TEXT("BasePose"), EGPD_Input), TEXT("layer base"));
+		Wiring.Link(FindPosePin(Upper, EGPD_Output), Layer->FindPin(TEXT("BlendPoses_0"), EGPD_Input), TEXT("upper-body layer"));
+		return Layer;
+	}
+
 	/** Lays the graph out left to right and wires it. Empty on success, else the first failure. */
 	static FString BuildGraph(UEdGraph& Graph, UAnimGraphNode_Root& Root, TSubclassOf<UAnimInstance> Chained,
 		FName SpineBone, FName NeckBone)
@@ -215,6 +278,7 @@ namespace HawkeyeBowIKGraph
 			Wiring.Pose(Last, Linked, TEXT("input pose to the mesh's own post-process"));
 			Last = Linked;
 		}
+		Last = AddClipSlots(Wiring, Last);
 		UEdGraphNode* ToComponent = AddNode<UAnimGraphNode_LocalToComponentSpace>(Graph, -1400, 0,
 			[](UAnimGraphNode_LocalToComponentSpace&) {});
 		Wiring.Pose(Last, ToComponent, TEXT("to component space"));
