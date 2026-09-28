@@ -11,7 +11,11 @@
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowDefinition.h"
 #include "Combat/BowIKAnimInstance.h"
+#include "Combat/CombatAnimPlayback.h"
+#include "Combat/CombatAnimSet.h"
 #include "Combat/HealthComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Combat/WeaponComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -124,7 +128,64 @@ void UBowComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorCo
 			DrawLoop->SetFloatParameter(DrawParameter, Fraction);
 		}
 	}
+	UpdateBowClip();
 	UpdateBowVisual();
+}
+
+bool UBowComponent::IsBowClipPlaying() const
+{
+	return BowClip && HawkeyeCombatAnim::IsPlaying(BowClipInstance.Get(), BowClip);
+}
+
+bool UBowComponent::PlayBowClip(ECombatAnimRole Role, float FitToSeconds)
+{
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	USkeletalMeshComponent* Body = Character ? Character->GetMesh() : nullptr;
+	UAnimMontage* Montage = UCombatAnimSet::Resolve(AnimSet, Role);
+	if (!Montage || !Body)
+	{
+		return false;
+	}
+	const float Rate = FitToSeconds > 0.f ? HawkeyeCombatAnim::FitRate(Montage->GetPlayLength(), FitToSeconds) : 1.f;
+	UAnimInstance* Instance = HawkeyeCombatAnim::Play(Body, Montage, Rate);
+	if (!Instance)
+	{
+		return false;
+	}
+	BowClip = Montage;
+	BowClipInstance = Instance;
+	BowClipRole = static_cast<uint8>(Role);
+	return true;
+}
+
+void UBowComponent::StopBowClip(float BlendOutSeconds)
+{
+	HawkeyeCombatAnim::Stop(BowClipInstance.Get(), BowClip, BlendOutSeconds);
+	BowClip = nullptr;
+	BowClipInstance = nullptr;
+	BowClipRole = 0;
+}
+
+void UBowComponent::UpdateBowClip()
+{
+	if (!BowClip)
+	{
+		return;
+	}
+	const ECombatAnimRole Role = static_cast<ECombatAnimRole>(BowClipRole);
+	if (bDrawing && Role == ECombatAnimRole::BowDraw && GetDrawFraction() >= 1.f)
+	{
+		// Full draw: hold the aim until the release (the aim clip loops).
+		PlayBowClip(ECombatAnimRole::BowAimIdle);
+		return;
+	}
+	if (!bDrawing && Role == ECombatAnimRole::BowFire && !IsBowClipPlaying())
+	{
+		if (!PlayBowClip(ECombatAnimRole::BowNock))
+		{
+			BowClip = nullptr;
+		}
+	}
 }
 
 const TSoftObjectPtr<UNiagaraSystem>& UBowComponent::GetImpactVfx(EHawkeyeArrowSurface Surface) const
@@ -258,6 +319,10 @@ bool UBowComponent::StartDraw()
 		Character->NotifyBowDrawStarted();
 	}
 	OnDrawChanged.Broadcast(0.f);
+	if (const UBowDefinition* Bow = GetBow())
+	{
+		PlayBowClip(ECombatAnimRole::BowDraw, Bow->FullDrawSeconds / FMath::Max(DrawRate, 0.1f));
+	}
 	UpdateBowVisual();
 	UHawkeyeAudioSubsystem::StopLoop(DrawLoop, TEXT("bow draw"));
 	DrawLoop = UHawkeyeAudioSubsystem::PlayAttached(DrawSound, Owner->GetRootComponent(), TEXT("bow draw"));
@@ -288,6 +353,7 @@ void UBowComponent::CancelDraw()
 	}
 	UE_LOG(LogHawkeye, Verbose, TEXT("%s: draw let down at %.0f%%."), *GetNameSafe(GetOwner()), GetDrawFraction() * 100.f);
 	EndDraw();
+	StopBowClip(0.2f);
 }
 
 bool UBowComponent::ReleaseDraw()
@@ -307,9 +373,15 @@ bool UBowComponent::ReleaseDraw()
 		// Too early: the string is let down and the arrow stays on it.
 		UE_LOG(LogHawkeye, Log, TEXT("%s: released at %.0f%% draw, below %.0f%%; cancelled."), *GetNameSafe(GetOwner()),
 			Fraction * 100.f, Bow ? Bow->MinDrawFraction * 100.f : 0.f);
+		StopBowClip(0.2f);
 		return false;
 	}
-	return FireArrow(Elapsed);
+	const bool bFired = FireArrow(Elapsed);
+	if (!bFired || !PlayBowClip(ECombatAnimRole::BowFire))
+	{
+		StopBowClip(0.2f);
+	}
+	return bFired;
 }
 
 // --- Firing -----------------------------------------------------------------------------------------

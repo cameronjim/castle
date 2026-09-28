@@ -5,6 +5,7 @@
 #include "Combat/BowComponent.h"
 #include "Combat/MeleeRules.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "GameFramework/Actor.h"
 
 FBowHandIKTargets UHawkeyeBowIKAnimInstance::ComputeHandTargets(const FTransform& AimFrame, float DrawFraction,
@@ -19,6 +20,13 @@ FBowHandIKTargets UHawkeyeBowIKAnimInstance::ComputeHandTargets(const FTransform
 	Targets.StringHand = Frame.TransformPosition(FMath::Lerp(Settings.StringHandRestOffset, Settings.StringHandFullOffset, Draw));
 	Targets.StringElbow = Frame.TransformPosition(FMath::Lerp(Settings.StringElbowHintRest, Settings.StringElbowHintFull, Draw));
 	return Targets;
+}
+
+FBowHandIKTargets UHawkeyeBowIKAnimInstance::ComputeHandTargetsOnGrip(const FVector& Grip, const FRotator& Aim,
+	float DrawFraction, const FBowHandIKSettings& Settings)
+{
+	const FQuat Rotation = Aim.Quaternion();
+	return ComputeHandTargets(FTransform(Rotation, Grip - Rotation.RotateVector(Settings.GripOffset)), DrawFraction, Settings);
 }
 
 float UHawkeyeBowIKAnimInstance::StepAlpha(float Current, float Target, float DeltaSeconds, float BlendSeconds)
@@ -47,10 +55,16 @@ void UHawkeyeBowIKAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 void UHawkeyeBowIKAnimInstance::UpdateFromBow(const UBowComponent* Bow, float DeltaSeconds)
 {
+	UpdateFromBowWithClip(Bow, DeltaSeconds, Bow && Bow->IsBowClipPlaying());
+}
+
+void UHawkeyeBowIKAnimInstance::UpdateFromBowWithClip(const UBowComponent* Bow, float DeltaSeconds, bool bClipHoldsBow)
+{
 	const bool bHasBow = Bow && Bow->GetBow();
 	const float BlendSeconds = Bow ? Bow->HandsIK.BlendSeconds : FBowHandIKSettings().BlendSeconds;
 	BowAlpha = StepAlpha(BowAlpha, (bHasBow && Bow->IsBowRaised()) ? 1.f : 0.f, DeltaSeconds, BlendSeconds);
 	DrawAlpha = StepAlpha(DrawAlpha, (bHasBow && Bow->IsDrawing()) ? 1.f : 0.f, DeltaSeconds, BlendSeconds);
+	ClipAlpha = StepAlpha(ClipAlpha, (bHasBow && bClipHoldsBow) ? 1.f : 0.f, DeltaSeconds, BlendSeconds);
 
 	if (!bHasBow || (BowAlpha <= 0.f && DrawAlpha <= 0.f))
 	{
@@ -66,7 +80,8 @@ void UHawkeyeBowIKAnimInstance::UpdateFromBow(const UBowComponent* Bow, float De
 
 void UHawkeyeBowIKAnimInstance::ComposeOutputs()
 {
-	LeftArmAlpha = BowAlpha;
+	// A bow clip holds the bow arm; the IK only has the string hand to put right.
+	LeftArmAlpha = BowAlpha * (1.f - ClipAlpha);
 	RightArmAlpha = DrawAlpha;
 	// A strike owns a hand outright while it is on: the fist goes where the strike says, not the string.
 	if (StrikeRightHandAlpha > 0.f)
@@ -132,13 +147,28 @@ void UHawkeyeBowIKAnimInstance::UpdateTargets(const UBowComponent& Bow)
 	const FRotator Aim = Bow.ComputeHandsAimRotation(Anchor);
 	const FBowHandIKTargets World = ComputeHandTargets(FTransform(Aim, Anchor), Bow.GetDrawFraction(), Settings);
 
-	const FTransform& Component = Mesh->GetComponentTransform();
-	LeftHandTarget = Component.InverseTransformPosition(World.BowHand);
-	LeftElbowTarget = Component.InverseTransformPosition(World.BowElbow);
-	RightHandTarget = Component.InverseTransformPosition(World.StringHand);
-	RightElbowTarget = Component.InverseTransformPosition(World.StringElbow);
+	FBowHandIKTargets Targets = World;
+	if (ClipAlpha > 0.f)
+	{
+		// The clip placed the bow (it rides in the clip's hand); the string is where the bow is.
+		const UStaticMeshComponent* BowMesh = Bow.GetBowMeshComponent();
+		const FVector Grip = BowMesh ? BowMesh->GetComponentLocation()
+			: (Mesh->DoesSocketExist(Settings.GripFallbackBone) ? Mesh->GetSocketLocation(Settings.GripFallbackBone) : World.BowHand);
+		const FBowHandIKTargets OnGrip = ComputeHandTargetsOnGrip(Grip, Aim, Bow.GetDrawFraction(), Settings);
+		Targets.StringHand = FMath::Lerp(World.StringHand, OnGrip.StringHand, ClipAlpha);
+		Targets.StringElbow = FMath::Lerp(World.StringElbow, OnGrip.StringElbow, ClipAlpha);
+	}
 
-	// Component space is only yawed off the actor, so a yaw here is a yaw about world up.
-	SpineTwist = FRotator(0.f, ComputeSpineTwistDegrees(Aim.Yaw, Owner->GetActorRotation().Yaw, Settings) * BowAlpha, 0.f);
-	NeckTwist = FRotator(0.f, -Settings.SideOnDegrees * BowAlpha, 0.f);
+	const FTransform& Component = Mesh->GetComponentTransform();
+	LeftHandTarget = Component.InverseTransformPosition(Targets.BowHand);
+	LeftElbowTarget = Component.InverseTransformPosition(Targets.BowElbow);
+	RightHandTarget = Component.InverseTransformPosition(Targets.StringHand);
+	RightElbowTarget = Component.InverseTransformPosition(Targets.StringElbow);
+
+	// Component space is only yawed off the actor, so a yaw here is a yaw about world up. A clip has
+	// its own side-on stance, so only the turn toward the aim is added on top of it.
+	const float SideOn = Settings.SideOnDegrees * (1.f - ClipAlpha);
+	const float Twist = ComputeSpineTwistDegrees(Aim.Yaw, Owner->GetActorRotation().Yaw, Settings) - Settings.SideOnDegrees + SideOn;
+	SpineTwist = FRotator(0.f, Twist * BowAlpha, 0.f);
+	NeckTwist = FRotator(0.f, -SideOn * BowAlpha, 0.f);
 }

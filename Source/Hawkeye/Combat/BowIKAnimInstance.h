@@ -27,6 +27,11 @@ class UBowComponent;
  * hands it a strike pose (SetStrikePose), whose hand targets win over the bow's while their alphas are
  * above 0, and a hit lean (SetHitLean), a few degrees on spine_01 away from the hit. The graph reads
  * LeftArmAlpha and RightArmAlpha (the bow's or the strike's) and HitLean.
+ *
+ * With a bow clip playing (UBowComponent::IsBowClipPlaying: BowDraw, BowAimIdle, BowFire, BowNock on
+ * the graph's UpperBody slot) the clip holds the bow arm, so the bow hand's IK blends off, the
+ * string hand's target is measured from where the bow actually is rather than from the head, and
+ * the spine drops the side-on turn the clip already has. ClipAlpha blends between the two.
  */
 UCLASS(Transient, Blueprintable)
 class HAWKEYE_API UHawkeyeBowIKAnimInstance : public UAnimInstance
@@ -40,6 +45,13 @@ public:
 	 * draw elbow's hint moving with it. AimFrame's X is the aim; its scale is ignored.
 	 */
 	static FBowHandIKTargets ComputeHandTargets(const FTransform& AimFrame, float DrawFraction,
+		const FBowHandIKSettings& Settings);
+
+	/**
+	 * ComputeHandTargets with the aim frame placed so the bow hand lands exactly on Grip (world): the
+	 * clip put the bow there, and the string hand is placed relative to it along Aim.
+	 */
+	static FBowHandIKTargets ComputeHandTargetsOnGrip(const FVector& Grip, const FRotator& Aim, float DrawFraction,
 		const FBowHandIKSettings& Settings);
 
 	/** Current moved toward Target at a rate that covers 0 to 1 in BlendSeconds. Snaps when BlendSeconds <= 0. */
@@ -58,8 +70,14 @@ public:
 	 */
 	void UpdateFromBow(const UBowComponent* Bow, float DeltaSeconds);
 
+	/** UpdateFromBow, told whether a bow clip holds the bow (UpdateFromBow asks the bow; tests say). */
+	void UpdateFromBowWithClip(const UBowComponent* Bow, float DeltaSeconds, bool bClipHoldsBow);
+
 	float GetBowAlpha() const { return BowAlpha; }
 	float GetDrawAlpha() const { return DrawAlpha; }
+
+	/** 0..1, how far a bow clip has taken over the bow arm. */
+	float GetClipAlpha() const { return ClipAlpha; }
 
 	/**
 	 * This frame's strike override: Sample's hands (in ActorFrame, the striker's actor transform) as
@@ -96,6 +114,10 @@ public:
 	/** 0..1, the string hand on the string. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
 	float DrawAlpha = 0.f;
+
+	/** 0..1, a bow clip holding the bow arm: the bow hand's IK is off by this much. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")
+	float ClipAlpha = 0.f;
 
 	/** Added to the spine bone, component space. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Bow IK")

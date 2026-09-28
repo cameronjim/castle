@@ -11,6 +11,9 @@
 
 class AArrowProjectile;
 class UAnimInstance;
+class UAnimMontage;
+class UCombatAnimSet;
+enum class ECombatAnimRole : uint8;
 class UArrowDefinition;
 class UAudioComponent;
 class UNiagaraSystem;
@@ -156,6 +159,20 @@ public:
 
 	/** Sets HandsIKClass as the owner mesh's post-process AnimBP override. BeginPlay calls it. */
 	void ApplyHandsIK();
+
+	/**
+	 * The clips the bow plays over locomotion: BowDraw fitted to the draw, BowAimIdle from full draw,
+	 * BowFire on release, BowNock after it. Null, or empty roles, keep the IK-only bow.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Bow|Animation")
+	void SetAnimSet(UCombatAnimSet* InAnimSet) { AnimSet = InAnimSet; }
+
+	UFUNCTION(BlueprintPure, Category = "Bow|Animation")
+	UCombatAnimSet* GetAnimSet() const { return AnimSet; }
+
+	/** True while one of the bow clips plays (not blending out): it holds the bow arm, IK fixes the string hand. */
+	UFUNCTION(BlueprintPure, Category = "Bow|Animation")
+	bool IsBowClipPlaying() const;
 
 	/** Every tick while drawing, and 0 on release or cancel. */
 	UPROPERTY(BlueprintAssignable, Category = "Bow")
@@ -374,6 +391,15 @@ protected:
 	/** Ends the draw; the owner drops the forced aim. */
 	void EndDraw();
 
+	/** Plays Role's bow clip (fitted to FitToSeconds when positive); false when there is none that plays. */
+	bool PlayBowClip(ECombatAnimRole Role, float FitToSeconds = 0.f);
+
+	/** Blends the bow clip out. */
+	void StopBowClip(float BlendOutSeconds);
+
+	/** Moves the clips on: the held aim at full draw, the nock once the release clip is over. Called from Tick. */
+	void UpdateBowClip();
+
 	/** Creates or removes the bow and string components to match whether a bow is owned. */
 	void RefreshBowVisual();
 
@@ -440,4 +466,14 @@ protected:
 
 	int32 ArrowsLoosed = 0;
 	FVector NockedArrowTip = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCombatAnimSet> AnimSet;
+
+	/** The bow clip playing and where. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> BowClip;
+
+	TWeakObjectPtr<UAnimInstance> BowClipInstance;
+	uint8 BowClipRole = 0;
 };
