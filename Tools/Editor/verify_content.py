@@ -995,6 +995,59 @@ def check_vfx():
     say("  class and arrow effect defaults: {0} unset".format(unset))
 
 
+# (data asset, the skeleton its montages must be on, the Blueprints that must wear it)
+COMBAT_ANIM_SETS = [
+    ("DA_AnimSet_Kate", "/Game/Characters/UEFN_Mannequin/Meshes/SK_UEFN_Mannequin", [("/Game/Blueprints/Player", "BP_Kate")]),
+    ("DA_AnimSet_Clint", "/Game/Characters/UEFN_Mannequin/Meshes/SK_UEFN_Mannequin", [("/Game/Blueprints/Player", "BP_Clint")]),
+    ("DA_AnimSet_Thug", "/Game/Mannequin/Character/Mesh/SK_Mannequin_Skeleton", [("/Game/Blueprints/AI", "BP_Thug")]),
+    ("DA_AnimSet_Archer", "/Game/Mannequin/Character/Mesh/SK_Mannequin_Skeleton", [("/Game/Blueprints/Bosses", "BP_Archer")]),
+]
+BOW_ROLES = ("bow_draw", "bow_aim_idle", "bow_fire", "bow_nock")
+
+
+def check_combat_anims():
+    """The four clip sets exist and are worn; every montage they name loads, is on the right skeleton,
+    and plays in the right slot. Empty roles are fine (the procedural fallback)."""
+    say("---- combat animation sets ----")
+    import create_combat_anims as cca  # noqa: PLC0415
+    builder = getattr(unreal, "HawkeyeCombatMontageBuilder", None)
+    for name, skeleton_path, users in COMBAT_ANIM_SETS:
+        anim_set = c.load_or_none(c.asset_path(cca.SET_PATH, name))
+        if anim_set is None or type(anim_set).__name__ != "CombatAnimSet":
+            fail("{0} missing or not a UCombatAnimSet".format(name))
+            continue
+        skeleton = c.load_or_none(skeleton_path)
+        filled = []
+        for role in cca.ROLES:
+            field = cca.property_name(role)
+            path = cca.soft_path(anim_set.get_editor_property(field))
+            if not path:
+                continue
+            montage = c.load_or_none(path)
+            if not isinstance(montage, unreal.AnimMontage):
+                fail("{0}.{1} names {2}, which does not load as a montage".format(name, field, path))
+                continue
+            if skeleton is not None and montage.get_editor_property("skeleton") != skeleton:
+                fail("{0}.{1}: {2} is not on {3}".format(name, field, montage.get_name(), skeleton.get_name()))
+            described = builder.describe_montage(montage) if builder else ""
+            wants_upper = field in BOW_ROLES
+            if builder and ("slot=UpperBody" in described) != wants_upper:
+                fail("{0}.{1}: {2} plays in the wrong slot ({3})".format(name, field, montage.get_name(), described))
+            filled.append(role)
+        say("  {0}: {1} of {2} roles have clips{3}".format(name, len(filled), len(cca.ROLES),
+                                                          " (" + ", ".join(filled) + ")" if filled else ""))
+        for folder, bp_name in users:
+            cdo = _default_object(folder, bp_name)
+            worn = prop(cdo, "combat_anim_set") if cdo is not None else None
+            if worn is None or worn.get_name() != name:
+                fail("{0}.CombatAnimSet is {1}, not {2}".format(bp_name, name_of(worn), name))
+    for abp in ("ABP_BowIK_Post", "ABP_BowIK_Post_Thug"):
+        graph = c.load_or_none("/Game/Blueprints/Animation/" + abp)
+        tag = unreal.EditorAssetLibrary.get_metadata_tag(graph, "HawkeyeBuild") if graph is not None else ""
+        if tag != "bow-ik-3":
+            fail("{0} is build '{1}', not bow-ik-3 (the clip slots); run create_bow_ik".format(abp, tag))
+
+
 def main():
     say("==== verifying starter content ====")
     check_existence()
@@ -1012,6 +1065,7 @@ def main():
     check_narrative()
     check_audio()
     check_vfx()
+    check_combat_anims()
     if PROBLEMS:
         unreal.log_error("[Verify] FAIL: {0} problem(s)".format(len(PROBLEMS)))
         for problem in PROBLEMS:
