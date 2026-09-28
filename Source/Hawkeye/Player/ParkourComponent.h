@@ -53,6 +53,12 @@ struct HAWKEYE_API FHawkeyeParkourClip
  * climb clip paused where the hands reach the edge), then the jump key climbs and crouch drops.
  * Falling past a ledge between CatchMinHeight and CatchMaxHeight above the feet catches it.
  *
+ * The jump key is forgiving (2026-09-28): it probes a fan of rays around the stick direction (or
+ * the facing), reaches ManualTriggerDistance, and takes tops from JumpMinHeight. When nothing fits
+ * and a plain jump starts, the late catch re-probes every tick for LateCatchSeconds and takes a
+ * mantle or a ledge the moment one fits; a press during a move is buffered for JumpBufferSeconds
+ * and fires when the move ends.
+ *
  * The way down: standing within DropToHangReach of an edge with more than DropToHangMinDrop
  * beyond it (a roof edge over its parapet, a fire-escape landing over its rail, or any walkable
  * edge), TryDropToHang goes over it to the same hang on its outer face. A drop from that hang
@@ -92,9 +98,50 @@ public:
 	/** The ledge the last drop let go of is still ignored (the fall has not ended). */
 	bool IsIgnoringDroppedLedge() const { return bIgnoreDroppedLedge; }
 
-	/** Probe and start whatever fits: bAuto is the sprint trigger, false the jump key. */
+	/** DetectObstacleUpTo along Direction (flattened) instead of the facing. */
+	bool DetectObstacleAlong(const FVector& Direction, float MaxDistance, float MaxHeight, FHawkeyeParkourObstacle& OutObstacle,
+		float LowestProbe = -1.f) const;
+
+	/**
+	 * The jump key's probe: JumpFanRays rays spread JumpFanDegrees either side of Direction, each
+	 * Reach ahead of the capsule. The ray nearest the middle whose obstacle takes a move wins; with
+	 * bLateCatch the airborne rules apply (mantle when the top is in reach, else a ledge in the
+	 * catch window, auto vault limits). False with OutWhyNot saying why nothing did.
+	 */
+	bool ProbeJumpFan(const FVector& Direction, float Reach, bool bLateCatch, FHawkeyeParkourObstacle& OutObstacle,
+		EHawkeyeParkourMove& OutMove, FString& OutWhyNot) const;
+
+	/** Where the jump key probes: the movement input when the stick is pushed, else the facing. */
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	FVector GetJumpProbeDirection() const;
+
+	/** Probe and start whatever fits: bAuto is the sprint trigger, false the jump key (the fan). */
 	UFUNCTION(BlueprintCallable, Category = "Parkour")
 	bool TryParkour(bool bAuto);
+
+	/** The jump key along Direction: the fan, logging at Log why nothing started. */
+	bool TryJumpParkour(const FVector& Direction);
+
+	/** Why the last jump press or late catch did not turn into a move; empty after one that did. */
+	const FString& GetLastJumpRefusal() const { return LastJumpRefusal; }
+
+	/** A plain jump has started: re-probe every tick for LateCatchSeconds (the late catch). */
+	void ArmLateCatch();
+
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	bool IsLateCatchArmed() const { return LateCatchRemaining > 0.f; }
+
+	/** One late-catch probe from the air; true when it started a move. */
+	bool TryLateCatch();
+
+	/** Jump pressed during a move: it fires when the move ends, if that is within JumpBufferSeconds. */
+	void BufferJump();
+
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	bool IsJumpBuffered() const { return JumpBufferRemaining > 0.f; }
+
+	/** The jump buffer and the late catch for one tick. TickComponent calls it; a test calls it directly. */
+	void TickJumpAssist(float DeltaSeconds);
 
 	/** Starts Move over Obstacle with this component moving the capsule (no sample traversal). */
 	UFUNCTION(BlueprintCallable, Category = "Parkour")
@@ -219,7 +266,31 @@ public:
 
 	/** The jump key looks this far ahead of the capsule, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
-	float ManualTriggerDistance = 120.f;
+	float ManualTriggerDistance = 180.f;
+
+	/** The jump key takes tops from this high (the auto trigger from VaultMinHeight), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
+	float JumpMinHeight = 40.f;
+
+	/** The jump key's fan reaches this far either side of the stick direction, degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float JumpFanDegrees = 35.f;
+
+	/** Rays in the jump key's fan, odd so one is straight ahead. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "1"))
+	int32 JumpFanRays = 7;
+
+	/** After a plain jump, the probe keeps running this long for a mantle or a ledge, s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
+	float LateCatchSeconds = 0.8f;
+
+	/** The late catch looks this far ahead of the capsule, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
+	float LateCatchReach = 100.f;
+
+	/** A jump press during a move fires when the move ends, if it ends within this long, s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
+	float JumpBufferSeconds = 0.3f;
 
 	/** Falling, a wall this close to the capsule can be caught, cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection", meta = (ClampMin = "0.0"))
@@ -337,8 +408,20 @@ protected:
 	/** Sprinting into something: TryParkour(true). */
 	void TryAutoParkour();
 
+	/** ChooseMove with the lowest accepted top at MinHeight (below VaultMinHeight a vault or mantle still fits). */
+	EHawkeyeParkourMove ChooseMoveFrom(float MinHeight, float Height, bool bClearBeyond, bool bStandingSurface) const;
+
+	/** Why Obstacle takes no move, for the log. */
+	FString DescribeRefusal(const FHawkeyeParkourObstacle& Obstacle, bool bLateCatch) const;
+
+	/** Starts Move over Obstacle: the sample for a vault or mantle from the ground, else ours. */
+	bool StartChosenMove(EHawkeyeParkourMove Move, const FHawkeyeParkourObstacle& Obstacle, const TCHAR* Trigger);
+
+	void CancelLateCatch(const TCHAR* Why);
+
 	/** Nearest near-vertical face within Reach of the capsule axis, probed at several heights up to MaxHeight. */
-	bool FindFrontFace(const FVector& Feet, const FVector& Forward, float Reach, float MaxHeight, FHitResult& OutHit) const;
+	bool FindFrontFace(const FVector& Feet, const FVector& Forward, float Reach, float MaxHeight, FHitResult& OutHit,
+		float LowestProbe = -1.f) const;
 
 	/** The top surface just behind the front face, with open air above it. */
 	bool FindTop(const FHitResult& Face, const FVector& Normal, const FVector& Feet, float MaxHeight, FVector& OutTop) const;
@@ -430,4 +513,13 @@ protected:
 	TEnumAsByte<ERootMotionMode::Type> SavedRootMotionMode = ERootMotionMode::RootMotionFromMontagesOnly;
 	TWeakObjectPtr<UActorComponent> SampleTraversal;
 	bool bLoggedSampleApi = false;
+
+	/** The late catch: seconds left, seconds since armed, and whether she has left the ground yet. */
+	float LateCatchRemaining = 0.f;
+	float LateCatchElapsed = 0.f;
+	/** Feet height when the late catch was armed: a top it takes must be JumpMinHeight above that. */
+	float LateCatchTakeOffZ = 0.f;
+	bool bLateCatchAirborne = false;
+	float JumpBufferRemaining = 0.f;
+	FString LastJumpRefusal;
 };

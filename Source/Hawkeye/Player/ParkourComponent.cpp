@@ -59,6 +59,10 @@ namespace HawkeyeParkour
 	static constexpr float FloorTolerance = 20.f;
 	/** The drop to hang hops this far over the lip on its way over, cm. */
 	static constexpr float DropHopClearance = 30.f;
+	/** In the air the front face is probed from this far above the feet, cm. */
+	static constexpr float AirProbeLowest = 5.f;
+	/** In the air a top this far above the feet is still worth a mantle (she would slide down its face). */
+	static constexpr float AirMinHeight = 8.f;
 	/** A ledge within this of the one just let go of is the same ledge, cm. */
 	static constexpr float SameLedgeTolerance = 40.f;
 }
@@ -123,7 +127,12 @@ float UParkourComponent::GetMoveSeconds(EHawkeyeParkourMove Move) const
 
 EHawkeyeParkourMove UParkourComponent::ChooseMove(float Height, bool bClearBeyond, bool bStandingSurface) const
 {
-	if (Height < VaultMinHeight || Height > LedgeMaxHeight)
+	return ChooseMoveFrom(VaultMinHeight, Height, bClearBeyond, bStandingSurface);
+}
+
+EHawkeyeParkourMove UParkourComponent::ChooseMoveFrom(float MinHeight, float Height, bool bClearBeyond, bool bStandingSurface) const
+{
+	if (Height < MinHeight || Height > LedgeMaxHeight)
 	{
 		return EHawkeyeParkourMove::None;
 	}
@@ -150,7 +159,29 @@ EHawkeyeParkourMove UParkourComponent::ChooseMoveFor(const FHawkeyeParkourObstac
 	}
 	const float MaxDrop = bAuto ? MaxAutoVaultDrop : MaxVaultDrop;
 	const bool bClear = Obstacle.bClearBeyond && Obstacle.LandingDrop <= MaxDrop;
-	return ChooseMove(Obstacle.Height, bClear, Obstacle.bStandingSurface);
+	// The jump key takes lower tops than the sprint trigger: a knee-high wall is worth a hop over.
+	return ChooseMoveFrom(bAuto ? VaultMinHeight : FMath::Min(JumpMinHeight, VaultMinHeight), Obstacle.Height, bClear,
+		Obstacle.bStandingSurface);
+}
+
+FString UParkourComponent::DescribeRefusal(const FHawkeyeParkourObstacle& Obstacle, bool bLateCatch) const
+{
+	const float MinHeight = FMath::Min(JumpMinHeight, VaultMinHeight);
+	const float MaxHeight = bLateCatch ? CatchMaxHeight : LedgeMaxHeight;
+	if (Obstacle.Height < MinHeight)
+	{
+		return FString::Printf(TEXT("too low (%.0f cm, from %.0f)"), Obstacle.Height, MinHeight);
+	}
+	if (Obstacle.Height > MaxHeight)
+	{
+		return FString::Printf(TEXT("too tall (%.0f cm, up to %.0f)"), Obstacle.Height, MaxHeight);
+	}
+	if (Obstacle.bClearBeyond && !Obstacle.bStandingSurface
+		&& Obstacle.LandingDrop > (bLateCatch ? MaxAutoVaultDrop : MaxVaultDrop))
+	{
+		return FString::Printf(TEXT("a %.0f cm drop beyond and nowhere to stand on top"), Obstacle.LandingDrop);
+	}
+	return FString::Printf(TEXT("no room to stand on the %.0f cm top"), Obstacle.Height);
 }
 
 // --- Detection ----------------------------------------------------------------------------------
@@ -183,10 +214,11 @@ bool UParkourComponent::CapsuleFits(const FVector& Centre) const
 }
 
 bool UParkourComponent::FindFrontFace(const FVector& Feet, const FVector& Forward, float Reach, float MaxHeight,
-	FHitResult& OutHit) const
+	FHitResult& OutHit, float LowestProbe) const
 {
 	bool bFound = false;
-	for (float Height = HawkeyeParkour::FaceProbeLowest; Height <= MaxHeight; Height += HawkeyeParkour::FaceProbeStep)
+	const float Lowest = LowestProbe >= 0.f ? LowestProbe : HawkeyeParkour::FaceProbeLowest;
+	for (float Height = Lowest; Height <= MaxHeight; Height += HawkeyeParkour::FaceProbeStep)
 	{
 		const FVector From = Feet + FVector(0.f, 0.f, Height);
 		FHitResult Hit;
@@ -308,19 +340,27 @@ bool UParkourComponent::DetectObstacle(float MaxDistance, FHawkeyeParkourObstacl
 
 bool UParkourComponent::DetectObstacleUpTo(float MaxDistance, float MaxHeight, FHawkeyeParkourObstacle& OutObstacle) const
 {
+	const ACharacter* Character = GetCharacter();
+	return DetectObstacleAlong(Character ? Character->GetActorForwardVector() : FVector::ForwardVector, MaxDistance,
+		MaxHeight, OutObstacle);
+}
+
+bool UParkourComponent::DetectObstacleAlong(const FVector& Direction, float MaxDistance, float MaxHeight,
+	FHawkeyeParkourObstacle& OutObstacle, float LowestProbe) const
+{
 	OutObstacle = FHawkeyeParkourObstacle();
 	const ACharacter* Character = GetCharacter();
-	if (!Character || !GetWorld())
+	const FVector Forward = Direction.GetSafeNormal2D();
+	if (!Character || !GetWorld() || Forward.IsNearlyZero())
 	{
 		return false;
 	}
 	const UCapsuleComponent* Capsule = Character->GetCapsuleComponent();
 	const float Radius = Capsule->GetScaledCapsuleRadius();
 	const FVector Feet = Character->GetActorLocation() - FVector(0.f, 0.f, Capsule->GetScaledCapsuleHalfHeight());
-	const FVector Forward = Character->GetActorForwardVector().GetSafeNormal2D();
 
 	FHitResult Face;
-	if (!FindFrontFace(Feet, Forward, Radius + MaxDistance, MaxHeight, Face))
+	if (!FindFrontFace(Feet, Forward, Radius + MaxDistance, MaxHeight, Face, LowestProbe))
 	{
 		return false;
 	}
@@ -345,15 +385,35 @@ bool UParkourComponent::DetectObstacleUpTo(float MaxDistance, float MaxHeight, F
 
 // --- Starting -----------------------------------------------------------------------------------
 
+FVector UParkourComponent::GetJumpProbeDirection() const
+{
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!Pawn)
+	{
+		return FVector::ForwardVector;
+	}
+	// This frame's input when it has been added already, else what the movement consumed last frame.
+	FVector Input = Pawn->GetPendingMovementInputVector().GetSafeNormal2D();
+	if (Input.IsNearlyZero())
+	{
+		Input = Pawn->GetLastMovementInputVector().GetSafeNormal2D();
+	}
+	return Input.IsNearlyZero() ? Pawn->GetActorForwardVector().GetSafeNormal2D() : Input;
+}
+
 bool UParkourComponent::TryParkour(bool bAuto)
 {
+	if (!bAuto)
+	{
+		return TryJumpParkour(GetJumpProbeDirection());
+	}
 	const UCharacterMovementComponent* Movement = GetMovement();
 	if (IsBusy() || !Movement || !(Movement->IsMovingOnGround() || Movement->IsFalling()))
 	{
 		return false;
 	}
 	FHawkeyeParkourObstacle Obstacle;
-	if (!DetectObstacle(bAuto ? AutoTriggerDistance : ManualTriggerDistance, Obstacle))
+	if (!DetectObstacle(AutoTriggerDistance, Obstacle))
 	{
 		return false;
 	}
@@ -362,22 +422,268 @@ bool UParkourComponent::TryParkour(bool bAuto)
 	{
 		return false;
 	}
+	return StartChosenMove(Move, Obstacle, TEXT("auto"));
+}
+
+bool UParkourComponent::StartChosenMove(EHawkeyeParkourMove Move, const FHawkeyeParkourObstacle& Obstacle, const TCHAR* Trigger)
+{
+	const UCharacterMovementComponent* Movement = GetMovement();
+	if (!Movement)
+	{
+		return false;
+	}
 	LastObstacle = Obstacle;
+	LastJumpRefusal.Reset();
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s %s: %.0f cm high, %.0f cm away, depth %.0f, clear beyond %d (drop %.0f), stand %d, on %s"),
-		*GetNameSafe(GetOwner()), bAuto ? TEXT("auto") : TEXT("jump"), *UEnum::GetValueAsString(Move), Obstacle.Height,
+		*GetNameSafe(GetOwner()), Trigger, *UEnum::GetValueAsString(Move), Obstacle.Height,
 		Obstacle.Distance, Obstacle.Depth, Obstacle.bClearBeyond ? 1 : 0, Obstacle.LandingDrop,
 		Obstacle.bStandingSurface ? 1 : 0, *GetNameSafe(Obstacle.Actor));
 
 	const bool bSampleMove = Move == EHawkeyeParkourMove::Vault || Move == EHawkeyeParkourMove::Mantle;
-	if (bSampleMove && Movement->IsMovingOnGround() && TryStartSampleTraversal())
+	if (bSampleMove && Movement->IsMovingOnGround())
 	{
-		LastMove = Move;
-		LastRoute = EHawkeyeParkourRoute::SampleTraversal;
-		PlayEffortSound(Move);
-		OnParkourStarted.Broadcast(Move, LastRoute);
-		return true;
+		// The sample probes along the facing; an angled press turns her to the wall first so it
+		// finds the same one the fan did.
+		ACharacter* Character = GetCharacter();
+		const FVector ToWall = -Obstacle.WallNormal.GetSafeNormal2D();
+		if (Character && !ToWall.IsNearlyZero()
+			&& FVector::DotProduct(Character->GetActorForwardVector().GetSafeNormal2D(), ToWall) < 0.985f)
+		{
+			Character->SetActorRotation(FRotator(0.f, ToWall.Rotation().Yaw, 0.f));
+		}
+		if (TryStartSampleTraversal())
+		{
+			LastMove = Move;
+			LastRoute = EHawkeyeParkourRoute::SampleTraversal;
+			PlayEffortSound(Move);
+			OnParkourStarted.Broadcast(Move, LastRoute);
+			return true;
+		}
 	}
 	return StartMove(Move, Obstacle);
+}
+
+bool UParkourComponent::ProbeJumpFan(const FVector& Direction, float Reach, bool bLateCatch,
+	FHawkeyeParkourObstacle& OutObstacle, EHawkeyeParkourMove& OutMove, FString& OutWhyNot) const
+{
+	OutObstacle = FHawkeyeParkourObstacle();
+	OutMove = EHawkeyeParkourMove::None;
+	OutWhyNot.Reset();
+	const FVector Centre = Direction.GetSafeNormal2D();
+	const UCharacterMovementComponent* Movement = GetMovement();
+	if (Centre.IsNearlyZero() || !Movement)
+	{
+		OutWhyNot = TEXT("no direction to probe");
+		return false;
+	}
+	const bool bRising = Movement->Velocity.Z > 0.f;
+	const float MaxHeight = bLateCatch ? CatchMaxHeight : LedgeMaxHeight;
+	const float MinHeight = FMath::Min(JumpMinHeight, VaultMinHeight);
+	const int32 Rays = FMath::Max(1, JumpFanRays | 1);
+	const int32 Side = Rays / 2;
+	const float Step = Side > 0 ? JumpFanDegrees / Side : 0.f;
+	FString FirstRefusal;
+	for (int32 Index = 0; Index < Rays; ++Index)
+	{
+		// 0, -1, +1, -2, +2, ... steps: the middle of the fan first.
+		const int32 Ring = (Index + 1) / 2;
+		const float Angle = (Index % 2 == 1 ? -1.f : 1.f) * Ring * Step;
+		const FVector Ray = Centre.RotateAngleAxis(Angle, FVector::UpVector);
+		FHawkeyeParkourObstacle Obstacle;
+		// Probed a little higher than any move allows, so "too tall" can be told from "nothing there".
+		// In the air the probe starts just above the feet: a running jump meets a waist-high wall
+		// with the feet a hand's width under its top, where the ground probe (35 cm up) passes over.
+		if (!DetectObstacleAlong(Ray, Reach, MaxHeight + 60.f, Obstacle, bLateCatch ? HawkeyeParkour::AirProbeLowest : -1.f))
+		{
+			continue;
+		}
+		EHawkeyeParkourMove Move = EHawkeyeParkourMove::None;
+		if (!bLateCatch)
+		{
+			Move = ChooseMoveFor(Obstacle, /*bAuto=*/false);
+		}
+		else if (Obstacle.Height >= HawkeyeParkour::AirMinHeight && Obstacle.Height <= MantleMaxHeight
+			&& (Obstacle.Height >= MinHeight || Obstacle.LedgePoint.Z - LateCatchTakeOffZ >= MinHeight))
+		{
+			// In the air with the top in reach: onto it, or over a thin one with the sprint
+			// trigger's drop limit (a jump beside a parapet is not a request to go over it).
+			const bool bClear = Obstacle.bClearBeyond && Obstacle.LandingDrop <= MaxAutoVaultDrop;
+			Move = ChooseMoveFrom(HawkeyeParkour::AirMinHeight, Obstacle.Height, bClear, Obstacle.bStandingSurface);
+		}
+		if (bLateCatch && Move == EHawkeyeParkourMove::None && Obstacle.Height >= CatchMinHeight
+			&& Obstacle.Height <= (bRising ? LedgeMaxHeight : CatchMaxHeight))
+		{
+			// Higher than that: hang from it (still rising, only as high as a standing grab reaches).
+			Move = EHawkeyeParkourMove::LedgeGrab;
+		}
+		if (Move != EHawkeyeParkourMove::None)
+		{
+			OutObstacle = Obstacle;
+			OutMove = Move;
+			return true;
+		}
+		if (FirstRefusal.IsEmpty())
+		{
+			FirstRefusal = FString::Printf(TEXT("%s at %+.0f degrees, %.0f cm away"), *DescribeRefusal(Obstacle, bLateCatch),
+				Angle, Obstacle.Distance);
+		}
+	}
+	OutWhyNot = FirstRefusal.IsEmpty()
+		? FString::Printf(TEXT("no obstacle in the %.0f degree fan within %.0f cm"), JumpFanDegrees, Reach)
+		: FirstRefusal;
+	return false;
+}
+
+bool UParkourComponent::TryJumpParkour(const FVector& Direction)
+{
+	const UCharacterMovementComponent* Movement = GetMovement();
+	if (IsBusy() || !Movement || !(Movement->IsMovingOnGround() || Movement->IsFalling()))
+	{
+		return false;
+	}
+	FHawkeyeParkourObstacle Obstacle;
+	EHawkeyeParkourMove Move = EHawkeyeParkourMove::None;
+	FString WhyNot;
+	if (!ProbeJumpFan(Direction, ManualTriggerDistance, /*bLateCatch=*/false, Obstacle, Move, WhyNot))
+	{
+		LastJumpRefusal = WhyNot;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: jump: no parkour move: %s"), *GetNameSafe(GetOwner()), *WhyNot);
+		return false;
+	}
+	if (StartChosenMove(Move, Obstacle, TEXT("jump")))
+	{
+		return true;
+	}
+	LastJumpRefusal = FString::Printf(TEXT("%s would not start"), *UEnum::GetValueAsString(Move));
+	UE_LOG(LogHawkeye, Log, TEXT("%s: jump: no parkour move: %s"), *GetNameSafe(GetOwner()), *LastJumpRefusal);
+	return false;
+}
+
+void UParkourComponent::ArmLateCatch()
+{
+	if (LateCatchSeconds <= 0.f || IsBusy())
+	{
+		return;
+	}
+	LateCatchRemaining = LateCatchSeconds;
+	LateCatchElapsed = 0.f;
+	const ACharacter* Character = GetCharacter();
+	LateCatchTakeOffZ = Character ? Character->GetActorLocation().Z - Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
+	bLateCatchAirborne = false;
+}
+
+void UParkourComponent::CancelLateCatch(const TCHAR* Why)
+{
+	if (LateCatchRemaining <= 0.f)
+	{
+		return;
+	}
+	LateCatchRemaining = 0.f;
+	UE_LOG(LogHawkeye, Verbose, TEXT("%s: late catch off: %s"), *GetNameSafe(GetOwner()), Why);
+}
+
+bool UParkourComponent::TryLateCatch()
+{
+	const UCharacterMovementComponent* Movement = GetMovement();
+	if (IsBusy() || RegrabCooldown > 0.f || !Movement || !Movement->IsFalling())
+	{
+		return false;
+	}
+	FHawkeyeParkourObstacle Obstacle;
+	EHawkeyeParkourMove Move = EHawkeyeParkourMove::None;
+	FString WhyNot;
+	if (!ProbeJumpFan(GetJumpProbeDirection(), LateCatchReach, /*bLateCatch=*/true, Obstacle, Move, WhyNot))
+	{
+		LastJumpRefusal = WhyNot;
+		return false;
+	}
+	if (bIgnoreDroppedLedge && FMath::Abs(Obstacle.LedgePoint.Z - DroppedLedgePoint.Z) < HawkeyeParkour::SameLedgeTolerance
+		&& FVector::Dist2D(Obstacle.LedgePoint, DroppedLedgePoint) < 200.f)
+	{
+		return false;
+	}
+	LateCatchRemaining = 0.f;
+	const FString Trigger = FString::Printf(TEXT("late catch %.2f s after the jump"), LateCatchElapsed);
+	if (Move == EHawkeyeParkourMove::LedgeGrab)
+	{
+		bIgnoreDroppedLedge = false;
+	}
+	return StartChosenMove(Move, Obstacle, *Trigger);
+}
+
+void UParkourComponent::BufferJump()
+{
+	JumpBufferRemaining = JumpBufferSeconds;
+}
+
+void UParkourComponent::TickJumpAssist(float DeltaSeconds)
+{
+	if (JumpBufferRemaining > 0.f)
+	{
+		if (!IsPerformingMove() && !IsSampleTraversalActive())
+		{
+			// The move is over (or it ended in a hang, where the press climbs): the press happens now.
+			JumpBufferRemaining = 0.f;
+			UE_LOG(LogHawkeye, Log, TEXT("%s: buffered jump fires at the end of the move"), *GetNameSafe(GetOwner()));
+			if (ACharacter* Character = GetCharacter())
+			{
+				Character->Jump();
+			}
+		}
+		else
+		{
+			JumpBufferRemaining = FMath::Max(0.f, JumpBufferRemaining - DeltaSeconds);
+			if (JumpBufferRemaining <= 0.f)
+			{
+				UE_LOG(LogHawkeye, Log, TEXT("%s: buffered jump dropped: the move ran %.1f s past the press"),
+					*GetNameSafe(GetOwner()), JumpBufferSeconds);
+			}
+		}
+	}
+
+	if (LateCatchRemaining <= 0.f)
+	{
+		return;
+	}
+	const UCharacterMovementComponent* Movement = GetMovement();
+	if (IsBusy())
+	{
+		CancelLateCatch(TEXT("a move or a hang started"));
+		return;
+	}
+	if (!Movement || Movement->MovementMode == MOVE_Flying)
+	{
+		CancelLateCatch(TEXT("a zip, or no movement"));
+		return;
+	}
+	const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(GetOwner());
+	if (Hawkeye && Hawkeye->IsSliding())
+	{
+		CancelLateCatch(TEXT("a slide"));
+		return;
+	}
+	LateCatchElapsed += DeltaSeconds;
+	if (!Movement->IsFalling())
+	{
+		// The jump itself starts on the movement tick after the press; give it that long.
+		if (bLateCatchAirborne || LateCatchElapsed > 0.25f)
+		{
+			CancelLateCatch(TEXT("on the ground"));
+		}
+		return;
+	}
+	bLateCatchAirborne = true;
+	if (TryLateCatch())
+	{
+		return;
+	}
+	LateCatchRemaining -= DeltaSeconds;
+	if (LateCatchRemaining <= 0.f)
+	{
+		LateCatchRemaining = 0.f;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: jump: the late catch found nothing in %.1f s (last: %s)"), *GetNameSafe(GetOwner()),
+			LateCatchSeconds, *LastJumpRefusal);
+	}
 }
 
 bool UParkourComponent::TryStartSampleTraversal()
@@ -428,7 +734,8 @@ bool UParkourComponent::StartMove(EHawkeyeParkourMove Move, const FHawkeyeParkou
 	case EHawkeyeParkourMove::LedgeGrab:
 	{
 		HangObstacle = Obstacle;
-		const bool bFalling = GetMovement() && GetMovement()->IsFalling();
+		// Falling onto it is the quick catch; a jump still rising (the late catch) reaches up the grab's way.
+		const bool bFalling = GetMovement() && GetMovement()->IsFalling() && GetMovement()->Velocity.Z <= 0.f;
 		return BeginMove(Move, HangLocationFor(Obstacle), -1.f, bFalling ? CatchSeconds : GrabSeconds,
 			bFalling ? CatchClip : GrabClip);
 	}
@@ -825,6 +1132,7 @@ void UParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	RegrabCooldown = FMath::Max(0.f, RegrabCooldown - DeltaTime);
+	TickJumpAssist(DeltaTime);
 	if (bIgnoreDroppedLedge && !bHanging && !IsPerformingMove())
 	{
 		const UCharacterMovementComponent* Movement = GetMovement();

@@ -2577,8 +2577,9 @@ void AHawkeyeCharacter::Jump()
 	}
 	if (ParkourComponent)
 	{
-		// Hanging, jump climbs. Mid-move it does nothing. Otherwise an obstacle ahead turns it
-		// into a vault, mantle or ledge grab, and only open ground gets a plain jump.
+		// Hanging, jump climbs. Mid-move the press waits for the end of the move. Otherwise an
+		// obstacle in the fan ahead turns it into a vault, mantle or ledge grab, and open ground gets
+		// a plain jump that keeps looking for a mantle or a ledge on the way up and down.
 		if (ParkourComponent->IsHanging())
 		{
 			ParkourComponent->ClimbFromHang();
@@ -2586,6 +2587,7 @@ void AHawkeyeCharacter::Jump()
 		}
 		if (ParkourComponent->IsBusy())
 		{
+			ParkourComponent->BufferJump();
 			return;
 		}
 		EndSlide();
@@ -2601,6 +2603,10 @@ void AHawkeyeCharacter::Jump()
 	}
 	EndSlide();
 	Super::Jump();
+	if (ParkourComponent)
+	{
+		ParkourComponent->ArmLateCatch();
+	}
 }
 
 void AHawkeyeCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode)
