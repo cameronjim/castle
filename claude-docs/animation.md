@@ -101,19 +101,31 @@ Play Rate), so the montage is short and plays at rate 1, and maps the windows in
 forward reach from the pelvis per frame (read with `GetRawBoneLocation`): the hit window opens when
 the striking hand is about two thirds out, and the stretch starts at or just before the cocked pose.
 
-| Clip | Stretch (s) | Rate | Hit after input | Combo window | Montage |
-|------|-------------|------|-----------------|--------------|---------|
-| AM_Light1_Cross | 0.60-1.70 | 1.7 | 0.25 s | 0.34-0.62 s | 0.65 s |
-| AM_Light2_Hook | 0.70-1.75 | 1.3 | 0.25 s | 0.35-0.77 s | 0.81 s |
-| AM_Light3_UppercutJab (the left uppercut) | 0.45-1.25 | 1.4 | 0.24 s | 0.34-0.55 s | 0.57 s |
-| AM_Kick_Kicking (the front kick) | 0.20-1.35 | 1.2 | 0.29 s | 0.46-0.92 s | 0.96 s |
-| AM_Kick_SideKick (not played) | 0.20-1.50 | 1.4 | 0.29 s | 0.46-0.89 s | 0.93 s |
-| AM_Heavy_SurpriseUppercut | 0.65-1.80 | 1.1 | 0.41 s | 0.59-1.00 s | 1.05 s |
+| Clip | Variant | Stretch (s) | Rate | Hit after input | Combo window | Montage |
+|------|---------|-------------|------|-----------------|--------------|---------|
+| AM_Light1_Cross (right cross) | 1 of 2 | 0.60-1.70 | 1.7 | 0.25 s | 0.34-0.62 s | 0.65 s |
+| AM_Light1_Punching (left jab from a dip) | 2 of 2 | 0.13-1.00 | 1.5 | 0.25 s | 0.33-0.56 s | 0.58 s |
+| AM_Light2_Hook | 1 of 2 | 0.70-1.75 | 1.3 | 0.25 s | 0.35-0.77 s | 0.81 s |
+| AM_Light2_Boxing (jab, then the right cross that hits) | 2 of 2 | 0.25-1.05 | 1.4 | 0.25 s | 0.33-0.55 s | 0.57 s |
+| AM_Light3_UppercutJab (the left uppercut) | 1 of 2 | 0.45-1.25 | 1.4 | 0.24 s | 0.34-0.55 s | 0.57 s |
+| AM_Light3_JabElbow (the left jab; the elbow after it is cut) | 2 of 2 | 0.48-1.40 | 1.7 | 0.25 s | 0.34-0.52 s | 0.54 s |
+| AM_Kick_Kicking (the front kick) | 1 of 2 | 0.20-1.35 | 1.2 | 0.29 s | 0.46-0.92 s | 0.96 s |
+| AM_Kick_SideKick | 2 of 2 | 0.20-1.45 | 1.4 | 0.29 s | 0.46-0.87 s | 0.89 s |
+| AM_Heavy_SurpriseUppercut | 1 of 2 | 0.65-1.80 | 1.1 | 0.41 s | 0.59-1.00 s | 1.05 s |
+| AM_Heavy_Roundhouse (right roundhouse kick) | 2 of 2 | 0.40-1.65 | 1.2 | 0.39 s | 0.58-1.00 s | 1.04 s |
 
-The Kick role plays Kicking (2026-09-28): at the side kick's hit Kate's torso is near flat over her
-standing hip, head at 123 cm; the front kick stays upright (head 142 cm) and lands at the same time.
-The other second clips (Punching, Boxing, JabElbow, Roundhouse) are on the role defaults: nothing
-plays them while the first exists.
+Variants (2026-09-28): each strike takes the next clip of its role in manifest order, so Kate's heavy
+goes Surprise Uppercut, Roundhouse, Surprise Uppercut; the log line "heavy variant 2 of 2 for
+ECombatAnimRole::Heavy: AM_Heavy_Roundhouse" says which. The second variants were measured the same
+way (`GetRawBoneLocation` per frame of the retargeted `A_` clip): the hit opens when the fist or foot is
+80 to 90% of its way out. The Roundhouse's standing leg straightens from her bent-knee idle: her pelvis
+is 16 cm above standing at the hit (95 against 79 cm), the standing foot flat on the ground.
+The Kick role plays Kicking first (2026-09-28): at the side kick's hit Kate's torso is near flat over her
+standing hip, head at 123 cm (its import `check` line says so: head +23 at mid-clip); the front kick
+stays upright (head 142 cm) and lands at the same time. Side Kick is the second kick variant; only the
+Light3 fallback and the kick shot play the Kick role, so whether it stays is Cameron's call. The thugs'
+fists alternate Standing Melee Punch and Jab To Elbow (both fitted to the telegraph); the run-jump attack
+is `"in_set": false`.
 
 Thug strikes are trimmed the same way but kept at rate 1 in the manifest; the melee component fits
 them to the attack's telegraph when they play (`HawkeyeCombatAnim::FitHitToWindup`): the rate that
@@ -126,11 +138,11 @@ The numbers come from the striking hand's forward reach per frame, as for Kate's
 |------|-------------|---------|--------|-------------------|------------|
 | AM_Light1_MeleePunch | 0.00-0.75 | 0.25-0.35 | fists 0.6 s | held 0.29 s, 0.8x, 0.60 s | 0.63 s |
 | AM_Heavy_MeleeHorizontal | 0.00-1.50 | 0.87-0.97 | bat 0.6 s, bash 0.8 s, slow swing 1.0 s | 1.3x from 0.09 s, 0.60 s; 1.09x, 0.80 s; 0.87x, 1.00 s | 0.48, 0.58, 0.72 s |
-| AM_Light1_JabElbow (not played) | 0.30-1.40 | 0.85-0.95 | fists 0.6 s | 0.92x | 0.60 s |
-| AM_Heavy_RunJumpAttack (not played) | 0.55-2.40 | 1.64-1.74 | | a jump attack; its pelvis leaves the ground | |
+| AM_Light1_JabElbow (fists, second variant) | 0.30-1.40 | 0.85-0.95 | fists 0.6 s | 0.92x, 0.60 s | 0.60 s |
+| AM_Heavy_RunJumpAttack (`in_set: false`) | 0.55-2.40 | 1.64-1.74 | | a jump attack; its pelvis leaves the ground | |
 
 Standing Melee Punch has only 0.25 s of wind-up, hence the hold; the Jab To Elbow jab fits 0.6 s
-with none and could be promoted by putting it first in the manifest. The thug's reactions: Knocked
+with none, and since 2026-09-28 every second fists swing plays it. The thug's reactions: Knocked
 Out plays 0.80-2.60 s (0.9 s of standing still cut; on the floor by 1.4 s, holding its last frame
 there), Sweep Fall 0.60-2.00 s (starts as his feet go). Receive Punch To The Face starts reacting on
 its second frame and is untrimmed.
@@ -157,14 +169,16 @@ as garbage in a full-body slot and pointed at Sparrow's idle on Sparrow's skelet
    (`kate`, `clint`, `thug`, `archer`, `all`, or a list).
 2. Optional per clip: `hit`, `combo` (fractions of the clip), `warp_end`, `loop`, `hold`,
    `root_motion`, `blend_in`, `blend_out`, `slot`; or the timing keys in seconds of the source clip,
-   `start_s`, `end_s`, `rate`, `hit_s`, `combo_s`, `warp_end_s` (see "Timing a clip for play"). Leave them out to take `ROLE_DEFAULTS` in
+   `start_s`, `end_s`, `rate`, `hit_s`, `combo_s`, `warp_end_s` (see "Timing a clip for play"). `"in_set": false` imports a clip but keeps it out of the anim set. Leave the timing keys out to take `ROLE_DEFAULTS` in
    `import_combat_anims.py` (strikes: hit 25-45%, combo 45-80%, warp to the hit; heavy 40-55%, 60-85%;
    Knockdown holds its last frame; BowAimIdle loops; bow roles play `UpperBody`).
 3. `.\Tools\import-anims.ps1` (add `-Force` to redo existing assets). Read the log: one `created`
    line per montage with its windows, one `pose` (or `check`) line per retargeted clip with its
    pelvis height at start, middle and end against the reference, and the head and hands.
-4. When a role has several clips, the first one in manifest order wins; reorder the manifest to
-   change it. Hand-made `AM_<Role>_*` montages in the folder come after, by name.
+4. When a role has several clips, all of them go in the set in manifest order: the first in the role's
+   slot, the rest in `MoreVariants`. Strikes cycle through them; every other role plays the first.
+   Reorder the manifest to change the order, `"in_set": false` to leave one out. Hand-made
+   `AM_<Role>_*` montages in the folder come after, by name.
 5. Commit the manifest and the `DA_AnimSet_` assets. The clips, the copies and the retargeted
    results are git-ignored (Mixamo's and Epic's content is not republished); a fresh clone rebuilds
    them with the script.
@@ -188,8 +202,9 @@ Nobody can watch a headless run, so the scripts read bones:
   were right, so it is not trusted for this.
 - `Hawkeye.Smoke.ThugClipsStrikeOnTheTelegraph` swings the district's street thug (fists, bat) and the
   heavy (bash, slow swing) with their clips and checks each hit window opens on the telegraph's end.
-- `Hawkeye.Screenshot.Melee` shoots the heavy and the kick side on at their hit windows
-  (heavy_strike.png, kick.png) and fails on the wrong montage or a pelvis more than 15 cm off standing.
+- `Hawkeye.Screenshot.Melee` shoots two heavies and the kick side on at their hit windows
+  (heavy_strike.png, heavy_strike_2.png, kick.png) and fails on the wrong montage (the second heavy
+  repeating the first's clip is wrong), or a pelvis more than 15 cm below standing or 20 cm above it.
 - `Hawkeye.Smoke.CombatClipsPlay` loads the district and plays each character's clips: the slot's
   global weight must be above 0 a quarter second later, and Kate's Light1 must still be winding up
   before its `ANS_HitWindow` and recovering after it (the notify firing from a real montage).

@@ -628,8 +628,11 @@ the last input came from a pad.
 
 ## Melee depth (built 2026-09-27)
 - Combos: light, light, light do 15, 15, 25 (the third knocks back 150 cm), each input
-  within 0.35 s of the previous hit landing; a heavy anywhere in the chain does 35 and
-  knocks down. HUD counter from x2, clears after 2 s; at x5 it turns purple and adds 20%.
+  within 0.35 s of the previous light's hit landing or, if it hit nothing, of its hit window
+  ending (2026-09-28: punching the air still runs Light1, Light2, Light3; before, a miss put
+  the chain back at Light1). A heavy anywhere in the chain does 35 and knocks down, and ends
+  the chain, hit or miss. The HUD counter and the x5 bonus count only landed hits: counter
+  from x2, clears after 2 s; at x5 it turns purple and adds 20%.
 - Parry: a strike tap during a telegraph from a thug within 250 cm and in front staggers
   him 1.5 s with no damage taken, a 4-frame hit stop, `NS_ParryRing`, and `MS_Parry`.
   Works on fists, bat, the heavy's bash and slow swing; cancels only the first shot of a
@@ -730,8 +733,16 @@ the last input came from a pad.
   0.4 s blend up, the IK bow. Every rule in the melee, dodge, finisher and bow sections holds
   either way; a clip changes how it looks and, for strikes only, when the hit lands.
 - Only Light3 has a data fallback: with no Light3 clip it uses Kick.
-- A role with several clips takes the first in `Tools/Data/Anims/manifest.json` order that exists for
-  that character; `create_combat_anims.py` writes it into the set.
+- Variants (2026-09-28): a role can hold several clips. The first in `Tools/Data/Anims/manifest.json`
+  order that exists for that character is the role's slot (variant 0); the rest go in the set's
+  `MoreVariants` for that role, in manifest order (`create_combat_anims.py` writes both; a clip marked
+  `"in_set": false` is imported but left out). Each strike (the melee component's swings: Light1-3,
+  Heavy, Kick) takes the next variant of its role in order, round again after the last, so with two or
+  more no clip plays twice running; a role with one clip plays it every time, as before. The cycle is
+  per character and per role (a chain's Light1 and the next chain's Light1 differ). The log says which:
+  "heavy variant 2 of 2 for ECombatAnimRole::Heavy: AM_Heavy_Roundhouse". Every other role (dodges,
+  reactions, knockdown, finisher, bow) plays its first clip only. A variant that does not load gives way
+  to the role's first clip.
 - Clips are retargeted, never used on their source skeleton: Kate and Clint's onto the UEFN
   mannequin, thugs' and archers' onto the UE4 mannequin they wear. Additive source clips (Paragon's
   hit reactions) are baked to full poses. Standing clips must keep the pelvis within 35 cm of the
@@ -749,14 +760,15 @@ the last input came from a pad.
   again each tick until it finds someone or the window ends; if nobody was found by the end,
   the swing missed. A montage with no `ANS_HitWindow` keeps the attack's WindupSeconds and
   RecoverSeconds timers while it plays.
-- Chain timing with a clip: after a light lands, the chain stays open (the 0.35 s timer does
-  not run) until the montage's `ANS_ComboWindow` ends; while that window is open the next
-  strike starts at once, cutting the current montage. A press between the hit and the window
-  is held and goes when the window opens. A montage with no `ANS_ComboWindow` keeps the
+- Chain timing with a clip: after a light lands, or misses (its `ANS_HitWindow` ended on nobody),
+  the chain stays open (the 0.35 s timer does not run) until the montage's `ANS_ComboWindow` ends; while that window is open the next
+  strike starts at once, cutting the current montage. A press between the hit and the window,
+  or while the hit window is still open on nobody, is held and goes when the window opens. A montage with no `ANS_ComboWindow` keeps the
   0.35 s timer and ends the swing at RecoverSeconds.
 - Kate's strike timing with clips (2026-09-28; each clip's start, end, rate and windows are in the
   manifest, in the source clip's seconds): Light1, Light2 and Light3 land 0.24 to 0.26 s after the
-  input, Kick (the Kicking front kick) 0.29 s, Heavy 0.41 s. A light's montage lasts 0.57 to 0.81 s; its combo window opens
+  input with either variant, Kick 0.29 s (Kicking and Side Kick), Heavy 0.41 s (Surprise Uppercut) or
+  0.39 s (Roundhouse). A light's montage lasts 0.54 to 0.81 s; its combo window opens
   about 0.1 s after its hit and closes 0.3 to 0.5 s after it, so the 0.35 s chain rule holds to within
   about 0.15 s either way. Pressed as each lands, three lights land at about 0.25, 0.6 and 1.0 s and the
   chain is over by about 1.4 s. The procedural lights still land at 0.1 s.
