@@ -80,6 +80,8 @@
  *   kate_costume.png under the street lamp nearest the street spot, seen from a camera 2.3 m in front
  *                    of her (she turns to face her own camera, so it cannot be swung round): the black
  *                    suit's purple arm panels and chest chevron in lamp light
+ *   night_street.png, day_street.png  kate_street's camera under hawkeye.TimeOfDay Night, then Day (the
+ *                    setting is put back after; also on their own as Hawkeye.Screenshot.TimeOfDay)
  *
  *   grapple_marker.png  back on the street, looking up at a tenement anchor with its marker showing
  *   grapple_mid.png     part way along the zip, the camera following
@@ -2574,6 +2576,50 @@ bool FHawkeyeKateReportObjective::Update()
 	return true;
 }
 
+namespace HawkeyeKateShots
+{
+	/**
+	 * night_street.png and day_street.png from kate_street's camera. hawkeye.TimeOfDay does not save, and
+	 * "Saved" hands the district back to whatever the player's setting is.
+	 */
+	static void AddTimeOfDayShots(FAutomationTestBase* Test)
+	{
+		ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.TimeOfDay Night")));
+		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFrameShot(Test, static_cast<uint8>(EShot::Street)));
+		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(Test, TEXT("night_street.png")));
+		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+		// Lumen and the sky light's real-time capture take a couple of seconds to settle on the new sky.
+		ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.TimeOfDay Day")));
+		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(3.f));
+		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(Test, TEXT("day_street.png")));
+		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+		ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.TimeOfDay Saved")));
+		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeScreenshotTimeOfDay, "Hawkeye.Screenshot.TimeOfDay",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
+	| EAutomationTestFlags::ProductFilter)
+
+/** Just the time-of-day pair from the Kate pass, for tuning the day without the whole pass. */
+bool FHawkeyeScreenshotTimeOfDay::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeKateShots;
+	if (!FApp::CanEverRender())
+	{
+		AddInfo(TEXT("No RHI: skipping the time of day screenshots."));
+		return true;
+	}
+	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(6.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFightShot(this, static_cast<uint8>(HawkeyeKateFight::EFightShot::FreezeAll)));
+	AddTimeOfDayShots(this);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
+	return true;
+}
+
 bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 {
 	using namespace HawkeyeKateShots;
@@ -2639,6 +2685,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("kate_costume.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
+	// The same street by night and by day (hawkeye.TimeOfDay), then back to the setting.
+	AddTimeOfDayShots(this);
 
 	// The bow: on her back, the quiver, half drawn, then an arrow into a thug 15 m away.
 	using EBow = HawkeyeKateShots::EBowShot;
