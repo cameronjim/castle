@@ -88,12 +88,40 @@ fair, is the finisher worth doing, does the camera stay useful when three thugs 
 Then whether a crime interrupting a roam is welcome or a nuisance, whether the challenge
 rings are visible enough, and whether going indoors feels like the same game.
 
+## Morning note, 2026-09-28: combat and bow animations are in
+Overnight, three passes landed the clip pipeline and the clips you downloaded. Everything
+passed the gate: both build targets, 337 tests, the import script a no-op on rerun, and a
+standalone screenshot pass whose images were read by eye.
+
+What plays now:
+- **Kate's chain** is Mixamo's cross, hook, and uppercut-jab, trimmed so each lands 0.25 s
+  after the press; a three-hit chain is done in about 1.4 s. Heavy is the surprise uppercut
+  (0.41 s), kick is the front kick, parry is the block, dodges are the four standing dodges,
+  finishers are the leg sweep and the flying kick with the bow up.
+- **The bow** is Paragon Sparrow's draw, aim loop, and fire on Kate, Clint, and the archers.
+  The bow arm extends, the string hand anchors at the cheek, and the IK keeps the hand on
+  the string. This is the shot that looks right first time.
+- **Thugs** swing with the standing melee punch and the horizontal bat swing, fitted to
+  their telegraphs at 0.8x to 1.3x so parry timing is unchanged. Hit reactions, knockdown
+  to the floor, and the sweep-fall finisher victim are clips too.
+- **Fallback rule:** any role without a clip keeps the old procedural move, so nothing broke.
+
+Three bugs found and fixed by looking at the images: Mixamo clips sank everyone to their
+knees (hip height was being written into the root), Mixamo strikes took up to 1.2 s to
+land (now trimmed per clip in the manifest), and the retargeted clips never moved the IK
+foot bones so the leg IK glued Kate's feet to the floor mid-kick (now pinned).
+
+Try first: the roof pair, hands only, and tell me whether the chain reads as three
+different punches. Then a parry on the bat. Then a kick and a heavy on purpose.
+
+Still rough: no get-up clip (a knockdown holds then blends up; search Mixamo for
+"Getting Up"), the heavy reads as a swing more than an uppercut, the thug's fist punch
+holds its first frame for 0.29 s to fill the telegraph, Kate never dodges the heavy's
+bash in the scripted street fight, and no bow nock clip. Pipeline docs are in
+`claude-docs/animation.md`; the clip list and folder layout in `Tools/Data/Anims/README.md`.
+Clips and retargets are not in git; the script rebuilds them from your downloads.
+
 ## Known rough edges
-- **No attack, kick, dodge, hit, or bow-draw animations.** Strikes are still lunges posed
-  by IK and the bow floats in front of Kate while drawing. This is the biggest gap in how
-  combat feels and is being fixed next: the import and retarget pipeline is being built
-  tonight, and needs one download session from you (free Mixamo clips and Epic's free
-  Paragon Sparrow bow set). The list will be in `Tools/Data/Anims/README.md`.
 - Challenge pedestal cap and icon read white instead of purple.
 - Distant archery targets are small at 30 to 40 m.
 - No alley crime spots yet; robbery, ambush, and rooftop crimes are covered by headless
