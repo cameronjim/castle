@@ -806,12 +806,17 @@ bool FHawkeyeKateReportMarker::Update()
 	PC->ProjectWorldLocationToScreen(Target->GetMarkerLocation(), AnchorPixel, false);
 	const FVector2D MarkerPixel = Hud->GetGrappleMarkerPosition() * UWidgetLayoutLibrary::GetViewportScale(PC);
 	Test->AddInfo(FString::Printf(
-		TEXT("Marker visible=%d at (%.0f, %.0f) px, anchor projects to (%.0f, %.0f) px, hint=%d"),
-		Hud->IsGrappleMarkerVisible() ? 1 : 0, MarkerPixel.X, MarkerPixel.Y, AnchorPixel.X, AnchorPixel.Y,
-		Hud->IsGrappleHintVisible() ? 1 : 0));
+		TEXT("Marker visible=%d ready=%d at (%.0f, %.0f) px, anchor projects to (%.0f, %.0f) px, hint=%d \"%s\""),
+		Hud->IsGrappleMarkerVisible() ? 1 : 0, Hud->IsGrappleMarkerReady() ? 1 : 0, MarkerPixel.X, MarkerPixel.Y,
+		AnchorPixel.X, AnchorPixel.Y, Hud->IsGrappleHintVisible() ? 1 : 0, *Hud->GetGrappleHintShown().ToString()));
 	if (!Hud->IsGrappleMarkerVisible() || FVector2D::Distance(MarkerPixel, AnchorPixel) > 3.f)
 	{
 		Test->AddWarning(TEXT("The grapple marker is not on the anchor."));
+	}
+	if (!Hud->IsGrappleMarkerReady() || !Hud->IsGrappleHintVisible())
+	{
+		// The playtest bug: a green diamond with no key under it.
+		Test->AddWarning(TEXT("The grapple marker shows without the key hint under it."));
 	}
 	return true;
 }
