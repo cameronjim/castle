@@ -38,6 +38,9 @@ struct HAWKEYE_API FHawkeyeComboSettings
  * the third wraps back to the first. A miss, a heavy or the window running out puts the next light
  * back at step 0.
  *
+ * With a strike clip that carries ANS_ComboWindow, the character holds the window open
+ * (SetChainHeld) from the hit until the clip's window closes, instead of the timer.
+ *
  * Counter: every melee hit that lands counts one; CounterResetSeconds without a hit clears it. A hit
  * struck while the counter already reads BonusAtCount or more does BonusMultiplier.
  */
@@ -53,7 +56,7 @@ struct HAWKEYE_API FHawkeyeComboTracker
 	void Advance(float DeltaSeconds)
 	{
 		const float Step = FMath::Max(DeltaSeconds, 0.f);
-		if (ChainWindowRemaining > 0.f)
+		if (ChainWindowRemaining > 0.f && !bChainHeld)
 		{
 			ChainWindowRemaining = FMath::Max(0.f, ChainWindowRemaining - Step);
 			if (ChainWindowRemaining <= 0.f)
@@ -95,7 +98,25 @@ struct HAWKEYE_API FHawkeyeComboTracker
 	{
 		NextStep = 0;
 		ChainWindowRemaining = 0.f;
+		bChainHeld = false;
 	}
+
+	/**
+	 * Holds an open chain window open (true) until released; releasing a held window shuts it and puts
+	 * the next light back at step 0. Holding a shut window does nothing.
+	 */
+	void SetChainHeld(bool bHeld)
+	{
+		if (bChainHeld && !bHeld)
+		{
+			EndChain();
+			return;
+		}
+		bChainHeld = bHeld && ChainWindowRemaining > 0.f;
+	}
+
+	/** True while a clip's combo window is holding the chain open. */
+	bool IsChainHeld() const { return bChainHeld; }
 
 	void Reset()
 	{
@@ -123,6 +144,7 @@ struct HAWKEYE_API FHawkeyeComboTracker
 private:
 	int32 NextStep = 0;
 	float ChainWindowRemaining = 0.f;
+	bool bChainHeld = false;
 	int32 Count = 0;
 	float CountRemaining = 0.f;
 };

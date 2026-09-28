@@ -40,6 +40,10 @@ public class Hawkeye : ModuleRules
 		// Hawkeye.Audio.Smoke finds the MetaSounds through the asset registry.
 		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry" });
 
+		// Strike clips warp toward the soft-lock target through the engine's motion warping, the same
+		// component the Game Animation Sample's traversal uses.
+		PrivateDependencyModuleNames.Add("MotionWarping");
+
 		// The screenshot passes write their PNGs off the game thread (Tests/HawkeyeShots).
 		PrivateDependencyModuleNames.Add("ImageCore");
 
