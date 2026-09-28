@@ -10,6 +10,7 @@ class UAnimMontage;
 class UAnimNotifyState;
 class UAnimSequence;
 class UAnimSequenceBase;
+class UBlendSpace;
 
 /**
  * How one combat montage is laid out. Windows are fractions of the source sequence's length (0..1); a
@@ -123,6 +124,28 @@ public:
 	/** Bone names of Sequence's skeleton, in hierarchy order. */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
 	static TArray<FName> GetSkeletonBoneNames(UAnimSequence* Sequence);
+
+	/**
+	 * Makes Pose additive in mesh space (rotation offsets) against BasePose's first frame, what an aim
+	 * offset's samples must be. True when it changed anything; false when it already was, or on null.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
+	static bool MakeMeshSpaceAdditive(UAnimSequence* Pose, UAnimSequence* BasePose);
+
+	/**
+	 * Creates (or refills in place) the aim offset blend space at PackageName on Poses' skeleton, laid out
+	 * as Layout (a source aim offset, e.g. Sparrow's AO_idle): its axes, ranges and grid, and one sample per
+	 * Layout sample whose animation is LayoutPoses[i], played by Poses[i] (the same pose retargeted). Layout
+	 * samples with no counterpart are left out. The poses must already be mesh-space additive. Returns the
+	 * blend space dirty and unsaved, or null (reasons logged).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
+	static UBlendSpace* BuildAimOffset(const FString& PackageName, UBlendSpace* Layout, const TArray<UAnimSequence*>& LayoutPoses,
+		const TArray<UAnimSequence*>& Poses);
+
+	/** "Yaw -90..90 (4), Pitch -90..90 (4); 9 samples: A_X (0, 0), ..." for the import log. */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
+	static FString DescribeBlendSpace(UBlendSpace* BlendSpace);
 
 	/** Animation's first window of NotifyClass: start and end in seconds. False when it has none. */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")

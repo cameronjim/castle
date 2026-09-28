@@ -14,6 +14,8 @@
 #include "AnimGraphNode_LocalToComponentSpace.h"
 #include "AnimGraphNode_ModifyBone.h"
 #include "AnimGraphNode_Root.h"
+#include "AnimGraphNode_RotationOffsetBlendSpace.h"
+#include "Animation/BlendSpace.h"
 #include "AnimGraphNode_SaveCachedPose.h"
 #include "AnimGraphNode_Slot.h"
 #include "AnimGraphNode_TwoBoneIK.h"
@@ -203,9 +205,10 @@ namespace HawkeyeBowIKGraph
 	/**
 	 * The clip slots, in local space after the mesh's own post-process: DefaultSlot (full body; a
 	 * thug's clips, whose main instance is a single sequence), cached, then UpperBody layered over it
-	 * from UpperBodyRootBone up in mesh space. Returns the layered blend, the node to carry on from.
+	 * from UpperBodyRootBone up in mesh space, with the aim offset (when there is one) on the upper-body
+	 * branch after its slot. Returns the layered blend, the node to carry on from.
 	 */
-	static UEdGraphNode* AddClipSlots(FWiring& Wiring, UEdGraphNode* Last)
+	static UEdGraphNode* AddClipSlots(FWiring& Wiring, UEdGraphNode* Last, UBlendSpace* AimOffset)
 	{
 		UEdGraph& Graph = Wiring.Graph;
 		UEdGraphNode* FullBody = AddNode<UAnimGraphNode_Slot>(Graph, -1800, -300,
@@ -233,6 +236,18 @@ namespace HawkeyeBowIKGraph
 		UEdGraphNode* Upper = AddNode<UAnimGraphNode_Slot>(Graph, -1600, -100,
 			[](UAnimGraphNode_Slot& N) { N.Node.SlotName = HawkeyeCombatAnim::UpperBodySlot; });
 		Wiring.Pose(ForUpper, Upper, TEXT("upper-body clip slot"));
+		UEdGraphNode* UpperOut = Upper;
+		if (AimOffset)
+		{
+			// Epic's aim offset node: mesh-space additive poses picked by yaw and pitch, over the clip.
+			UAnimGraphNode_RotationOffsetBlendSpace* Aim = AddNode<UAnimGraphNode_RotationOffsetBlendSpace>(Graph, -1550, -100,
+				[AimOffset](UAnimGraphNode_RotationOffsetBlendSpace& N) { N.SetAnimationAsset(AimOffset); });
+			Wiring.Link(FindPosePin(Upper, EGPD_Output), Aim->FindPin(TEXT("BasePose"), EGPD_Input), TEXT("aim offset base"));
+			Wiring.Variable(GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, AimOffsetYaw), Aim, TEXT("X"), -1600, 60);
+			Wiring.Variable(GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, AimOffsetPitch), Aim, TEXT("Y"), -1600, 120);
+			Wiring.Variable(GET_MEMBER_NAME_CHECKED(UHawkeyeBowIKAnimInstance, AimOffsetAlpha), Aim, TEXT("Alpha"), -1600, 180);
+			UpperOut = Aim;
+		}
 
 		UAnimGraphNode_LayeredBoneBlend* Layer = AddNode<UAnimGraphNode_LayeredBoneBlend>(Graph, -1500, -150,
 			[](UAnimGraphNode_LayeredBoneBlend& N)
@@ -248,13 +263,13 @@ namespace HawkeyeBowIKGraph
 				N.Node.bMeshSpaceRotationBlend = true;
 			});
 		Wiring.Link(FindPosePin(Base, EGPD_Output), Layer->FindPin(TEXT("BasePose"), EGPD_Input), TEXT("layer base"));
-		Wiring.Link(FindPosePin(Upper, EGPD_Output), Layer->FindPin(TEXT("BlendPoses_0"), EGPD_Input), TEXT("upper-body layer"));
+		Wiring.Link(FindPosePin(UpperOut, EGPD_Output), Layer->FindPin(TEXT("BlendPoses_0"), EGPD_Input), TEXT("upper-body layer"));
 		return Layer;
 	}
 
 	/** Lays the graph out left to right and wires it. Empty on success, else the first failure. */
 	static FString BuildGraph(UEdGraph& Graph, UAnimGraphNode_Root& Root, TSubclassOf<UAnimInstance> Chained,
-		FName SpineBone, FName NeckBone)
+		FName SpineBone, FName NeckBone, UBlendSpace* AimOffset)
 	{
 		FWiring Wiring{ Graph };
 		UEdGraphNode* Last = AddNode<UAnimGraphNode_LinkedInputPose>(Graph, -2000, 0, [](UAnimGraphNode_LinkedInputPose&) {});
@@ -278,7 +293,7 @@ namespace HawkeyeBowIKGraph
 			Wiring.Pose(Last, Linked, TEXT("input pose to the mesh's own post-process"));
 			Last = Linked;
 		}
-		Last = AddClipSlots(Wiring, Last);
+		Last = AddClipSlots(Wiring, Last, AimOffset);
 		UEdGraphNode* ToComponent = AddNode<UAnimGraphNode_LocalToComponentSpace>(Graph, -1400, 0,
 			[](UAnimGraphNode_LocalToComponentSpace&) {});
 		Wiring.Pose(Last, ToComponent, TEXT("to component space"));
@@ -325,7 +340,7 @@ namespace HawkeyeBowIKGraph
 #endif
 
 UAnimBlueprint* UHawkeyeBowIKGraphBuilder::BuildBowIKPostProcess(const FString& PackageName, USkeleton* Skeleton,
-	TSubclassOf<UAnimInstance> ChainedPostProcess, FName SpineBone, FName NeckBone)
+	TSubclassOf<UAnimInstance> ChainedPostProcess, FName SpineBone, FName NeckBone, UBlendSpace* AimOffset)
 {
 #if WITH_EDITOR
 	using namespace HawkeyeBowIKGraph;
@@ -356,7 +371,13 @@ UAnimBlueprint* UHawkeyeBowIKGraphBuilder::BuildBowIKPostProcess(const FString& 
 		UE_LOG(LogHawkeye, Error, TEXT("BuildBowIKPostProcess(%s): the AnimGraph has no output pose node."), *PackageName);
 		return nullptr;
 	}
-	const FString Failure = BuildGraph(*Graph, *Root, ChainedPostProcess, SpineBone, NeckBone);
+	if (AimOffset && AimOffset->GetSkeleton() != Skeleton)
+	{
+		UE_LOG(LogHawkeye, Error, TEXT("BuildBowIKPostProcess(%s): aim offset %s is on skeleton %s, not %s."), *PackageName,
+			*GetNameSafe(AimOffset), *GetNameSafe(AimOffset->GetSkeleton()), *GetNameSafe(Skeleton));
+		return nullptr;
+	}
+	const FString Failure = BuildGraph(*Graph, *Root, ChainedPostProcess, SpineBone, NeckBone, AimOffset);
 	if (!Failure.IsEmpty())
 	{
 		UE_LOG(LogHawkeye, Error, TEXT("BuildBowIKPostProcess(%s): %s."), *PackageName, *Failure);
@@ -367,9 +388,16 @@ UAnimBlueprint* UHawkeyeBowIKGraphBuilder::BuildBowIKPostProcess(const FString& 
 		UE_LOG(LogHawkeye, Error, TEXT("BuildBowIKPostProcess(%s): did not compile."), *PackageName);
 		return nullptr;
 	}
+	// The instance clamps the aim offset's inputs to its range and knows to leave the spine turn to it.
+	if (UHawkeyeBowIKAnimInstance* Defaults = Blueprint->GeneratedClass
+		? Cast<UHawkeyeBowIKAnimInstance>(Blueprint->GeneratedClass->GetDefaultObject()) : nullptr)
+	{
+		Defaults->Modify();
+		Defaults->AimOffset = AimOffset;
+	}
 	Blueprint->MarkPackageDirty();
-	UE_LOG(LogHawkeye, Log, TEXT("BuildBowIKPostProcess: %s built and compiled, %d nodes, chained %s."), *PackageName,
-		Graph->Nodes.Num(), *GetNameSafe(ChainedPostProcess.Get()));
+	UE_LOG(LogHawkeye, Log, TEXT("BuildBowIKPostProcess: %s built and compiled, %d nodes, chained %s, aim offset %s."), *PackageName,
+		Graph->Nodes.Num(), *GetNameSafe(ChainedPostProcess.Get()), *GetNameSafe(AimOffset));
 	return Blueprint;
 #else
 	UE_LOG(LogHawkeye, Error, TEXT("BuildBowIKPostProcess(%s): editor builds only."), *PackageName);

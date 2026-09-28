@@ -10,7 +10,9 @@
 #include "Combat/CombatAnimPlayback.h"
 #include "Hawkeye.h"
 
+#include "Animation/AimOffsetBlendSpace.h"
 #include "Animation/AnimData/IAnimationDataModel.h"
+#include "Animation/BlendSpace.h"
 #include "Animation/Skeleton.h"
 
 #if WITH_EDITOR
@@ -268,4 +270,118 @@ bool UHawkeyeCombatMontageBuilder::GetNotifyWindow(UAnimSequenceBase* Animation,
 	float& Start, float& End)
 {
 	return HawkeyeCombatAnim::FindNotifyWindow(Animation, NotifyClass.Get(), Start, End);
+}
+
+bool UHawkeyeCombatMontageBuilder::MakeMeshSpaceAdditive(UAnimSequence* Pose, UAnimSequence* BasePose)
+{
+#if WITH_EDITOR
+	if (!Pose || !BasePose)
+	{
+		return false;
+	}
+	if (Pose->AdditiveAnimType == AAT_RotationOffsetMeshSpace && Pose->RefPoseType == ABPT_AnimFrame
+		&& Pose->RefPoseSeq == BasePose && Pose->RefFrameIndex == 0)
+	{
+		return false;
+	}
+	Pose->Modify();
+	Pose->AdditiveAnimType = AAT_RotationOffsetMeshSpace;
+	Pose->RefPoseType = ABPT_AnimFrame;
+	Pose->RefPoseSeq = BasePose;
+	Pose->RefFrameIndex = 0;
+	// What the editor's additive settings do on a change: the compressed (delta) data is rebuilt.
+	Pose->PostEditChange();
+	Pose->MarkPackageDirty();
+	return true;
+#else
+	return false;
+#endif
+}
+
+UBlendSpace* UHawkeyeCombatMontageBuilder::BuildAimOffset(const FString& PackageName, UBlendSpace* Layout,
+	const TArray<UAnimSequence*>& LayoutPoses, const TArray<UAnimSequence*>& Poses)
+{
+#if WITH_EDITOR
+	USkeleton* Skeleton = Poses.Num() > 0 && Poses[0] ? Poses[0]->GetSkeleton() : nullptr;
+	if (!Layout || !Skeleton || LayoutPoses.Num() != Poses.Num())
+	{
+		UE_LOG(LogHawkeye, Error, TEXT("BuildAimOffset(%s): needs a layout, poses on a skeleton, and one pose per layout pose (%d, %d)."),
+			*PackageName, LayoutPoses.Num(), Poses.Num());
+		return nullptr;
+	}
+	const FString AssetName = FPackageName::GetShortName(PackageName);
+	UAimOffsetBlendSpace* Space = LoadObject<UAimOffsetBlendSpace>(nullptr, *(PackageName + TEXT(".") + AssetName), nullptr,
+		LOAD_NoWarn | LOAD_Quiet);
+	if (!Space)
+	{
+		UPackage* Package = CreatePackage(*PackageName);
+		Space = NewObject<UAimOffsetBlendSpace>(Package, FName(*AssetName), RF_Public | RF_Standalone | RF_Transactional);
+		FAssetRegistryModule::AssetCreated(Space);
+	}
+	Space->Modify();
+	Space->SetSkeleton(Skeleton);
+	// The source's axes, ranges and grid: protected, so through reflection, the whole three-axis array.
+	if (const FProperty* Axes = UBlendSpace::StaticClass()->FindPropertyByName(TEXT("BlendParameters")))
+	{
+		Axes->CopyCompleteValue(Axes->ContainerPtrToValuePtr<void>(Space), Axes->ContainerPtrToValuePtr<void>(Layout));
+	}
+	while (Space->GetNumberOfBlendSamples() > 0)
+	{
+		Space->DeleteSample(Space->GetNumberOfBlendSamples() - 1);
+	}
+	int32 Added = 0;
+	for (const FBlendSample& Sample : Layout->GetBlendSamples())
+	{
+		const int32 Index = LayoutPoses.IndexOfByKey(Sample.Animation.Get());
+		UAnimSequence* Pose = Poses.IsValidIndex(Index) ? Poses[Index] : nullptr;
+		if (!Pose)
+		{
+			continue;
+		}
+		if (!Space->IsAnimationCompatible(Pose) || Space->AddSample(Pose, Sample.SampleValue) == INDEX_NONE)
+		{
+			UE_LOG(LogHawkeye, Error, TEXT("BuildAimOffset(%s): %s refused at (%s): additive %d, skeleton %s."), *PackageName,
+				*GetNameSafe(Pose), *Sample.SampleValue.ToCompactString(), static_cast<int32>(Pose->AdditiveAnimType.GetValue()),
+				*GetNameSafe(Pose->GetSkeleton()));
+			return nullptr;
+		}
+		++Added;
+	}
+	if (Added == 0)
+	{
+		UE_LOG(LogHawkeye, Error, TEXT("BuildAimOffset(%s): none of the layout's %d samples has a pose."), *PackageName,
+			Layout->GetBlendSamples().Num());
+		return nullptr;
+	}
+	Space->ValidateSampleData();
+	Space->ResampleData();
+	Space->PostEditChange();
+	Space->MarkPackageDirty();
+	return Space;
+#else
+	UE_LOG(LogHawkeye, Error, TEXT("BuildAimOffset(%s): editor builds only."), *PackageName);
+	return nullptr;
+#endif
+}
+
+FString UHawkeyeCombatMontageBuilder::DescribeBlendSpace(UBlendSpace* BlendSpace)
+{
+	if (!BlendSpace)
+	{
+		return TEXT("none");
+	}
+	FString Text;
+	for (int32 Axis = 0; Axis < 2; ++Axis)
+	{
+		const FBlendParameter& Parameter = BlendSpace->GetBlendParameter(Axis);
+		Text += FString::Printf(TEXT("%s%s %.0f..%.0f (%d)"), Axis ? TEXT(", ") : TEXT(""), *Parameter.DisplayName, Parameter.Min,
+			Parameter.Max, Parameter.GridNum);
+	}
+	const TArray<FBlendSample>& Samples = BlendSpace->GetBlendSamples();
+	Text += FString::Printf(TEXT("; %d samples:"), Samples.Num());
+	for (const FBlendSample& Sample : Samples)
+	{
+		Text += FString::Printf(TEXT(" %s (%.0f, %.0f)"), *GetNameSafe(Sample.Animation.Get()), Sample.SampleValue.X, Sample.SampleValue.Y);
+	}
+	return Text;
 }

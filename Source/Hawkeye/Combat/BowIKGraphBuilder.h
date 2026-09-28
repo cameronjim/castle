@@ -8,6 +8,7 @@
 
 class UAnimBlueprint;
 class UAnimInstance;
+class UBlendSpace;
 class USkeleton;
 
 /**
@@ -16,7 +17,8 @@ class USkeleton;
  * whose variables the graph reads through variable-get nodes. The anim graph:
  *
  *   Input Pose -> [the mesh's own post-process AnimBP, as a linked anim graph]
- *   -> Slot DefaultSlot (full-body clips) -> cached -> Layered blend per bone: UpperBody slot from spine_01 up
+ *   -> Slot DefaultSlot (full-body clips) -> cached -> Layered blend per bone: UpperBody slot, then the
+ *      aim offset (when one is given; X AimOffsetYaw, Y AimOffsetPitch, alpha AimOffsetAlpha), from spine_01 up
  *   -> to component space
  *   -> ModifyBone spine_01 (add HitLean) -> ModifyBone SpineBone (add SpineTwist)
  *   -> ModifyBone NeckBone (add NeckTwist)
@@ -38,12 +40,14 @@ public:
 	 * Creates (or rebuilds in place) the AnimBlueprint at PackageName (e.g.
 	 * "/Game/Blueprints/Animation/ABP_BowIK_Post") for Skeleton and compiles it. ChainedPostProcess
 	 * (may be None) runs first inside it: the post-process AnimBP the mesh asset already has, which
-	 * the override would otherwise replace. Returns the Blueprint, dirty and unsaved, or null when it
-	 * did not build or compile (the reasons are logged). The caller saves it.
+	 * the override would otherwise replace. AimOffset (may be None) is the upper body's aim offset blend
+	 * space for Skeleton; it is also set on the Blueprint's defaults (UHawkeyeBowIKAnimInstance::AimOffset)
+	 * so the instance clamps its inputs to its range. Returns the Blueprint, dirty and unsaved, or null
+	 * when it did not build or compile (the reasons are logged). The caller saves it.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
 	static UAnimBlueprint* BuildBowIKPostProcess(const FString& PackageName, USkeleton* Skeleton,
-		TSubclassOf<UAnimInstance> ChainedPostProcess, FName SpineBone, FName NeckBone);
+		TSubclassOf<UAnimInstance> ChainedPostProcess, FName SpineBone, FName NeckBone, UBlendSpace* AimOffset = nullptr);
 
 	/** Nodes in Blueprint's anim graph, for verify scripts. -1 without one. */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Animation")
