@@ -732,6 +732,13 @@ the last input came from a pad.
   was never a valid pick is not.
 - Unchanged: the parry is tried first with its own rules (250 cm, 70 degrees); dodges keep the
   stick's direction and the 400 cm soft lock for facing; thugs' swings get no assist.
+- A clip-timed wind-up's clock runs (2026-09-28 fix): `GetPhaseRemaining` counts down while the
+  clip's hit window has not opened, so a thug's telegraph elapsed time is right and Hard's parry
+  window (not the first 0.1 s) opens on clip swings. Before, it read 0 and Hard never parried.
+- Scripted fights after these changes (standalone `-game`, seconds / hits taken / Kate's health):
+  Story roof 4.4 / 0 / 100, duel 9.1 / 0 / 100, street 15.3 / 1 / 100; Normal roof 4.4 / 0 / 100,
+  duel 8.9 / 0 / 100, street 17.0 / 3 / 100; Hard roof 4.4 / 0 / 100, duel 9.1 / 0 / 100, street
+  17.1 / 3 / 63. All won, 0 untelegraphed hits.
 
 ## Arrows in bodies (fixed 2026-09-28, from playtest note "they're like a foot away from her")
 - The cause: an arrow meets the capsule (34 to 42 cm radius), not the body, and was embedded at
@@ -793,8 +800,12 @@ the last input came from a pad.
 - Archer cadence: his next draw starts no sooner than a random 1.5 to 2.5 s after his last
   release at Normal (3.0 to 4.0 Story, 1.2 to 1.8 Hard), so shot to shot is that plus the draw.
 - Every shot is still telegraphed: the archer's draw and glint, the gunner's raised pistol.
-- Measured by `Hawkeye.Thug.StrafingKateHitRate` (the thugs' own aim functions against a Kate
-  sprinting sideways past at 8 m, 20 shots per difficulty): see the difficulty table for results.
+- Measured by `Hawkeye.Thug.StrafingKateHitRate` (the thugs' own aim functions and a flown arrow,
+  or the pistol's line, against her capsule, 20 shots each): hits out of 20 at Story / Normal / Hard,
+  archer at a 700 cm/s sideways sprint at 8 m 3 / 6 / 11, standing at 8 m 20 / 20 / 20, running
+  500 cm/s at 20 m 7 / 11 / 11; gunner sprinting at 8 m 1 / 2 / 7, standing 10 / 9 / 14. The test
+  holds Normal's sprint to 7 or fewer (about one in three) for both, Story at or under Normal, Hard
+  at or over it, and a standing Kate hit at least 15 times by the archer.
 
 ## Side challenges (built 2026-09-27; names are placeholders)
 - `AChallengeStart` pedestals (purple-lit, E to start) and one `UChallengeDefinition` per
