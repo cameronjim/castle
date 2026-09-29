@@ -7,7 +7,11 @@
     /Game/Audio/Classes/ATT_Lamp                                   natural falloff, 50 to 400 cm
     /Game/Audio/SFX/MS_*                                           one-shots (bow, grapple, movement,
                                                                    melee, thugs, trick arrows, UI)
-    /Game/Audio/Ambient/MS_Amb_*                                   loops (wind, street hum, lamp buzz)
+    /Game/Audio/Ambient/MS_Amb_*                                   loops (wind, night and day street beds,
+                                                                   lamp buzz)
+    /Game/Audio/Music/MS_Music_*                                   the score (one loop holding every layer,
+                                                                   gains set by UHawkeyeMusicSubsystem) and
+                                                                   the win sting
 
 Route: the MetaSound Builder API from Python. UMetaSoundBuilderSubsystem.CreateSourceBuilder makes a
 source graph (OnPlay, OnFinished, a mono out), AddNodeByClassName adds the engine's standard nodes
@@ -16,14 +20,15 @@ UE.Multiply/Add/Subtract, UE.RandomFloat, UE.LFO, UE.Lfo Frequency Noise, UE.Tri
 UE.TriggerRepeat, UE.ConversionFloatToTime), ConnectNodes wires them, SetNodeInputDefault sets the
 literals, and UMetaSoundEditorSubsystem.BuildToAsset saves the source. Every sound has a
 PitchVariation input: a random factor in [1 - v, 1 + v] drawn on play scales its frequencies.
-Controlled inputs the game sets: Draw (bow creak), Speed (zip hum), Intensity (landing).
+Controlled inputs the game sets: Draw (bow creak), Speed (zip hum), Intensity (landing), and the score's
+PadGain, PulseGain, PercGain, MotifGain and DroneGain.
 
 Idempotent: each MetaSound carries a HawkeyeAudioHash metadata tag (its recipe's bytecode plus the
 asset settings). An unchanged recipe is left alone; a changed one is deleted and built again at the
 same path (a saved MetaSound cannot be overwritten by a builder headless).
 
 Git: Content/Audio/ is the Game Animation Sample's (ignored); .gitignore re-includes Audio/SFX,
-Audio/Ambient and Audio/Classes, which are ours.
+Audio/Ambient, Audio/Classes and Audio/Music, which are ours.
 """
 
 import hashlib
@@ -40,6 +45,7 @@ AUDIO_ROOT = "/Game/Audio"
 CLASSES_PATH = AUDIO_ROOT + "/Classes"
 SFX_PATH = AUDIO_ROOT + "/SFX"
 AMBIENT_PATH = AUDIO_ROOT + "/Ambient"
+MUSIC_PATH = AUDIO_ROOT + "/Music"
 HASH_TAG = "HawkeyeAudioHash"
 AUDIO_BUILD = "audio-3"     # bump to rebuild every sound (a change to the Graph helpers below)
 AUTHOR = "Hawkeye create_audio.py"
@@ -50,6 +56,7 @@ SOUND_CLASSES = [
     ("SCL_SFX", "SCL_Master"),
     ("SCL_Ambient", "SCL_Master"),
     ("SCL_UI", "SCL_SFX"),
+    ("SCL_Music", "SCL_Master"),
 ]
 MIX_NAME = "SMX_Settings"
 # name -> (inner radius, falloff distance), cm
@@ -574,6 +581,20 @@ def amb_street(g):
     g.finish(g.mix((drone, 1.0), (rumble, 0.25), (g.mul(horn, e), 0.06)))
 
 
+def amb_street_day(g):
+    # Loop, by day: wind between the buildings, a wide traffic hum with tyre hiss, a far horn every 20 to 50 s.
+    # No mains drone: that is the night's (the lamps are off by day).
+    g.pitch(0.02)
+    gust = g.wander(0.25, 0.35, 1.0)
+    wind = g.mul(g.svf(g.noise(PINK, 31), g.wander(0.2, 400.0, 1100.0), 1.5), gust)
+    hum = g.mul(g.lowpass(g.noise(PINK, 41), 380.0), g.wander(0.12, 0.6, 1.0))
+    hiss = g.mul(g.svf(g.noise(WHITE, 43), 1600.0, 0.7), g.wander(0.3, 0.2, 0.8))
+    honk_at = g.repeat(g.delay(g.play, 6.0), g.wander(0.04, 20.0, 50.0))
+    e, _d = g.env(0.03, 0.5, trigger=honk_at, decay_curve=0.8)
+    horn = g.lowpass(g.mix((g.saw(349.23), 0.4), (g.saw(440.0), 0.4)), 900.0)
+    g.finish(g.mix((wind, 0.18), (hum, 0.3), (hiss, 0.05), (g.mul(horn, e), 0.04)))
+
+
 def amb_lamp(g):
     # Loop: a quiet 120 Hz mains buzz; ATT_Lamp fades it out by 400 cm.
     g.pitch(0.01)
@@ -609,6 +630,71 @@ def ui_toast(g):
     first, _f = g.tone(880.0, 0.1)
     second, done = g.tone(1320.0, 0.12, trigger=g.delay(g.play, 0.06))
     g.finish(g.mix((first, 0.12), (second, 0.12)), done)
+
+
+# --- music ----------------------------------------------------------------------------
+# One graph holds every layer on one clock (90 bpm, D minor), so they stay locked without Quartz.
+# UHawkeyeMusicSubsystem sets the five gains every frame; each layer peaks around 0.1 to 0.25.
+
+MUSIC_BEAT = 60.0 / 90.0
+
+
+def music_score(g):
+    g.pitch(0.0)    # the PitchVariation input every sound has; the score stays in tune
+    beat = MUSIC_BEAT
+    pad_gain = g.input("PadGain", 0.0)
+    pulse_gain = g.input("PulseGain", 0.0)
+    perc_gain = g.input("PercGain", 0.0)
+    motif_gain = g.input("MotifGain", 0.0)
+    drone_gain = g.input("DroneGain", 0.0)
+
+    # Pad: D2, A2 and F3 under a low-pass, breathing slowly.
+    pad = g.lowpass(g.mix((g.saw(73.42), 0.35), (g.saw(110.0), 0.25), (g.sine(174.61), 0.3), (g.sine(73.42), 0.4)),
+                    420.0)
+    pad = g.mul(pad, g.lfo(0.07, 0.55, 1.0))
+
+    # Pulse: a low D on every beat and a softer ghost on the off-beat.
+    on = g.repeat(g.play, beat)
+    off = g.repeat(g.delay(g.play, beat / 2.0), beat)
+    body = g.mix((g.sine(73.42), 0.8), (g.sine(146.83), 0.2))
+    e_on, _a = g.env(0.004, 0.32, trigger=on, decay_curve=0.7)
+    e_off, _b = g.env(0.004, 0.16, trigger=off, decay_curve=0.7)
+    pulse = g.mul(body, g.add(e_on, g.mul(e_off, 0.35)))
+
+    # Percussion: a dry tick on the off-beat, a muffled thump on 2 and 4.
+    e_tick, _c = g.env(0.001, 0.035, trigger=off, decay_curve=0.5)
+    tick = g.mul(g.highpass(g.noise(WHITE, 7), 6000.0), e_tick)
+    backbeat = g.repeat(g.delay(g.play, beat), beat * 2.0)
+    e_thump, _t = g.env(0.002, 0.2, trigger=backbeat, decay_curve=0.6)
+    thump = g.mul(g.mix((g.lowpass(g.noise(PINK, 13), 220.0), 0.6), (g.sine(55.0), 0.4)), e_thump)
+    perc = g.mix((tick, 0.15), (thump, 0.6))
+
+    # Motif: two notes every two bars, D3 then A3 a beat and a half later.
+    def voice(freq, trigger, decay):
+        e, _d = g.env(0.05, decay, trigger=trigger, decay_curve=1.2)
+        return g.mul(g.mix((g.lowpass(g.saw(freq), 650.0), 0.5), (g.sine(freq), 0.5)), e)
+
+    first_at = g.repeat(g.play, beat * 8.0)
+    second_at = g.repeat(g.delay(g.play, beat * 1.5), beat * 8.0)
+    motif = g.mix((voice(146.83, first_at, 1.3), 0.5), (voice(220.0, second_at, 2.0), 0.45))
+
+    # Drone, while she is down: a dark D1 saw, its octave, and low wind.
+    drone = g.mix((g.lowpass(g.saw(36.71), 140.0), 0.8), (g.sine(73.42), 0.25), (g.lowpass(g.noise(PINK, 17), 110.0), 0.5))
+    drone = g.mul(drone, g.wander(0.3, 0.6, 1.0))
+
+    g.finish(g.mix((g.mul(pad, pad_gain), 0.12), (g.mul(pulse, pulse_gain), 0.22), (g.mul(perc, perc_gain), 0.4),
+                   (g.mul(motif, motif_gain), 0.25), (g.mul(drone, drone_gain), 0.25)))
+
+
+def music_win(g):
+    # The last one down: a D major resolve, struck upward, about 2 s.
+    g.pitch(0.0)
+    root, _r = g.tone(73.42, 1.2, attack=0.01, curve=0.8)
+    d3, _a = g.tone(146.83, 1.8, attack=0.02, curve=0.9)
+    fs3, _b = g.tone(185.0, 1.8, attack=0.02, curve=0.9, trigger=g.delay(g.play, 0.07))
+    a3, _c = g.tone(220.0, 1.8, attack=0.02, curve=0.9, trigger=g.delay(g.play, 0.14))
+    d4, done = g.tone(293.66, 1.7, attack=0.03, curve=0.9, trigger=g.delay(g.play, 0.22))
+    g.finish(g.mix((root, 0.16), (d3, 0.1), (fs3, 0.08), (a3, 0.08), (d4, 0.07)), done)
 
 
 # (asset, folder, recipe, one shot, sound class, attenuation or None for 2D)
@@ -649,12 +735,15 @@ SOUNDS = [
     ("MS_Trick_Explosion", SFX_PATH, explosion, True, "SCL_SFX", "ATT_World"),
     ("MS_Amb_Wind", AMBIENT_PATH, amb_wind, False, "SCL_Ambient", None),
     ("MS_Amb_Street", AMBIENT_PATH, amb_street, False, "SCL_Ambient", None),
+    ("MS_Amb_StreetDay", AMBIENT_PATH, amb_street_day, False, "SCL_Ambient", None),
     ("MS_Amb_LampBuzz", AMBIENT_PATH, amb_lamp, False, "SCL_Ambient", "ATT_Lamp"),
     ("MS_UI_Hover", SFX_PATH, ui_hover, True, "SCL_UI", None),
     ("MS_UI_Click", SFX_PATH, ui_click, True, "SCL_UI", None),
     ("MS_UI_ObjectiveComplete", SFX_PATH, ui_objective_complete, True, "SCL_UI", None),
     ("MS_UI_NewObjective", SFX_PATH, ui_new_objective, True, "SCL_UI", None),
     ("MS_UI_Toast", SFX_PATH, ui_toast, True, "SCL_UI", None),
+    ("MS_Music_Score", MUSIC_PATH, music_score, False, "SCL_Music", None),
+    ("MS_Music_Win", MUSIC_PATH, music_win, True, "SCL_Music", None),
 ]
 
 
@@ -828,7 +917,7 @@ def delete_stale_sounds():
 
 
 def run():
-    for path in (CLASSES_PATH, SFX_PATH, AMBIENT_PATH):
+    for path in (CLASSES_PATH, SFX_PATH, AMBIENT_PATH, MUSIC_PATH):
         c.ensure_directory(path)
     delete_stale_sounds()
     classes = ensure_sound_classes()

@@ -53,6 +53,7 @@ Content/Audio/*
 !Content/Audio/SFX/
 !Content/Audio/Ambient/
 !Content/Audio/Classes/
+!Content/Audio/Music/
 Content/Levels/
 Content/Misc/
 Content/Blueprints/*.uasset
