@@ -779,6 +779,15 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 		return false;
 	}
 	FString WhyNot;
+	/** Every candidate's reason, for the log. */
+	TArray<FString> Reasons;
+	auto Note = [&Reasons, &WhyNot]()
+	{
+		if (!WhyNot.IsEmpty() && !Reasons.Contains(WhyNot))
+		{
+			Reasons.Add(WhyNot);
+		}
+	};
 	const float HandReach = FMath::Max(ShimmyEndMargin - 3.f, 0.f);
 
 	auto Turn = [&](const FVector& CornerEnd, const FVector& AwayFromCorner, float FirstOffset, const FVector& NewNormal, float NewTopZ,
@@ -833,15 +842,21 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 		const FVector End = HangLine.PointAt(LineEnd);
 		for (const float In : { 15.f, 35.f, 55.f, 75.f })
 		{
+			// Back past the line's end too: the line can run on past the corner (a parapet box's own overshoot).
 			const FVector From = End - N * In + D * (CornerReach + 30.f) - FVector(0.f, 0.f, 8.f);
 			FHitResult Face;
-			if (!TraceLine(From, From - D * (CornerReach + 45.f), Face))
+			if (!TraceLine(From, From - D * (CornerReach + 90.f), Face))
 			{
+				WhyNot = FString::Printf(TEXT("no face round the corner %.0f cm in"), In);
+				Note();
 				continue;
 			}
 			const FVector NewNormal = Face.ImpactNormal.GetSafeNormal2D();
 			if (FVector::DotProduct(NewNormal, D) < 0.8f)
 			{
+				WhyNot = FString::Printf(TEXT("%s %.0f cm in faces %.2f her way (%s)"), *GetNameSafe(Face.GetActor()), In,
+					FVector::DotProduct(NewNormal, D), Face.bStartPenetrating ? TEXT("the probe began inside it") : TEXT("met it"));
+				Note();
 				continue;
 			}
 			const FVector Found(Face.ImpactPoint.X, Face.ImpactPoint.Y, TopZ);
@@ -849,6 +864,8 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 			AActor* Actor = nullptr;
 			if (!IsHangLedgeAt(Found, NewNormal, TopZ, &NewTopZ, &Actor, &WhyNot))
 			{
+				WhyNot = FString::Printf(TEXT("the face round the corner %.0f cm in: %s"), In, *WhyNot);
+				Note();
 				continue;
 			}
 			// Its end nearest the corner, back toward her wall's side.
@@ -856,6 +873,7 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 			if (FVector::Dist2D(End, CornerEnd) > CornerReach)
 			{
 				WhyNot = FString::Printf(TEXT("the ledge round the corner starts %.0f cm off"), FVector::Dist2D(End, CornerEnd));
+				Note();
 				continue;
 			}
 			// It swings round where the two faces meet (past a pier, not where her edge gave out).
@@ -864,6 +882,7 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 			{
 				return true;
 			}
+			Note();
 		}
 	}
 	if (bNearAcross)
@@ -902,11 +921,14 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 			{
 				return true;
 			}
+			Note();
 		}
 	}
-	if (!WhyNot.IsEmpty() && !bShimmyStopLogged)
+	Note();
+	if (!Reasons.IsEmpty() && !bShimmyStopLogged)
 	{
-		UE_LOG(LogHawkeye, Log, TEXT("%s: hang: no corner at the %s end: %s"), *GetNameSafe(Character), SideName(Sign), *WhyNot);
+		UE_LOG(LogHawkeye, Log, TEXT("%s: hang: no corner at the %s end: %s"), *GetNameSafe(Character), SideName(Sign),
+			*FString::Join(Reasons, TEXT("; ")));
 	}
 	return false;
 }
