@@ -16,9 +16,13 @@ struct HAWKEYE_API FHawkeyeThugOverhead
 {
 	GENERATED_BODY()
 
-	/** Over his head, in the HUD's local space. */
+	/** Over his head, in the HUD's local space: the health bar's bottom centre. */
 	UPROPERTY(BlueprintReadOnly, Category = "HUD|Thugs")
 	FVector2D Position = FVector2D::ZeroVector;
+
+	/** Just over his head bone, in the HUD's local space: the glyph's bottom centre (lifted over the bar when it shows). */
+	UPROPERTY(BlueprintReadOnly, Category = "HUD|Thugs")
+	FVector2D GlyphPosition = FVector2D::ZeroVector;
 
 	/** "!", "?" or empty. */
 	UPROPERTY(BlueprintReadOnly, Category = "HUD|Thugs")

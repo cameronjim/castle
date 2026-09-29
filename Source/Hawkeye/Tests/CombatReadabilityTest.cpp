@@ -224,6 +224,11 @@ bool FHawkeyeHitReadRules::RunTest(const FString& Parameters)
 		MaxScale = FMath::Max(MaxScale, ComputeTelegraphLook(T, 0.6f).Scale);
 	}
 	TestTrue(TEXT("It pulses on top of the growth"), MaxScale > 1.35f);
+
+	// The glyph sits on his head (y down: bigger is lower), lifted over the health bar when that shows.
+	TestEqual(TEXT("No bar: the glyph sits at his head"), ComputeGlyphBottom(300.f, false, 250.f), 300.f, 0.001f);
+	TestEqual(TEXT("A bar above his head: the glyph goes over it"), ComputeGlyphBottom(300.f, true, 250.f), 250.f, 0.001f);
+	TestEqual(TEXT("His head above the bar: the glyph stays at his head"), ComputeGlyphBottom(200.f, true, 250.f), 200.f, 0.001f);
 	return true;
 }
 

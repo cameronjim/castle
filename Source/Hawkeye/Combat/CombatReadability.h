@@ -126,6 +126,13 @@ namespace HawkeyeCombatReadability
 		float PulseHz = 5.f, float PulseAmount = 0.12f);
 
 	/**
+	 * Where the bottom of the glyph over a thug goes on screen (y down, px): at AnchorY (his head bone plus a
+	 * little, projected), but never lower than StackTopY while bBarShown, so the "!" or "?" never covers his
+	 * health bar (StackTopY is the bar's top less its gap, and less the parry line when that shows).
+	 */
+	HAWKEYE_API float ComputeGlyphBottom(float AnchorY, bool bBarShown, float StackTopY);
+
+	/**
 	 * Whether Thug is telegraphing a strike the telegraph glyph is for: a melee swing or bash in its wind-up,
 	 * or a gunner's raised pistol within GunnerRange of Viewer (further off, his glint is the tell). Never an
 	 * archer (the purple glint). Gives the seconds into it and its length.

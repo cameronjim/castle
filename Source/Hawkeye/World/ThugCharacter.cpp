@@ -1542,3 +1542,13 @@ FVector AThugCharacter::GetOverheadLocation() const
 	const float HalfHeight = GetCapsuleComponent() ? GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 96.f;
 	return GetActorLocation() + FVector(0.f, 0.f, HalfHeight + 28.f);
 }
+
+FVector AThugCharacter::GetGlyphLocation() const
+{
+	const USkeletalMeshComponent* Body = GetMesh();
+	if (Body && Body->GetBoneIndex(TEXT("head")) != INDEX_NONE)
+	{
+		return Body->GetBoneLocation(TEXT("head")) + FVector(0.f, 0.f, GlyphHeadClearance);
+	}
+	return GetOverheadLocation();
+}

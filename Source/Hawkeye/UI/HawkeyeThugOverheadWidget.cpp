@@ -69,6 +69,10 @@ void UHawkeyeThugOverheadWidget::GatherEntries()
 		{
 			continue;
 		}
+		if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Thug->GetGlyphLocation(), Entry.GlyphPosition, false))
+		{
+			Entry.GlyphPosition = Entry.Position;
+		}
 		if (Entry.bTelegraph)
 		{
 			// The strike coming outranks the alert it came with.
@@ -225,7 +229,8 @@ int32 UHawkeyeThugOverheadWidget::NativePaint(const FPaintArgs& Args, const FGeo
 		}
 
 		float Top = Entry.Position.Y;
-		if (Entry.BarAlpha > 0.f)
+		const bool bBar = Entry.BarAlpha > 0.f;
+		if (bBar)
 		{
 			const FVector2D BarTopLeft(Entry.Position.X - BarSize.X * 0.5f, Top - BarSize.Y);
 			FLinearColor Back = BarBackColor;
@@ -241,25 +246,27 @@ int32 UHawkeyeThugOverheadWidget::NativePaint(const FPaintArgs& Args, const FGeo
 		{
 			continue;
 		}
+		// The glyph sits just over his head, not over his capsule; lifted over the bar when that shows.
+		const float X = Entry.GlyphPosition.X;
+		float Bottom = HawkeyeCombatReadability::ComputeGlyphBottom(Entry.GlyphPosition.Y, bBar, Top);
 		if (!Entry.bTelegraph)
 		{
 			FLinearColor Color = GlyphColor;
 			Color.A *= Entry.GlyphAlpha;
-			PaintGlyph(OutDrawElements, Layer, AllottedGeometry, Entry.Glyph, Font, Color, Entry.Position.X, Top);
+			PaintGlyph(OutDrawElements, Layer, AllottedGeometry, Entry.Glyph, Font, Color, X, Bottom);
 			continue;
 		}
 		// The parry line: short, cream on a dark edge, only while a tap would parry him.
 		if (Entry.bParryCue)
 		{
-			const FVector2D CueTopLeft(Entry.Position.X - ParryCueSize.X * 0.5f, Top - ParryCueSize.Y - 1.f);
+			const FVector2D CueTopLeft(X - ParryCueSize.X * 0.5f, Bottom - ParryCueSize.Y - 1.f);
 			Box(Layer, CueTopLeft - FVector2D(1.f, 1.f), ParryCueSize + FVector2D(2.f, 2.f), FLinearColor(0.f, 0.f, 0.f, 0.8f));
 			Box(Layer + 1, CueTopLeft, ParryCueSize, GlyphColor);
-			Top -= ParryCueSize.Y + 4.f;
+			Bottom -= ParryCueSize.Y + 4.f;
 		}
 		FLinearColor Color = TelegraphColor;
 		Color.A *= Entry.GlyphAlpha;
-		PaintGlyph(OutDrawElements, Layer, AllottedGeometry, Entry.Glyph, GetTelegraphFont(Entry.TelegraphScale), Color,
-			Entry.Position.X, Top);
+		PaintGlyph(OutDrawElements, Layer, AllottedGeometry, Entry.Glyph, GetTelegraphFont(Entry.TelegraphScale), Color, X, Bottom);
 	}
 	return Layer + 2;
 }

@@ -120,6 +120,11 @@ namespace HawkeyeCombatReadability
 		return Look;
 	}
 
+	float ComputeGlyphBottom(float AnchorY, bool bBarShown, float StackTopY)
+	{
+		return bBarShown ? FMath::Min(AnchorY, StackTopY) : AnchorY;
+	}
+
 	bool GetStrikeTelegraph(const AThugCharacter* Thug, const FVector& Viewer, float GunnerRange, float& OutElapsed,
 		float& OutWindupSeconds)
 	{

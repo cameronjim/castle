@@ -268,6 +268,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
 	FVector GetOverheadLocation() const;
 
+	/** Where the "!" and "?" sit: GlyphHeadClearance over his head bone (the capsule's top when he has none). */
+	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
+	FVector GetGlyphLocation() const;
+
+	/** How far over his head bone the glyphs sit, cm: about the top of his head, whatever his capsule. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Readability", meta = (ClampMin = "0.0"))
+	float GlyphHeadClearance = 20.f;
+
 	/** Moves the glyph clock on. Called from Tick; public for tests. */
 	void AdvanceReadability(float DeltaSeconds);
 
