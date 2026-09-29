@@ -140,6 +140,10 @@ class EnemyTest(unittest.TestCase):
         self.assertEqual(z, it.FLOOR_HEIGHT)
         self.assertEqual(yaw, 0.0)
         self.assertEqual([p[3] for p in layout.enemy_route(gunner)], [0.0, 0.0])
+        self.assertTrue(all(p[4] < -10.0 for p in layout.enemy_route(gunner)), "he looks down into the hall")
+
+    def test_a_gaze_pitched_too_far(self):
+        self.assertLayoutError(self.locked(patrol=[["a", 100, 100, 0, -80], ["a", 300, 100]]), "pitches its gaze")
 
     def test_a_post_has_no_route(self):
         layout = it.parse(self.locked())

@@ -14,7 +14,10 @@ it. Read-only. Prints one line per check and a final ``[Hawkeye] verify_interior
   PlayerStart 150 cm inside it
 * the stair: 2 x n steps and treads, no riser over 18 cm, the landings at half and full height
 * every room with lights has at least one CityLamp light over it, every light movable
-* every patrol's thug and points exist, the thug on BP_Thug with the layout's weapon, and on the navmesh
+* every enemy's thug exists on his type's Blueprint with the layout's weapon, patrol points, alert group and
+  carried keycards; he starts on the navmesh, every patrol point is on a path from him, and no capsule of
+  his (at the start or any patrol point) overlaps a wall, a prop or a door
+* every narrow door knows its nav link (a locked door keeps it out of the navmesh while locked)
 * the grapple anchors sit on the rail top with their landing point on the mezzanine floor, and a traversable
   ledge runs along every rail
 * the navmesh (built here, not saved) has a path from the PlayerStart to every room on every floor
@@ -222,25 +225,104 @@ def check_lights(layout, actors):
     unreal.log("[Hawkeye] info  {0}: {1} lamp lights".format(layout.name, len(lights)))
 
 
+def weapon_name(thug):
+    return str(thug.get_editor_property("weapon")).split(".")[-1].split(":")[0].strip("<> ").upper()
+
+
+DOOR_LEAF_CLEAR = 60.0      # cm (flat) from a door's threshold within which a capsule stands in its leaf
+
+
+def solid_overlaps(world, centre, radius, half_height, ignore=None):
+    """Labels of the walls, props, door leaves and climbable blocks a capsule at centre overlaps. A door's
+    interaction zone is not solid: a door counts only when the capsule stands in its doorway."""
+    types = [unreal.ObjectTypeQuery.ECC_WORLD_STATIC, unreal.ObjectTypeQuery.ECC_WORLD_DYNAMIC]
+    result = unreal.SystemLibrary.capsule_overlap_actors(world, centre, radius, half_height, types, None, ignore or [])
+    found = result[1] if isinstance(result, tuple) else (result or [])
+    out = []
+    for actor in found or []:
+        if isinstance(actor, unreal.DoorActor):
+            at = actor.get_actor_location()
+            if math.hypot(at.x - centre.x, at.y - centre.y) < DOOR_LEAF_CLEAR + radius:
+                out.append(actor.get_actor_label())
+        elif isinstance(actor, unreal.StaticMeshActor) or "IntClimb" in tags_of(actor) or "IntLedge" in tags_of(actor):
+            out.append(actor.get_actor_label())
+    return out
+
+
 def check_thugs(layout, world, actors):
-    thugs = {tag_value(a, "patrol:"): a for l, a in actors.items() if "_Thug_" in l}
-    missing, wrong, off = [], [], []
-    for patrol in layout.patrols:
-        thug = thugs.get(patrol["id"])
+    """Every enemy: his thug on the right Blueprint with the layout's weapon, route, crew and keycards; on
+    the navmesh; every patrol point on a path from where he stands; nothing solid where he stands or at any
+    point he walks to."""
+    enemies = layout.enemies()
+    thugs = {tag_value(a, "enemy:"): a for l, a in actors.items() if "_Thug_" in l}
+    missing, wrong, off, unreachable, walled = [], [], [], [], []
+    for enemy in enemies:
+        thug = thugs.get(enemy["id"])
         if thug is None:
-            missing.append(patrol["id"])
+            missing.append(enemy["id"])
             continue
-        weapon = str(thug.get_editor_property("weapon")).split(".")[-1].split(":")[0].strip("<> ").upper()
+        _bp_path, bp_name = gi.ENEMY_BLUEPRINTS[enemy["type"]]
         points = [p for p in thug.get_editor_property("patrol_points") if p]
-        if weapon != patrol.get("weapon", "FISTS") or len(points) != len(patrol["points"]):
-            wrong.append("{0} ({1}, {2} points)".format(patrol["id"], weapon, len(points)))
+        cards = sorted(str(p.get_editor_property("keycard_id")) for p in thug.get_editor_property("carried_pickups") if p)
+        group = str(thug.get_editor_property("alert_group"))
+        problems = []
+        if bp_name not in c.class_name(thug.get_class()):
+            problems.append(c.class_name(thug.get_class()))
+        if weapon_name(thug) != enemy["type"]:
+            problems.append(weapon_name(thug))
+        if len(points) != len(enemy["patrol"]):
+            problems.append("{0} points".format(len(points)))
+        if (group if group != "None" else "") != enemy["alert_group"]:
+            problems.append("group " + group)
+        if cards != sorted(enemy["keycards"]):
+            problems.append("carries " + ",".join(cards))
+        if thug.get_editor_property("archer_sees_all_round"):
+            problems.append("sees all round")
+        if problems:
+            wrong.append("{0} ({1})".format(enemy["id"], ", ".join(problems)))
         feet = thug.get_actor_location() - unreal.Vector(0.0, 0.0, gi.THUG_HALF_HEIGHT)
         ok, _point = project(world, feet)
         if not ok:
-            off.append(patrol["id"])
-    check(not missing and len(thugs) == len(layout.patrols), layout.name + ": a thug on every patrol", ", ".join(missing))
-    check(not wrong, layout.name + ": each patrol's weapon and points", ", ".join(wrong))
-    check(not off, layout.name + ": every thug starts on the navmesh", ", ".join(off))
+            off.append(enemy["id"])
+        start = feet + unreal.Vector(0.0, 0.0, 60.0)
+        for i, point in enumerate(points):
+            to = point.get_actor_location() - unreal.Vector(0.0, 0.0, gi.PATROL_POINT_HEIGHT - 60.0)
+            # The point he starts on is reached already (a zero-length path reads as none).
+            if math.hypot(to.x - start.x, to.y - start.y) > 50.0 and \
+                    unreal.HawkeyeNavigationLibrary.find_path_length(world, start, to) < 0.0:
+                unreachable.append("{0} point {1}".format(enemy["id"], i))
+        for where, centre in [("start", thug.get_actor_location())] + [
+                ("point {0}".format(i), p.get_actor_location() - unreal.Vector(0.0, 0.0, gi.PATROL_POINT_HEIGHT - gi.THUG_HALF_HEIGHT - 2.0))
+                for i, p in enumerate(points)]:
+            hits = solid_overlaps(world, centre, 34.0, gi.THUG_HALF_HEIGHT - 8.0, [thug])
+            if hits:
+                walled.append("{0} {1} in {2}".format(enemy["id"], where, ", ".join(hits[:3])))
+        unreal.log("[Hawkeye] info  {0}: {1} {2} {3} at {4}, {5} patrol points, crew {6}, carries {7}".format(
+            layout.name, enemy["id"], enemy["type"].lower(), c.class_name(thug.get_class()), thug.get_actor_location(),
+            len(points), enemy["alert_group"] or "none", ",".join(cards) or "nothing"))
+    check(not missing and len(thugs) == len(enemies), layout.name + ": a thug for every enemy", ", ".join(missing))
+    check(not wrong, layout.name + ": each enemy's Blueprint, weapon, route, crew and keycards", "; ".join(wrong))
+    check(not off, layout.name + ": every enemy starts on the navmesh", ", ".join(off))
+    check(not unreachable, layout.name + ": every patrol point is on a navmesh path from its enemy", ", ".join(unreachable))
+    check(not walled, layout.name + ": no enemy starts or walks inside a wall or a prop", "; ".join(walled))
+    carried = [a for a in actors.values() if isinstance(a, unreal.PickupActor) and tag_value(a, "carried:")]
+    check(len(carried) == sum(len(e["keycards"]) for e in enemies), layout.name + ": a pickup for every keycard an enemy carries",
+          "{0} carried pickups".format(len(carried)))
+
+
+def check_door_links(layout, actors):
+    """Every door with a leaf in a narrow opening knows the nav link through it (ADoorActor keeps a locked
+    door's link Null, out of the navmesh, until the door opens), and every such link is a plain point link."""
+    doors = [a for a in actors.values() if isinstance(a, unreal.DoorActor)]
+    bad = []
+    for door in doors:
+        link = door.get_editor_property("nav_link")
+        if link is not None and (link.get_editor_property("smart_link_is_relevant") or len(link.get_editor_property("point_links")) != 1):
+            bad.append(door.get_actor_label())
+    narrow = [d for d, _bd, _at, width in layout.door_spots() if width < gi.NAV_LINK_WIDTH and d.get("leaf", "wood") != "none"]
+    linked = [d for d in doors if d.get_editor_property("nav_link") is not None]
+    check(not bad and len(linked) == len(narrow), layout.name + ": every narrow door knows its nav link",
+          ", ".join(bad) or "{0} of {1}".format(len(linked), len(narrow)))
 
 
 def tag_value(actor, prefix):
@@ -316,6 +398,7 @@ def check_interior(path):
     check_anchors(layout, world, actors)
     check_navigation(layout, world, actors)
     check_thugs(layout, world, actors)
+    check_door_links(layout, actors)
 
 
 def check_district():

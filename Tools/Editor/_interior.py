@@ -22,7 +22,7 @@ so a room's N side is its y0 edge (the district's convention: East 11th Street h
       "stairs":  [{"id", "room", "landing": 170, "flight": 130}],
       "props":   [{"room", "tag", "at": [dx, dy], "yaw": 0, "size": [x, y, z]}],     at is from the room's x0, y0
       "enemies": [{"id", "type": "FISTS|BAT|PISTOL|BOW|SHIELD", "room", "at": [dx, dy], "facing": 90,
-                   "patrol": [[room, dx, dy], [room, dx, dy, yaw], ...], "wait": 2.0, "alert_group": "<crew>"}],
+                   "patrol": [[room, dx, dy], [room, dx, dy, yaw, pitch], ...], "wait": 2.0, "alert_group": "<crew>"}],
       "keycards": [{"keycard": "<id>", "carrier": "<enemy id>"}],   a keycard a thug carries and drops
       "patrols": [{"id", "weapon": "FISTS|BAT|PISTOL", "wait": 2.0, "points": [[room, dx, dy], ...]}],   the old
                    form of a patrolling enemy, read as one that starts on its first point
@@ -35,7 +35,8 @@ An enemy stands at "at" in his room (room-relative, on its floor; the first patr
 "at"), turned "facing" degrees (0 east, 90 south; toward his first leg when left out). With a "patrol" of
 two points or more he walks round its points in order, waiting "wait" s at each: from "at" to the first,
 or, with no "at", from the first to the second. A point with a fourth number is one he turns to that yaw
-at while he waits (a gunner overlooking a hall). With no patrol he holds his post. "alert_group" names his crew: his squad alert reaches only thugs of the same group (and a thug with
+at while he waits, and a fifth pitches his gaze (below 0 is down: a gunner at a gallery rail looking down
+into the hall; his sight cone is 35 degrees round his gaze). With no patrol he holds his post. "alert_group" names his crew: his squad alert reaches only thugs of the same group (and a thug with
 none only thugs with none). "type" picks the Blueprint: BP_Thug for FISTS, BAT and PISTOL, BP_Archer for
 BOW, BP_Thug_Heavy for SHIELD. A keycard's carrier drops it where he goes down (takedown or fight).
 
@@ -174,11 +175,12 @@ class Layout(object):
 
     def enemies(self):
         """Every enemy, normalised: {"id", "type", "room", "at": (dx, dy), "facing": yaw or None, "patrol":
-        [(room, dx, dy, yaw or None)] in the order he walks them, "wait", "alert_group", "keycards": [ids he
-        carries]}. The old "patrols" come after the "enemies", each starting on its first point."""
+        [(room, dx, dy, yaw or None, pitch)] in the order he walks them, "wait", "alert_group", "keycards": [ids
+        he carries]}. The old "patrols" come after the "enemies", each starting on its first point."""
         out = []
         for raw in self.raw_enemies:
-            patrol = [(p[0], float(p[1]), float(p[2]), float(p[3]) if len(p) > 3 else None) for p in raw.get("patrol", [])]
+            patrol = [(p[0], float(p[1]), float(p[2]), float(p[3]) if len(p) > 3 else None, float(p[4]) if len(p) > 4 else 0.0)
+                      for p in raw.get("patrol", [])]
             at = raw.get("at")
             if at is None and patrol:
                 # He starts on his first point, so his first walk is to the second.
@@ -190,8 +192,8 @@ class Layout(object):
                         "patrol": patrol, "wait": float(raw.get("wait", 2.0)),
                         "alert_group": raw.get("alert_group") or "", "keycards": []})
         for raw in self.patrols:
-            points = [(p[0], float(p[1]), float(p[2]), None) for p in raw.get("points", [])]
-            first = points[0] if points else (None, 0.0, 0.0, None)
+            points = [(p[0], float(p[1]), float(p[2]), None, 0.0) for p in raw.get("points", [])]
+            first = points[0] if points else (None, 0.0, 0.0, None, 0.0)
             # He starts on his first point: walking out and back is the second point first.
             out.append({"id": raw.get("id"), "type": raw.get("weapon", "FISTS"), "room": first[0], "at": (first[1], first[2]),
                         "facing": None, "patrol": points[1:] + points[:1] if len(points) > 1 else [],
@@ -209,7 +211,7 @@ class Layout(object):
         yaw = enemy["facing"]
         if yaw is None:
             nxt = None
-            for room_id, dx, dy, _yaw in enemy["patrol"]:
+            for room_id, dx, dy, _yaw, _pitch in enemy["patrol"]:
                 px, py = self.by_id[room_id].point(dx, dy)
                 if abs(px - x) > 1.0 or abs(py - y) > 1.0:
                     nxt = (px, py)
@@ -218,12 +220,12 @@ class Layout(object):
         return (x, y, room.z0), yaw
 
     def enemy_route(self, enemy):
-        """[(x, y, floor z, yaw or None)] of the points he walks, in order; empty for a post."""
+        """[(x, y, floor z, yaw or None, pitch)] of the points he walks, in order; empty for a post."""
         route = []
-        for room_id, dx, dy, yaw in enemy["patrol"]:
+        for room_id, dx, dy, yaw, pitch in enemy["patrol"]:
             room = self.by_id[room_id]
             x, y = room.point(dx, dy)
-            route.append((x, y, room.z0, yaw))
+            route.append((x, y, room.z0, yaw, pitch))
         return route
 
     @property
@@ -585,6 +587,9 @@ class Layout(object):
                 other = self.by_id.get(point[0]) if point else None
                 if other is None or len(point) < 3 or not other.contains(*other.point(point[1], point[2]), margin=POINT_MARGIN):
                     errors.append("{0}: patrol point {1} is not {2:.0f} cm inside its room".format(what, point, POINT_MARGIN))
+            for point in patrol:
+                if len(point) > 4 and not -60.0 <= float(point[4]) <= 30.0:
+                    errors.append("{0}: patrol point {1} pitches its gaze {2} (between -60 and 30)".format(what, point, point[4]))
             group = raw.get("alert_group", "")
             if group and not all(ch.isalnum() or ch == "_" for ch in group):
                 errors.append("{0}: alert group {1} is letters, digits and _ only".format(what, group))

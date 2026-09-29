@@ -16,8 +16,11 @@ script turns them into actors, in the streets' stylised look:
 * props by tag from engine primitives (desk, table, chair, shelves, crates, pallet, display case, pedestal,
   sofa, bed, counter, stage, lectern, bench, rug, painting, plant); crates marked traversable are visible
   BP_TraversableBlocks so they can be climbed
-* play: a PlayerStart inside the entrance, a nav volume, BP_Thug patrols with their TargetPoints, the
-  keycard pickup, BP_GameMode_Interior (no snow, the indoor camera arm)
+* play: a PlayerStart inside the entrance, a nav volume, the layout's enemies (BP_Thug, BP_Archer or
+  BP_Thug_Heavy by type) with their patrol TargetPoints (tagged PatrolFacing where a point gives a yaw),
+  alert groups and the keycards they carry (placed pickups in their CarriedPickups), loose pickups,
+  BP_GameMode_Interior (no snow, the indoor camera arm)
+* every door knows the nav link through it; a locked one keeps it out of the navmesh until it opens
 
 Every actor is labelled Int_<Room>_<Kind>_<n> and tagged Interior; a rerun with the same layout changes
 nothing and does not save the map. Actors a changed layout no longer wants are removed.
@@ -50,6 +53,11 @@ TAG = "Interior"
 LAMP_TAGS = ["CityLamp", "IntLight"]      # CityLamp: the EMP arrow's lamp tag (UArrowEffectsSubsystem::LampTag)
 THUG_BP_PATH = "/Game/Blueprints/AI"
 THUG_BP_NAME = "BP_Thug"
+# The Blueprint each enemy type spawns as (the district's own: generate_city.py).
+ENEMY_BLUEPRINTS = {"FISTS": (THUG_BP_PATH, THUG_BP_NAME), "BAT": (THUG_BP_PATH, THUG_BP_NAME),
+                    "PISTOL": (THUG_BP_PATH, THUG_BP_NAME), "BOW": (gen.ARCHER_BP_PATH, gen.ARCHER_BP_NAME),
+                    "SHIELD": (THUG_BP_PATH, gen.HEAVY_BP_NAME)}
+PATROL_FACING_TAG = "PatrolFacing"        # AThugAIController turns to such a point's yaw while he waits there
 THUG_HALF_HEIGHT = 96.0
 PATROL_POINT_HEIGHT = 100.0
 
@@ -411,23 +419,28 @@ NAV_LINK_REACH = 90.0       # cm each side of the wall line the link's ends stan
 
 def build_nav_link(b, room, bd, at, z0):
     """A NavLinkProxy through a narrow opening, both ways, so paths and patrols plan through it. With a
-    34 cm agent on 19 cm cells the navmesh leaves nothing of a 100 cm doorway."""
+    34 cm agent on 19 cm cells the navmesh leaves nothing of a 100 cm doorway. A door knows its link: a
+    locked one keeps it Null (out of the navmesh) until it opens."""
     x, y = bd.point(at)
     nx, ny = (1.0, 0.0) if bd.axis == "x" else (0.0, 1.0)
     actor = b.located(room, "NavLink", unreal.NavLinkProxy, (x, y, z0), 0.0, ["IntNavLink"])
     if actor is None:
-        return
+        return None
+    left = _v(-nx * NAV_LINK_REACH, -ny * NAV_LINK_REACH, 10.0)
+    right = _v(nx * NAV_LINK_REACH, ny * NAV_LINK_REACH, 10.0)
+    b.prop(actor, "smart_link_is_relevant", False, room)
     link = unreal.NavigationLink()
-    link.set_editor_property("left", _v(-nx * NAV_LINK_REACH, -ny * NAV_LINK_REACH, 10.0))
-    link.set_editor_property("right", _v(nx * NAV_LINK_REACH, ny * NAV_LINK_REACH, 10.0))
+    link.set_editor_property("left", left)
+    link.set_editor_property("right", right)
     link.set_editor_property("direction", unreal.NavLinkDirection.BOTH_WAYS)
     current = actor.get_editor_property("point_links")
-    same = len(current) == 1 and gen.same_vector(current[0].get_editor_property("left"), link.get_editor_property("left"), 0.5) \
-        and gen.same_vector(current[0].get_editor_property("right"), link.get_editor_property("right"), 0.5) \
+    same = len(current) == 1 and gen.same_vector(current[0].get_editor_property("left"), left, 0.5) \
+        and gen.same_vector(current[0].get_editor_property("right"), right, 0.5) \
         and current[0].get_editor_property("direction") == unreal.NavLinkDirection.BOTH_WAYS
     if not same:
         actor.set_editor_property("point_links", [link])
         b.changes += 1
+    return actor
 
 
 def build_doors(b, openings):
@@ -437,8 +450,7 @@ def build_doors(b, openings):
         z0 = bd.band * it.FLOOR_HEIGHT
         room = b.room_label(bd.a)
         build_trim(b, room, bd, at, width, z0, it.DOOR_HEIGHT, (-1.0, 1.0))
-        if width < NAV_LINK_WIDTH:
-            build_nav_link(b, room, bd, at, z0)
+        link = build_nav_link(b, room, bd, at, z0) if width < NAV_LINK_WIDTH else None
 
         leaf = door.get("leaf", "wood")
         if leaf == "none" or door_cls is None:
@@ -458,6 +470,9 @@ def build_doors(b, openings):
         b.prop(actor, "slide_distance", float(DOOR_SLIDE * slide * along_sign), room, 0.5)
         b.prop(actor, "open_seconds", 0.8, room, 0.01)
         b.prop(actor, "locked", bool(door.get("locked", False)), room)
+        if link is not None and actor.get_editor_property("nav_link") != link:
+            actor.set_editor_property("nav_link", link)
+            b.changes += 1
         if door.get("keycard"):
             b.prop(actor, "required_keycard_id", unreal.Name(door["keycard"]), room)
         leaf_comp = actor.get_editor_property("door_mesh")
@@ -833,35 +848,61 @@ def build_play(b):
 
 
 def build_thugs(b):
+    """Every enemy (layout.enemies(): the "enemies" list and the old "patrols"): his TargetPoints, the
+    Blueprint for his type at his start, his weapon, route, wait, crew and the keycards he carries."""
     layout = b.layout
-    thug_cls = c.load_generated_class(THUG_BP_PATH, THUG_BP_NAME)
-    if thug_cls is None or not hasattr(unreal, "ThugWeapon"):
-        c.log("FAILED", "interior thugs", "BP_Thug missing; run create_world_blueprints.py")
+    if not hasattr(unreal, "ThugWeapon"):
+        c.log("FAILED", "interior thugs", "AThugCharacter not exposed; build the module")
         return
-    for patrol in layout.patrols:
+    pickup_cls = c.find_class("PickupActor", "/Script/Hawkeye.PickupActor")
+    classes = {}
+    for enemy in layout.enemies():
+        bp_path, bp_name = ENEMY_BLUEPRINTS[enemy["type"]]
+        if bp_name not in classes:
+            classes[bp_name] = c.load_generated_class(bp_path, bp_name)
+        cls = classes[bp_name]
+        if cls is None:
+            c.log("FAILED", "enemy " + enemy["id"], bp_name + " missing; run create_world_blueprints.py and create_enemies.py")
+            continue
         points = []
-        for room_id, dx, dy in patrol["points"]:
-            room = layout.by_id[room_id]
-            x, y = room.point(dx, dy)
-            points.append(b.located(room.label, "Patrol", unreal.TargetPoint, (x, y, room.z0 + PATROL_POINT_HEIGHT), 0.0,
-                                    ["IntPatrol", "patrol:" + patrol["id"]]))
-        room_id, dx, dy = patrol["points"][0]
-        room = layout.by_id[room_id]
-        x, y = room.point(dx, dy)
-        nxt = layout.by_id[patrol["points"][1][0]].point(patrol["points"][1][1], patrol["points"][1][2])
-        yaw = math.degrees(math.atan2(nxt[1] - y, nxt[0] - x))
+        for (room_id, _dx, _dy, facing, pitch), (x, y, z, _yaw, _pitch) in zip(enemy["patrol"], layout.enemy_route(enemy)):
+            tags = ["IntPatrol", "patrol:" + enemy["id"]] + ([PATROL_FACING_TAG] if facing is not None else [])
+            yaw = facing if facing is not None else 0.0
+            point = b.located(b.room_label(room_id), "Patrol", unreal.TargetPoint, (x, y, z + PATROL_POINT_HEIGHT), yaw, tags)
+            # The pitch of his gaze while he waits there (AThugAIController's LookPitch).
+            if point is not None and abs(point.get_actor_rotation().pitch - pitch) > 0.05:
+                point.set_actor_rotation(unreal.Rotator(0.0, pitch, yaw), False)
+                b.changes += 1
+            points.append(point)
+        (x, y, z), yaw = layout.enemy_start(enemy)
+        room = layout.by_id[enemy["room"]]
         label = b.label(room.label, "Thug")
-        actor, n = gen._ensure_located(b.existing, label, thug_cls, _v(x, y, room.z0 + THUG_HALF_HEIGHT + 2.0), yaw)
+        actor, n = gen._ensure_located(b.existing, label, cls, _v(x, y, z + THUG_HALF_HEIGHT + 2.0), yaw)
         b.changes += n
         if actor is None:
             continue
+        group = enemy["alert_group"]
         # The thug's own "Thug" tag first: takedowns look for it.
-        b.changes += gen._ensure_tags(actor, ["Thug", TAG, "IntThug", "patrol:" + patrol["id"]])
-        # Walk the route out and back: second point first, so the first leg leaves where he stands.
-        route = [p for p in points[1:] + points[:1] if p is not None]
-        b.changes += gen._ensure_thug_props(actor, patrol.get("weapon", "FISTS"), route)
-        wait = float(patrol.get("wait", 2.0))
-        b.changes += gen.set_if_different(actor, "patrol_wait_seconds", wait, label, 0.01)
+        b.changes += gen._ensure_tags(actor, ["Thug", TAG, "IntThug", "enemy:" + enemy["id"]] + (["alert:" + group] if group else []))
+        b.changes += gen._ensure_thug_props(actor, enemy["type"], [p for p in points if p is not None])
+        b.changes += gen.set_if_different(actor, "patrol_wait_seconds", enemy["wait"], label, 0.01)
+        b.prop(actor, "alert_group", unreal.Name(group or "None"), label)
+        # Indoors nobody watches all round: a calm archer is a sentry with a cone like the rest.
+        b.prop(actor, "archer_sees_all_round", False, label)
+        carried = []
+        for card in enemy["keycards"]:
+            if pickup_cls is None:
+                c.log("FAILED", "keycard " + card, "APickupActor not exposed; build the module")
+                break
+            pickup = b.located(room.label, "Keycard", pickup_cls, (x, y, z), 0.0,
+                               ["IntPickup", "carried:" + enemy["id"], "keycard:" + card])
+            if pickup is not None:
+                style_keycard(b, pickup, card, room.label)
+                carried.append(pickup)
+        have = [p.get_actor_label() if p else "" for p in actor.get_editor_property("carried_pickups")]
+        if have != [p.get_actor_label() for p in carried]:
+            actor.set_editor_property("carried_pickups", carried)
+            b.changes += 1
 
 
 def build_pickups(b):
@@ -870,35 +911,39 @@ def build_pickups(b):
     if cls is None:
         c.log("FAILED", "interior pickups", "APickupActor not exposed; build the module")
         return
-    cube = b.meshes["cube"]
     for item in layout.pickups:
         room = layout.by_id[item["room"]]
         x, y = room.point(*item["at"])
         actor = b.located(room.label, "Keycard", cls, (x, y, room.z0 + float(item.get("z", 0.0))), 0.0,
                           ["IntPickup", "pickup:" + item["id"]])
-        if actor is None:
-            continue
-        b.prop(actor, "pickup_type", unreal.PickupType.KEYCARD, room.label)
-        b.prop(actor, "keycard_id", unreal.Name(item.get("keycard", "red")), room.label)
-        b.prop(actor, "prompt_override", unreal.Text("[E] Take [keycard]"), room.label)
-        b.changes += gen.set_if_different(actor, "hover_height", 14.0, room.label, 0.01)
-        for part_name, scale, offset, mat in (("part1", (0.09, 0.055, 0.006), (0, 0, 0), "prop:Purple"),
-                                              ("part2", (0.092, 0.014, 0.007), (0, 1.2, 0), "prop:Brass")):
-            part = actor.get_editor_property(part_name)
-            if part.get_editor_property("static_mesh") != cube:
-                part.set_static_mesh(cube)
-                b.changes += 1
-            if not gen.same_vector(part.get_editor_property("relative_scale3d"), _v(*scale), 1e-5):
-                part.set_editor_property("relative_scale3d", _v(*scale))
-                b.changes += 1
-            if not gen.same_vector(part.get_editor_property("relative_location"), _v(*offset), 0.01):
-                part.set_editor_property("relative_location", _v(*offset))
-                b.changes += 1
-            material = b.mat(mat)
-            overrides = part.get_editor_property("override_materials")
-            if len(overrides) < 1 or overrides[0] != material:
-                part.set_material(0, material)
-                b.changes += 1
+        if actor is not None:
+            style_keycard(b, actor, item.get("keycard", "red"), room.label)
+
+
+def style_keycard(b, actor, keycard, room_label):
+    """A keycard pickup: a purple card with a brass stripe, hovering low."""
+    cube = b.meshes["cube"]
+    b.prop(actor, "pickup_type", unreal.PickupType.KEYCARD, room_label)
+    b.prop(actor, "keycard_id", unreal.Name(keycard), room_label)
+    b.prop(actor, "prompt_override", unreal.Text("[E] Take [keycard]"), room_label)
+    b.changes += gen.set_if_different(actor, "hover_height", 14.0, room_label, 0.01)
+    for part_name, scale, offset, mat in (("part1", (0.09, 0.055, 0.006), (0, 0, 0), "prop:Purple"),
+                                          ("part2", (0.092, 0.014, 0.007), (0, 1.2, 0), "prop:Brass")):
+        part = actor.get_editor_property(part_name)
+        if part.get_editor_property("static_mesh") != cube:
+            part.set_static_mesh(cube)
+            b.changes += 1
+        if not gen.same_vector(part.get_editor_property("relative_scale3d"), _v(*scale), 1e-5):
+            part.set_editor_property("relative_scale3d", _v(*scale))
+            b.changes += 1
+        if not gen.same_vector(part.get_editor_property("relative_location"), _v(*offset), 0.01):
+            part.set_editor_property("relative_location", _v(*offset))
+            b.changes += 1
+        material = b.mat(mat)
+        overrides = part.get_editor_property("override_materials")
+        if len(overrides) < 1 or overrides[0] != material:
+            part.set_material(0, material)
+            b.changes += 1
 
 
 def anchor_spots(layout):
