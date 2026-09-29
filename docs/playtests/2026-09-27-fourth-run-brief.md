@@ -143,6 +143,46 @@ All five landed, each with builds, the full suite (357 tests) and screenshots re
   or `hawkeye.TimeOfDay Day` in the console for testing. Day is a cool overcast; night is
   unchanged.
 
+## Second night, 2026-09-29: the thirteen notes, answered
+Cameron's second set of notes, plus the standing-jump one, all landed with the same gate
+(builds, 401 tests, screenshots read). Kate pass, lap, fights and bow sequence all green.
+- **Standing jump at walls.** The failed presses in the log were on tenement roofs: every
+  "88 cm top" was a parapet, and the vault refused because its one landing spot sat inside
+  the neighbour's lower parapet. The landing now searches 75 cm further; a 486-press sweep
+  of those roofs went from 181 moves to 248 with no blocked landings.
+- **Roof-edge guard.** One jump at a parapet over a drop mantles onto it and stops. Double
+  tap to leap on purpose.
+- **Melee assist.** A strike picks the thug within 350 cm and 60 degrees of where you
+  meant, turns onto him, closes to 90 cm, forgives a near miss.
+- **Bow aim assist.** Settings, Controls, Aim assist Off / Normal / Strong: reticle pull,
+  snap on aim, a 2 degree bend on release. Never pulls a head aim down.
+- **Archers and gunners.** Aim from where you were 0.3 s ago, cone widens with your speed,
+  a sharp turn or dodge makes the shot miss, archers wait 1.5 to 2.5 s between shots.
+  Sprinting sideways past an archer at 8 m: about 6 hits in 20 on Normal, 3 on Story.
+- **Arrows embed** in the body they hit, on Kate and thugs. Kate's and Clint's arrows fly
+  through each other (one of your downs was Clint's arrow through a dead thug).
+- **Downed.** 8 s ring, "Clint is coming" or "Any key", thugs stop hitting you and circle,
+  then a fade and a reload with placed thugs reset and crime thugs gone. Both grey
+  screens in your log were you playing as Clint with AI Kate unable to reach you.
+- **Finding places.** Both safehouses always on the compass (hollow until found), "Mark
+  nearest safehouse" works before discovery, pedestals on the compass within 150 m with
+  a world marker within 80 m, "Mark nearest challenge" in the pause menu, toasts nearby.
+- **Infinite grapple arrows.** The slot shows an infinity sign; nothing spends them.
+- **Sprint toggle.** One press of the left stick sprints until you stop, aim, crouch, or
+  press again. Settings, Sprint: Hold / Toggle / per device.
+- **Combat readability.** A purple ring under the thug you're swinging at, a big
+  red-orange telegraph "!" with a cream line while a parry would work, hit stop and a lens
+  punch on heavies, a spark at the contact point, a thud and dust on knockdowns, and a
+  fight camera that pulls back 70 cm when two thugs close in. Heavy is the roundhouse.
+- **Day look.** A real winter afternoon now: warm sun 30 degrees up, white snow, red-brown
+  brick, blue shadow. Lamp buzz off by day, EMP and time of day reconciled, beacons and
+  signs scale up by day.
+- **Air combos and variants** from the first note set are still in: a missed light
+  advances the chain, every strike rotates through its clips.
+Still waiting on you: Mixamo roll and get-up clips (the landing roll is the placeholder
+dip until then). Chapter 1 still ends at the arrow, the slides and the grey room; that is
+the story session, not a bug.
+
 ## Known rough edges
 - Challenge pedestal cap and icon read white instead of purple.
 - Distant archery targets are small at 30 to 40 m.
