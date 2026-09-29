@@ -22,6 +22,7 @@ class UPhoneWidget;
 class USnowfallComponent;
 class UHawkeyeHudWidget;
 class UHawkeyeInventoryWidget;
+class UHawkeyeMapWidget;
 class UHawkeyeMainMenuWidget;
 class UHawkeyeDifficultyPromptWidget;
 class UFlashbackReplayWidget;
@@ -181,6 +182,44 @@ public:
 	void HandleDPadDownPressed(double NowSeconds);
 	void HandleDPadDownReleased(double NowSeconds);
 	void TickDPadDown(double NowSeconds);
+
+	// --- World map ------------------------------------------------------------------------------
+
+	/** The world map. UHawkeyeMapWidget by default. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map")
+	TSubclassOf<UHawkeyeMapWidget> MapWidgetClass;
+
+	/** M on the keyboard (IA_Map). The pad holds D-pad up for MapHoldSeconds instead (View is the quiver). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Map")
+	TObjectPtr<UInputAction> MapAction;
+
+	/**
+	 * How long D-pad up is held to open the map. A tap selects quiver slot 1 (standard arrows) when the
+	 * button comes back up, so a hold never also changes the arrow; the pad's slot 1 is handled here.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Map", meta = (ClampMin = "0.05"))
+	float MapHoldSeconds = 0.4f;
+
+	UFUNCTION(BlueprintCallable, Category = "Map")
+	void ToggleMap();
+
+	/**
+	 * Opens the world map over a paused game, or closes it. Refused while a menu, the inventory, the
+	 * phone, a flashback, a close-up or an end sequence has the screen.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Map")
+	void SetMapOpen(bool bOpen);
+
+	UFUNCTION(BlueprintPure, Category = "Map")
+	bool IsMapOpen() const { return bMapOpen; }
+
+	UFUNCTION(BlueprintPure, Category = "Map")
+	UHawkeyeMapWidget* GetMapWidget() const { return MapWidget; }
+
+	/** The D-pad up press, release and hold (real seconds). Tests drive these. */
+	void HandleDPadUpPressed(double NowSeconds);
+	void HandleDPadUpReleased(double NowSeconds);
+	void TickDPadUp(double NowSeconds);
 
 	/** True once a D-pad hold that started at PressedSeconds has lasted HoldSeconds by NowSeconds. */
 	static bool IsHoldComplete(double PressedSeconds, double NowSeconds, float HoldSeconds)
@@ -581,6 +620,7 @@ protected:
 
 	void Input_Pause(const FInputActionValue& Value);
 	void Input_Phone(const FInputActionValue& Value);
+	void Input_Map(const FInputActionValue& Value);
 	void Input_SwitchCharacter(const FInputActionValue& Value);
 	void Input_PartnerMark(const FInputActionValue& Value);
 
@@ -745,6 +785,12 @@ protected:
 	bool bPhoneOpen = false;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UHawkeyeMapWidget> MapWidget = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Map")
+	bool bMapOpen = false;
+
+	UPROPERTY(Transient)
 	TObjectPtr<AActor> CloseUpTarget = nullptr;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "End card")
@@ -755,6 +801,9 @@ protected:
 
 	/** D-pad down: a hold of PhoneHoldSeconds opens the phone, a tap (on release) is quiver slot 2. */
 	FHawkeyeTapHold DPadDown;
+
+	/** D-pad up: a hold of MapHoldSeconds opens the map, a tap (on release) is quiver slot 1. */
+	FHawkeyeTapHold DPadUp;
 
 	/** Creates the end card (if needed) and plays it. bWaitForInput is the campaign-end card. */
 	UMissionEndCardWidget* ShowEndCard(UMissionDefinition* Mission, bool bWaitForInput);

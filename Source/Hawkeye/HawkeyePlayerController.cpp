@@ -61,6 +61,7 @@
 #include "UI/ChapterTitleWidget.h"
 #include "UI/HawkeyeObjectiveWidget.h"
 #include "UI/PhoneWidget.h"
+#include "UI/HawkeyeMapWidget.h"
 
 AHawkeyePlayerController::AHawkeyePlayerController()
 {
@@ -73,6 +74,7 @@ AHawkeyePlayerController::AHawkeyePlayerController()
 	ChallengeResultsWidgetClass = UChallengeResultsWidget::StaticClass();
 	ChapterTitleWidgetClass = UChapterTitleWidget::StaticClass();
 	PhoneWidgetClass = UPhoneWidget::StaticClass();
+	MapWidgetClass = UHawkeyeMapWidget::StaticClass();
 }
 
 void AHawkeyePlayerController::BeginPlay()
@@ -137,7 +139,7 @@ void AHawkeyePlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
 
-	if (!PauseAction && !SwitchCharacterAction && !PartnerMarkAction && !PhoneAction)
+	if (!PauseAction && !SwitchCharacterAction && !PartnerMarkAction && !PhoneAction && !MapAction)
 	{
 		return;
 	}
@@ -168,6 +170,10 @@ void AHawkeyePlayerController::SetupInputComponent()
 	{
 		EnhancedInput->BindAction(PhoneAction, ETriggerEvent::Started, this, &AHawkeyePlayerController::Input_Phone);
 	}
+	if (MapAction)
+	{
+		EnhancedInput->BindAction(MapAction, ETriggerEvent::Started, this, &AHawkeyePlayerController::Input_Map);
+	}
 }
 
 bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
@@ -187,6 +193,10 @@ bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
 		{
 			HandleDPadDownPressed(FPlatformTime::Seconds());
 		}
+		if (Params.Key == EKeys::Gamepad_DPad_Up)
+		{
+			HandleDPadUpPressed(FPlatformTime::Seconds());
+		}
 		// Down with no revive coming: any key but the pause keys ends it (the character ignores it otherwise).
 		AHawkeyeCharacter* Downed = Cast<AHawkeyeCharacter>(GetPawn());
 		if (Downed && Downed->IsDowned() && !IsPaused() && Params.Key != EKeys::Escape
@@ -199,6 +209,10 @@ bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
 	{
 		HandleDPadDownReleased(FPlatformTime::Seconds());
 	}
+	else if (Params.Event == IE_Released && Params.Key == EKeys::Gamepad_DPad_Up)
+	{
+		HandleDPadUpReleased(FPlatformTime::Seconds());
+	}
 
 	return Super::InputKey(Params);
 }
@@ -209,6 +223,7 @@ void AHawkeyePlayerController::PlayerTick(float DeltaTime)
 
 	// Real time, like the quiver wheel: the hold is the thumb, not game time.
 	TickDPadDown(FPlatformTime::Seconds());
+	TickDPadUp(FPlatformTime::Seconds());
 
 	const double Now = FPlatformTime::Seconds();
 	// Automation drives its own notices (UpdatePlaceNotices directly), so no toast or marker lands in a shot;
@@ -285,7 +300,7 @@ void AHawkeyePlayerController::HandleDPadDownReleased(double NowSeconds)
 	{
 		// Quiver slot 2 (grapple), as IA_Slot2 does from the keyboard; not under a menu or the phone.
 		const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bInventoryOpen
-			|| bPhoneOpen || bCloseUpActive;
+			|| bPhoneOpen || bMapOpen || bCloseUpActive;
 		const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(GetPawn());
 		if (!bScreenTaken && Hawkeye && Hawkeye->GetInventoryComponent())
 		{
@@ -315,7 +330,7 @@ void AHawkeyePlayerController::SetPhoneOpen(bool bOpen)
 		return;
 	}
 	const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bInventoryOpen
-		|| bCloseUpActive || (MissionFlow && MissionFlow->IsRunning());
+		|| bMapOpen || bCloseUpActive || (MissionFlow && MissionFlow->IsRunning());
 	if (bOpen && (bScreenTaken || !IsLocalController()))
 	{
 		return;
@@ -347,6 +362,96 @@ void AHawkeyePlayerController::SetPhoneOpen(bool bOpen)
 	UE_LOG(LogHawkeye, Log, TEXT("%s: phone %s."), *GetName(), bOpen ? TEXT("open") : TEXT("closed"));
 }
 
+void AHawkeyePlayerController::HandleDPadUpPressed(double NowSeconds)
+{
+	DPadUp.HoldSeconds = MapHoldSeconds;
+	DPadUp.Press(NowSeconds);
+}
+
+void AHawkeyePlayerController::TickDPadUp(double NowSeconds)
+{
+	if (DPadUp.Tick(NowSeconds) == EHawkeyeTapHold::Hold && !bMapOpen)
+	{
+		SetMapOpen(true);
+	}
+}
+
+void AHawkeyePlayerController::HandleDPadUpReleased(double NowSeconds)
+{
+	switch (DPadUp.Release(NowSeconds))
+	{
+	case EHawkeyeTapHold::Hold:
+		if (!bMapOpen)
+		{
+			SetMapOpen(true);
+		}
+		break;
+	case EHawkeyeTapHold::Tap:
+	{
+		// Quiver slot 1 (standard arrows), as IA_Slot1 does from the keyboard; not under a menu.
+		const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen
+			|| bInventoryOpen || bPhoneOpen || bMapOpen || bCloseUpActive;
+		const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(GetPawn());
+		if (!bScreenTaken && Hawkeye && Hawkeye->GetInventoryComponent())
+		{
+			Hawkeye->GetInventoryComponent()->SelectArrowSlot(1);
+		}
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+void AHawkeyePlayerController::Input_Map(const FInputActionValue& /*Value*/)
+{
+	ToggleMap();
+}
+
+void AHawkeyePlayerController::ToggleMap()
+{
+	SetMapOpen(!bMapOpen);
+}
+
+void AHawkeyePlayerController::SetMapOpen(bool bOpen)
+{
+	if (bMapOpen == bOpen)
+	{
+		return;
+	}
+	const bool bScreenTaken = bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen
+		|| bInventoryOpen || bPhoneOpen || bCloseUpActive || (MissionFlow && MissionFlow->IsRunning());
+	if (bOpen && bScreenTaken)
+	{
+		return;
+	}
+	// The flag flips with or without a widget, like the inventory: a headless test with no local
+	// player still needs bMapOpen and the pause it drives.
+	bMapOpen = bOpen;
+	if (bOpen && IsLocalController())
+	{
+		if (!MapWidget)
+		{
+			MapWidget = CreateWidget<UHawkeyeMapWidget>(this, MapWidgetClass ? MapWidgetClass.Get() : UHawkeyeMapWidget::StaticClass());
+		}
+		if (MapWidget)
+		{
+			if (!MapWidget->IsInViewport())
+			{
+				MapWidget->AddToViewport(11);
+			}
+			MapWidget->Open();
+		}
+	}
+	else if (!bOpen && MapWidget)
+	{
+		MapWidget->Close();
+	}
+	SetPause(bOpen);
+	ApplyPauseInputMode(bOpen);
+	UE_LOG(LogHawkeye, Log, TEXT("%s: map %s."), *GetName(), bOpen ? TEXT("open") : TEXT("closed"));
+}
+
 void AHawkeyePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
 {
 	// Escape inside Settings is Back, not unpause: the player came from the pause menu and
@@ -373,6 +478,12 @@ void AHawkeyePlayerController::Input_Pause(const FInputActionValue& /*Value*/)
 	if (bPhoneOpen)
 	{
 		SetPhoneOpen(false);
+		return;
+	}
+
+	if (bMapOpen)
+	{
+		SetMapOpen(false);
 		return;
 	}
 
@@ -417,7 +528,7 @@ void AHawkeyePlayerController::SetInventoryOpen(bool bOpen)
 	}
 
 	// One thing owns the pause at a time; the slideshow and every menu outrank Tab.
-	if (bOpen && (bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bPhoneOpen))
+	if (bOpen && (bPauseMenuOpen || bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bPhoneOpen || bMapOpen))
 	{
 		return;
 	}
@@ -469,7 +580,7 @@ bool AHawkeyePlayerController::CanTogglePause() const
 {
 	// The slideshow pauses the game itself and restores the previous state on finish; letting
 	// Escape unpause underneath it would leave the flashback running over live gameplay.
-	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bPhoneOpen)
+	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bPhoneOpen || bMapOpen)
 	{
 		return false;
 	}
@@ -662,6 +773,10 @@ TSharedPtr<SWidget> AHawkeyePlayerController::GetFocusedMenuWidget() const
 	if (bPhoneOpen && PhoneWidget)
 	{
 		return PhoneWidget->TakeWidget();
+	}
+	if (bMapOpen && MapWidget)
+	{
+		return MapWidget->TakeWidget();
 	}
 	if (bInventoryOpen && InventoryWidget)
 	{
@@ -1350,6 +1465,12 @@ void AHawkeyePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		PhoneWidget = nullptr;
 	}
 	bPhoneOpen = false;
+	if (MapWidget)
+	{
+		MapWidget->RemoveFromParent();
+		MapWidget = nullptr;
+	}
+	bMapOpen = false;
 	if (ChapterTitleWidget)
 	{
 		ChapterTitleWidget->RemoveFromParent();

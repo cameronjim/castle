@@ -40,6 +40,9 @@ public class Hawkeye : ModuleRules
 		// Hawkeye.Audio.Smoke finds the MetaSounds through the asset registry.
 		PrivateDependencyModuleNames.AddRange(new string[] { "AssetRegistry" });
 
+		// The world map ear-clips the building footprints (UHawkeyeMapWidget).
+		PrivateDependencyModuleNames.Add("GeometryCore");
+
 		// Strike clips warp toward the soft-lock target through the engine's motion warping, the same
 		// component the Game Animation Sample's traversal uses.
 		PrivateDependencyModuleNames.Add("MotionWarping");
