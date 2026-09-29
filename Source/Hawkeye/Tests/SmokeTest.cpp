@@ -115,13 +115,15 @@ bool FHawkeyeAssertEastVillagePlayable::Update()
 	Test->TestEqual(TEXT("Five thugs are placed"), ThugCount, HawkeyeSmoke::ExpectedThugs);
 	Test->TestEqual(TEXT("And the two archers facing the find_arrow roof"), ArcherCount, HawkeyeSmoke::ExpectedArchers);
 
-	// The street crimes' twelve spots, each holding its crimes, and the classes they spawn (cooked).
+	// The street crimes' fourteen to sixteen spots, each holding its crimes, and the classes they spawn (cooked).
 	int32 SpotCount = 0;
 	int32 SpotsWithoutCrimes = 0;
 	int32 MissingClasses = 0;
+	int32 AlleySpots = 0;
 	for (TActorIterator<ACrimeSpot> It(World); It; ++It)
 	{
 		++SpotCount;
+		AlleySpots += It->bAlley ? 1 : 0;
 		SpotsWithoutCrimes += It->Crimes.ContainsByPredicate([](const UCrimeDefinition* Crime) { return Crime != nullptr; }) ? 0 : 1;
 		for (const UCrimeDefinition* Crime : It->Crimes)
 		{
@@ -132,7 +134,9 @@ bool FHawkeyeAssertEastVillagePlayable::Update()
 			MissingClasses += Crime && Crime->Type == ECrimeType::Mugging && !Crime->VictimClass.LoadSynchronous() ? 1 : 0;
 		}
 	}
-	Test->TestEqual(TEXT("Twelve crime spots are placed"), SpotCount, 12);
+	// Eight corners, four roofs, and two to four alleys (or, on a block without them, two park-path spots).
+	Test->TestTrue(FString::Printf(TEXT("Fourteen to sixteen crime spots are placed (%d, %d in alleys)"), SpotCount, AlleySpots),
+		SpotCount >= 14 && SpotCount <= 16);
 	Test->TestEqual(TEXT("Each holds its crimes"), SpotsWithoutCrimes, 0);
 	Test->TestEqual(TEXT("And every thug and victim class they spawn loads"), MissingClasses, 0);
 
