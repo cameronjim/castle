@@ -44,7 +44,7 @@ AThugCharacter::AThugCharacter()
 
 	// Reused, nothing new built: the roll's body thump and the landing's snow ring, smaller.
 	GroundThudSound = TSoftObjectPtr<USoundBase>(FSoftObjectPath(TEXT("/Game/Audio/SFX/MS_Roll_Thump.MS_Roll_Thump")));
-	GroundDustVfx = TSoftObjectPtr<UNiagaraSystem>(FSoftObjectPath(TEXT("/Game/VFX/NS_LandingSnow.NS_LandingSnow")));
+	GroundDustVfx = TSoftObjectPtr<UNiagaraSystem>(FSoftObjectPath(TEXT("/Game/VFX/NS_KnockdownDust.NS_KnockdownDust")));
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 	HealthComponent->MaxHealth = 100.f;
@@ -659,7 +659,7 @@ void AThugCharacter::KnockdownFor(AActor* By, float Seconds, float LaunchSpeed)
 	bKnockdownClip = Launch <= KnockdownLaunchSpeed && PlayKnockdownClip();
 	bKnockdownRagdoll = !bKnockdownClip && BeginKnockdownRagdoll(By, Launch);
 	AlertTo(By);
-	ScheduleGroundThud();
+	ScheduleGroundThud(bKnockdownClip ? KnockdownClipThudDelay : GroundThudDelay);
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: knocked down by %s for %.1f s (%s), health %.1f."), *GetName(), *GetNameSafe(By),
 		KnockdownRemaining, bKnockdownClip ? TEXT("clip") : (bKnockdownRagdoll ? TEXT("ragdoll") : TEXT("no ragdoll")),
@@ -1074,17 +1074,23 @@ void AThugCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 	UHawkeyeAudioSubsystem::PlayAt(this, DeathSound, GetActorLocation(), TEXT("thug death"));
 
 	// Already on the floor from a knockdown: the body is down, no second thud.
-	if (!bKnockedDown || GroundThudRemaining > 0.f)
+	if (!bKnockedDown)
 	{
-		ScheduleGroundThud();
+		ScheduleGroundThud(GroundThudDelay);
+	}
+	else if (GroundThudRemaining > 0.f)
+	{
+		// Killed mid-fall: the ragdoll takes him the rest of the way, no later than the clip would have.
+		ScheduleGroundThud(FMath::Min(GroundThudRemaining, GroundThudDelay));
 	}
 	GoLimp(Killer);
 	DropLoot();
 }
 
-void AThugCharacter::ScheduleGroundThud()
+void AThugCharacter::ScheduleGroundThud(float Delay)
 {
-	GroundThudRemaining = FMath::Max(GroundThudDelay, KINDA_SMALL_NUMBER);
+	ScheduledThudDelay = Delay;
+	GroundThudRemaining = FMath::Max(Delay, KINDA_SMALL_NUMBER);
 }
 
 void AThugCharacter::UpdateGroundThud(float DeltaSeconds)

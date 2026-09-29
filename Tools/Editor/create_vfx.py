@@ -424,10 +424,17 @@ def spark_streaks(name, count, life, color, streak, axis, angle, speed, gravity=
     return e.material("M_Vfx_Glow").no_shadow()
 
 
-def flash(name, life, color, size, delay=0.0):
-    """SimpleSpriteBurst: one sprite that blinks and fades."""
+def flash(name, life, color, size, delay=0.0, direct_life=False):
+    """SimpleSpriteBurst: one sprite that blinks and fades.
+
+    direct_life: set the lifetime the way the template reads it (Lifetime Mode Direct Set). Without it the
+    template keeps its own lifetime and Lifetime Min/Max go unread: NS_MeleeSpark's 0.08 s core was still
+    on screen 1.5 s later (knockdown_dust.png, 2026-09-29). The older flashes are left as they were built.
+    """
     e = Emitter(name, "SimpleSpriteBurst")
     e.burst(1, delay).life(life, life).color(*color).size(size, size)
+    if direct_life:
+        e.i("Initialize Particle", "Lifetime Mode", "Direct Set").i("Initialize Particle", "Lifetime", life)
     e.fade((0.0, 1.0), (1.0, 0.0)).once(life + delay + 0.05)
     return e.material("M_Vfx_Glow").no_shadow()
 
@@ -560,11 +567,16 @@ EFFECTS = {
     ],
     # Kate's fist or foot landing (2026-09-29, combat readability): small, very bright and very short, at the
     # contact point and out toward her (the system's X). The thug's own hit flash is what reads; this only
-    # marks where. A pinpoint core, not the arrow spark's 120 cm star.
+    # marks where. A core, not the arrow spark's 120 cm star. Hot gold, not white (2026-09-29, hit_spark.png:
+    # a white-violet 26 cm core vanished into his white hit flash): gold reads on the flash, the red suit
+    # and the snow, and stays clear of Kate's purple and the telegraph's red-orange. The core is blended, not
+    # added, so its gold survives on his white flash (an added glow there only clips to white); the glow and
+    # the streaks round it stay additive.
     "NS_MeleeSpark": [
-        flash("Core", 0.06, (6.0, 4.6, 7.5, 1.0), 26),
-        spark_streaks("Streaks", 9, (0.06, 0.14), (5.0, 3.6, 6.5, 1.0), (1.2, 5.0, 2.0, 11.0), (1, 0, 0), 70,
-                      (350, 750), gravity=0, drag=5.0),
+        flash("Core", 0.08, (1.0, 0.62, 0.06, 0.95), 26, direct_life=True).material("M_Vfx_Putty"),
+        flash("Glow", 0.08, (6.0, 3.2, 0.4, 1.0), 46, direct_life=True),
+        spark_streaks("Streaks", 14, (0.08, 0.16), (8.0, 4.2, 0.6, 1.0), (1.5, 7.0, 2.5, 16.0), (1, 0, 0), 75,
+                      (450, 900), gravity=0, drag=5.0),
     ],
     # The bow string's release: a tiny puff of breath-like haze.
     "NS_BowRelease": [
@@ -603,6 +615,17 @@ EFFECTS = {
         burst_sprites("Ring", "M_Vfx_Smoke", 22, (0.5, 0.9), WHITE_SNOW + (0.7,), (12, 26), 30, (150, 380),
                       gravity=(0, 0, -300), drag=3.0, fade=((0.0, 1.0), (1.0, 0.0)), grow=((0.0, 0.8), (1.0, 2.4)))
         .i("Shape Location", "Non Uniform Scale", vec(1, 1, 0.05)).i("Add Velocity", "Origin Offset", vec(0, 0, -12)),
+    ],
+    # A thug's body meeting the ground (2026-09-29, knockdown_dust.png: NS_LandingSnow's white puff was
+    # invisible on the white street): shadowed grey-blue slush thrown up and out round him, and a few clods.
+    # M_Vfx_Snow, not M_Vfx_Smoke: the smoke fades out within 60 cm of geometry (its depth fade), so a puff
+    # on the street hardly draws at all.
+    "NS_KnockdownDust": [
+        burst_sprites("Slush", "M_Vfx_Snow", 40, (0.6, 1.0), (0.05, 0.055, 0.07, 1.0), (28, 50), 40, (260, 560),
+                      gravity=(0, 0, -300), drag=3.0, fade=((0.0, 1.0), (1.0, 0.0)), grow=((0.0, 0.8), (1.0, 2.2)))
+        .i("Shape Location", "Non Uniform Scale", vec(1, 1, 0.05)).i("Add Velocity", "Origin Offset", vec(0, 0, -45)),
+        spark_streaks("Clods", 10, (0.4, 0.7), (0.08, 0.09, 0.11, 1.0), (5.0, 5.0, 9.0, 9.0), (0, 0, 1), 55,
+                      (220, 420), gravity=-900, drag=1.0).material("M_Vfx_Snow"),
     ],
     # Light snow round the camera: 800 flakes recycled into view, drifting down in a light wind.
     "NS_Snowfall": [

@@ -646,16 +646,26 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Audio")
 	TSoftObjectPtr<USoundBase> GroundThudSound;
 
-	/** A small puff of snow off the ground there (NS_LandingSnow at GroundDustScale). */
+	/** Grey slush thrown off the ground there (NS_KnockdownDust at GroundDustScale; the white landing puff did not show on snow). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Readability")
 	TSoftObjectPtr<UNiagaraSystem> GroundDustVfx;
 
-	/** Seconds from going over to the body meeting the ground: the knockdown clip is on the floor by then. */
+	/** Seconds from going over to the body meeting the ground: a ragdoll (a blast, a death standing) is down by then. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Readability", meta = (ClampMin = "0.0"))
 	float GroundThudDelay = 0.45f;
 
+	/**
+	 * The same for a knockdown played by his clip (a heavy, a trip), which takes longer to fall: AM_Knockdown_KnockedOut's
+	 * pelvis comes within 35 cm of the ground 1.3 s after he goes over (knockdown_dust.png, 2026-09-29).
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Readability", meta = (ClampMin = "0.0"))
-	float GroundDustScale = 0.6f;
+	float KnockdownClipThudDelay = 1.3f;
+
+	/** The delay the last thud was scheduled with (GroundThudDelay or KnockdownClipThudDelay): tests. */
+	float GetScheduledThudDelay() const { return ScheduledThudDelay; }
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Readability", meta = (ClampMin = "0.0"))
+	float GroundDustScale = 1.f;
 
 	/** Thuds (and puffs) played so far: tests. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
@@ -837,10 +847,11 @@ private:
 
 	/** Seconds until the body meets the ground after a knockdown or a death; 0 when none is waiting. */
 	float GroundThudRemaining = 0.f;
+	float ScheduledThudDelay = 0.f;
 	int32 GroundThudCount = 0;
 
 	/** Starts the countdown to the thud; a second fall restarts it. */
-	void ScheduleGroundThud();
+	void ScheduleGroundThud(float Delay);
 
 	/** Counts it down; at 0 plays GroundThudSound and GroundDustVfx under his pelvis. */
 	void UpdateGroundThud(float DeltaSeconds);
