@@ -42,6 +42,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown", meta = (ClampMin = "0.0"))
 	float TakedownSeconds = 1.2f;
 
+	/**
+	 * Loudness of the body going down, heard like her footsteps (gameplay-semantics.md, "Guard AI states":
+	 * takedowns 0.6, so 720 cm at the thugs' 1200 cm hearing range; walls and closed doors stop it).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown", meta = (ClampMin = "0.0"))
+	float TakedownNoiseLoudness = 0.6f;
+
 	/** Actor tag a candidate must carry. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Takedown")
 	FName TargetTag = FName(TEXT("Thug"));

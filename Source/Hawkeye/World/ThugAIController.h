@@ -533,6 +533,16 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Thug")
 	TObjectPtr<UStateTreeAIComponent> StateTreeComponent;
 
+	/**
+	 * Where his eyes are and look, for perception's sight. Alerted: along his aim (the control rotation).
+	 * Otherwise along his body, pitched by LookPitch: this controller never ticks, so the control rotation
+	 * does not follow a patrolling body, and a cone left on it looked where he spawned facing.
+	 */
+	virtual void GetActorEyesViewPoint(FVector& OutLocation, FRotator& OutRotation) const override;
+
+	/** Degrees his calm gaze is pitched (below 0 is down): a patrol point's pitch while he waits there. */
+	float GetLookPitch() const { return LookPitch; }
+
 protected:
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void OnUnPossess() override;
@@ -760,6 +770,12 @@ private:
 	/** Where the held draw points: the last aim before she went out of his line. */
 	FVector HeldAimPoint = FVector::ZeroVector;
 	FTimerHandle ArcherHoldTimerHandle;
+
+	/** A waiting look's pitch (a gunner over a hall looks down at it); 0 walking and once not calm. */
+	float LookPitch = 0.f;
+
+	/** Senses back on (thinking, a challenge over): what perception already sees counts now, not at its next change. */
+	void ResyncPerception();
 
 	/** Squad alert. */
 	bool bSquadAlertPending = false;

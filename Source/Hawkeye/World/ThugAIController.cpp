@@ -32,6 +32,7 @@
 #include "StateTree.h"
 #include "TimerManager.h"
 #include "World/GrappleAnchor.h"
+#include "World/ThugHearing.h"
 #include "Settings/DifficultySubsystem.h"
 
 namespace HawkeyeThugBrain
@@ -44,6 +45,8 @@ namespace HawkeyeThugBrain
 	static constexpr float ArriveDistance = 90.f;
 	/** A cover point more than this above or below him is another level (a fire escape, an awning), cm. */
 	static constexpr float CoverMaxStep = 150.f;
+	/** A patrol point with this tag is one he turns to face (its yaw) while he waits there. */
+	static const FName PatrolFacingTag(TEXT("PatrolFacing"));
 }
 
 AThugAIController::AThugAIController()
@@ -305,6 +308,36 @@ void AThugAIController::SetThinkingEnabled(bool bEnabled)
 			ThinkTimerHandle, this, &AThugAIController::TickThink, ThinkIntervalSeconds, true);
 	}
 	UpdateTrackTimer();
+	ResyncPerception();
+}
+
+void AThugAIController::GetActorEyesViewPoint(FVector& OutLocation, FRotator& OutRotation) const
+{
+	const APawn* Me = GetPawn();
+	if (!Me)
+	{
+		Super::GetActorEyesViewPoint(OutLocation, OutRotation);
+		return;
+	}
+	OutLocation = Me->GetPawnViewLocation();
+	OutRotation = GetAlertState() == EThugAlertState::Alerted ? GetControlRotation() : FRotator(LookPitch, Me->GetActorRotation().Yaw, 0.f);
+}
+
+void AThugAIController::ResyncPerception()
+{
+	APawn* Player = FindPlayerPawn();
+	FActorPerceptionBlueprintInfo Info;
+	if (!Player || !ThugPerception || !bThinkingEnabled || bPacified || !ThugPerception->GetActorsPerception(Player, Info))
+	{
+		return;
+	}
+	for (const FAIStimulus& Stimulus : Info.LastSensedStimuli)
+	{
+		if (Stimulus.Type == UAISense::GetSenseID<UAISense_Sight>() && Stimulus.WasSuccessfullySensed())
+		{
+			HandleTargetPerceptionUpdated(Player, Stimulus);
+		}
+	}
 }
 
 void AThugAIController::OnUnPossess()
@@ -386,6 +419,7 @@ void AThugAIController::SetState(EThugAlertState NewState)
 	UnseenSeconds = 0.f;
 	bPatrolWaiting = false;
 	PatrolWaitElapsed = 0.f;
+	LookPitch = 0.f;
 
 	bBackingOff = false;
 	SwingsSinceBackOff = 0;
@@ -442,7 +476,21 @@ void AThugAIController::HandleTargetPerceptionUpdated(AActor* Actor, FAIStimulus
 		return;
 	}
 	// Crouched in the smoke she is not there, to eyes or ears.
-	const bool bSensed = Stimulus.WasSuccessfullySensed() && !IsHiddenInSmoke(Actor);
+	bool bSensed = Stimulus.WasSuccessfullySensed() && !IsHiddenInSmoke(Actor);
+	// Perception hears through anything; walls and closed doors stop it here (HawkeyeThugHearing).
+	if (!bIsSight && bSensed && GetPawn())
+	{
+		const float Range = (HearingConfig ? HearingConfig->HearingRange : HearingRange) * Stimulus.Strength;
+		const FVector Ear = GetPawn()->GetActorLocation() + FVector(0.f, 0.f, HawkeyeThugBrain::EyeHeight);
+		const HawkeyeThugHearing::FHeardNoise Heard = HawkeyeThugHearing::Hear(GetWorld(), Stimulus.StimulusLocation, Ear, Range,
+			{ GetPawn(), Actor });
+		if (!Heard.bHeard)
+		{
+			UE_LOG(LogHawkeye, Verbose, TEXT("%s: a noise %.0f cm off does not carry to him (path %.0f cm, %d closed door(s), range %.0f)."),
+				*GetNameSafe(GetPawn()), FVector::Dist(Stimulus.StimulusLocation, Ear), Heard.PathLength, Heard.ClosedDoors, Range);
+			return;
+		}
+	}
 	if (bSensed)
 	{
 		TargetActor = Actor;
@@ -560,7 +608,15 @@ void AThugAIController::UpdateArcherSight()
 	}
 	const FVector Chest = GetAimPointOn(Candidate);
 	const bool bInRange = FVector::Dist(Candidate->GetActorLocation(), Me->GetActorLocation()) <= ArcherAggroRange;
-	const bool bVisible = bInRange && !IsHiddenInSmoke(Candidate) && HasLineTo(Chest, Candidate);
+	// Indoors a calm archer is a sentry like any other: only his sight cone.
+	bool bLooking = true;
+	if (const AThugCharacter* Archer = GetThug(); Archer && !Archer->bArcherSeesAllRound && Archer->GetAlertState() == EThugAlertState::Calm)
+	{
+		const FVector Eye = Me->GetActorLocation() + FVector(0.f, 0.f, HawkeyeThugBrain::EyeHeight);
+		bLooking = FVector::Dist(Chest, Eye) <= SightRadius && FVector::DotProduct(Me->GetActorForwardVector(), (Chest - Eye).GetSafeNormal())
+			>= FMath::Cos(FMath::DegreesToRadians(SightHalfAngleDegrees));
+	}
+	const bool bVisible = bInRange && bLooking && !IsHiddenInSmoke(Candidate) && HasLineTo(Chest, Candidate);
 	if (bVisible)
 	{
 		TargetActor = Candidate;
@@ -608,7 +664,8 @@ void AThugAIController::UpdateSquadAlert(float DeltaSeconds)
 	{
 		AThugCharacter* Other = *It;
 		const UHealthComponent* Health = Other ? Other->GetHealthComponent() : nullptr;
-		if (Other == Me || !Health || !Health->IsAlive() || Other->IsLimp() || Other->IsAlerted()
+		// Another crew (AlertGroup) is never told.
+		if (Other == Me || !Health || !Health->IsAlive() || Other->IsLimp() || Other->IsAlerted() || Other->AlertGroup != Me->AlertGroup
 			|| FVector::Dist(Other->GetActorLocation(), Me->GetActorLocation()) > SquadAlertRadius)
 		{
 			continue;
@@ -664,6 +721,7 @@ void AThugAIController::SetPacified(bool bInPacified)
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: %s."), *GetNameSafe(GetPawn()), bPacified ? TEXT("calm for a challenge, ignoring the player")
 		: TEXT("challenge over, senses back"));
+	ResyncPerception();
 }
 
 void AThugAIController::NotifyDamaged(AActor* By)
@@ -883,6 +941,13 @@ void AThugAIController::TickCalm(float DeltaSeconds)
 
 	if (bPatrolWaiting)
 	{
+		// A point that says which way to look (a gunner over a hall): he turns to it while he waits.
+		const AActor* Point = Thug->PatrolPoints.IsValidIndex(PatrolIndex) ? Thug->PatrolPoints[PatrolIndex].Get() : nullptr;
+		if (Point && Point->ActorHasTag(HawkeyeThugBrain::PatrolFacingTag))
+		{
+			FaceTarget(GetPawn(), Point->GetActorForwardVector());
+			LookPitch = Point->GetActorRotation().Pitch;
+		}
 		PatrolWaitElapsed += DeltaSeconds;
 		if (PatrolWaitElapsed < Thug->PatrolWaitSeconds)
 		{
@@ -891,6 +956,7 @@ void AThugAIController::TickCalm(float DeltaSeconds)
 
 		bPatrolWaiting = false;
 		PatrolWaitElapsed = 0.f;
+		LookPitch = 0.f;
 		PatrolIndex = (PatrolIndex + 1) % Thug->PatrolPoints.Num();
 	}
 
@@ -1376,9 +1442,20 @@ bool AThugAIController::FindCoverPointEqs(FVector& OutPoint, const FVector* Avoi
 	{
 		return false;
 	}
+	const UNavigationSystemV1* Nav = UNavigationSystemV1::GetCurrent(World);
 	for (int32 Index = 0; Index < Result->Items.Num(); ++Index)
 	{
-		const FVector Point = Result->GetItemAsLocation(Index) + FVector(0.f, 0.f, 90.f);
+		FVector Point = Result->GetItemAsLocation(Index) + FVector(0.f, 0.f, 90.f);
+		// The donut is flat round him: over a gallery's rail its points hang in the air. Only floor counts.
+		FNavLocation OnNav;
+		if (Nav && Nav->GetDefaultNavDataInstance())
+		{
+			if (!Nav->ProjectPointToNavigation(Result->GetItemAsLocation(Index), OnNav, FVector(60.f, 60.f, 150.f)))
+			{
+				continue;
+			}
+			Point = OnNav.Location + FVector(0.f, 0.f, 90.f);
+		}
 		if ((Avoid && FVector::Dist2D(Point, *Avoid) < HawkeyeThugBrain::SameCoverDistance)
 			|| FMath::Abs(Point.Z - Thug->GetActorLocation().Z) > HawkeyeThugBrain::CoverMaxStep)
 		{
@@ -1419,6 +1496,11 @@ bool AThugAIController::FindCoverPointRing(const FVector& Threat, FVector& OutPo
 			if (Nav && Nav->ProjectPointToNavigation(Candidate, OnNav, FVector(100.f, 100.f, 250.f)))
 			{
 				Candidate = OnNav.Location + FVector(0.f, 0.f, 90.f);
+			}
+			else if (Nav && Nav->GetDefaultNavDataInstance())
+			{
+				// Nowhere to stand: over a gallery's rail, in the air above a hall.
+				continue;
 			}
 			if ((Avoid && FVector::Dist2D(Candidate, *Avoid) < HawkeyeThugBrain::SameCoverDistance)
 				|| FMath::Abs(Candidate.Z - Me->GetActorLocation().Z) > HawkeyeThugBrain::CoverMaxStep)

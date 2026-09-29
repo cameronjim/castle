@@ -8,6 +8,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "GameFramework/Pawn.h"
 #include "TimerManager.h"
 
 UTakedownComponent::UTakedownComponent()
@@ -144,8 +145,14 @@ bool UTakedownComponent::TryTakedown()
 
 	bIsPerformingTakedown = true;
 
+	const FVector BodyAt = Target->GetActorLocation();
 	ITakedownable::Execute_OnTakedown(Target, GetOwner());
 	OnTakedownPerformed.Broadcast(Target);
+	// The body drop: anyone near enough, with nothing solid in the way, comes to look.
+	if (APawn* Attacker = Cast<APawn>(GetOwner()); Attacker && TakedownNoiseLoudness > 0.f)
+	{
+		Attacker->MakeNoise(TakedownNoiseLoudness, Attacker, BodyAt);
+	}
 
 	UE_LOG(LogHawkeye, Verbose, TEXT("Takedown performed on %s."), *Target->GetName());
 
