@@ -11,13 +11,14 @@
     IA_SwitchCharacter              (Digital / bool, X / LB: swap between Kate and Clint)
     IA_PartnerMark                  (Digital / bool, T: send the partner to the point under the view)
     IA_Phone                        (Digital / bool, P: the phone)
+    IA_Map                          (Digital / bool, M: the world map)
     IA_SlotScroll                   (Axis1D, the mouse wheel and the D-pad left/right)
     IMC_Default                     with the UE first-person template's WASD + mouse setup, plus
                                      a full Xbox-layout gamepad mapping (PlayStation pads read the
                                      same physical buttons through Unreal's Gamepad_* keys)
 
 Idempotent: existing assets are left alone (the IMC's key mappings are only rebuilt when
-its mapping count doesn't match the table below).
+its (action, key) pairs don't match the table below).
 """
 
 import os
@@ -62,6 +63,7 @@ ACTIONS = [
     ("IA_SwitchCharacter", BOOL),
     ("IA_PartnerMark", BOOL),
     ("IA_Phone", BOOL),
+    ("IA_Map", BOOL),
 ]
 
 # (action name, FKey name, [modifier specs])
@@ -120,6 +122,9 @@ MAPPINGS = [
     # The phone. The pad has no spare button: AHawkeyePlayerController opens it on a 0.4 s hold of
     # D-pad down (a tap stays quiver slot 2), so there is no gamepad mapping here.
     ("IA_Phone", "P", []),
+    # The world map. On the pad it is a 0.4 s hold of D-pad up (View is the quiver and its wheel), read raw
+    # by AHawkeyePlayerController, so D-pad up has no mapping here either: a tap is slot 1 on release.
+    ("IA_Map", "M", []),
 
     # --- Gamepad (Xbox layout; a PlayStation pad reports the same Gamepad_* keys) --------------
     ("IA_Move", "Gamepad_Left2D", [STICK_MOVE_DEADZONE]),
@@ -144,12 +149,11 @@ MAPPINGS = [
     ("IA_Interact", "Gamepad_FaceButton_Top", []),              # Y
     ("IA_Inventory", "Gamepad_Special_Left", []),               # View
     ("IA_Pause", "Gamepad_Special_Right", []),                  # Menu
-    # D-pad left/right cycles arrow slots; up jumps straight to slot 1 (standard). Down is not
-    # mapped here: AHawkeyePlayerController reads it raw, a hold opens the phone and a tap selects
-    # slot 2 (grapple) on release, so starting the hold never also changes the arrow.
+    # D-pad left/right cycles arrow slots. Up and down are not mapped here: AHawkeyePlayerController
+    # reads them raw. A hold of up opens the map and a hold of down the phone; a tap selects slot 1
+    # (standard) or slot 2 (grapple) on release, so starting a hold never also changes the arrow.
     ("IA_SlotScroll", "Gamepad_DPad_Left", [NEGATE_X]),
     ("IA_SlotScroll", "Gamepad_DPad_Right", []),
-    ("IA_Slot1", "Gamepad_DPad_Up", []),
     # LB swaps Kate and Clint. The mark has no pad button yet: the D-pad belongs to the quiver.
     ("IA_SwitchCharacter", "Gamepad_LeftShoulder", []),
 ]
@@ -267,6 +271,19 @@ def read_mappings(imc):
         return None, []
 
 
+def _mapping_pairs(mappings):
+    """[(action name, key name)] for IMC mappings."""
+    pairs = []
+    for mapping in mappings:
+        try:
+            action = mapping.get_editor_property("action")
+            key = mapping.get_editor_property("key")
+            pairs.append((action.get_name() if action else "", str(key.get_editor_property("key_name"))))
+        except Exception as exc:  # noqa: BLE001
+            c.log_error("read IMC mapping", exc)
+    return pairs
+
+
 def write_mappings(imc, container, mappings):
     if container is not None:
         container.set_editor_property("mappings", mappings)
@@ -288,7 +305,9 @@ def create_mapping_context(actions):
 
     try:
         _container, existing = read_mappings(imc)
-        if not was_created and len(existing) == len(MAPPINGS):
+        # The same (action, key) pairs, not just the same count: moving a key from one action to
+        # another (D-pad up from IA_Slot1 to the controller's raw hold) keeps the count.
+        if not was_created and sorted(_mapping_pairs(existing)) == sorted((a, k) for a, k, _m in MAPPINGS):
             c.log("exists", full, "{0} mappings".format(len(existing)))
             return imc
 

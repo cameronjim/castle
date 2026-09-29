@@ -30,6 +30,7 @@ IA_NAMES = [
     "IA_Aim", "IA_Reload", "IA_Takedown", "IA_Interact", "IA_Pause", "IA_Skip",
     "IA_Slot1", "IA_Slot2", "IA_Slot3", "IA_Slot4", "IA_Slot5", "IA_Slot6", "IA_SlotScroll",
     "IA_Inventory", "IA_Grapple", "IA_Melee", "IA_SwitchCharacter", "IA_PartnerMark", "IA_Phone",
+    "IA_Map",
 ]
 
 CHARACTER_INPUT_PROPS = [
@@ -58,7 +59,6 @@ GAMEPAD_MAPPINGS = [
     ("IA_Pause", "Gamepad_Special_Right"),
     ("IA_SlotScroll", "Gamepad_DPad_Left"),
     ("IA_SlotScroll", "Gamepad_DPad_Right"),
-    ("IA_Slot1", "Gamepad_DPad_Up"),
     ("IA_SwitchCharacter", "Gamepad_LeftShoulder"),
 ]
 
@@ -66,7 +66,7 @@ GAMEPAD_MAPPINGS = [
 CONTROLLER_PROPS = [
     "flashback_widget_class", "hud_widget_class", "pause_widget_class",
     "settings_widget_class", "pause_action", "pause_mapping_context", "end_card_widget_class",
-    "inventory_widget_class", "phone_action",
+    "inventory_widget_class", "phone_action", "map_action",
 ]
 
 EXPECTED = (
