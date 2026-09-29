@@ -9,7 +9,9 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
- * Screenshot capture for the -game screenshot passes, one at a time and checked on disk.
+ * Screenshot capture for the -game screenshot passes, one at a time and checked on disk. A thin
+ * wrapper over HawkeyeCapture (World/HawkeyeCapture.h), the queue the game's playtest kit also uses,
+ * so a note taken during a test run can never steal a test's capture slot.
  *
  * FScreenshotRequest holds a single pending request: a second RequestScreenshot before the viewport
  * has drawn the first replaces its file name, and a viewport that does not draw (a minimised or
