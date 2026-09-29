@@ -4,6 +4,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowIKAnimInstance.h"
 #include "Combat/CombatAnimSet.h"
@@ -22,6 +23,7 @@
 #include "GameFramework/PlayerStart.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/WorldSettings.h"
+#include "HAL/FileManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/App.h"
 #include "Misc/AutomationTest.h"
@@ -30,6 +32,7 @@
 #include "Player/HawkeyeCharacter.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/PartnerScreenshots.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
 
@@ -50,11 +53,13 @@
  *   strike_pose.png   side on, a light at the moment it strikes (its hit window opening, or 0.1 s in without
  *                     a clip): her right hand out at chest height
  *   heavy_strike.png  side on, her heavy (held V) at the moment its hit window opens: an AM_Heavy_ clip (the
- *                     first heavy of a run is AM_Heavy_Roundhouse since 2026-09-29)
- *   heavy_strike_2.png the same, her next heavy: the next variant (AM_Heavy_SurpriseUppercut), never the same clip
+ *                     Roundhouse, her only heavy in the set since 2026-09-29)
+ *   heavy_strike_2.png the same, her next heavy, taken only while her set has a second heavy: the next
+ *                     variant, never the same clip
  *   kick.png          side on, the Kick role (AM_Kick_*) at the moment its hit window opens
  *   telegraph_glyph.png her own camera, a fists thug 130 cm in front of her 0.3 s into his 0.6 s wind-up: the
- *                     red-orange telegraph "!" over him, grown and pulsing, the parry line under it
+ *                     red-orange telegraph "!" just over his head (his head bone plus 20 cm), grown and
+ *                     pulsing, the parry line under it
  *   thug_punch_2.png  side on, his next fists swing (the second variant) 0.3 s into its wind-up
  *   thug_punch.png    side on, the one after (the first variant again) 0.3 s in: the two clips' wind-ups
  *   fight_camera.png  her own camera, two alerted fists thugs 3 to 4.5 m in front of her on the street: the
@@ -62,6 +67,12 @@
  *   fight_camera_wall.png the same with her back 150 cm from a building: the probe pulls the longer boom in,
  *                     and she must still be in frame and drawn (the report gives the arm, the lens and where
  *                     she and the thugs land on screen; she hidden or off screen fails the test)
+ *   target_ring.png   her own camera, 0.1 s into a light at a hurt bat thug 170 cm in front of her: the assist's
+ *                     purple ring at his feet, his health bar drawn whiter (the marker not on him fails it)
+ *   hit_spark.png     the same swing, time stopped in the tick the light lands: NS_MeleeSpark on his capsule
+ *                     toward her at chest height, under his hit flash (no spark within 2 s fails it)
+ *   knockdown_dust.png her own camera, 0.5 s (world time) after her heavy knocks a bat thug down: the thud's
+ *                     NS_LandingSnow puff off the ground under his pelvis (no knockdown or no puff fails it)
  *
  * The heavies and the kick fail the test when another montage plays (the second heavy: the first's clip
  * again), or when her pelvis at the capture is more than 15 cm below its height standing just before the press,
@@ -99,6 +110,11 @@ namespace HawkeyeMeleeShots
 		PunchSetup,
 		FightSetup,
 		FightWallSetup,
+		RingSetup,
+		RingSwing,
+		SparkResume,
+		KnockSetup,
+		KnockHeavy,
 		Crawl,
 		Uncrawl,
 		Cleanup,
@@ -339,6 +355,29 @@ namespace HawkeyeMeleeShots
 
 	static FString Vec(const FVector& V) { return V.ToCompactString(); }
 
+	/** Time as good as stopped: the spark's capture holds the frame the light landed. */
+	static constexpr float StoppedDilation = 0.0001f;
+	/** Set while hit_spark.png waits for the light to land; stops time in the tick the spark is asked for. */
+	static FDelegateHandle SparkHook;
+	static bool bSparkFrozen = false;
+	static FVector SparkAt = FVector::ZeroVector;
+
+	static void UnhookSpark(UWorld* World)
+	{
+		if (UHawkeyeVfxSubsystem* Vfx = World ? UHawkeyeVfxSubsystem::Find(World) : nullptr)
+		{
+			Vfx->OnRequested.Remove(SparkHook);
+		}
+		SparkHook.Reset();
+	}
+
+	/** Point's height on screen, px from the top (y down), or -1 off the view. */
+	static float ScreenY(APlayerController* PC, const FVector& Point)
+	{
+		FVector2D Screen;
+		return PC->ProjectWorldLocationToScreen(Point, Screen, false) ? Screen.Y : -1.f;
+	}
+
 	/** Her pelvis above her feet standing, cm, read just before the heavy or the kick is pressed. */
 	static float StandingPelvis = 0.f;
 	static constexpr float PelvisDropTolerance = 15.f;
@@ -346,6 +385,8 @@ namespace HawkeyeMeleeShots
 	static const TCHAR* HeavyMontagePrefix = TEXT("AM_Heavy_");
 	/** The clip heavy_strike.png caught; heavy_strike_2.png must catch another. */
 	static FString FirstHeavyMontage;
+	/** Her set has a second heavy (heavy_strike_2.png is taken only then). */
+	static bool bHaveSecondHeavy = true;
 	static const TCHAR* KickMontagePrefix = TEXT("AM_Kick_");
 
 	/** The pelvis bone above the bottom of the capsule, cm. */
@@ -532,6 +573,7 @@ bool FHawkeyeMeleeShot::Update()
 		break;
 
 	case EShot::HeavySetup:
+		bHaveSecondHeavy = Kate->GetCombatAnimSet() && Kate->GetCombatAnimSet()->GetVariantCount(ECombatAnimRole::Heavy) > 1;
 		// Far enough that the soft lock leaves him be: the clip's own root motion, no warp toward him.
 		if (!FaceOff(World, Kate, 450.f))
 		{
@@ -633,6 +675,69 @@ bool FHawkeyeMeleeShot::Update()
 		break;
 	}
 
+	case EShot::RingSetup:
+		// A hurt bat thug inside the assist's 350 cm: his bar shows, and the swing below is at him.
+		if (!FaceOff(World, Kate, 170.f) || !Foe.IsValid())
+		{
+			Test->AddWarning(TEXT("target_ring.png: could not stand a thug in front of her."));
+			break;
+		}
+		Foe->GetHealthComponent()->ApplyDamage(20.f, Kate);
+		OwnCamera(PC, Kate, 30.f);
+		break;
+
+	case EShot::RingSwing:
+	{
+		// Time stops in the tick her light lands: the hook runs inside the spark's own request.
+		UnhookSpark(World);
+		bSparkFrozen = false;
+		SparkAt = FVector::ZeroVector;
+		if (UHawkeyeVfxSubsystem* Vfx = UHawkeyeVfxSubsystem::Find(World))
+		{
+			TWeakObjectPtr<UWorld> WeakWorld(World);
+			SparkHook = Vfx->OnRequested.AddLambda([WeakWorld](FName Event, const FVector& At)
+			{
+				if (Event == UHawkeyeVfxSubsystem::MeleeSparkEvent && !bSparkFrozen && WeakWorld.IsValid())
+				{
+					bSparkFrozen = true;
+					SparkAt = At;
+					UGameplayStatics::SetGlobalTimeDilation(WeakWorld.Get(), StoppedDilation);
+				}
+			});
+		}
+		PC->SetControlRotation(FRotator(-10.f, Kate->GetActorRotation().Yaw + 30.f, 0.f));
+		if (!Kate->StartLightAttack())
+		{
+			Test->AddError(TEXT("target_ring.png: her light did not start."));
+		}
+		break;
+	}
+
+	case EShot::SparkResume:
+		// Back to full speed for the light to land, unless it already has (and stopped time).
+		if (!bSparkFrozen)
+		{
+			SetCrawl(World, false);
+		}
+		break;
+
+	case EShot::KnockSetup:
+		if (!FaceOff(World, Kate, 170.f) || !Foe.IsValid())
+		{
+			Test->AddWarning(TEXT("knockdown_dust.png: could not stand a thug in front of her."));
+			break;
+		}
+		OwnCamera(PC, Kate, 45.f);
+		break;
+
+	case EShot::KnockHeavy:
+		PC->SetControlRotation(FRotator(-10.f, Kate->GetActorRotation().Yaw + 45.f, 0.f));
+		if (!Kate->StartHeavyAttack())
+		{
+			Test->AddError(TEXT("knockdown_dust.png: her heavy did not start."));
+		}
+		break;
+
 	case EShot::Crawl:
 		SetCrawl(World, true);
 		break;
@@ -642,6 +747,7 @@ bool FHawkeyeMeleeShot::Update()
 		break;
 
 	case EShot::Cleanup:
+		UnhookSpark(World);
 		SetCrawl(World, false);
 		PC->SetViewTarget(Kate);
 		if (ACameraActor* Camera = ShotCamera.Get())
@@ -882,7 +988,7 @@ public:
 				*Label, *Name, Melee && Melee->IsHitWindowOpen() ? 1 : 0, Pelvis, StandingPelvis, Head.Z - Feet, HipsYaw,
 				*Limb(TEXT("hand_r")), *Limb(TEXT("hand_l")), *Limb(TEXT("foot_r")), *Limb(TEXT("foot_l"))));
 			const bool bRightClip = Name.StartsWith(bHeavy ? HeavyMontagePrefix : KickMontagePrefix)
-				&& !(bSecondHeavy && Name == FirstHeavyMontage);
+				&& !(bSecondHeavy && bHaveSecondHeavy && Name == FirstHeavyMontage);
 			if (!bRightClip)
 			{
 				Test->AddError(FString::Printf(TEXT("%s: plays %s, not %s."), *Label, *Name,
@@ -928,6 +1034,15 @@ public:
 			{
 				Test->AddError(FString::Printf(TEXT("%s: he is not winding up."), *Label));
 			}
+			if (Label == TEXT("telegraph_glyph.png") && Thug && His && His->GetBoneIndex(TEXT("head")) != INDEX_NONE)
+			{
+				// Screen px (y down) from the top of his head (the head bone plus 12 cm) up to where the glyphs sit.
+				const float HeadTop = ScreenY(PC, His->GetBoneLocation(TEXT("head")) + FVector(0.f, 0.f, 12.f));
+				Test->AddInfo(FString::Printf(TEXT("telegraph_glyph.png: the glyph's anchor is %.0f px over the top of his head ")
+					TEXT("(the capsule anchor it had, where his bar still sits, is %.0f px over it); bar showing %d."),
+					HeadTop - ScreenY(PC, Thug->GetGlyphLocation()), HeadTop - ScreenY(PC, Thug->GetOverheadLocation()),
+					Thug->GetHealthBarAlpha(FVector::Dist(Thug->GetActorLocation(), Kate->GetActorLocation())) > 0.f ? 1 : 0));
+			}
 			if (Label == TEXT("telegraph_glyph.png") && !bParry)
 			{
 				Test->AddError(TEXT("telegraph_glyph.png: a thug 130 cm in front in his wind-up should be parryable (the line under the glyph)."));
@@ -965,6 +1080,28 @@ public:
 			}
 			return true;
 		}
+		if (Label == TEXT("target_ring.png"))
+		{
+			const FHawkeyeTargetMarker& Marker = Kate->GetMeleeTargetMarker();
+			const float FromHer = Thug ? FVector::Dist(Thug->GetActorLocation(), Kate->GetActorLocation()) : 0.f;
+			const float BarAlpha = Thug ? Thug->GetHealthBarAlpha(FromHer) : 0.f;
+			const FVector Feet = Thug ? Thug->GetActorLocation() - FVector(0.f, 0.f, Thug->GetCapsuleComponent()->GetScaledCapsuleHalfHeight())
+				: FVector::ZeroVector;
+			Test->AddInfo(FString::Printf(TEXT("target_ring.png: marker on %s at %.2f; her swing %s winding up %d, landed %d; ")
+				TEXT("his bar %.2f at %.0f%% health, %.0f cm from her; his feet at %s on screen."),
+				*GetNameSafe(Marker.GetTarget()), Marker.GetAlpha(), *Kate->GetMeleeComponent()->GetCurrentAttack().Name.ToString(),
+				Kate->GetMeleeComponent()->IsWindingUp() ? 1 : 0, bSparkFrozen ? 1 : 0, BarAlpha,
+				Thug ? Thug->GetHealthComponent()->GetHealthPercent() * 100.f : 0.f, FromHer, Thug ? *ScreenOffset(PC, Feet) : TEXT("-")));
+			if (!Thug || Marker.GetTarget() != Thug || Marker.GetAlpha() < 0.99f)
+			{
+				Test->AddError(TEXT("target_ring.png: the marker is not full on the thug she swung at."));
+			}
+			if (BarAlpha <= 0.f)
+			{
+				Test->AddError(TEXT("target_ring.png: his health bar is not showing."));
+			}
+			return true;
+		}
 		if (Label == TEXT("strike_pose.png"))
 		{
 			const FVector Hand = Body ? Body->GetSocketLocation(TEXT("hand_r")) : FVector::ZeroVector;
@@ -990,10 +1127,137 @@ private:
 	double Start = -1.0;
 };
 
+/**
+ * Waits (up to Timeout) for the light to land: the spark hook stops time in that tick. Reports where the spark
+ * went against him and on screen, then leaves time stopped for the capture (crawling if it never came).
+ */
+class FHawkeyeMeleeWaitForSpark : public IAutomationLatentCommand
+{
+public:
+	FHawkeyeMeleeWaitForSpark(FAutomationTestBase* InTest, float InTimeout) : Test(InTest), Timeout(InTimeout) {}
+
+	virtual bool Update() override
+	{
+		using namespace HawkeyeMeleeShots;
+		UWorld* World = FindWorld();
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+		if (!World || !Kate)
+		{
+			return true;
+		}
+		const double Now = FPlatformTime::Seconds();
+		if (Start < 0.0)
+		{
+			Start = Now;
+		}
+		if (!bSparkFrozen && Now - Start < Timeout)
+		{
+			return false;
+		}
+		UnhookSpark(World);
+		if (!bSparkFrozen)
+		{
+			SetCrawl(World, true);
+			Test->AddError(FString::Printf(TEXT("hit_spark.png: no melee spark within %.1f s (the light missed)."), Timeout));
+			return true;
+		}
+		const AThugCharacter* Thug = Foe.Get();
+		const UHawkeyeVfxSubsystem* Vfx = UHawkeyeVfxSubsystem::Find(World);
+		const FVector Camera = PC->PlayerCameraManager ? PC->PlayerCameraManager->GetCameraLocation() : FVector::ZeroVector;
+		const float Feet = Thug ? Thug->GetActorLocation().Z - Thug->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
+		Test->AddInfo(FString::Printf(TEXT("hit_spark.png: the spark %.2f s after the press at %s, %.0f cm from his capsule's axis, ")
+			TEXT("%.0f cm over his feet, %.0f cm from the lens, %s on screen; %d melee sparks asked for, time dilation %.4f; ")
+			TEXT("his health %.0f."),
+			Now - Start, *Vec(SparkAt), Thug ? FVector::Dist2D(SparkAt, Thug->GetActorLocation()) : 0.f, SparkAt.Z - Feet,
+			FVector::Dist(SparkAt, Camera), *ScreenOffset(PC, SparkAt), Vfx ? Vfx->GetRequestCount(UHawkeyeVfxSubsystem::MeleeSparkEvent) : -1,
+			World->GetWorldSettings()->TimeDilation, Thug ? Thug->GetHealthComponent()->GetCurrentHealth() : -1.f));
+		return true;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float Timeout;
+	double Start = -1.0;
+};
+
+/**
+ * Waits for the foe to be knocked down, then Delay seconds of world time more, and slows the world to a crawl
+ * for the capture. Reports the thud and the dust; neither, or no knockdown within Timeout (real), fails it.
+ */
+class FHawkeyeMeleeWaitForKnockdown : public IAutomationLatentCommand
+{
+public:
+	FHawkeyeMeleeWaitForKnockdown(FAutomationTestBase* InTest, float InDelay, float InTimeout)
+		: Test(InTest), Delay(InDelay), Timeout(InTimeout) {}
+
+	virtual bool Update() override
+	{
+		using namespace HawkeyeMeleeShots;
+		UWorld* World = FindWorld();
+		APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+		const AThugCharacter* Thug = Foe.Get();
+		if (!World || !PC || !Thug)
+		{
+			Test->AddError(TEXT("knockdown_dust.png: no world or no foe."));
+			return true;
+		}
+		const double Now = FPlatformTime::Seconds();
+		if (Start < 0.0)
+		{
+			Start = Now;
+		}
+		if (KnockedAt < 0.0 && Thug->IsKnockedDown())
+		{
+			KnockedAt = World->GetTimeSeconds();
+		}
+		const bool bTimedOut = Now - Start >= Timeout;
+		if (!bTimedOut && (KnockedAt < 0.0 || World->GetTimeSeconds() - KnockedAt < Delay))
+		{
+			return false;
+		}
+		SetCrawl(World, true);
+		if (KnockedAt < 0.0)
+		{
+			Test->AddError(FString::Printf(TEXT("knockdown_dust.png: her heavy did not knock him down within %.1f s."), Timeout));
+			return true;
+		}
+		const UHawkeyeVfxSubsystem* Vfx = UHawkeyeVfxSubsystem::Find(World);
+		const int32 Dust = Vfx ? Vfx->GetRequestCount(UHawkeyeVfxSubsystem::KnockdownDustEvent) : 0;
+		const USkeletalMeshComponent* Body = Thug->GetMesh();
+		const FVector Pelvis = Body && Body->GetBoneIndex(TEXT("pelvis")) != INDEX_NONE ? Body->GetBoneLocation(TEXT("pelvis"))
+			: Thug->GetActorLocation();
+		const FVector Camera = PC->PlayerCameraManager ? PC->PlayerCameraManager->GetCameraLocation() : FVector::ZeroVector;
+		Test->AddInfo(FString::Printf(TEXT("knockdown_dust.png: %.2f s (world) after he went down; thuds %d, dust puffs asked for %d; ")
+			TEXT("his pelvis at %s, %.0f cm from the lens, %s on screen; his health %.0f."),
+			World->GetTimeSeconds() - KnockedAt, Thug->GetGroundThudCount(), Dust, *Vec(Pelvis), FVector::Dist(Pelvis, Camera),
+			*ScreenOffset(PC, Pelvis), Thug->GetHealthComponent()->GetCurrentHealth()));
+		if (Thug->GetGroundThudCount() < 1 || Dust < 1)
+		{
+			Test->AddError(TEXT("knockdown_dust.png: no thud or no dust 0.5 s after the knockdown."));
+		}
+		return true;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float Delay;
+	float Timeout;
+	double Start = -1.0;
+	double KnockedAt = -1.0;
+};
+
 DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeMeleeTakeShot, FAutomationTestBase*, Test, FString, FileName);
 
 bool FHawkeyeMeleeTakeShot::Update()
 {
+	if (FileName == TEXT("heavy_strike_2.png") && !HawkeyeMeleeShots::bHaveSecondHeavy)
+	{
+		// One heavy in her set: no second clip to show, and no old picture of one left lying about.
+		IFileManager::Get().Delete(*HawkeyeMeleeShots::ShotPath(FileName), false, false, true);
+		Test->AddInfo(TEXT("heavy_strike_2.png: not taken, her set has one heavy."));
+		return true;
+	}
 	HawkeyeShots::Request(Test, HawkeyeMeleeShots::ShotPath(FileName), /*bShowUI=*/true);
 	return true;
 }
@@ -1114,6 +1378,26 @@ void HawkeyeAddMeleeShots(FAutomationTestBase* Test)
 	Shot(EShot::FightWallSetup, 1.5f);
 	Wait(TEXT("fight_camera_wall.png"), 0.f);
 	Take(TEXT("fight_camera_wall.png"));
+
+	// A light at a hurt thug: the ring and the brighter bar 0.1 s in (before it lands, about 0.25 s in), then
+	// the frame it lands, time stopped by the spark's own request.
+	Shot(EShot::RingSetup, 1.5f);
+	Shot(EShot::RingSwing, 0.1f);
+	Shot(EShot::Crawl, 0.05f);
+	Wait(TEXT("target_ring.png"), 0.f);
+	Take(TEXT("target_ring.png"));
+	Shot(EShot::SparkResume, 0.f);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeWaitForSpark(Test, 2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.1f));
+	Take(TEXT("hit_spark.png"));
+	Shot(EShot::Uncrawl, 1.5f);
+
+	// Her heavy knocks one down; 0.5 s later the thud's puff is off the ground.
+	Shot(EShot::KnockSetup, 1.2f);
+	Shot(EShot::KnockHeavy, 0.f);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeWaitForKnockdown(Test, 0.5f, 4.f));
+	Take(TEXT("knockdown_dust.png"));
+	Shot(EShot::Uncrawl, 1.f);
 
 	Shot(EShot::Cleanup, 0.5f);
 }
