@@ -31,6 +31,7 @@
 #include "World/PickupActor.h"
 #include "World/ThugAIController.h"
 #include "Settings/DifficultySubsystem.h"
+#include "Vfx/HawkeyeVfxSubsystem.h"
 
 AThugCharacter::AThugCharacter()
 {
@@ -40,6 +41,10 @@ AThugCharacter::AThugCharacter()
 
 	// UTakedownComponent finds candidates by tag, so it has to be set before BeginPlay.
 	Tags.Add(FName(TEXT("Thug")));
+
+	// Reused, nothing new built: the roll's body thump and the landing's snow ring, smaller.
+	GroundThudSound = TSoftObjectPtr<USoundBase>(FSoftObjectPath(TEXT("/Game/Audio/SFX/MS_Roll_Thump.MS_Roll_Thump")));
+	GroundDustVfx = TSoftObjectPtr<UNiagaraSystem>(FSoftObjectPath(TEXT("/Game/VFX/NS_LandingSnow.NS_LandingSnow")));
 
 	HealthComponent = CreateDefaultSubobject<UHealthComponent>(TEXT("HealthComponent"));
 	HealthComponent->MaxHealth = 100.f;
@@ -238,6 +243,7 @@ void AThugCharacter::BeginPlay()
 void AThugCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	UpdateGroundThud(DeltaSeconds);
 
 	if (bCollapsing)
 	{
@@ -653,6 +659,7 @@ void AThugCharacter::KnockdownFor(AActor* By, float Seconds, float LaunchSpeed)
 	bKnockdownClip = Launch <= KnockdownLaunchSpeed && PlayKnockdownClip();
 	bKnockdownRagdoll = !bKnockdownClip && BeginKnockdownRagdoll(By, Launch);
 	AlertTo(By);
+	ScheduleGroundThud();
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s: knocked down by %s for %.1f s (%s), health %.1f."), *GetName(), *GetNameSafe(By),
 		KnockdownRemaining, bKnockdownClip ? TEXT("clip") : (bKnockdownRagdoll ? TEXT("ragdoll") : TEXT("no ragdoll")),
@@ -1066,8 +1073,49 @@ void AThugCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 		*GetName(), *GetNameSafe(Killer), static_cast<int32>(AlertState));
 	UHawkeyeAudioSubsystem::PlayAt(this, DeathSound, GetActorLocation(), TEXT("thug death"));
 
+	// Already on the floor from a knockdown: the body is down, no second thud.
+	if (!bKnockedDown || GroundThudRemaining > 0.f)
+	{
+		ScheduleGroundThud();
+	}
 	GoLimp(Killer);
 	DropLoot();
+}
+
+void AThugCharacter::ScheduleGroundThud()
+{
+	GroundThudRemaining = FMath::Max(GroundThudDelay, KINDA_SMALL_NUMBER);
+}
+
+void AThugCharacter::UpdateGroundThud(float DeltaSeconds)
+{
+	if (GroundThudRemaining <= 0.f)
+	{
+		return;
+	}
+	GroundThudRemaining -= FMath::Max(DeltaSeconds, 0.f);
+	if (GroundThudRemaining > 0.f)
+	{
+		return;
+	}
+	GroundThudRemaining = 0.f;
+	++GroundThudCount;
+	// Under his hips, wherever the ragdoll or the clip took them; on the ground a trace finds below.
+	const USkeletalMeshComponent* Body = GetMesh();
+	const bool bHasPelvis = Body && Body->GetBoneIndex(TEXT("pelvis")) != INDEX_NONE;
+	FVector At = bHasPelvis ? Body->GetBoneLocation(TEXT("pelvis")) : GetActorLocation();
+	if (UWorld* World = GetWorld())
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(ThugGroundThud), false, this);
+		FHitResult Hit;
+		if (World->LineTraceSingleByChannel(Hit, At + FVector(0.f, 0.f, 20.f), At - FVector(0.f, 0.f, 250.f), ECC_Visibility, Params))
+		{
+			At = Hit.ImpactPoint + FVector(0.f, 0.f, 3.f);
+		}
+	}
+	UHawkeyeAudioSubsystem::PlayAt(this, GroundThudSound, At, TEXT("thug ground thud"));
+	UHawkeyeVfxSubsystem::SpawnAt(this, GroundDustVfx, At, FRotator::ZeroRotator, UHawkeyeVfxSubsystem::KnockdownDustEvent,
+		GroundDustScale);
 }
 
 void AThugCharacter::RestoreAsDead()

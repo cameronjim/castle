@@ -19,6 +19,7 @@ class UBowComponent;
 class UEnvQuery;
 class UHealthComponent;
 class UPointLightComponent;
+class UNiagaraSystem;
 class USoundBase;
 class UStateTree;
 class UMaterialInstanceDynamic;
@@ -633,6 +634,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Audio")
 	TSoftObjectPtr<USoundBase> StaggerSound;
 
+	/** His body meeting the ground, knocked down or dead (MS_Roll_Thump), GroundThudDelay after he goes over. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Audio")
+	TSoftObjectPtr<USoundBase> GroundThudSound;
+
+	/** A small puff of snow off the ground there (NS_LandingSnow at GroundDustScale). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Readability")
+	TSoftObjectPtr<UNiagaraSystem> GroundDustVfx;
+
+	/** Seconds from going over to the body meeting the ground: the knockdown clip is on the floor by then. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Readability", meta = (ClampMin = "0.0"))
+	float GroundThudDelay = 0.45f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Thug|Readability", meta = (ClampMin = "0.0"))
+	float GroundDustScale = 0.6f;
+
+	/** Thuds (and puffs) played so far: tests. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
+	int32 GetGroundThudCount() const { return GroundThudCount; }
+
+	/** True while a thud is waiting for the body to land. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
+	bool IsGroundThudPending() const { return GroundThudRemaining > 0.f; }
+
 protected:
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
@@ -802,6 +826,16 @@ private:
 
 	TWeakObjectPtr<UAnimInstance> KnockdownInstance;
 	float HitFlashRemaining = 0.f;
+
+	/** Seconds until the body meets the ground after a knockdown or a death; 0 when none is waiting. */
+	float GroundThudRemaining = 0.f;
+	int32 GroundThudCount = 0;
+
+	/** Starts the countdown to the thud; a second fall restarts it. */
+	void ScheduleGroundThud();
+
+	/** Counts it down; at 0 plays GroundThudSound and GroundDustVfx under his pelvis. */
+	void UpdateGroundThud(float DeltaSeconds);
 
 	/** What the materials were last given, so the parameters are only written on a change. */
 	float LastFlashWritten = -1.f;

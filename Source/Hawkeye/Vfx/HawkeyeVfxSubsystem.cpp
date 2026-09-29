@@ -29,6 +29,8 @@ const FName UHawkeyeVfxSubsystem::TrickEffectEvent(TEXT("trick arrow effect"));
 const FName UHawkeyeVfxSubsystem::ArrowTrailEvent(TEXT("arrow trail"));
 const FName UHawkeyeVfxSubsystem::ArrowImpactEvent(TEXT("arrow impact"));
 const FName UHawkeyeVfxSubsystem::HitSparkEvent(TEXT("hit spark"));
+const FName UHawkeyeVfxSubsystem::MeleeSparkEvent(TEXT("melee spark"));
+const FName UHawkeyeVfxSubsystem::KnockdownDustEvent(TEXT("knockdown dust"));
 const FName UHawkeyeVfxSubsystem::ParryEvent(TEXT("parry ring"));
 const FName UHawkeyeVfxSubsystem::BowReleaseEvent(TEXT("bow release"));
 const FName UHawkeyeVfxSubsystem::ZipLineEvent(TEXT("zip line"));
