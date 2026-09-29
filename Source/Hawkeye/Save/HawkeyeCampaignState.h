@@ -123,6 +123,14 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Crimes")
 	TArray<int32> CrimeCompletions;
 
+	/** First-time hints that have shown or been learned (UHawkeyeHintSubsystem), by rule id. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Hints")
+	TArray<FName> HintIds;
+
+	/** Times each of HintIds has shown, in the same order; a learned hint holds its rule's MaxShows. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save|Hints")
+	TArray<int32> HintShowCounts;
+
 	/** Back to a fresh campaign. */
 	UFUNCTION(BlueprintCallable, Category = "Save")
 	void ResetCampaign();

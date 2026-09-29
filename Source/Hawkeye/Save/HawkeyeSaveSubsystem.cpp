@@ -673,6 +673,29 @@ TArray<FName> UHawkeyeSaveSubsystem::GetNoticedPlaces() const
 	return Campaign ? Campaign->NoticedPlaces : TArray<FName>();
 }
 
+int32 UHawkeyeSaveSubsystem::GetHintShowCount(FName HintId) const
+{
+	const int32 Index = Campaign ? Campaign->HintIds.IndexOfByKey(HintId) : INDEX_NONE;
+	return Index != INDEX_NONE && Campaign->HintShowCounts.IsValidIndex(Index) ? Campaign->HintShowCounts[Index] : 0;
+}
+
+void UHawkeyeSaveSubsystem::SetHintShowCount(FName HintId, int32 Count)
+{
+	if (!Campaign || HintId.IsNone())
+	{
+		return;
+	}
+	// The two arrays stay the same length: a save with a short count array (hand-edited, an old build) pads with 0.
+	Campaign->HintShowCounts.SetNumZeroed(Campaign->HintIds.Num());
+	int32 Index = Campaign->HintIds.IndexOfByKey(HintId);
+	if (Index == INDEX_NONE)
+	{
+		Index = Campaign->HintIds.Add(HintId);
+		Campaign->HintShowCounts.Add(0);
+	}
+	Campaign->HintShowCounts[Index] = FMath::Max(Count, 0);
+}
+
 // --- Main menu --------------------------------------------------------------------------------------
 
 bool UHawkeyeSaveSubsystem::ConsumeBootMenu()

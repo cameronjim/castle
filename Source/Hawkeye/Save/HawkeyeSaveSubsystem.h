@@ -129,6 +129,14 @@ public:
 	/** The ids NotePlace has recorded. */
 	TArray<FName> GetNoticedPlaces() const;
 
+	// --- First-time hints -------------------------------------------------------------------------
+
+	/** Times hint HintId has shown this campaign (its MaxShows once learned); 0 before any. */
+	int32 GetHintShowCount(FName HintId) const;
+
+	/** Records hint HintId's count; saved with the next save. */
+	void SetHintShowCount(FName HintId, int32 Count);
+
 	// --- Autosave ---------------------------------------------------------------------------------
 
 	/**

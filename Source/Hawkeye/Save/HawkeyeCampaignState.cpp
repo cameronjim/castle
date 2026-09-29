@@ -28,6 +28,8 @@ void UHawkeyeCampaignState::ResetCampaign()
 	ChallengeCompletions.Reset();
 	CrimeTypes.Reset();
 	CrimeCompletions.Reset();
+	HintIds.Reset();
+	HintShowCounts.Reset();
 }
 
 bool UHawkeyeCampaignState::CanMigrateFrom(int32 SavedVersion)
