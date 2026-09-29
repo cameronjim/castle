@@ -135,7 +135,11 @@ public:
 	float MarkerRingPadding = 12.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs", meta = (ClampMin = "0.5"))
-	float MarkerRingThickness = 1.5f;
+	float MarkerRingThickness = 2.5f;
+
+	/** The dark edge drawn under the ring, px each side, so the lavender reads on bright snow. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs", meta = (ClampMin = "0.0"))
+	float MarkerRingEdge = 1.f;
 
 	/** How much whiter the marked thug's bar is (0 none, 1 white). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs", meta = (ClampMin = "0.0", ClampMax = "1.0"))

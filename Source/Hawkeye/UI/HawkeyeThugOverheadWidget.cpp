@@ -223,8 +223,16 @@ int32 UHawkeyeThugOverheadWidget::NativePaint(const FPaintArgs& Args, const FGeo
 				Points.Add(FVector2f(Point));
 			}
 			FLinearColor Ring = MarkerColor;
-			Ring.A *= 0.85f * Entry.MarkerAlpha;
-			FSlateDrawElement::MakeLines(OutDrawElements, Layer, AllottedGeometry.ToPaintGeometry(), MoveTemp(Points),
+			Ring.A *= 0.9f * Entry.MarkerAlpha;
+			// A dark edge under it first: her lavender alone is lost on white snow.
+			if (MarkerRingEdge > 0.f)
+			{
+				TArray<FVector2f> Edge = Points;
+				FSlateDrawElement::MakeLines(OutDrawElements, Layer, AllottedGeometry.ToPaintGeometry(), MoveTemp(Edge),
+					ESlateDrawEffect::None, FLinearColor(0.f, 0.f, 0.f, 0.5f * Entry.MarkerAlpha), true,
+					MarkerRingThickness + 2.f * MarkerRingEdge);
+			}
+			FSlateDrawElement::MakeLines(OutDrawElements, Layer + 1, AllottedGeometry.ToPaintGeometry(), MoveTemp(Points),
 				ESlateDrawEffect::None, Ring, true, MarkerRingThickness);
 		}
 
