@@ -1420,7 +1420,6 @@ bool FHawkeyeLapRunner::Update()
 		SetThugsThinking(World, NAME_None, false);
 		IndexFireEscapes(World);
 		EnsureQuiver(Test, Kate->GetInventoryComponent());
-		Grapple->SetGrappleArrows(6);
 		Start = Ground;
 		StartYaw = PlayerStart->GetActorRotation().Yaw;
 		const FVector VaultCentre = VaultBlock->GetComponentsBoundingBox().GetCenter();

@@ -22,10 +22,8 @@ enum class EGrappleTargetState : uint8
 {
 	/** Nothing marked. */
 	None,
-	/** A press fires at the target: green diamond and the key hint. */
+	/** A press fires at the target: green diamond and the key hint. Grapple arrows are never short (no count). */
 	Ready,
-	/** The target is fine but the quiver has no grapple arrows: grey diamond, "no grapple arrows". */
-	NoArrows,
 	/** The last grapple arrow has not arrived yet: grey diamond, no hint. */
 	ArrowInFlight,
 	/** Mid-zip before the chain window: no marker. */
@@ -40,8 +38,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrapp
  *
  * Every RefreshSeconds it picks the best anchor: enabled, between MinRange and Range of the character, within
  * ConeDegrees of the camera forward, in line of sight of the camera; the smallest angle wins.
- * TryFire spends a grapple arrow from the quiver (the slot whose arrow has OnHitEffect Grapple)
- * and shoots it through the bow at that anchor, whatever quiver slot is active (Q, or a release
+ * TryFire shoots a grapple arrow (the quiver slot whose arrow has OnHitEffect Grapple; it has no count,
+ * so nothing is spent) through the bow at that anchor, whatever quiver slot is active (Q, or a release
  * with the grapple slot nocked); when it arrives the character
  * zips along a straight line to the anchor's landing point at ZipSpeed, in Flying mode with
  * gravity and movement input off (the camera still turns). From the ground the line starts at a
@@ -55,7 +53,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnGrappleCancelledSignature, AGrapp
  * the geometry round where she stood (her own roof and parapet; after a mid-air chain, also the
  * building the old line was landing on), stops and drops the character.
  * Jump or crouch mid-zip lets go (CancelZip). Arrows stay in the
- * anchor and go back in the quiver when the character is within RecoverRadius of it.
+ * anchor until the character is within RecoverRadius of it, and are tidied away then (there is no count to add them to).
  *
  * Anchors are bucketed into a GridCellSize grid the first time they are needed, so the query
  * only looks at the cells around the character however many anchors the district has.
@@ -73,9 +71,8 @@ public:
 	AGrappleAnchor* GetTargetAnchor() const { return TargetAnchor.Get(); }
 
 	/**
-	 * Fires a grapple arrow at the target anchor, from the quiver's grapple slot, out of the bow hand.
-	 * Refused (false, nothing spent) with no target, no grapple arrows, an arrow already in flight,
-	 * or mid-zip before ChainMinProgress.
+	 * Fires a grapple arrow at the target anchor out of the bow hand. Never refused for lack of arrows (they are
+	 * unlimited); refused (false) with no target, an arrow already in flight, or mid-zip before ChainMinProgress.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Grapple")
 	bool TryFire();
@@ -91,7 +88,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Grapple")
 	void CancelZip();
 
-	/** Ready, NoArrows, ArrowInFlight or TooEarlyToChain for the target; None without one. TryFire fires only when Ready. */
+	/** Ready, ArrowInFlight or TooEarlyToChain for the target; None without one. TryFire fires only when Ready. */
 	UFUNCTION(BlueprintPure, Category = "Grapple")
 	EGrappleTargetState GetTargetState() const;
 
@@ -129,7 +126,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Grapple")
 	void RebuildAnchorGrid();
 
-	/** Pulls back the arrows stuck in any anchor within RecoverRadius. Returns how many. */
+	/**
+	 * Tidies away the character's own arrows stuck in any anchor within RecoverRadius (grapple arrows have no
+	 * count, so nothing goes back in the quiver). Returns how many.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Grapple")
 	int32 RecoverNearbyArrows();
 
@@ -152,14 +152,6 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Grapple")
 	bool IsArrowInFlight() const { return InFlightArrow.IsValid(); }
-
-	/** Grapple arrows in the owner's quiver; 0 when it carries no grapple slot. */
-	UFUNCTION(BlueprintPure, Category = "Grapple")
-	int32 GetGrappleArrows() const;
-
-	/** Sets the quiver's grapple count (clamped to its Cap). Does nothing without a grapple slot. */
-	UFUNCTION(BlueprintCallable, Category = "Grapple")
-	void SetGrappleArrows(int32 Count);
 
 	/** Arrows fired this session. */
 	UFUNCTION(BlueprintPure, Category = "Grapple")
@@ -422,7 +414,7 @@ protected:
 
 	/**
 	 * A zip that ends without landing on Anchor (blocked on the way, or redirected by a chain) reels
-	 * its arrow back into the quiver; only letting go with jump or crouch leaves it in the anchor.
+	 * its arrow back out of the anchor; only letting go with jump or crouch leaves it there.
 	 */
 	void ReelBackArrow(AGrappleAnchor* Anchor, const TCHAR* Why);
 

@@ -133,15 +133,30 @@ bool FHawkeyeInventoryCountsAndCaps::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Forty offered, thirty fit"), Inventory->AddArrows(Standard, 40), 30);
 	TestEqual(TEXT("Standard at its cap"), Inventory->GetArrowCount(1), 30);
 	TestEqual(TEXT("A full slot takes nothing more"), Inventory->AddArrows(Standard, 1), 0);
-	TestEqual(TEXT("Grapple arrows go in their own slot"), Inventory->AddArrows(Grapple, 6), 6);
+	TestTrue(TEXT("The grapple has no count"), UInventoryComponent::IsUnlimitedArrow(Grapple));
+	TestFalse(TEXT("Standard arrows do"), UInventoryComponent::IsUnlimitedArrow(Standard));
+	TestEqual(TEXT("Grapple arrows fill their own slot but add no count"), Inventory->AddArrows(Grapple, 6), 0);
+	TestFalse(TEXT("The slot is filled"), Inventory->IsArrowSlotEmpty(2));
 	TestEqual(TEXT("Found by effect"), Inventory->FindArrowSlotByEffect(EArrowHitEffect::Grapple), 2);
 	TestEqual(TEXT("No putty slot"), Inventory->FindArrowSlotByEffect(EArrowHitEffect::Putty), INDEX_NONE);
 
-	TestTrue(TEXT("One grapple arrow spent"), Inventory->ConsumeArrow(2));
-	TestEqual(TEXT("Five left"), Inventory->GetArrowCount(2), 5);
+	const int32 Held = Inventory->GetArrowCount(2);
+	for (int32 Shot = 0; Shot < 50; ++Shot)
+	{
+		Inventory->ConsumeArrow(2);
+	}
+	TestTrue(TEXT("Fifty grapple shots all fire"), Inventory->ConsumeArrow(2));
+	TestEqual(TEXT("And spend nothing"), Inventory->GetArrowCount(2), Held);
 	Inventory->SetArrowCount(2, 0);
-	TestFalse(TEXT("None left, none spent"), Inventory->ConsumeArrow(2));
+	TestTrue(TEXT("It cannot be set to none"), Inventory->ConsumeArrow(2));
+	TestEqual(TEXT("A pickup adds nothing"), Inventory->AddArrows(Grapple, 4), 0);
+
+	Inventory->AddArrows(MakeArrow(Inventory, 3, 4, EArrowHitEffect::Putty, TEXT("Putty")), 1);
+	TestTrue(TEXT("A trick arrow is spent"), Inventory->ConsumeArrow(3));
+	TestEqual(TEXT("And counts down"), Inventory->GetArrowCount(3), 0);
+	TestFalse(TEXT("None left, none spent"), Inventory->ConsumeArrow(3));
 	TestFalse(TEXT("An empty slot spends nothing"), Inventory->ConsumeArrow(5));
+	TestEqual(TEXT("The refill puts no grapple arrows in: 4 putty only"), Inventory->RefillToCaps(), 4);
 	return true;
 }
 
@@ -197,7 +212,7 @@ bool FHawkeyeInventoryClearResetsToStartingQuiver::RunTest(const FString& Parame
 
 	TestTrue(TEXT("The bow comes back"), Inventory->GetBow() == Bow);
 	TestEqual(TEXT("Standard arrows back to the grant"), Inventory->GetArrowCount(1), 30);
-	TestEqual(TEXT("Grapple back to the grant"), Inventory->GetArrowCount(2), 6);
+	TestFalse(TEXT("Grapple still carried"), Inventory->IsArrowSlotEmpty(2));
 	TestTrue(TEXT("The smoke arrows found on the way are gone"), Inventory->IsArrowSlotEmpty(3));
 	TestEqual(TEXT("Slot 1 active again"), Inventory->GetActiveArrowSlot(), 1);
 	TestFalse(TEXT("And the keycards are gone"), Inventory->HasKeycard(FName(TEXT("red"))));
@@ -233,7 +248,7 @@ bool FHawkeyeInventoryMissionStartGrantsQuiver::RunTest(const FString& Parameter
 	TestTrue(TEXT("Standard arrows in slot 1"), Inventory->GetArrowSlot(1).Arrow == Standard);
 	TestEqual(TEXT("Thirty of them"), Inventory->GetArrowCount(1), 30);
 	TestTrue(TEXT("Grapple arrows in slot 2"), Inventory->GetArrowSlot(2).Arrow == Grapple);
-	TestEqual(TEXT("Six of them"), Inventory->GetArrowCount(2), 6);
+	TestTrue(TEXT("With no count: the grant's six is ignored"), Inventory->GetSlotCountText(2).ToString() == UInventoryComponent::UnlimitedGlyph);
 
 	UMissionDefinition* Bare = NewObject<UMissionDefinition>();
 	Inventory->ApplyMissionStart(Bare);
@@ -305,17 +320,51 @@ bool FHawkeyeInventoryHotbarWidgetReflectsState::RunTest(const FString& Paramete
 	TestEqual(TEXT("Slot 1 is the active box"), Hotbar->GetActiveSlot(), 1);
 	TestTrue(TEXT("And highlighted"), Hotbar->IsSlotActive(1));
 	TestEqual(TEXT("Standard arrows show a bare count"), Hotbar->GetSlotCountText(1).ToString(), FString(TEXT("30")));
-	TestEqual(TEXT("Grapple arrows show count and cap"), Hotbar->GetSlotCountText(2).ToString(), FString(TEXT("6/6")));
+	TestEqual(TEXT("Grapple arrows show an infinity, not count and cap"), Hotbar->GetSlotCountText(2).ToString(),
+		FString(UInventoryComponent::UnlimitedGlyph));
+	Inventory->AddArrows(MakeArrow(Inventory, 4, 4, EArrowHitEffect::Bola, TEXT("Bola")), 2);
+	TestEqual(TEXT("A trick arrow shows count and cap"), Hotbar->GetSlotCountText(4).ToString(), FString(TEXT("2/4")));
 	TestEqual(TEXT("Under their short name"), Hotbar->GetSlotNameText(2).ToString(), FString(TEXT("Grapple")));
 	TestEqual(TEXT("Labels are the number keys"), Hotbar->GetSlotKeyText(6).ToString(), FString(TEXT("6")));
 	TestTrue(TEXT("Slot 3 is empty"), Hotbar->IsSlotEmpty(3));
 	TestTrue(TEXT("An empty box shows no count"), Hotbar->GetSlotCountText(3).IsEmpty());
 	TestEqual(TEXT("Empty boxes are dimmed alike"), Hotbar->GetSlotColor(3), Hotbar->GetSlotColor(6));
 
-	Inventory->SelectArrowSlot(2);
+	Inventory->SelectArrowSlot(4);
+	Inventory->ConsumeArrow(4);
 	Inventory->ConsumeArrow(2);
-	TestTrue(TEXT("The widget follows the inventory"), Hotbar->IsSlotActive(2) && !Hotbar->IsSlotActive(1));
-	TestEqual(TEXT("And the count"), Hotbar->GetSlotCountText(2).ToString(), FString(TEXT("5/6")));
+	TestTrue(TEXT("The widget follows the inventory"), Hotbar->IsSlotActive(4) && !Hotbar->IsSlotActive(1));
+	TestEqual(TEXT("And the count"), Hotbar->GetSlotCountText(4).ToString(), FString(TEXT("1/4")));
+	TestEqual(TEXT("A grapple shot leaves the infinity"), Hotbar->GetSlotCountText(2).ToString(), FString(UInventoryComponent::UnlimitedGlyph));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeInventoryOldSaveGrappleCount, "Hawkeye.Inventory.SavedGrappleCountIsIgnored",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeInventoryOldSaveGrappleCount::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeInventoryTest;
+	// A save from before 2026-09-29 carries a grapple count (3 of 6 here, or 0 when she had run out); it still
+	// loads, the grapple comes back with no count, and the trick arrows keep theirs.
+	UInventoryComponent* Inventory = NewObject<UInventoryComponent>();
+	UArrowDefinition* Standard = MakeStandard(Inventory);
+	UArrowDefinition* Grapple = MakeGrapple(Inventory);
+	UArrowDefinition* Smoke = MakeArrow(Inventory, 5, 3, EArrowHitEffect::Smoke, TEXT("Smoke"));
+	for (const int32 SavedGrapple : {3, 0})
+	{
+		TArray<FHawkeyeQuiverSlot> Saved;
+		Saved.Add(Grant(Standard, 12));
+		Saved.Add(Grant(Grapple, SavedGrapple));
+		Saved.Add(Grant(Smoke, 1));
+		Inventory->RestoreQuiver(nullptr, Saved, 2);
+		TestEqual(TEXT("Standard count restored"), Inventory->GetArrowCount(1), 12);
+		TestTrue(TEXT("The grapple slot is back"), Inventory->GetArrowSlot(2).Arrow == Grapple);
+		TestEqual(TEXT("With no count"), Inventory->GetSlotCountText(2).ToString(), FString(UInventoryComponent::UnlimitedGlyph));
+		TestEqual(TEXT("Still nocked, even from a save that had run out"), Inventory->GetActiveArrowSlot(), 2);
+		TestTrue(TEXT("And it fires"), Inventory->ConsumeArrow(2));
+		TestEqual(TEXT("Smoke keeps its count"), Inventory->GetArrowCount(5), 1);
+	}
 	return true;
 }
 

@@ -109,23 +109,6 @@ int32 UGrappleComponent::FindGrappleSlot() const
 	return Inventory ? Inventory->FindArrowSlotByEffect(EArrowHitEffect::Grapple) : INDEX_NONE;
 }
 
-int32 UGrappleComponent::GetGrappleArrows() const
-{
-	const UInventoryComponent* Inventory = GetInventory();
-	const int32 Slot = FindGrappleSlot();
-	return (Inventory && Slot != INDEX_NONE) ? Inventory->GetArrowCount(Slot) : 0;
-}
-
-void UGrappleComponent::SetGrappleArrows(int32 Count)
-{
-	UInventoryComponent* Inventory = GetInventory();
-	const int32 Slot = FindGrappleSlot();
-	if (Inventory && Slot != INDEX_NONE)
-	{
-		Inventory->SetArrowCount(Slot, Count);
-	}
-}
-
 // --- Targeting ----------------------------------------------------------------------------------
 
 FIntPoint UGrappleComponent::CellOf(const FVector& Location) const
@@ -255,7 +238,8 @@ EGrappleTargetState UGrappleComponent::GetTargetState() const
 	{
 		return EGrappleTargetState::ArrowInFlight;
 	}
-	return GetGrappleArrows() > 0 ? EGrappleTargetState::Ready : EGrappleTargetState::NoArrows;
+	// Grapple arrows have no count (gameplay-semantics.md, "Grapple arrow"): nothing else can hold a press back.
+	return EGrappleTargetState::Ready;
 }
 
 AGrappleAnchor* UGrappleComponent::SelectBestAnchor(const FVector& ViewLocation, const FVector& ViewForward) const
@@ -389,31 +373,19 @@ bool UGrappleComponent::TryFire()
 	const EGrappleTargetState State = GetTargetState();
 	if (State != EGrappleTargetState::Ready)
 	{
-		if (State == EGrappleTargetState::NoArrows)
-		{
-			UE_LOG(LogHawkeye, Log, TEXT("%s: no grapple arrows left"), *GetNameSafe(GetOwner()));
-		}
-		else
-		{
-			UE_LOG(LogHawkeye, Log, TEXT("%s: grapple press refused: %s%s"), *GetNameSafe(GetOwner()),
-				*UEnum::GetValueAsString(State),
-				BlockedAnchor.IsValid() ? *FString::Printf(TEXT(" (%s is greyed: %s)"), *BlockedAnchor->GetName(), *BlockedReason)
-					: TEXT(""));
-		}
+		UE_LOG(LogHawkeye, Log, TEXT("%s: grapple press refused: %s%s"), *GetNameSafe(GetOwner()),
+			*UEnum::GetValueAsString(State),
+			BlockedAnchor.IsValid() ? *FString::Printf(TEXT(" (%s is greyed: %s)"), *BlockedAnchor->GetName(), *BlockedReason)
+				: TEXT(""));
 		return false;
 	}
 	AGrappleAnchor* Anchor = TargetAnchor.Get();
 
-	// Whatever slot is nocked, Q (and a release with the grapple slot active) spends from the
-	// grapple slot of the quiver.
-	UInventoryComponent* Inventory = GetInventory();
+	// Whatever slot is nocked, Q (and a release with the grapple slot active) shoots the quiver's grapple
+	// arrow type; it has no count, so nothing is spent (without a grapple slot the component's own ArrowClass flies).
+	const UInventoryComponent* Inventory = GetInventory();
 	const int32 Slot = FindGrappleSlot();
 	UArrowDefinition* Definition = (Inventory && Slot != INDEX_NONE) ? Inventory->GetArrowSlot(Slot).Arrow.Get() : nullptr;
-	if (!Definition || !Inventory->ConsumeArrow(Slot))
-	{
-		UE_LOG(LogHawkeye, Log, TEXT("%s: no grapple arrows left"), *GetNameSafe(GetOwner()));
-		return false;
-	}
 	++UseCount;
 
 	const AActor* Owner = GetOwner();
@@ -423,9 +395,8 @@ bool UGrappleComponent::TryFire()
 		UHawkeyeAudioSubsystem::PlayAt(this, FireSound, Owner->GetActorLocation(), TEXT("grapple fire"));
 	}
 
-	UE_LOG(LogHawkeye, Log, TEXT("%s: grapple arrow at %s, %.0f cm away, %d left"), *GetNameSafe(Owner),
-		*GetNameSafe(Anchor), Owner ? FVector::Dist(Owner->GetActorLocation(), Anchor->GetMarkerLocation()) : 0.f,
-		GetGrappleArrows());
+	UE_LOG(LogHawkeye, Log, TEXT("%s: grapple arrow at %s, %.0f cm away"), *GetNameSafe(Owner),
+		*GetNameSafe(Anchor), Owner ? FVector::Dist(Owner->GetActorLocation(), Anchor->GetMarkerLocation()) : 0.f);
 
 	if (!Arrow)
 	{
@@ -562,14 +533,9 @@ int32 UGrappleComponent::RecoverNearbyArrows()
 	}
 	if (Recovered > 0)
 	{
-		UInventoryComponent* Inventory = GetInventory();
-		const int32 Slot = FindGrappleSlot();
-		if (Inventory && Slot != INDEX_NONE)
-		{
-			Inventory->AddArrows(Inventory->GetArrowSlot(Slot).Arrow, Recovered);
-		}
-		UE_LOG(LogHawkeye, Log, TEXT("%s: recovered %d grapple arrow(s), %d now"), *GetNameSafe(Owner), Recovered,
-			GetGrappleArrows());
+		// No count to put them back into: they are only tidied out of the anchor.
+		UE_LOG(LogHawkeye, Verbose, TEXT("%s: tidied %d stuck grapple arrow(s) out of nearby anchors"), *GetNameSafe(Owner),
+			Recovered);
 	}
 	return Recovered;
 }
@@ -582,18 +548,11 @@ void UGrappleComponent::ReelBackArrow(AGrappleAnchor* Anchor, const TCHAR* Why)
 		return;
 	}
 	const int32 Reeled = Anchor->RecoverStuckArrows(Owner);
-	if (Reeled <= 0)
+	if (Reeled > 0)
 	{
-		return;
+		UE_LOG(LogHawkeye, Verbose, TEXT("%s: reeled %d grapple arrow(s) back out of %s (%s)"), *GetNameSafe(Owner), Reeled,
+			*GetNameSafe(Anchor), Why);
 	}
-	UInventoryComponent* Inventory = GetInventory();
-	const int32 Slot = FindGrappleSlot();
-	if (Inventory && Slot != INDEX_NONE)
-	{
-		Inventory->AddArrows(Inventory->GetArrowSlot(Slot).Arrow, Reeled);
-	}
-	UE_LOG(LogHawkeye, Log, TEXT("%s: reeled %d grapple arrow(s) back from %s (%s), %d now"), *GetNameSafe(Owner), Reeled,
-		*GetNameSafe(Anchor), Why, GetGrappleArrows());
 }
 
 // --- Zip ----------------------------------------------------------------------------------------

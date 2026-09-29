@@ -531,9 +531,6 @@ FHawkeyeGrappleMarkerLook UHawkeyeHudWidget::GetGrappleMarkerLook(EGrappleTarget
 	case EGrappleTargetState::Ready:
 		Look.bVisible = Look.bReady = Look.bHint = true;
 		break;
-	case EGrappleTargetState::NoArrows:
-		Look.bVisible = Look.bHint = Look.bNoArrowsHint = true;
-		break;
 	case EGrappleTargetState::ArrowInFlight:
 		Look.bVisible = true;
 		break;
@@ -568,8 +565,7 @@ void UHawkeyeHudWidget::UpdateGrappleMarker()
 	FVector2D BlockedPosition = FVector2D::ZeroVector;
 	bGrappleBlockedVisible = Blocked && Grapple->CanChain()
 		&& UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Blocked->GetMarkerLocation(), BlockedPosition, false);
-	GrappleHintShown = !bGrappleMarkerVisible || !GrappleLook.bHint ? FText::GetEmpty()
-		: (GrappleLook.bNoArrowsHint ? GrappleNoArrowsText : ApplyGamepadHint(GrappleHintText));
+	GrappleHintShown = !bGrappleMarkerVisible || !GrappleLook.bHint ? FText::GetEmpty() : ApplyGamepadHint(GrappleHintText);
 
 	if (!GrappleCanvas || !GrappleMarker || !GrappleHint)
 	{
@@ -624,8 +620,8 @@ void UHawkeyeHudWidget::UpdateGrappleMarker()
 	GrappleHint->SetText(GrappleHintShown);
 	if (UGrappleComponent::IsDebugEnabled())
 	{
-		GrappleHint->SetText(FText::FromString(FString::Printf(TEXT("%s  [%s, %d arrows]"), *GrappleHintShown.ToString(),
-			*UEnum::GetDisplayValueAsText(State).ToString(), Grapple->GetGrappleArrows())));
+		GrappleHint->SetText(FText::FromString(FString::Printf(TEXT("%s  [%s]"), *GrappleHintShown.ToString(),
+			*UEnum::GetDisplayValueAsText(State).ToString())));
 		GrappleHint->SetVisibility(ESlateVisibility::HitTestInvisible);
 	}
 }
@@ -724,10 +720,6 @@ void UHawkeyeHudWidget::NativeConstruct()
 	if (GrappleHintText.IsEmpty())
 	{
 		GrappleHintText = NSLOCTEXT("Hawkeye", "GrappleHint", "Q");
-	}
-	if (GrappleNoArrowsText.IsEmpty())
-	{
-		GrappleNoArrowsText = NSLOCTEXT("Hawkeye", "GrappleNoArrows", "No grapple arrows");
 	}
 
 	BindToGame();

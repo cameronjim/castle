@@ -16,9 +16,8 @@ struct FHawkeyeGrappleMarkerLook
 	bool bVisible = false;
 	/** Green (a press fires) rather than dim grey. */
 	bool bReady = false;
-	/** A line under the diamond: the key when ready, "No grapple arrows" when the quiver is out. */
+	/** The key under the diamond, whenever a press fires (grapple arrows have no count, so never "none left"). */
 	bool bHint = false;
-	bool bNoArrowsHint = false;
 };
 
 class UBorder;
@@ -185,7 +184,7 @@ public:
 
 	/**
 	 * True while the pawn's grapple has a target on screen: green with the key hint when a press
-	 * fires, dim grey when it would not (no grapple arrows, or one still in flight). Hidden during a
+	 * fires, dim grey when it would not (one still in flight). Hidden during a
 	 * zip until the chain window opens, so the next anchor can be picked on the way in.
 	 */
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
@@ -199,7 +198,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
 	bool IsGrappleBlockedMarkerVisible() const { return bGrappleBlockedVisible; }
 
-	/** The line under the marker now: the key, "No grapple arrows", or empty. */
+	/** The line under the marker now: the key, or empty. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
 	FText GetGrappleHintShown() const { return GrappleHintShown; }
 
@@ -210,7 +209,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
 	FVector2D GetGrappleMarkerPosition() const { return GrappleMarkerPosition; }
 
-	/** The line under the marker: always the key while a press fires, "No grapple arrows" when out. */
+	/** The line under the marker: always the key while a press fires. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Grapple")
 	bool IsGrappleHintVisible() const;
 
@@ -525,9 +524,6 @@ protected:
 	/** A grapple diamond a press would not fire at. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")
 	FLinearColor GrappleUnavailableColor = FLinearColor(0.45f, 0.45f, 0.45f, 0.7f);
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")
-	FText GrappleNoArrowsText;
 
 	/** The green of the old first-person crosshair: nothing else on screen is that colour. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Grapple")

@@ -16,8 +16,8 @@
 /**
  * The grapple arrow rules from claude-docs/gameplay-semantics.md (PLANNED: traversal): anchors
  * within 2500 cm and 30 degrees of the camera forward, in sight; a straight zip at 1800 cm/s to
- * the landing point; chaining from 40% of the line, redirected in the air; one arrow per shot, recoverable at the
- * anchor; a blocked zip drops the character.
+ * the landing point; chaining from 40% of the line, redirected in the air; grapple arrows have no count (never
+ * spent, never refused for want of one); a blocked zip drops the character.
  */
 namespace HawkeyeGrappleTest
 {
@@ -32,7 +32,7 @@ namespace HawkeyeGrappleTest
 		return Arrow;
 	}
 
-	/** Kate with GrappleArrows grapple arrows in her quiver (cap 99, so the counts are easy to read). */
+	/** Kate with the grapple arrow in her quiver (GrappleArrows is ignored: the type has no count). */
 	static AHawkeyeAimTestCharacter* SpawnKate(const FHawkeyeTestWorld& TestWorld, const FVector& Location,
 		int32 GrappleArrows = 99)
 	{
@@ -280,7 +280,6 @@ bool FHawkeyeGrappleChain::RunTest(const FString& Parameters)
 	AimAtSecond();
 	TestTrue(TEXT("The next anchor is targeted mid-zip"), Grapple->GetTargetAnchor() == Second);
 	TestFalse(TEXT("At 35% a second arrow is refused"), Grapple->TryFire());
-	TestEqual(TEXT("And costs nothing"), Grapple->GetGrappleArrows(), 99);
 	TestTrue(TEXT("Still zipping to the first anchor"), Grapple->GetZipAnchor() == First);
 
 	Grapple->AdvanceZip(0.15f * Length / Grapple->ZipSpeed);
@@ -288,7 +287,6 @@ bool FHawkeyeGrappleChain::RunTest(const FString& Parameters)
 	const FVector OldDirection = Grapple->GetZipDirection();
 	const FVector AtPress = Kate->GetActorLocation();
 	TestTrue(TEXT("At 50% the chain fires"), Grapple->TryFire());
-	TestEqual(TEXT("One arrow spent"), Grapple->GetGrappleArrows(), 98);
 	TestFalse(TEXT("The chain arrow is already there"), Grapple->IsArrowInFlight());
 	TestEqual(TEXT("It stays in the new anchor"), Second->GetStuckArrowCount(), 1);
 	TestTrue(TEXT("The zip target changed before landing"), Grapple->IsZipping() && Grapple->GetZipAnchor() == Second);
@@ -322,7 +320,7 @@ bool FHawkeyeGrappleChain::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleArrowCount, "Hawkeye.Grapple.ArrowCountAndRecovery",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleArrowCount, "Hawkeye.Grapple.ArrowsAreUnlimited",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FHawkeyeGrappleArrowCount::RunTest(const FString& Parameters)
@@ -341,13 +339,13 @@ bool FHawkeyeGrappleArrowCount::RunTest(const FString& Parameters)
 	const FVector Forward = FVector::ForwardVector;
 
 	TestFalse(TEXT("No target, no shot"), Grapple->TryFire());
-	TestEqual(TEXT("A refused shot costs nothing"), Grapple->GetGrappleArrows(), 99);
 
-	Grapple->SetGrappleArrows(1);
+	UInventoryComponent* Inventory = Kate->GetInventoryComponent();
+	Inventory->SetArrowCount(2, 0);
 	Grapple->UpdateTarget(Kate->GetActorLocation() + FVector(0.f, 0.f, 20.f), Forward);
 	TestTrue(TEXT("The near anchor is the target"), Grapple->GetTargetAnchor() == Anchor);
-	TestTrue(TEXT("The last arrow fires"), Grapple->TryFire());
-	TestEqual(TEXT("It is spent"), Grapple->GetGrappleArrows(), 0);
+	TestEqual(TEXT("Ready even after the count was set to none"), Grapple->GetTargetState(), EGrappleTargetState::Ready);
+	TestTrue(TEXT("It fires"), Grapple->TryFire());
 	TestEqual(TEXT("The hint counts the use"), Grapple->GetUseCount(), 1);
 	TestFalse(TEXT("A second press while it flies is refused"), Grapple->TryFire());
 
@@ -360,22 +358,22 @@ bool FHawkeyeGrappleArrowCount::RunTest(const FString& Parameters)
 	RunZip(Grapple, 0.05f, 5.f);
 	TestFalse(TEXT("Landed"), Grapple->IsZipping());
 
-	Grapple->UpdateTarget(Kate->GetActorLocation(), Forward);
-	TestTrue(TEXT("The next anchor along is targeted"), Grapple->GetTargetAnchor() == Beyond);
-	TestFalse(TEXT("With no arrows left the shot is refused"), Grapple->TryFire());
-	TestEqual(TEXT("Still none"), Grapple->GetGrappleArrows(), 0);
-	TestNull(TEXT("And nothing was fired"), FindArrowInFlight(TestWorld.Get()));
-
-	TestEqual(TEXT("Standing by the anchor pulls the arrow back"), Grapple->RecoverNearbyArrows(), 1);
-	TestEqual(TEXT("Back in the quiver"), Grapple->GetGrappleArrows(), 1);
+	// Standing by the anchor tidies the stuck arrow away; there is no count for it to go back into.
+	TestEqual(TEXT("Standing by the anchor tidies the arrow away"), Grapple->RecoverNearbyArrows(), 1);
 	TestEqual(TEXT("Gone from the anchor"), Anchor->GetStuckArrowCount(), 0);
 	TestTrue(TEXT("The stuck projectile is removed"), !IsValid(Arrow) || Arrow->IsActorBeingDestroyed());
-	TestEqual(TEXT("Nothing more to recover"), Grapple->RecoverNearbyArrows(), 0);
-	TestTrue(TEXT("And the recovered arrow can be fired"), Grapple->TryFire());
+	TestEqual(TEXT("Nothing more to tidy"), Grapple->RecoverNearbyArrows(), 0);
+
+	Grapple->UpdateTarget(Kate->GetActorLocation(), Forward);
+	TestTrue(TEXT("The next anchor along is targeted"), Grapple->GetTargetAnchor() == Beyond);
+	TestTrue(TEXT("And fires with no arrow picked up"), Grapple->TryFire());
+	TestNotNull(TEXT("A projectile is on its way"), FindArrowInFlight(TestWorld.Get()));
+	TestEqual(TEXT("The quiver still shows the infinity"), Inventory->GetSlotCountText(2).ToString(),
+		FString(UInventoryComponent::UnlimitedGlyph));
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleQSpendsFromQuiver, "Hawkeye.Grapple.QSpendsFromQuiver",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleQSpendsFromQuiver, "Hawkeye.Grapple.QFiresTheQuiversGrappleArrow",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FHawkeyeGrappleQSpendsFromQuiver::RunTest(const FString& Parameters)
@@ -391,14 +389,12 @@ bool FHawkeyeGrappleQSpendsFromQuiver::RunTest(const FString& Parameters)
 		return false;
 	}
 	UGrappleComponent* Grapple = Kate->GetGrappleComponent();
-	Inventory->SetArrowCount(2, 6);
 	Inventory->SetArrowCount(1, 30);
 	TestEqual(TEXT("Standard arrows are nocked"), Inventory->GetActiveArrowSlot(), 1);
 
 	Grapple->UpdateTarget(Kate->GetActorLocation() + FVector(0.f, 0.f, 20.f), FVector::ForwardVector);
 	TestTrue(TEXT("Q fires at the marked anchor whatever is nocked"), Grapple->TryFire());
-	TestEqual(TEXT("One grapple arrow spent from slot 2"), Inventory->GetArrowCount(2), 5);
-	TestEqual(TEXT("The grapple reads the same count"), Grapple->GetGrappleArrows(), 5);
+	TestEqual(TEXT("Slot 2 has no count to spend"), Inventory->GetSlotCountText(2).ToString(), FString(UInventoryComponent::UnlimitedGlyph));
 	TestEqual(TEXT("Standard arrows untouched"), Inventory->GetArrowCount(1), 30);
 	TestEqual(TEXT("And still nocked"), Inventory->GetActiveArrowSlot(), 1);
 	AGrappleArrowProjectile* Arrow = FindArrowInFlight(TestWorld.Get());

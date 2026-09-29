@@ -420,14 +420,14 @@ bool FHawkeyePartnerClintQuiver::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Clint's bow"), Inventory->GetBow(), ClintBow);
 	TestEqual(TEXT("with the 1.0 s draw"), Inventory->GetBow()->FullDrawSeconds, 1.f);
 	TestEqual(TEXT("30 standard"), Inventory->GetArrowCount(1), 30);
-	TestEqual(TEXT("4 grapple"), Inventory->GetArrowCount(2), 4);
+	TestTrue(TEXT("and his grapple (no count)"), Inventory->GetArrowSlot(2).Arrow == Grapple);
 
 	UMissionDefinition* Chapter = NewObject<UMissionDefinition>();
 	Chapter->StartingBow = KateBow;
 	Chapter->StartingArrows = { Grant(Standard, 30), Grant(Grapple, 6) };
 	Inventory->ApplyMissionStart(Chapter);
 	TestEqual(TEXT("The chapter's grant is Kate's: he keeps his bow"), Inventory->GetBow(), ClintBow);
-	TestEqual(TEXT("and his 4 grapple arrows"), Inventory->GetArrowCount(2), 4);
+	TestTrue(TEXT("and his grapple"), Inventory->GetArrowSlot(2).Arrow == Grapple);
 
 	Inventory->SetArrowCount(1, 3);
 	Inventory->Clear();

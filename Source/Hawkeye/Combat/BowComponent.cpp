@@ -437,7 +437,7 @@ bool UBowComponent::FireGrapple(UArrowDefinition* Arrow)
 	}
 	else
 	{
-		UE_LOG(LogHawkeye, Log, TEXT("%s: grapple arrow released with no marked anchor (or none left); nothing spent."),
+		UE_LOG(LogHawkeye, Log, TEXT("%s: grapple arrow released with no anchor a press would fire at; nothing fired."),
 			*GetNameSafe(GetOwner()));
 	}
 	return bFired;

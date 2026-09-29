@@ -49,7 +49,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Quiver Wheel")
 	FText GetSegmentNameText(int32 QuiverSlot) const;
 
-	/** "30" for standard arrows, "count/cap" for trick arrows, empty for an empty slot. */
+	/** "30" for standard arrows, "count/cap" for trick arrows, the infinity for the grapple, empty for an empty slot. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Quiver Wheel")
 	FText GetSegmentCountText(int32 QuiverSlot) const;
 

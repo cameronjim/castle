@@ -22,7 +22,10 @@ struct HAWKEYE_API FHawkeyeQuiverSlot
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
 	TObjectPtr<UArrowDefinition> Arrow = nullptr;
 
-	/** Arrows left, 0..Arrow->Cap. */
+	/**
+	 * Arrows left, 0..Arrow->Cap. An unlimited type (the grapple, UInventoryComponent::IsUnlimitedArrow) has no
+	 * count: it is held at its cap while the slot is filled so every "any left?" check passes, and never spent.
+	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory")
 	int32 Count = 0;
 
@@ -39,7 +42,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnActiveArrowSlotChangedSignature,
  * What Kate carries: a bow (or none), a seven-slot quiver, and a keycard ring.
  *
  * Rules (claude-docs/gameplay-semantics.md, "bow and arrows"): standard arrows are always in
- * slot 1, present even at zero; counts never exceed an arrow's Cap; number keys pick a slot and
+ * slot 1, present even at zero; counts never exceed an arrow's Cap; the grapple arrow has no count
+ * at all (IsUnlimitedArrow: never spent, never added to, shown as an infinity); number keys pick a slot and
  * the wheel steps through the filled ones, skipping empty slots. Without a bow, left click is
  * Hands, the melee fallback on the owner's UWeaponComponent. Clear() goes back to what the mission
  * granted (StartingBow and StartingArrows); nothing carries between missions.
@@ -105,12 +109,16 @@ public:
 
 	/**
 	 * Adds Count arrows of Definition to its slot, filling the slot if it was empty (and replacing
-	 * a different type that was there). Clamped to the arrow's Cap. Returns how many went in.
+	 * a different type that was there). Clamped to the arrow's Cap. Returns how many went in. For an
+	 * unlimited type it only fills the slot and always returns 0 (a grapple pickup is a no-op).
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
 	int32 AddArrows(UArrowDefinition* Definition, int32 Count);
 
-	/** Takes one arrow from Slot. False (and nothing changes) when the slot is empty or at zero. */
+	/**
+	 * Takes one arrow from Slot. False (and nothing changes) when the slot is empty or at zero. An unlimited
+	 * slot always gives one and keeps its count.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
 	bool ConsumeArrow(int32 Slot);
 
@@ -157,6 +165,21 @@ public:
 	/** A trick arrow: one that does something on landing beyond damage, other than the grapple. */
 	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
 	static bool IsTrickArrow(const UArrowDefinition* Arrow);
+
+	/**
+	 * An arrow type with no count (revised 2026-09-29, "grapples should be infinite"): the grapple, whose
+	 * arrow is traversal rather than ammunition. Its slot shows an infinity, it is never spent, pickups
+	 * and refills add none, Story's extra cap does not apply and the save's count for it is ignored.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	static bool IsUnlimitedArrow(const UArrowDefinition* Arrow);
+
+	/** The count text for Slot: "30" for slot 1, "count/cap" for a trick arrow, the infinity glyph for an unlimited one, empty for an empty slot. */
+	UFUNCTION(BlueprintPure, Category = "Inventory|Quiver")
+	FText GetSlotCountText(int32 Slot) const;
+
+	/** The infinity glyph an unlimited slot shows in place of a count. */
+	static const TCHAR* UnlimitedGlyph;
 
 	/** Sets the difficulty's extra trick arrows; counts over the new caps come down to them. */
 	UFUNCTION(BlueprintCallable, Category = "Inventory|Quiver")
@@ -262,6 +285,9 @@ protected:
 
 	/** Slot 1..7 to an array index, or INDEX_NONE. */
 	static int32 SlotToIndex(int32 Slot);
+
+	/** Count clamped to Arrow's cap; an unlimited type is held at its cap (at least 1) whatever Count says. */
+	int32 ClampCount(const UArrowDefinition* Arrow, int32 Count) const;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Inventory|Bow")
 	TObjectPtr<UBowDefinition> Bow = nullptr;

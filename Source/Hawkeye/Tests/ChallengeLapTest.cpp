@@ -980,7 +980,6 @@ bool FHawkeyeTraversalChallengeRunner::Update()
 			return true;
 		}
 		EnsureQuiver(Test, Kate->GetInventoryComponent());
-		Kate->GetGrappleComponent()->SetGrappleArrows(6);
 		SurveyZips(World, Kate);
 		StandAt(PC, Kate, Start.Get());
 		Phase = 1;

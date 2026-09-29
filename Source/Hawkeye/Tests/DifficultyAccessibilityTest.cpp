@@ -365,6 +365,8 @@ bool FHawkeyeDifficultyKate::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Story's bonus reached the quiver"), Inventory->GetTrickArrowCapBonus(), 2);
 	TestEqual(TEXT("Bola cap 6 on Story"), Inventory->GetCap(Bola), 6);
 	TestEqual(TEXT("Grapple cap unchanged"), Inventory->GetCap(Grapple), 6);
+	TestTrue(TEXT("And the grapple has no count for a cap to matter to"), UInventoryComponent::IsUnlimitedArrow(Grapple));
+	TestFalse(TEXT("Bola does"), UInventoryComponent::IsUnlimitedArrow(Bola));
 	TestEqual(TEXT("Six bola fit"), Inventory->AddArrows(Bola, 10), 6);
 	Kate->ApplySettings(On(EHawkeyeDifficulty::Normal));
 	TestEqual(TEXT("Back on Normal the cap is 4"), Inventory->GetCap(Bola), 4);
@@ -447,10 +449,10 @@ bool FHawkeyeAccessibilityPalettes::RunTest(const FString& Parameters)
 		const FHawkeyePalette P = UHawkeyeAccessibility::GetPalette(Palette);
 		const FString Name = UHawkeyeAccessibility::GetPaletteName(Palette).ToString();
 		TestTrue(FString::Printf(TEXT("%s moves the green"), *Name), Distance(P.Green, Default.Green) > 0.3f);
-		const FLinearColor Colours[] = { P.Green, P.Purple, P.Cream, P.HealthBar };
-		for (int32 A = 0; A < 4; ++A)
+		const FLinearColor Colours[] = { P.Green, P.Purple, P.Cream, P.HealthBar, P.Danger };
+		for (int32 A = 0; A < 5; ++A)
 		{
-			for (int32 B = A + 1; B < 4; ++B)
+			for (int32 B = A + 1; B < 5; ++B)
 			{
 				TestTrue(FString::Printf(TEXT("%s: accents %d and %d stay apart"), *Name, A, B), Distance(Colours[A], Colours[B]) > 0.3f);
 			}
@@ -482,6 +484,13 @@ bool FHawkeyeAccessibilityPalettes::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Alert glyphs have a 1 px outline"), Overhead->GetGlyphFont().OutlineSettings.OutlineSize, 1);
 	Overhead->SetAccentColors(Deut.Cream, Deut.HealthBar, false);
 	TestTrue(TEXT("The health bar takes the palette's colour"), Overhead->BarColor.Equals(Deut.HealthBar, 0.001f));
+	const FLinearColor Telegraph = Overhead->TelegraphColor;
+	TestTrue(TEXT("The telegraph glyph is red-orange by design"), Telegraph.Equals(Default.Danger, 0.001f));
+	Overhead->SetThreatColors(Deut.Danger, Deut.Purple, false);
+	TestTrue(TEXT("The telegraph glyph takes the palette's danger colour"), Overhead->TelegraphColor.Equals(Deut.Danger, 0.001f));
+	TestTrue(TEXT("The target ring takes its purple"), Overhead->MarkerColor.Equals(Deut.Purple, 0.001f));
+	Overhead->SetThreatColors(Deut.Danger, Deut.Purple, true);
+	TestTrue(TEXT("And gives the design's back"), Overhead->TelegraphColor.Equals(Telegraph, 0.001f));
 	return true;
 }
 

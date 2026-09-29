@@ -98,16 +98,33 @@ bool FHawkeyePickupArrowsFillTheQuiver::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	UArrowDefinition* Grapple = NewObject<UArrowDefinition>(Pickup);
+	UArrowDefinition* Putty = NewObject<UArrowDefinition>(Pickup);
+	Putty->Slot = 3;
+	Putty->Cap = 4;
+	Putty->OnHitEffect = EArrowHitEffect::Putty;
+	Inventory->AddArrows(Putty, 2);
+
+	Pickup->Arrow = Putty;
+	Pickup->ArrowCount = 6;
+	TestTrue(TEXT("The pickup applies"), Pickup->ApplyTo(Player));
+	TestEqual(TEXT("Topped up to the cap, not past it"), Inventory->GetArrowCount(3), 4);
+
+	// A grapple pickup is a no-op on the count: grapple arrows have none.
+	UArrowDefinition* Grapple = NewObject<UArrowDefinition>(Player);
 	Grapple->Slot = 2;
 	Grapple->Cap = 6;
 	Grapple->OnHitEffect = EArrowHitEffect::Grapple;
-	Inventory->AddArrows(Grapple, 4);
-
-	Pickup->Arrow = Grapple;
-	Pickup->ArrowCount = 6;
-	TestTrue(TEXT("The pickup applies"), Pickup->ApplyTo(Player));
-	TestEqual(TEXT("Topped up to the cap, not past it"), Inventory->GetArrowCount(2), 6);
+	Inventory->AddArrows(Grapple, 0);
+	const FString Before = Inventory->GetSlotCountText(2).ToString();
+	APickupActor* GrapplePickup = HawkeyePickupTest::SpawnPickup(TestWorld, EPickupType::Arrows);
+	if (GrapplePickup)
+	{
+		GrapplePickup->Arrow = Grapple;
+		GrapplePickup->ArrowCount = 6;
+		GrapplePickup->ApplyTo(Player);
+	}
+	TestEqual(TEXT("A grapple pickup changes nothing"), Inventory->GetSlotCountText(2).ToString(), Before);
+	TestEqual(TEXT("Which is the infinity"), Before, FString(UInventoryComponent::UnlimitedGlyph));
 	return true;
 }
 

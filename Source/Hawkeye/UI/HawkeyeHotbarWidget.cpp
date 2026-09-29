@@ -182,15 +182,8 @@ FText UHawkeyeHotbarWidget::GetSlotCountText(int32 QuiverSlot) const
 	{
 		return FText::GetEmpty();
 	}
-	const FHawkeyeQuiverSlot Entry = BoundInventory->GetArrowSlot(QuiverSlot);
-	if (Entry.IsEmpty())
-	{
-		return FText::GetEmpty();
-	}
-	// Standard arrows are the plentiful ones; a trick arrow's cap is small enough to be worth showing.
-	return QuiverSlot == 1
-		? FText::AsNumber(Entry.Count)
-		: FText::FromString(FString::Printf(TEXT("%d/%d"), Entry.Count, BoundInventory->GetCap(Entry.Arrow)));
+	// "30" for slot 1, "count/cap" for a trick arrow, the infinity for the grapple.
+	return BoundInventory->GetSlotCountText(QuiverSlot);
 }
 
 void UHawkeyeHotbarWidget::SetAccentColor(const FLinearColor& Purple, bool bDesign)

@@ -101,9 +101,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleMarkerLookTest, "Hawkeye.Grapple
 bool FHawkeyeGrappleMarkerLookTest::RunTest(const FString& Parameters)
 {
 	const FHawkeyeGrappleMarkerLook Ready = UHawkeyeHudWidget::GetGrappleMarkerLook(EGrappleTargetState::Ready);
-	TestTrue(TEXT("Ready: drawn, green, with the key"), Ready.bVisible && Ready.bReady && Ready.bHint && !Ready.bNoArrowsHint);
-	const FHawkeyeGrappleMarkerLook Out = UHawkeyeHudWidget::GetGrappleMarkerLook(EGrappleTargetState::NoArrows);
-	TestTrue(TEXT("Out of arrows: drawn grey, and the line says so"), Out.bVisible && !Out.bReady && Out.bHint && Out.bNoArrowsHint);
+	TestTrue(TEXT("Ready: drawn, green, with the key"), Ready.bVisible && Ready.bReady && Ready.bHint);
 	const FHawkeyeGrappleMarkerLook Flying = UHawkeyeHudWidget::GetGrappleMarkerLook(EGrappleTargetState::ArrowInFlight);
 	TestTrue(TEXT("Arrow in flight: grey, no key"), Flying.bVisible && !Flying.bReady && !Flying.bHint);
 	TestFalse(TEXT("Too early to chain: not drawn"),
@@ -128,7 +126,7 @@ bool FHawkeyeGrappleHintEveryUse::RunTest(const FString& Parameters)
 		return false;
 	}
 	UGrappleComponent* Grapple = Kate->GetGrappleComponent();
-	// Eight zips back and forth on three arrows: each one comes back at the landing.
+	// Eight zips back and forth: grapple arrows have no count, so every one is ready.
 	for (int32 Zip = 0; Zip < 8; ++Zip)
 	{
 		const AGrappleAnchor* Next = Zip % 2 == 0 ? East : West;
@@ -139,17 +137,15 @@ bool FHawkeyeGrappleHintEveryUse::RunTest(const FString& Parameters)
 		TestTrue(FString::Printf(TEXT("Zip %d: so the key shows"), Zip + 1),
 			UHawkeyeHudWidget::GetGrappleMarkerLook(Grapple->GetTargetState()).bHint);
 		TestTrue(FString::Printf(TEXT("Zip %d fires and lands"), Zip + 1), FireAndZip(Grapple, TestWorld.Get()));
-		Grapple->RecoverNearbyArrows();
 	}
 	TestEqual(TEXT("Eight uses"), Grapple->GetUseCount(), 8);
-	TestEqual(TEXT("None of the three arrows lost"), Grapple->GetGrappleArrows(), 3);
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleNoArrowsGrey, "Hawkeye.Grapple.OutOfArrowsGreysTheMarker",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleInFlightGrey, "Hawkeye.Grapple.ArrowInFlightGreysTheMarker",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
-bool FHawkeyeGrappleNoArrowsGrey::RunTest(const FString& Parameters)
+bool FHawkeyeGrappleInFlightGrey::RunTest(const FString& Parameters)
 {
 	using namespace HawkeyeGrappleTargetTest;
 	const FHawkeyeTestWorld TestWorld;
@@ -158,11 +154,13 @@ bool FHawkeyeGrappleNoArrowsGrey::RunTest(const FString& Parameters)
 	UGrappleComponent* Grapple = Kate->GetGrappleComponent();
 	const FVector View = Kate->GetActorLocation() + FVector(0.f, 0.f, 20.f);
 	Grapple->UpdateTarget(View, FVector::ForwardVector);
-	TestEqual(TEXT("One arrow: ready"), Grapple->GetTargetState(), EGrappleTargetState::Ready);
+	TestEqual(TEXT("Ready"), Grapple->GetTargetState(), EGrappleTargetState::Ready);
 	TestTrue(TEXT("It fires"), Grapple->TryFire());
 	TestEqual(TEXT("In flight: the marker waits"), Grapple->GetTargetState(), EGrappleTargetState::ArrowInFlight);
+	TestFalse(TEXT("Grey while it flies"), UHawkeyeHudWidget::GetGrappleMarkerLook(Grapple->GetTargetState()).bReady);
+	TestFalse(TEXT("With no key under it"), UHawkeyeHudWidget::GetGrappleMarkerLook(Grapple->GetTargetState()).bHint);
+	TestFalse(TEXT("And a second press does nothing"), Grapple->TryFire());
 
-	Grapple->SetGrappleArrows(0);
 	AGrappleArrowProjectile* Arrow = FindArrowInFlight(TestWorld.Get());
 	if (Arrow)
 	{
@@ -171,9 +169,9 @@ bool FHawkeyeGrappleNoArrowsGrey::RunTest(const FString& Parameters)
 	Kate->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
 	Grapple->UpdateTarget(View, FVector::ForwardVector);
 	TestTrue(TEXT("The anchor is still marked"), Grapple->GetTargetAnchor() == Anchor);
-	TestEqual(TEXT("But out of arrows"), Grapple->GetTargetState(), EGrappleTargetState::NoArrows);
-	TestFalse(TEXT("So the diamond is not green"), UHawkeyeHudWidget::GetGrappleMarkerLook(Grapple->GetTargetState()).bReady);
-	TestFalse(TEXT("And a press does nothing"), Grapple->TryFire());
+	TestEqual(TEXT("Once it is gone, ready again: there is no count to run out"), Grapple->GetTargetState(),
+		EGrappleTargetState::Ready);
+	TestTrue(TEXT("So the diamond is green"), UHawkeyeHudWidget::GetGrappleMarkerLook(Grapple->GetTargetState()).bReady);
 	return true;
 }
 
@@ -212,7 +210,7 @@ bool FHawkeyeGrappleBlockedGrey::RunTest(const FString& Parameters)
 	TestTrue(TEXT("It is the grey one instead"), Grapple->GetBlockedAnchor() == Straight);
 	TestTrue(TEXT("With the reason for the debug line"), Grapple->GetBlockedReason().Contains(Landing->GetName()));
 	TestFalse(TEXT("A press fires nothing"), Grapple->TryFire());
-	TestEqual(TEXT("And spends nothing"), Grapple->GetGrappleArrows(), 5);
+	TestNull(TEXT("No arrow leaves"), FindArrowInFlight(TestWorld.Get()));
 
 	// A second anchor a few degrees off with a clear line: that one is green, the blocked one stays grey.
 	AGrappleAnchor* Clear = SpawnAnchor(TestWorld, FVector(2015.f, 700.f, 1000.f));
@@ -226,14 +224,14 @@ bool FHawkeyeGrappleBlockedGrey::RunTest(const FString& Parameters)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleArrowsCome, "Hawkeye.Grapple.ArrowsComeBackFromBlocksAndChains",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeGrappleArrowsCome, "Hawkeye.Grapple.ArrowsLeaveAnchorsAfterBlocksAndChains",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FHawkeyeGrappleArrowsCome::RunTest(const FString& Parameters)
 {
 	using namespace HawkeyeGrappleTargetTest;
 	{
-		// A zip that is blocked on the way (the clearance check off, as for a wall that moved in) reels its arrow back.
+		// A zip that is blocked on the way (the clearance check off, as for a wall that moved in) reels its arrow out of the anchor.
 		const FHawkeyeTestWorld TestWorld;
 		AHawkeyeAimTestCharacter* Kate = SpawnArcher(TestWorld, FVector(0.f, 0.f, 200.f), 5);
 		AGrappleAnchor* Anchor = SpawnAnchor(TestWorld, FVector(2000.f, 0.f, 200.f));
@@ -245,11 +243,10 @@ bool FHawkeyeGrappleArrowsCome::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Marked with the check off"), Grapple->GetTargetAnchor() == Anchor);
 		TestTrue(TEXT("Fired and flown"), FireAndZip(Grapple, TestWorld.Get()));
 		TestTrue(TEXT("Stopped at the wall"), Kate->GetActorLocation().X < 1000.f);
-		TestEqual(TEXT("The arrow is back in the quiver"), Grapple->GetGrappleArrows(), 5);
 		TestEqual(TEXT("Not left in the anchor"), Anchor->GetStuckArrowCount(), 0);
 	}
 	{
-		// A chain: the arrow in the anchor she chained away from comes back; the new one stays until she lands.
+		// A chain: the arrow in the anchor she chained away from is reeled out; the new one stays until she lands.
 		const FHawkeyeTestWorld TestWorld;
 		AHawkeyeAimTestCharacter* Kate = SpawnArcher(TestWorld, FVector(0.f, 0.f, 200.f), 5);
 		AGrappleAnchor* First = SpawnAnchor(TestWorld, FVector(1800.f, 0.f, 500.f));
@@ -270,10 +267,10 @@ bool FHawkeyeGrappleArrowsCome::RunTest(const FString& Parameters)
 		TestEqual(TEXT("The chain target is ready"), Grapple->GetTargetState(), EGrappleTargetState::Ready);
 		TestTrue(TEXT("The chain fires"), Grapple->TryFire());
 		TestEqual(TEXT("The first anchor's arrow came back"), First->GetStuckArrowCount(), 0);
-		TestEqual(TEXT("One arrow out: in the second anchor"), Grapple->GetGrappleArrows(), 4);
+		TestEqual(TEXT("One arrow out: in the second anchor"), Second->GetStuckArrowCountFor(Kate), 1);
 		RunZip(Grapple, 5.f);
 		Grapple->RecoverNearbyArrows();
-		TestEqual(TEXT("Landed and recovered: all five"), Grapple->GetGrappleArrows(), 5);
+		TestEqual(TEXT("Landed: tidied away"), Second->GetStuckArrowCount(), 0);
 	}
 	{
 		// The partner walking past Kate's anchor does not pocket her arrow.
@@ -286,7 +283,7 @@ bool FHawkeyeGrappleArrowsCome::RunTest(const FString& Parameters)
 		TestEqual(TEXT("It is still there"), Anchor->GetStuckArrowCount(), 1);
 		Kate->SetActorLocation(FVector(1560.f, 0.f, 290.f));
 		TestEqual(TEXT("Kate takes hers"), Kate->GetGrappleComponent()->RecoverNearbyArrows(), 1);
-		TestEqual(TEXT("Back in her quiver"), Kate->GetGrappleComponent()->GetGrappleArrows(), 1);
+		TestEqual(TEXT("Gone from the anchor"), Anchor->GetStuckArrowCount(), 0);
 	}
 	return true;
 }

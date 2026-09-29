@@ -163,6 +163,13 @@ int32 UInventoryComponent::AddArrows(UArrowDefinition* Definition, int32 Count)
 		Entry.Count = 0;
 	}
 
+	if (IsUnlimitedArrow(Definition))
+	{
+		// No count to add to: the slot is filled (held at its cap) and a pickup or a reward puts none in.
+		Entry.Count = FMath::Max(GetCap(Definition), 1);
+		OnInventoryChanged.Broadcast();
+		return 0;
+	}
 	const int32 Before = Entry.Count;
 	Entry.Count = FMath::Clamp(Entry.Count + Count, 0, FMath::Max(GetCap(Definition), 0));
 	OnInventoryChanged.Broadcast();
@@ -176,6 +183,10 @@ bool UInventoryComponent::ConsumeArrow(int32 Slot)
 	{
 		return false;
 	}
+	if (IsUnlimitedArrow(Arrows[Index].Arrow))
+	{
+		return true;
+	}
 	--Arrows[Index].Count;
 	OnInventoryChanged.Broadcast();
 	return true;
@@ -188,7 +199,7 @@ void UInventoryComponent::SetArrowCount(int32 Slot, int32 Count)
 	{
 		return;
 	}
-	Arrows[Index].Count = FMath::Clamp(Count, 0, FMath::Max(GetCap(Arrows[Index].Arrow), 0));
+	Arrows[Index].Count = ClampCount(Arrows[Index].Arrow, Count);
 	OnInventoryChanged.Broadcast();
 }
 
@@ -281,6 +292,36 @@ bool UInventoryComponent::IsTrickArrow(const UArrowDefinition* Arrow)
 	return Arrow && Arrow->OnHitEffect != EArrowHitEffect::None && Arrow->OnHitEffect != EArrowHitEffect::Grapple;
 }
 
+bool UInventoryComponent::IsUnlimitedArrow(const UArrowDefinition* Arrow)
+{
+	return Arrow && Arrow->OnHitEffect == EArrowHitEffect::Grapple;
+}
+
+// U+221E, the infinity sign: Roboto (the HUD's font) has it.
+const TCHAR* UInventoryComponent::UnlimitedGlyph = TEXT("∞");
+
+int32 UInventoryComponent::ClampCount(const UArrowDefinition* Arrow, int32 Count) const
+{
+	const int32 Cap = FMath::Max(GetCap(Arrow), 0);
+	return IsUnlimitedArrow(Arrow) ? FMath::Max(Cap, 1) : FMath::Clamp(Count, 0, Cap);
+}
+
+FText UInventoryComponent::GetSlotCountText(int32 Slot) const
+{
+	const FHawkeyeQuiverSlot Entry = GetArrowSlot(Slot);
+	if (Entry.IsEmpty())
+	{
+		return FText::GetEmpty();
+	}
+	if (IsUnlimitedArrow(Entry.Arrow))
+	{
+		return FText::FromString(UnlimitedGlyph);
+	}
+	// Standard arrows are the plentiful ones; a trick arrow's cap is small enough to be worth showing.
+	return Slot == 1 ? FText::AsNumber(Entry.Count)
+					 : FText::FromString(FString::Printf(TEXT("%d/%d"), Entry.Count, GetCap(Entry.Arrow)));
+}
+
 void UInventoryComponent::SetTrickArrowCapBonus(int32 Bonus)
 {
 	const int32 Clamped = FMath::Max(Bonus, 0);
@@ -329,8 +370,9 @@ void UInventoryComponent::RestoreQuiver(UBowDefinition* InBow, const TArray<FHaw
 		const int32 Index = Saved.Arrow ? SlotToIndex(Saved.Arrow->Slot) : INDEX_NONE;
 		if (Index != INDEX_NONE)
 		{
+			// An unlimited slot's saved count (a save from before 2026-09-29 has one) is ignored.
 			Arrows[Index].Arrow = Saved.Arrow;
-			Arrows[Index].Count = FMath::Clamp(Saved.Count, 0, FMath::Max(GetCap(Saved.Arrow), 0));
+			Arrows[Index].Count = ClampCount(Saved.Arrow, Saved.Count);
 		}
 	}
 	EnsureStandardSlot();
@@ -364,7 +406,7 @@ void UInventoryComponent::Clear()
 			continue;
 		}
 		Arrows[Index].Arrow = Grant.Arrow;
-		Arrows[Index].Count = FMath::Clamp(Grant.Count, 0, FMath::Max(GetCap(Grant.Arrow), 0));
+		Arrows[Index].Count = ClampCount(Grant.Arrow, Grant.Count);
 	}
 	EnsureStandardSlot();
 	ApplyHandsToWeapon();

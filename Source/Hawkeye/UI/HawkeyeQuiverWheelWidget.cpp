@@ -167,13 +167,7 @@ FText UHawkeyeQuiverWheelWidget::GetSegmentNameText(int32 QuiverSlot) const
 
 FText UHawkeyeQuiverWheelWidget::GetSegmentCountText(int32 QuiverSlot) const
 {
-	const FHawkeyeQuiverSlot Entry = BoundInventory ? BoundInventory->GetArrowSlot(QuiverSlot) : FHawkeyeQuiverSlot();
-	if (Entry.IsEmpty())
-	{
-		return FText::GetEmpty();
-	}
-	return QuiverSlot == 1 ? FText::AsNumber(Entry.Count)
-						   : FText::FromString(FString::Printf(TEXT("%d/%d"), Entry.Count, BoundInventory->GetCap(Entry.Arrow)));
+	return BoundInventory ? BoundInventory->GetSlotCountText(QuiverSlot) : FText::GetEmpty();
 }
 
 FLinearColor UHawkeyeQuiverWheelWidget::GetSegmentColor(int32 QuiverSlot) const

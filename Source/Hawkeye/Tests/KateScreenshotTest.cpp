@@ -832,8 +832,7 @@ bool FHawkeyeKateFireGrapple::Update()
 	UGrappleComponent* Grapple = Kate ? Kate->GetGrappleComponent() : nullptr;
 	HawkeyeKateShots::GrappleRun.ZipStartTime = -1.0;
 	const bool bFired = Grapple && Grapple->TryFire();
-	Test->AddInfo(FString::Printf(TEXT("Grapple fired=%d, arrows left %d"), bFired ? 1 : 0,
-		Grapple ? Grapple->GetGrappleArrows() : -1));
+	Test->AddInfo(FString::Printf(TEXT("Grapple fired=%d"), bFired ? 1 : 0));
 	if (!bFired)
 	{
 		Test->AddWarning(TEXT("The grapple did not fire."));
