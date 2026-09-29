@@ -90,7 +90,7 @@ void HawkeyeAddMapShots(FAutomationTestBase* Test)
 			Test->AddError(TEXT("map_open.png: no map widget or no map data."));
 			return true;
 		}
-		// The cursor on the nearest safehouse, so the shot shows a hover label too.
+		// The cursor on the first safehouse in id order (the far one, avenue_b), so the shot shows a hover label too.
 		Test->TestTrue(TEXT("map_open.png: a safehouse to hover"), Map->MoveCursorToIcon(EHawkeyeMapIconKind::Safehouse));
 		int32 Counts[8] = {};
 		for (const FHawkeyeMapIcon& Icon : Map->GetIcons())
