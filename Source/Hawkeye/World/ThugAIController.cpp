@@ -936,7 +936,16 @@ void AThugAIController::RequestMoveToActor(AActor* Goal, float AcceptanceRadius)
 
 void AThugAIController::RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius)
 {
-	ReportMoveResult(MoveToLocation(Goal, AcceptanceRadius), Goal.ToCompactString());
+	// A goal just off the navmesh (where she landed a zip by a parapet, a ledge) is walked to its nearest
+	// navigable point instead of failing: the mesh stops short of roof edges and walls by the agent radius.
+	FVector Target = Goal;
+	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
+	FNavLocation OnNav;
+	if (NavSystem && NavSystem->ProjectPointToNavigation(Goal, OnNav, FVector(200.f, 200.f, 250.f)))
+	{
+		Target = OnNav.Location;
+	}
+	ReportMoveResult(MoveToLocation(Target, AcceptanceRadius), Goal.ToCompactString());
 }
 
 void AThugAIController::ReportMoveResult(EPathFollowingRequestResult::Type Result, const FString& GoalDescription)
