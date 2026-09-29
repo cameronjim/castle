@@ -353,7 +353,15 @@ void UPlaytestSubsystem::CopyGameLog() const
 		GLog->Flush();
 	}
 	const FString Target = GetSessionFolder() + TEXT("Hawkeye.log");
-	if (IFileManager::Get().Copy(*Target, *GameLogPath, /*Replace=*/true, /*EvenIfReadOnly=*/true) != COPY_OK)
+	// The log is still open for writing, so a plain copy (which asks for exclusive read) is refused: read it
+	// with write sharing instead.
+	TArray<uint8> Bytes;
+	if (const TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*GameLogPath, FILEREAD_AllowWrite)); Reader)
+	{
+		Bytes.SetNumUninitialized(Reader->TotalSize());
+		Reader->Serialize(Bytes.GetData(), Bytes.Num());
+	}
+	if (Bytes.IsEmpty() || !FFileHelper::SaveArrayToFile(Bytes, *Target))
 	{
 		UE_LOG(LogHawkeye, Warning, TEXT("Playtest: could not copy %s to %s"), *GameLogPath, *Target);
 	}
