@@ -233,7 +233,9 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   own bow (1.0 s draw, released just after full) at range and bow strikes under 200 cm.
 - Cover: a ring of candidate points, keeping those where the shooter's trace is blocked.
 - Revive: at 0 health the player is downed, not restarted; after 3 s beside her she is
-  back at 30%. Once per fight; a fight ends 10 s after the last contact.
+  back at 30%. Once per fight; a fight ends 10 s after the last contact. He has 4.5 s to
+  reach her before he is put beside her (was 12), so the revive lands inside the 8 s down
+  (see "Health and damage", downed). (Changed 2026-09-28.)
 - The partner can't drop below 1 health, self-heals under 50%, can be staggered. T marks
   a point for him to go to (no pad button yet).
 - `SwitchCharacter()` on X or LB: only when the chapter's `bAllowSwitching` is set (CH01
@@ -284,6 +286,13 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   shows a 2 s "New objective" toast.
 - CH01's rooftop objectives each get a 1 m beacon with a purple emissive top and a 300 lm
   purple point light so the roof reads from the street at night.
+- An objective may carry a `Hint`, a second line under its title in the HUD. CH01's
+  reach_roof points at the safehouse door on East 7th (placeholder text). (2026-09-28)
+- The compass also shows every safehouse (a filled house once found, a hollow one before)
+  and every challenge pedestal within 150 m (a purple medal). A pedestal within 80 m gets
+  a world marker (medal and distance) when the current objective is farther, not while a
+  challenge runs. A marked safehouse's marker is a house with its distance and name, a "?"
+  in it and "[Unknown safehouse]" until found; a marked pedestal's is a medal. (2026-09-28)
 
 ## Flashback
 - `Play(Definition)` with a null definition or zero slides finishes immediately and
@@ -317,6 +326,23 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   fires `OnStaggered` on the health component if the amount is above
   `StaggerThreshold`. Bullets never stagger. Only the player is affected by
   `DT_Explosion` falloff; guards take full damage in the radius.
+- Downed (built 2026-09-28, playtest note 9): at 0 health the player is down, never stuck.
+  The down lasts `DownedMaxSeconds` (8) at most. With the partner's revive coming the HUD
+  shows a ring emptying over the 8 s and "[Clint is coming]" (his name), "[Hold on]" once
+  he is within 250 cm; with none coming (spent this fight, or no partner) the ring and a
+  "[Any key]" placeholder, and any key but the pause keys ends it, ignored in the first
+  0.5 s so a held attack cannot skip it. No revive by 8 s, or the key: she dies of it,
+  "[You're down]" over a 1.5 s fade, and the last autosave loads (last checkpoint or
+  safehouse). A revive after that does nothing.
+- Nobody attacks a downed player: a thug whose target is down drops a burst or draw,
+  lets a swing already under way finish (it cannot hurt her: the health is at 0 and
+  dead-flagged, so no damage lands at all), then circles her at 450 cm. Back up, they come
+  again.
+- The reload resets the fight: placed thugs come back from the save (alive at full health
+  and calm, or dead), crime thugs are not saved so they are gone, a challenge run is over,
+  the input lock and the grey post process go with the old pawn. Dying (or Restart) in a
+  flashback's playable scene now ends the scene too, as leaving it would (before, every
+  later save was refused as "a playable scene is running").
 - Player health regenerates after `RegenDelay` seconds without damage at
   `RegenPerSecond`, up to `MaxHealth`. Guards and bosses never regenerate.
 - Headshots: `WeaponComponent` multiplies damage by `HeadshotMultiplier` when the hit
@@ -555,8 +581,8 @@ the last input came from a pad.
   pickups, EMP lamp state, spawner-created actors, the partner's fight state.
 - Autosave on objective completion, safehouse entry, new game, and after 60 s of roaming
   (the clock runs only while the player is alive, on the ground, and no thug is alerted; a
-  fight pauses it). Death with no revive, or Restart, fades to black and loads the last
-  save; with no save it reloads the level.
+  fight pauses it). Death (the down running out, see "Health and damage"), or Restart,
+  fades to black and loads the last save; with no save it reloads the level.
 - Continue reads the header first: version mismatch starts a new game with a warning; a
   missing mission asset starts a new game with an error. A migration hook exists.
 - Safehouse: `City_Safehouse` on 140 East 7th Street (OSM W248142338) facing the park. E
@@ -784,6 +810,13 @@ the last input came from a pad.
 - Scripted: archery clears 12 of 12 in about 17 s (bronze by score); traversal in 18 to
   19 s (gold). Distant targets are small at 30 to 40 m. The pedestal light was too strong
   and is being dimmed.
+- Finding them (2026-09-28, playtest note 13): the compass and world markers above; the
+  pause menu's "Mark nearest challenge" puts a marker on the nearest pedestal (cleared on
+  reaching it or starting any challenge); the first time the player comes within 40 m of a
+  pedestal a "[Challenge nearby]" toast names it (once a campaign, ids kept in the save as
+  `NoticedPlaces`). The cap and ring icon are a deep purple (0.5, 0.06, 1) at 0.8 / 0.6
+  night emissive, since 2.5 clipped to white under the night's +2 EV; by day the glows are
+  6 times that.
 
 ## Difficulty and accessibility (built 2026-09-27)
 - One difficulty setting, Story / Normal / Hard (default Normal), asked once at New Game
@@ -806,8 +839,8 @@ the last input came from a pad.
   the explosion light (the parry ring shrinks to 30% instead, it has no brightness
   input); Replay flashbacks in the pause menu, slides only, seen-list stored with settings.
 - HUD scale 0.8 to 1.4 applies to HUD text, hotbar, markers, and compass.
-- Challenge pedestal light 135 lm over 400 cm with a stronger emissive; the cap and icon
-  still read white rather than purple.
+- Challenge pedestal light 135 lm over 400 cm; the cap and icon read white rather than
+  purple until the 2026-09-28 fix in "Side challenges".
 
 ## Street crimes (built 2026-09-27; names are placeholders; rules also in Source/Hawkeye/Crime/CrimeRules.h)
 - 12 `City_CrimeSpot_` actors: 8 street corners (each with a robbery escape point 58 to
@@ -838,8 +871,12 @@ the last input came from a pad.
   autosaves with them there (destination recorded as last used), fade in 0.6 s; about
   1.5 s fade to fade, no map reload. Refused with a "[Can't fast travel now]" toast during
   a crime or challenge.
-- Discovered safehouses show as house icons on the compass; the pause menu can mark the
-  nearest one. Chapter select is still a stub. Crime spots keep 40 m clear of both.
+- Both safehouses always show on the compass, found ones as filled houses, unfound ones
+  hollow. The pause menu's "Mark nearest safehouse" marks the nearest one whether found
+  or not (it only looked at found ones, so with none found it did nothing but toast "[No
+  safehouse found yet]": playtest note 12). The first time the player is within 60 m of an
+  unfound one, a "[Safehouse nearby]" toast and the marker on it (once a campaign, in
+  `NoticedPlaces`). Chapter select is still a stub. Crime spots keep 40 m clear of both.
 
 ## Combat animation clips (built 2026-09-27/28; pipeline in claude-docs/animation.md)
 - A character's clips come from a `UCombatAnimSet` data asset (`DA_AnimSet_Kate`, `_Clint`,
