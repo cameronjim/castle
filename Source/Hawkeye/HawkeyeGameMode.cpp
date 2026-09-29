@@ -146,8 +146,12 @@ void AHawkeyeGameMode::WatchFrame(double Now)
 	bScreenshotThisFrame = false;
 	if (FrameWatch.AddFrame(FrameSeconds, Since, bScreenshot))
 	{
-		UE_LOG(LogHawkeye, Log, TEXT("Hitch: a %.0f ms frame %.2f s after the playable mark (frame %d)%s."),
-			FrameSeconds * 1000.0, Since, FrameWatch.Frames - 1, bScreenshot ? TEXT(", a screenshot capture") : TEXT(""));
+		// The stat unit split of the last completed frame: which of the game thread, the render thread, the RHI
+		// thread and the GPU the time went to (a frame long on none of them was waiting on something else).
+		UE_LOG(LogHawkeye, Log, TEXT("Hitch: a %.0f ms frame %.2f s after the playable mark (frame %d)%s; game %.0f, draw %.0f, rhi %.0f, gpu %.0f ms."),
+			FrameSeconds * 1000.0, Since, FrameWatch.Frames - 1, bScreenshot ? TEXT(", a screenshot capture") : TEXT(""),
+			FPlatformTime::ToMilliseconds(GGameThreadTime), FPlatformTime::ToMilliseconds(GRenderThreadTime),
+			FPlatformTime::ToMilliseconds(GRHIThreadTime), FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles(0)));
 	}
 	if (!bFrameSummaryLogged && Since >= FrameSummarySeconds)
 	{
@@ -216,6 +220,13 @@ void AHawkeyeGameMode::WatchPerf(double Now, double FrameSeconds, bool bScreensh
 	if (PerfLogSeconds > 0.f && Now - PerfWindowStartSeconds >= PerfLogSeconds)
 	{
 		FlushPerfWindow(Now);
+	}
+	// ExecCmds only starts the automation run when it leads the line, so the hitch dump is switched on here.
+	static bool bHitchDumpOn = false;
+	if (StatDumpSeconds > 0.f && !bHitchDumpOn && GEngine)
+	{
+		bHitchDumpOn = true;
+		GEngine->Exec(GetWorld(), TEXT("stat dumphitches"));
 	}
 	if (StatDumpSeconds > 0.f && Now - LastStatDumpSeconds >= StatDumpSeconds && GEngine)
 	{

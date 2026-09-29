@@ -8,7 +8,7 @@
 #   .\Tools\measure-perf.ps1                                  # the laps, the tour, fast travel, the interior walk, night
 #   .\Tools\measure-perf.ps1 -TimeOfDay Day -Tag day
 #   .\Tools\measure-perf.ps1 -ResX 1920 -ResY 1080 -Tests "Hawkeye.Lap.StreetFight" -Tag fight1080
-#   .\Tools\measure-perf.ps1 -StatDump 20 -Tag dump          # "stat dumpave" into the log every 20 s
+#   .\Tools\measure-perf.ps1 -StatDump 20 -Tag dump          # "stat dumpave" every 20 s and "stat dumphitches"
 #
 # Only this process is sampled (by its id), never another editor. Do not run it while another engine runs.
 
@@ -21,6 +21,8 @@ param(
     [double]$Window = 2,
     [double]$StatDump = -1,
     [string]$Tag = "perf",
+    # Extra command-line switches for a diagnostic run (e.g. "-dpcvars=r.SkyLight.RealTimeReflectionCapture=0").
+    [string]$Extra = "",
     [string]$Engine = "C:\Program Files\Epic Games\UE_5.8"
 )
 
@@ -39,6 +41,7 @@ $argList = @("`"$Proj`"", "/Game/Maps/L_District_EastVillage", "-game", "-window
     "-nosplash", "-log", "-abslog=`"$Log`"", "-HawkeyePerfLog=$Window", "-HawkeyeHitchMs=50", "-HawkeyeStatDump=$StatDump",
     "-ReportExportPath=`"$Report`"", "-ExecCmds=`"Automation RunTests $Tests; Quit`"")
 if ($TimeOfDay) { $argList += "-TimeOfDay=$TimeOfDay" }
+if ($Extra) { $argList += $Extra }
 $start = Get-Date
 $proc = Start-Process -FilePath $Cmd -ArgumentList $argList -PassThru
 "seconds,working_set_gb,private_gb" | Out-File $Samples -Encoding utf8
