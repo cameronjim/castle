@@ -60,6 +60,7 @@ bool UHawkeyeMusicSubsystem::DoesSupportWorldType(const EWorldType::Type WorldTy
 void UHawkeyeMusicSubsystem::Deinitialize()
 {
 	UHawkeyeAudioSubsystem::StopLoop(Score, TEXT("music score"));
+	WinSting = nullptr;
 	Engaged.Reset();
 	Super::Deinitialize();
 }
@@ -73,7 +74,14 @@ void UHawkeyeMusicSubsystem::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	UWorld* World = GetWorld();
-	if (!World || !World->HasBegunPlay())
+	if (!World)
+	{
+		return;
+	}
+	// A pause screen (map, inventory, pause menu and settings, safehouse menu, phone, results card, flashback)
+	// pauses the world; the director stands still with it, and the score and the sting hold where they are.
+	SetScorePaused(World->IsPaused());
+	if (bScorePaused || !World->HasBegunPlay())
 	{
 		return;
 	}
@@ -83,6 +91,31 @@ void UHawkeyeMusicSubsystem::Tick(float DeltaTime)
 	}
 	const APlayerController* PC = World->GetFirstPlayerController();
 	Advance(GatherInputs(PC ? PC->GetPawn() : nullptr), DeltaTime);
+}
+
+bool UHawkeyeMusicSubsystem::IsTickableWhenPaused() const
+{
+	// Ticks under a pause only to notice it and to hold the sound; the rules do not run.
+	return true;
+}
+
+void UHawkeyeMusicSubsystem::SetScorePaused(bool bPaused)
+{
+	if (bPaused == bScorePaused)
+	{
+		return;
+	}
+	bScorePaused = bPaused;
+	if (IsValid(Score))
+	{
+		Score->SetPaused(bPaused);
+	}
+	if (IsValid(WinSting))
+	{
+		WinSting->SetPaused(bPaused);
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("Music: %s (a pause screen %s, state %s)."), bPaused ? TEXT("paused") : TEXT("resumed"),
+		bPaused ? TEXT("opened") : TEXT("closed"), HawkeyeMusic::GetStateName(Director.GetState()));
 }
 
 void UHawkeyeMusicSubsystem::StartScore()
@@ -119,7 +152,8 @@ FHawkeyeMusicInputs UHawkeyeMusicSubsystem::GatherInputs(const APawn* Player)
 			Inputs.NearestAlertedCm = FMath::Min(Inputs.NearestAlertedCm,
 				static_cast<float>(FVector::Dist(Thug->GetActorLocation(), PlayerLocation)));
 		}
-		Inputs.bBossAlerted |= Thug->IsArcher() || Thug->IsHeavy() || Thug->FindComponentByClass<UBossPhaseComponent>() != nullptr;
+		Inputs.bBossAlerted |= Thug->IsArcher() || Thug->FindComponentByClass<UBossPhaseComponent>() != nullptr;
+		Inputs.bHeavyAlerted |= Thug->IsHeavy();
 		Engaged.AddUnique(Thug);
 	}
 	for (const TWeakObjectPtr<AThugCharacter>& Thug : Engaged)
@@ -157,14 +191,14 @@ void UHawkeyeMusicSubsystem::Advance(const FHawkeyeMusicInputs& Inputs, float De
 		const FString Nearest = Inputs.AlertedStanding > 0 ? FString::Printf(TEXT("%.1f m"), Inputs.NearestAlertedCm / 100.f)
 			: FString(TEXT("-"));
 		UE_LOG(LogHawkeye, Log,
-			TEXT("Music: %s -> %s (alerted %d, nearest %s, boss %s, this fight %d up / %d down, crime near %s, downed %s, #%d)."),
+			TEXT("Music: %s -> %s (alerted %d, nearest %s, boss %s, heavy %s, this fight %d up / %d down, crime near %s, downed %s, #%d)."),
 			HawkeyeMusic::GetStateName(Director.GetPreviousState()), HawkeyeMusic::GetStateName(State), Inputs.AlertedStanding,
 			*Nearest,
-			Inputs.bBossAlerted ? TEXT("yes") : TEXT("no"), Inputs.EngagedStanding, Inputs.EngagedDown,
+			Inputs.bBossAlerted ? TEXT("yes") : TEXT("no"), Inputs.bHeavyAlerted ? TEXT("yes") : TEXT("no"), Inputs.EngagedStanding, Inputs.EngagedDown,
 			Inputs.bCrimeNearby ? TEXT("yes") : TEXT("no"), Inputs.bPlayerDowned ? TEXT("yes") : TEXT("no"), TransitionCount);
 		if (State == EHawkeyeMusicState::Win)
 		{
-			UHawkeyeAudioSubsystem::Play2D(this, WinSound, TEXT("music win"));
+			WinSting = UHawkeyeAudioSubsystem::Play2D(this, WinSound, TEXT("music win"));
 		}
 	}
 	if (Director.GetState() == EHawkeyeMusicState::Roam)

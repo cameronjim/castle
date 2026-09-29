@@ -37,6 +37,7 @@ public:
 	virtual void Deinitialize() override;
 	virtual void Tick(float DeltaTime) override;
 	virtual TStatId GetStatId() const override;
+	virtual bool IsTickableWhenPaused() const override;
 	//~ End UWorldSubsystem / FTickableGameObject
 
 	/**
@@ -54,6 +55,15 @@ public:
 	const FHawkeyeMusicLayers& GetLayers() const { return Layers; }
 
 	const FHawkeyeMusicDirector& GetDirector() const { return Director; }
+
+	/**
+	 * Holds (or lets go of) the score and the win sting. Tick calls it with the world's pause every frame, so a
+	 * pause screen stops the sound as well as the state machine; the state and the layers are kept for the resume.
+	 */
+	void SetScorePaused(bool bPaused);
+
+	/** A pause screen is holding the music. */
+	bool IsScorePaused() const { return bScorePaused; }
 
 	/** How many times the state has changed in this world. */
 	int32 GetTransitionCount() const { return TransitionCount; }
@@ -81,6 +91,12 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UAudioComponent> Score = nullptr;
+
+	/** The last win sting, held with the score under a pause. */
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> WinSting = nullptr;
+
+	bool bScorePaused = false;
 
 	bool bScoreTried = false;
 	bool bPushedOnce = false;

@@ -33,7 +33,8 @@ EHawkeyeMusicState HawkeyeMusic::ComputeTarget(const FHawkeyeMusicInputs& Inputs
 	}
 	if (Inputs.AlertedStanding > 0)
 	{
-		if (Inputs.bBossAlerted)
+		// The heavy on his own is a fight, not a duel; with a crowd round him he is the centre of one.
+		if (Inputs.bBossAlerted || (Inputs.bHeavyAlerted && Inputs.AlertedStanding >= 1 + HeavyDuelOthers))
 		{
 			return EHawkeyeMusicState::Duel;
 		}

@@ -18,7 +18,7 @@ enum class EHawkeyeMusicState : uint8
 	Alert,
 	/** Two or more alerted, or one alerted within 8 m: pulse and percussion. */
 	Fight,
-	/** An alerted archer, heavy or boss: pulse, percussion and the motif. */
+	/** An alerted archer or boss, or the heavy with two or more others alerted: pulse, percussion and the motif. */
 	Duel,
 	/** The last thug of the fight went down: the 2 s resolve, then Roam. */
 	Win,
@@ -40,9 +40,13 @@ struct HAWKEYE_API FHawkeyeMusicInputs
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Music")
 	float NearestAlertedCm = UE_BIG_NUMBER;
 
-	/** One of them is an archer, the heavy, or carries a boss phase component. */
+	/** One of them is an archer or carries a boss phase component. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Music")
 	bool bBossAlerted = false;
+
+	/** One of them is the heavy (the shield). A duel only with HeavyDuelOthers or more others alerted beside him. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Music")
+	bool bHeavyAlerted = false;
 
 	/** Thugs alerted at any point in this fight who are still up (they may have lost her since). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Music")
@@ -93,6 +97,9 @@ namespace HawkeyeMusic
 {
 	/** An alerted thug this close makes it a fight on his own. */
 	static constexpr float FightRangeCm = 800.f;
+
+	/** The heavy makes it a duel only with at least this many other thugs alerted beside him. */
+	static constexpr int32 HeavyDuelOthers = 2;
 
 	/** A crime on within this of Kate brings the pulse in before anyone has seen her. */
 	static constexpr float CrimeNearbyCm = 4000.f;

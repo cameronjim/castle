@@ -6,6 +6,8 @@
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
+#include "GameFramework/PlayerState.h"
+#include "GameFramework/WorldSettings.h"
 #include "EnhancedActionKeyMapping.h"
 #include "HawkeyePlayerController.h"
 #include "InputAction.h"
@@ -68,8 +70,22 @@ bool FHawkeyeMusicTargets::RunTest(const FString& Parameters)
 	TestEqual(TEXT("One alerted at 8.1 m: still Alert"), HawkeyeMusic::ComputeTarget(Alerted(1, 810.f)), EHawkeyeMusicState::Alert);
 	TestEqual(TEXT("One alerted at 8 m: Fight"), HawkeyeMusic::ComputeTarget(Alerted(1, 800.f)), EHawkeyeMusicState::Fight);
 	TestEqual(TEXT("Two alerted far off: Fight"), HawkeyeMusic::ComputeTarget(Alerted(2, 3000.f)), EHawkeyeMusicState::Fight);
-	TestEqual(TEXT("An alerted archer (or heavy, or boss) far off: Duel"), HawkeyeMusic::ComputeTarget(Alerted(1, 2500.f, true)),
+	TestEqual(TEXT("An alerted archer (or boss) far off: Duel"), HawkeyeMusic::ComputeTarget(Alerted(1, 2500.f, true)),
 		EHawkeyeMusicState::Duel);
+
+	// The heavy is a duel only with a crowd: on his own (or with one other) he is an ordinary fight.
+	FHawkeyeMusicInputs Heavy = Alerted(1, 2500.f);
+	Heavy.bHeavyAlerted = true;
+	TestEqual(TEXT("The heavy alone, far off: Alert, no motif"), HawkeyeMusic::ComputeTarget(Heavy), EHawkeyeMusicState::Alert);
+	Heavy.NearestAlertedCm = 300.f;
+	TestEqual(TEXT("The heavy alone, close: Fight, no motif"), HawkeyeMusic::ComputeTarget(Heavy), EHawkeyeMusicState::Fight);
+	Heavy.AlertedStanding = 2;
+	TestEqual(TEXT("The heavy and one other: Fight"), HawkeyeMusic::ComputeTarget(Heavy), EHawkeyeMusicState::Fight);
+	Heavy.AlertedStanding = 3;
+	TestEqual(TEXT("The heavy and two others: Duel"), HawkeyeMusic::ComputeTarget(Heavy), EHawkeyeMusicState::Duel);
+	TestEqual(TEXT("And its layers carry the motif"), HawkeyeMusic::GetLayersFor(HawkeyeMusic::ComputeTarget(Heavy), Heavy).Motif, 1.f);
+	Heavy.AlertedStanding = 1;
+	TestEqual(TEXT("And alone its layers do not"), HawkeyeMusic::GetLayersFor(HawkeyeMusic::ComputeTarget(Heavy), Heavy).Motif, 0.f);
 	TestEqual(TEXT("A boss in a crowd is still a Duel"), HawkeyeMusic::ComputeTarget(Alerted(3, 300.f, true)), EHawkeyeMusicState::Duel);
 
 	FHawkeyeMusicInputs Crime = Calm();
@@ -291,11 +307,21 @@ bool FHawkeyeMusicGathers::RunTest(const FString& Parameters)
 	TestTrue(TEXT("An alerted archer is the duel"), In.bBossAlerted);
 	TestEqual(TEXT("Duel"), HawkeyeMusic::ComputeTarget(In), EHawkeyeMusicState::Duel);
 
+	TestFalse(TEXT("No heavy among them"), In.bHeavyAlerted);
+
 	// The archer loses her: still engaged, still standing, so no win and no duel.
 	Archer->SetAlertState(EThugAlertState::Suspicious);
 	In = Music->GatherInputs(Kate);
 	TestFalse(TEXT("A suspicious archer is no duel"), In.bBossAlerted);
 	TestEqual(TEXT("Both engaged and up"), In.EngagedStanding, 2);
+
+	// The heavy seen alongside the bat is a heavy, not a boss: a fight until a third joins.
+	Archer->Weapon = EThugWeapon::Shield;
+	Archer->SetAlertState(EThugAlertState::Alerted);
+	In = Music->GatherInputs(Kate);
+	TestTrue(TEXT("An alerted heavy is noted"), In.bHeavyAlerted);
+	TestFalse(TEXT("But he is no boss"), In.bBossAlerted);
+	TestEqual(TEXT("The heavy and the bat: Fight, not Duel"), HawkeyeMusic::ComputeTarget(In), EHawkeyeMusicState::Fight);
 
 	Bat->GoLimp(Kate);
 	Archer->GoLimp(Kate);
@@ -314,6 +340,47 @@ bool FHawkeyeMusicGathers::RunTest(const FString& Parameters)
 	Music->Advance(In, 0.1f);
 	TestEqual(TEXT("And Win"), Music->GetState(), EHawkeyeMusicState::Win);
 	TestEqual(TEXT("Two transitions counted"), Music->GetTransitionCount(), 2);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeMusicPauses, "Hawkeye.Music.PausesWithPauseScreens", HawkeyeMusicTest::Flags)
+
+bool FHawkeyeMusicPauses::RunTest(const FString& Parameters)
+{
+	FHawkeyeTestWorld TestWorld;
+	UWorld* World = TestWorld.Get();
+	UHawkeyeMusicSubsystem* Music = World ? World->GetSubsystem<UHawkeyeMusicSubsystem>() : nullptr;
+	if (!Music)
+	{
+		AddError(TEXT("No music subsystem in the test world."));
+		return false;
+	}
+	TestTrue(TEXT("It ticks under a pause, to hold the sound"), Music->IsTickableWhenPaused());
+	FHawkeyeMusicInputs Fight;
+	Fight.AlertedStanding = 2;
+	Fight.NearestAlertedCm = 300.f;
+	Fight.EngagedStanding = 2;
+	Music->Advance(Fight, 0.1f);
+	TestEqual(TEXT("A fight on"), Music->GetState(), EHawkeyeMusicState::Fight);
+	TestFalse(TEXT("Not held before any pause"), Music->IsScorePaused());
+
+	// A pause screen pauses the world (SetPause names a pauser): the next tick holds the music and does not
+	// step the rules, however long the frame.
+	APlayerState* Pauser = Cast<APlayerState>(TestWorld.SpawnActor(APlayerState::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
+	World->GetWorldSettings()->SetPauserPlayerState(Pauser);
+	TestTrue(TEXT("The world is paused"), World->IsPaused());
+	const int32 Before = Music->GetTransitionCount();
+	Music->Tick(0.1f);
+	TestTrue(TEXT("Held while the screen is open"), Music->IsScorePaused());
+	Music->Tick(10.f);
+	TestEqual(TEXT("Its state kept"), Music->GetState(), EHawkeyeMusicState::Fight);
+	TestEqual(TEXT("No transition under the pause"), Music->GetTransitionCount(), Before);
+
+	// Closing it lets go; the fight carries on where it was.
+	World->GetWorldSettings()->SetPauserPlayerState(nullptr);
+	Music->Tick(0.1f);
+	TestFalse(TEXT("Resumed on close"), Music->IsScorePaused());
+	TestEqual(TEXT("Still the fight"), Music->GetState(), EHawkeyeMusicState::Fight);
 	return true;
 }
 
