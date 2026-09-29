@@ -90,22 +90,24 @@
     {"room": "office", "tag": "table", "at": [400, 700]},
     {"room": "office", "tag": "bed", "at": [400, 250], "yaw": 90},
     {"room": "vault", "tag": "crates", "at": [100, 100]},
-    {"room": "vault", "tag": "crates", "at": [100, 250]},
+    {"room": "vault", "tag": "crates", "at": [100, 420]},
     {"room": "vault", "tag": "crates", "at": [300, 420]},
     {"room": "vault", "tag": "pallet", "at": [280, 150]},
     {"room": "vault", "tag": "shelves", "at": [370, 260], "yaw": 180},
     {"room": "vault", "tag": "display_case", "at": [200, 280]}
   ],
-  "patrols": [
-    {"id": "lobby", "weapon": "FISTS", "points": [["lobby", 170, 200], ["lobby", 600, 200]]},
-    {"id": "hall_front", "weapon": "BAT", "points": [["hall", 500, 300], ["hall", 1100, 300]]},
-    {"id": "hall_back", "weapon": "FISTS", "points": [["hall", 500, 1080], ["hall", 1100, 1080]]},
-    {"id": "hall_under", "weapon": "BAT", "points": [["hall", 200, 200], ["hall", 200, 1200]]},
-    {"id": "gallery", "weapon": "FISTS", "points": [["gallery", 250, 150], ["gallery", 250, 1250]]},
-    {"id": "office", "weapon": "PISTOL", "points": [["office", 100, 150], ["office", 100, 700]]}
+  "enemies": [
+    {"id": "lobby", "type": "FISTS", "room": "lobby", "at": [620, 300], "wait": 3.0, "alert_group": "front",
+     "patrol": [["lobby", 250, 480], ["office", 250, 300]]},
+    {"id": "hall", "type": "BAT", "room": "hall", "wait": 3.0, "alert_group": "hall",
+     "patrol": [["hall", 700, 300], ["hall", 700, 1100]]},
+    {"id": "gallery", "type": "PISTOL", "room": "gallery", "facing": 0, "wait": 4.0, "alert_group": "hall",
+     "patrol": [["gallery", 350, 250, 0, -25], ["gallery", 350, 1150, 0, -25]]},
+    {"id": "vault", "type": "BOW", "room": "hall", "wait": 3.0, "alert_group": "hall",
+     "patrol": [["hall", 1300, 1000], ["hall", 1300, 1350]]}
   ],
-  "pickups": [
-    {"id": "vault_key", "room": "office", "kind": "keycard", "keycard": "vault", "at": [300, 420], "z": 76}
+  "keycards": [
+    {"keycard": "vault", "carrier": "vault"}
   ],
   "anchors": [
     {"room": "gallery", "side": "E", "at": 1000},
