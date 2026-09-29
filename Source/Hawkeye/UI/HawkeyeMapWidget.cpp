@@ -486,6 +486,12 @@ FReply UHawkeyeMapWidget::NativeOnMouseButtonUp(const FGeometry& InGeometry, con
 
 FReply UHawkeyeMapWidget::NativeOnMouseMove(const FGeometry& InGeometry, const FPointerEvent& InMouseEvent)
 {
+	// Slate synthesises a move every frame the widget under a still mouse changes; only a real one
+	// takes the cursor from the stick (or from where the map put it on opening).
+	if (!bDragging && InMouseEvent.GetCursorDelta().IsNearlyZero())
+	{
+		return FReply::Handled();
+	}
 	const FVector2D Local = InGeometry.AbsoluteToLocal(InMouseEvent.GetScreenSpacePosition());
 	if (bDragging)
 	{

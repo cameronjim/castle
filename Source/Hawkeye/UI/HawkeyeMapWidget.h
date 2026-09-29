@@ -108,7 +108,7 @@ public:
 	float HoverRadius = 16.f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Colors")
-	FLinearColor BackgroundColor = FLinearColor(0.004f, 0.004f, 0.006f, 0.97f);
+	FLinearColor BackgroundColor = FLinearColor(0.004f, 0.004f, 0.006f, 1.f);
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Colors")
 	FLinearColor FootprintColor = FLinearColor(0.045f, 0.045f, 0.05f, 1.f);
@@ -117,7 +117,7 @@ public:
 	FLinearColor ParkColor = FLinearColor(0.03f, 0.07f, 0.03f, 1.f);
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Colors")
-	FLinearColor StreetColor = FLinearColor(0.13f, 0.13f, 0.14f, 1.f);
+	FLinearColor StreetColor = FLinearColor(0.1f, 0.1f, 0.11f, 1.f);
 
 	/** The partner's arrow. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Map|Colors")
