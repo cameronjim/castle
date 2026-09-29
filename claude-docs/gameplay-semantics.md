@@ -62,6 +62,8 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   (no use limit, and grapple arrows have no count); grey means it would not (an arrow still in
   flight); a smaller grey diamond marks an anchor in view whose line is blocked.
   Rules in the traversal section; the look per state is `UHawkeyeHudWidget::GetGrappleMarkerLook`.
+- No minimap: the compass is the HUD. The world map is its own paused screen (M, or hold D-pad up); see
+  "World map".
 
 ## PLANNED: traversal
 - Parkour (built 2026-09-26). Vault and mantle run through the Game Animation Sample's
@@ -483,8 +485,8 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 | Right trigger | Draw and release |
 | Left trigger | Aim |
 | RB | Grapple |
-| D-pad up / down | Standard arrows / grapple arrows; left / right cycle slots |
-| View | Quiver and inventory |
+| D-pad up / down | Tap: standard arrows / grapple arrows (on release). Hold 0.4 s: the world map / the phone. Left / right cycle slots |
+| View | Inventory (tap), quiver wheel (hold); so the map is a hold of D-pad up, M on keys |
 | Menu | Pause |
 
 Stick up looks up by default (a double negation once inverted it; fixed 2026-09-27). `bInvertMouseY`
@@ -1087,6 +1089,38 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   safehouse found yet]": playtest note 12). The first time the player is within 60 m of an
   unfound one, a "[Safehouse nearby]" toast and the marker on it (once a campaign, in
   `NoticedPlaces`). Chapter select is still a stub. Crime spots keep 40 m clear of both.
+
+## World map (built 2026-09-29, from "couldn't find the safehouses or the pedestals")
+- M on keys, a 0.4 s hold of D-pad up on a pad (View is already the inventory on a tap and the
+  quiver wheel on a hold, and R3 the partner mark, so the map takes the D-pad hold the phone
+  already uses on down; a tap of up is still the standard arrows, now on release). Refused, like
+  the phone, under any menu, the inventory, the phone, a flashback, a close-up or a chapter beat.
+  The game pauses under it. M, Escape, B, Menu or D-pad up close it; Escape never also opens the
+  pause menu. No minimap: the compass is the HUD.
+- `UHawkeyeMapWidget`, painted in `NativePaint` with the engine's Slate draw calls (`MakeCustomVerts`
+  for filled footprints, ear-clipped once by GeometryCore; `MakeLines` for streets; `MakeBox` and
+  `MakeText`); no plugin. It draws `DA_EastVillage_Map` (`UCityMapData`, written by
+  generate_city.py): footprints dark grey, the park a muted green, streets lighter grey at their
+  carriageway width, on a near-black ground. North up (world -Y), the district's bounding box fitted
+  into the screen less a 16 px gutter and the legend row.
+- Icons (`FHawkeyeMapIcons::Build`, drawn in this order): the interior door, other secondary markers
+  (a small purple diamond), safehouses (the compass's house, filled once found, hollow before,
+  "[Unknown safehouse]" until found), pedestals (the medal, gold, silver or bronze for the best medal
+  earned, the palette's purple before one), the crime in progress (a danger-red diamond with "!"),
+  the current objective (the cream diamond), Clint (a small grey arrow) and the player (a purple
+  arrow along her heading) on top. A marked place gets a cream ring; its own secondary marker is
+  not drawn again. Icons take the HUD scale and the colour palette. A legend row runs along the
+  bottom with each glyph and the key hints (keyboard or pad, whichever was touched last).
+- A cursor (the mouse, or the left stick at 700 px/s, pushing the map when it meets the edge) over
+  an icon (within 16 px) shows its name, medal and distance from the player; markable icons win
+  over nearer ones. Enter, Space, A or a click on a safehouse or pedestal marks it through the
+  "Mark nearest" plumbing (`USafehouseSubsystem::MarkSafehouse`, `UChallengeSubsystem::MarkChallenge`),
+  so the world marker and the compass follow; marking one kind takes the other kind's marker down
+  (one marked place from the map), and marking the marked place again clears it. Fast travel is
+  not on the map; it stays in the safehouse menu.
+- The wheel (x1.25 a notch) or the right stick zooms 1x to 3x about the cursor; a drag pans. The view
+  never leaves the district; at 1x it is centred and does not pan. The map opens at 1x with the
+  cursor on the player. (`Hawkeye.Map.*`, `map_open.png` in the Kate pass.)
 
 ## Combat animation clips (built 2026-09-27/28; pipeline in claude-docs/animation.md)
 - A character's clips come from a `UCombatAnimSet` data asset (`DA_AnimSet_Kate`, `_Clint`,

@@ -197,6 +197,15 @@ Facts that matter:
 - `overpass-api.de` rejects PowerShell's default user agent; the fetch script sends its
   own and falls back to `overpass.kumi.systems`.
 - World Partition is off for the single block. Stage 3 turns it on.
+- The world map's data, `/Game/City/EastVillage/DA_EastVillage_Map` (`UCityMapData`), is written by
+  the same run (`ensure_city_map`): every footprint and the park cleaned to a few points (edges
+  under 1 m merged, vertices within 50 cm of their neighbours' line dropped), every street piece
+  Douglas-Peucker'd to 50 cm with its width, and the ground rectangle's bounding box, all world cm
+  in whole centimetres. 526 footprints at 6.8 points each, 1 park, 46 street pieces, 826 x 711 m;
+  the asset is 142 KB. It carries a `SourceHash` like the props asset, so a rerun on the same
+  records logs "hash unchanged" and saves nothing. `generate-city.ps1` hides `/Game/City/` lines
+  from its console summary; the line is in `Saved\Logs\HawkeyeCity.log`. The widget loads it by
+  path, so `/Game/City/EastVillage` is in `DirectoriesToAlwaysCook`.
 
 ## Packaging
 
