@@ -380,6 +380,12 @@ bool UMeleeComponent::AdvanceClipSwing(float DeltaSeconds)
 	}
 	const bool bWindupFromClip = Phase == EMeleePhase::Windup && bHitFromNotify;
 	const bool bRecoverFromClip = Phase == EMeleePhase::Recover && bComboFromNotify;
+	if (bWindupFromClip)
+	{
+		// The notify lands the hit, but the telegraph's clock still runs: the parry window (Hard ignores its first
+		// 0.1 s) and GetTelegraphElapsed read it. A fitted thug clip opens its hit window as this reaches 0.
+		PhaseRemaining = FMath::Max(PhaseRemaining - FMath::Max(DeltaSeconds, 0.f), 0.f);
+	}
 	if (bHitWindowOpen && !bSwingResolved)
 	{
 		bSwingResolved = ResolveSweep();
