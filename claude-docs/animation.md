@@ -112,12 +112,15 @@ the striking hand is about two thirds out, and the stretch starts at or just bef
 | AM_Light3_JabElbow (the left jab; the elbow after it is cut) | 2 of 2 | 0.48-1.40 | 1.7 | 0.25 s | 0.34-0.52 s | 0.54 s |
 | AM_Kick_Kicking (the front kick) | 1 of 2 | 0.20-1.35 | 1.2 | 0.29 s | 0.46-0.92 s | 0.96 s |
 | AM_Kick_SideKick | 2 of 2 | 0.20-1.45 | 1.4 | 0.29 s | 0.46-0.87 s | 0.89 s |
-| AM_Heavy_SurpriseUppercut | 1 of 2 | 0.65-1.80 | 1.1 | 0.41 s | 0.59-1.00 s | 1.05 s |
-| AM_Heavy_Roundhouse (right roundhouse kick) | 2 of 2 | 0.40-1.65 | 1.2 | 0.39 s | 0.58-1.00 s | 1.04 s |
+| AM_Heavy_Roundhouse (right roundhouse kick) | 1 of 2 | 0.40-1.65 | 1.2 | 0.39 s | 0.58-1.00 s | 1.04 s |
+| AM_Heavy_SurpriseUppercut | 2 of 2 | 0.65-1.80 | 1.1 | 0.41 s | 0.59-1.00 s | 1.05 s |
 
 Variants (2026-09-28): each strike takes the next clip of its role in manifest order, so Kate's heavy
-goes Surprise Uppercut, Roundhouse, Surprise Uppercut; the log line "heavy variant 2 of 2 for
-ECombatAnimRole::Heavy: AM_Heavy_Roundhouse" says which. The second variants were measured the same
+goes Roundhouse, Surprise Uppercut, Roundhouse (Roundhouse first since 2026-09-29: side on, the
+uppercut's hit window shows her back, hips 47 degrees turned and the fist still 46 cm out to her right
+at 101 cm, while the roundhouse's foot is 61 cm out at 83 cm; a later trim would not help, the turn is
+the move); the log line "heavy variant 2 of 2 for ECombatAnimRole::Heavy: AM_Heavy_SurpriseUppercut"
+says which. The second variants were measured the same
 way (`GetRawBoneLocation` per frame of the retargeted `A_` clip): the hit opens when the fist or foot is
 80 to 90% of its way out. The Roundhouse's standing leg straightens from her bent-knee idle: her pelvis
 is 16 cm above standing at the hit (95 against 79 cm), the standing foot flat on the ground.
@@ -125,8 +128,8 @@ The Kick role plays Kicking first (2026-09-28): at the side kick's hit Kate's to
 standing hip, head at 123 cm (its import `check` line says so: head +23 at mid-clip); the front kick
 stays upright (head 142 cm) and lands at the same time. Side Kick is the second kick variant; only the
 Light3 fallback and the kick shot play the Kick role, so whether it stays is Cameron's call. The thugs'
-fists alternate Standing Melee Punch and Jab To Elbow (both fitted to the telegraph); the run-jump attack
-is `"in_set": false`.
+fists alternate Jab To Elbow and Standing Melee Punch (both fitted to the telegraph; the jab first since
+2026-09-29, see below); the run-jump attack is `"in_set": false`.
 
 Thug strikes are trimmed the same way but kept at rate 1 in the manifest; the melee component fits
 them to the attack's telegraph when they play (`HawkeyeCombatAnim::FitHitToWindup`): the rate that
@@ -137,13 +140,15 @@ The numbers come from the striking hand's forward reach per frame, as for Kate's
 
 | Clip | Stretch (s) | Hit (s) | Swings | Fit, hit lands at | Hit to end |
 |------|-------------|---------|--------|-------------------|------------|
-| AM_Light1_MeleePunch | 0.00-0.75 | 0.25-0.35 | fists 0.6 s | held 0.29 s, 0.8x, 0.60 s | 0.63 s |
+| AM_Light1_JabElbow (fists, first variant) | 0.30-1.40 | 0.85-0.95 | fists 0.6 s | 0.92x, 0.60 s | 0.60 s |
+| AM_Light1_MeleePunch (fists, second variant) | 0.00-0.75 | 0.25-0.35 | fists 0.6 s | held 0.29 s, 0.8x, 0.60 s | 0.63 s |
 | AM_Heavy_MeleeHorizontal | 0.00-1.50 | 0.87-0.97 | bat 0.6 s, bash 0.8 s, slow swing 1.0 s | 1.3x from 0.09 s, 0.60 s; 1.09x, 0.80 s; 0.87x, 1.00 s | 0.48, 0.58, 0.72 s |
-| AM_Light1_JabElbow (fists, second variant) | 0.30-1.40 | 0.85-0.95 | fists 0.6 s | 0.92x, 0.60 s | 0.60 s |
 | AM_Heavy_RunJumpAttack (`in_set: false`) | 0.55-2.40 | 1.64-1.74 | | a jump attack; its pelvis leaves the ground | |
 
 Standing Melee Punch has only 0.25 s of wind-up, hence the hold; the Jab To Elbow jab fits 0.6 s
-with none, and since 2026-09-28 every second fists swing plays it. The thug's reactions: Knocked
+with none. Since 2026-09-29 the jab is the first fists variant: `thug_punch.png` and `thug_punch_2.png`
+(0.3 s into the telegraph, side on) show the jab with his guard up (right hand at 160 cm) and the punch
+still in its held first frame, hands low (107 to 112 cm), which reads as standing about, not winding up. The thug's reactions: Knocked
 Out plays 0.80-2.60 s (0.9 s of standing still cut; on the floor by 1.4 s, holding its last frame
 there), Sweep Fall 0.60-2.00 s (starts as his feet go). Receive Punch To The Face starts reacting on
 its second frame and is untrimmed.
@@ -277,9 +282,9 @@ Nobody can watch a headless run, so the scripts read bones:
 ## Known limits
 
 - Kate's clip-timed lights land at 0.25 s, not the procedural 0.1 s (a clip needs a visible swing).
-- The thug's fists hold their first frame for 0.29 s of the 0.6 s telegraph (Standing Melee Punch's
-  wind-up is short). It reads as squaring up, not as slow motion; a clip with a longer wind-up
-  (the Jab To Elbow jab) would need no hold.
+- Every second fists swing (Standing Melee Punch) still holds its first frame for 0.29 s of the 0.6 s
+  telegraph (its wind-up is short); the first (Jab To Elbow) needs no hold. Leaving the punch out of the
+  set (`"in_set": false`) would make every swing the jab, at the cost of variety.
 - There is no GetUp clip yet: a Mixamo knockdown holds its last frame on the floor, then blends back
   to locomotion over 0.4 s.
 - The aim offset under-pitches a little: Sparrow's CU and CD poses sit at +-90 on the axis but aim

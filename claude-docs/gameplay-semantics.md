@@ -807,8 +807,8 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   a new pick moves it, a swing at nobody clears it, his death or removal clears it. A knocked-down
   thug's ring follows his body. One marker, Kate's only.
 - Telegraph glyph: while a thug winds up a strike a parry answers (fists, bat, the heavy's bash and
-  slow swing), the "!" over him is the telegraph's, not the alert's: 30 px bold (the alert glyph is
-  20), a 2 px outline, the palette's danger colour (default red-orange 1.0/0.35/0.08; deuteranopia hot
+  slow swing), the "!" over him is the telegraph's, not the alert's: 36 px bold (the alert glyph is
+  20), a 2 px outline, the palette's danger colour (default red-orange 1.0/0.16/0.03 linear; deuteranopia hot
   pink, protanopia orange, tritanopia orange-yellow, each kept apart from that palette's other four
   accents), growing to 1.3x by the hit and pulsing 5 times a second by up to 0.12x (reduce flashing
   scales the pulse to 30%, the growth stays). A gunner's raised pistol gets it only within 600 cm of
@@ -830,9 +830,21 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   every 0.1 s) make a fight. The hip arm lengthens by 70 cm and the lens tips down 4 degrees, blended
   at a constant rate over 0.5 s in and 1 s out, smoothstepped. It is multiplied out by the aim blend
   (the bow's camera is untouched) and by a finisher's push-in (the push reads from the plain hip arm,
-  as before). Indoors the hip arm still never passes `IndoorArmLength`. The spring arm's probe still
-  pulls the longer arm in against walls (`fight_camera_wall.png` checks she stays framed and drawn).
-  The log says "fight camera in (2 alerted thugs within 600 cm)" and "out".
+  as before; there is no push-in on ordinary strikes, and the fight camera holds through them).
+  Indoors the hip arm still never passes `IndoorArmLength`. The spring arm's probe still pulls the
+  longer arm in against walls. The log says "fight camera in (2 alerted thugs within 600 cm)" and "out".
+- Measured (standalone `Hawkeye.Screenshot.Melee`, 2026-09-29): in the open street with two thugs at
+  3.2 and 4.4 m the arm is 420 cm (hip 350), the lens 430 cm from the pivot, pitch -4 degrees, Kate's
+  head and feet at -0.07 and +0.23 of the screen from its centre, both thugs in frame. With her back
+  150 cm from a building the probe holds the lens at 147 cm; she is drawn (not hidden), head at -0.36,
+  feet at +0.50 (the bottom edge), both thugs in frame. The shot fails if she is hidden or her head
+  or feet leave the screen.
+- Clip order for readability (2026-09-29): Kate's first heavy is the Roundhouse and the Surprise
+  Uppercut second (side on, the uppercut's hit window shows her back, hips 47 degrees turned, the
+  striking hand 46 cm out to her right at 101 cm; the roundhouse's foot is 61 cm out at 83 cm). The
+  thug's first fists swing is Jab To Elbow and Standing Melee Punch second (0.3 s into the telegraph
+  the jab has his guard up, right hand at 160 cm; the punch is still holding its first frame, hands
+  low at 107 to 112 cm, which reads as standing about).
 
 ## Arrows in bodies (fixed 2026-09-28, from playtest note "they're like a foot away from her")
 - The cause: an arrow meets the capsule (34 to 42 cm radius), not the body, and was embedded at
@@ -1010,7 +1022,7 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   Heavy, Kick) takes the next variant of its role in order, round again after the last, so with two or
   more no clip plays twice running; a role with one clip plays it every time, as before. The cycle is
   per character and per role (a chain's Light1 and the next chain's Light1 differ). The log says which:
-  "heavy variant 2 of 2 for ECombatAnimRole::Heavy: AM_Heavy_Roundhouse". Every other role (dodges,
+  "heavy variant 2 of 2 for ECombatAnimRole::Heavy: AM_Heavy_SurpriseUppercut". Every other role (dodges,
   reactions, knockdown, finisher, bow) plays its first clip only. A variant that does not load gives way
   to the role's first clip.
 - Clips are retargeted, never used on their source skeleton: Kate and Clint's onto the UEFN
@@ -1037,8 +1049,8 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   0.35 s timer and ends the swing at RecoverSeconds.
 - Kate's strike timing with clips (2026-09-28; each clip's start, end, rate and windows are in the
   manifest, in the source clip's seconds): Light1, Light2 and Light3 land 0.24 to 0.26 s after the
-  input with either variant, Kick 0.29 s (Kicking and Side Kick), Heavy 0.41 s (Surprise Uppercut) or
-  0.39 s (Roundhouse). A light's montage lasts 0.54 to 0.81 s; its combo window opens
+  input with either variant, Kick 0.29 s (Kicking and Side Kick), Heavy 0.39 s (Roundhouse, first since
+  2026-09-29) or 0.41 s (Surprise Uppercut). A light's montage lasts 0.54 to 0.81 s; its combo window opens
   about 0.1 s after its hit and closes 0.3 to 0.5 s after it, so the 0.35 s chain rule holds to within
   about 0.15 s either way. Pressed as each lands, three lights land at about 0.25, 0.6 and 1.0 s and the
   chain is over by about 1.4 s. The procedural lights still land at 0.1 s.
@@ -1049,8 +1061,9 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   wind-up too long for 1.3x starts part way in, one too short for 0.8x holds its first frame (he
   squares up) for the difference. Kate's clips play at rate 1.
 - Thug clip timings (2026-09-28; trims in the manifest, measured on the district's thugs by
-  `Hawkeye.Smoke.ThugClipsStrikeOnTheTelegraph`): fists (Standing Melee Punch, 0.25 s of wind-up)
-  hold 0.29 s then play at 0.8x and land at 0.60 s; bat (Standing Melee Attack Horizontal, 0.87 s of
+  `Hawkeye.Smoke.ThugClipsStrikeOnTheTelegraph`): fists (Jab To Elbow first since 2026-09-29, 0.92x,
+  no hold; then Standing Melee Punch, 0.25 s of wind-up, which holds 0.29 s then plays at 0.8x) land
+  at 0.60 s; bat (Standing Melee Attack Horizontal, 0.87 s of
   wind-up, one clip for the bat, bash and slow swing) plays at 1.3x from 0.09 s in and lands at 0.60 s;
   bash 1.09x, 0.80 s; slow swing 0.87x, 1.00 s. Each swing is over (montage ended) 0.48 to 0.72 s after
   its hit. A clip knockdown falls within 1.4 s and holds on the floor; the finisher's victim clip
