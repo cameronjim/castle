@@ -1120,7 +1120,8 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   `_0`, 6.4 s, 0 hits, the runner tripped by a bola 8 m from her 63 m short of his escape, the
   loot walked over; ambush in the alley `_12`, 13.5 s, 0 hits, a bola on the gunner then
   strikes, a parry and three finishers; rooftop on `_10` (13.7 m), grappled up from the street
-  27 m out in one press, 9.2 s, 0 hits, two arrows, six strikes and a finisher. A crime waits out
+  27 m out in one press every run, 9.2 to 15.7 s over four runs with 0 or 1 hit (the archer, 30),
+  two or three arrows, six to nine strikes and a finisher. A crime waits out
   a fight: with a thug still alerted or Clint's fight clock running (10 s after the last blow) the
   schedule does not run, so back-to-back laps start 5 to 10 s after set-up. The laps found: a thug
   walking to where she landed a zip by a parapet asked for a goal off the roof's navmesh and failed
