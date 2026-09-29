@@ -867,6 +867,11 @@ format is in `claude-docs/asset-conventions.md`, "Interior layouts".
   (stub), Chapter select (stub), Leave.
 - Main menu overlays the paused district on first boot: Continue (when a save exists),
   New Game, Settings, Quit. The pause menu has Quit to menu.
+- Quit to menu saves first (reason "quit to menu"; refused and logged, as any save is, while she is
+  down, in a playable scene or mid-load), so Continue brings back that moment: the thugs where they
+  stood, the quiver, her health, the hints, the phone (a text still on its delay arrives on
+  schedule). Before 2026-09-29 Continue went back to the last autosave, with the street patrol 8 to
+  16 m from where the player left it and her health from the last objective (`Hawkeye.Lap.Campaign`).
 - Interaction now also works when the player stands inside an interactable's zone (the
   camera trace alone couldn't reach from 350 cm behind her).
 
@@ -1008,6 +1013,12 @@ format is in `claude-docs/asset-conventions.md`, "Interior layouts".
   close-up camera push, then the end card (`EndCardLine` from the mission), then the
   flashback if set, then back to roaming with a "[Chapter complete]" toast. CH01's is the
   purple-fletched arrow in `City_ChapterEndTower`; the find_arrow trigger volume is gone.
+  Not examined while a thug is alerted (CH01's ArcherPair guards the arrow: examined under them, the
+  sequence ran and the return from the scene put Kate back in their sight, down 4 s after the toast)
+  or while she is down (the sequence ran with her on the ground and the objective's autosave was
+  refused). Down or dead, nothing is interactable: no prompt, and E does nothing
+  (`Hawkeye.MissionFlow.ChapterEndWaitsOutAFight`). A player who reaches the arrow unseen can still
+  be seen from the return point by archers left standing.
 - Flashback playable scene: `PlayableScene` and `ReturnPointLabel` on the definition.
   After the slides the scene map loads; the district is saved first, saves are refused
   inside the scene, and its mission completion returns to `City_SceneReturn_<id>` with
@@ -1334,7 +1345,9 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   0.35 s during which Kate and Clint are moved to the destination door and the game
   autosaves with them there (destination recorded as last used), fade in 0.6 s; about
   1.5 s fade to fade, no map reload. Refused with a "[Can't fast travel now]" toast during
-  a crime or challenge.
+  a crime or challenge, a fight (a thug alerted, or Clint's fight clock running) or while she is
+  down (2026-09-29, `Hawkeye.Lap.Campaign`: the ArcherPair downed her during the 1.5 s fade and the
+  travel's autosave was refused).
 - Both safehouses always show on the compass, found ones as filled houses, unfound ones
   hollow. The pause menu's "Mark nearest safehouse" marks the nearest one whether found
   or not (it only looked at found ones, so with none found it did nothing but toast "[No
