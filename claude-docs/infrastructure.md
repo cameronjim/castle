@@ -218,7 +218,7 @@ Facts that matter:
   2026-09-29, before the facade anchors and after: 1691 / 2457 anchors; roofs with no anchor reachable
   from a 10 m sidewalk spot 265 / 92, from any 2.5 m spot 236 / 34 (of the 34, 20 have no sidewalk in
   range and 5 are inside their blocks); roof pairs across a gap not reaching each other 991 / 519 of about
-  3,500 in range; anchors reachable from nowhere 31 / 54 (the tie rule and inner courtyards); the
+  3,500 in range; anchors no spot reaches 31 / 54 (corners on back yards and shared walls; the spots are a sample); the
   reach_roof roof reachable from the street by 0 / 1 anchors, find_arrow 1 / 2.
 - World Partition is off for the single block. Stage 3 turns it on.
 - The world map's data, `/Game/City/EastVillage/DA_EastVillage_Map` (`UCityMapData`), is written by
