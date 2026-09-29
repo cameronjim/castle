@@ -145,6 +145,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Settings|Controls")
 	void SetSprintMode(EHawkeyeSprintMode NewSprintMode);
 
+	/** The first-time hints on or off. Stores, saves and broadcasts. */
+	UFUNCTION(BlueprintCallable, Category = "Settings|Controls")
+	void SetShowHints(bool bShow);
+
 	/** Clamps to [MinHudScale, MaxHudScale], stores, saves and broadcasts. */
 	UFUNCTION(BlueprintCallable, Category = "Settings|Accessibility")
 	void SetHudScale(float NewScale);

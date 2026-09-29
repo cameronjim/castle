@@ -450,7 +450,7 @@ bool FHawkeyeMusicVolumeSetting::RunTest(const FString& Parameters)
 		Settings->SlotNameOverride = Slot;
 		return Settings;
 	};
-	TestEqual(TEXT("Settings version 9 (9 added the Music slider)"), FHawkeyeSettings::CurrentVersion, 9);
+	TestTrue(TEXT("Settings version 9 or later (9 added the Music slider)"), FHawkeyeSettings::CurrentVersion >= 9);
 	ClearSlot();
 	UHawkeyeSettingsSubsystem* Writer = MakeSettings();
 	Writer->Load();
@@ -481,7 +481,7 @@ bool FHawkeyeMusicVolumeSetting::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Version 8 keeps the sensitivity"), Migrated->GetLookSensitivity(), 0.31f);
 	TestEqual(TEXT("And the ambience"), Migrated->GetAmbientVolume(), 0.5f);
 	TestEqual(TEXT("And gets the default music"), Migrated->GetMusicVolume(), 0.6f);
-	TestEqual(TEXT("Stamped version 9"), Migrated->GetStoredSettings().Version, 9);
+	TestEqual(TEXT("Stamped the current version"), Migrated->GetStoredSettings().Version, FHawkeyeSettings::CurrentVersion);
 	ClearSlot();
 
 	// The slider's gain, under the master, reaches the controller's SCL_Music override.

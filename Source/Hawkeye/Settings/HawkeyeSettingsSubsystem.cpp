@@ -180,6 +180,11 @@ void UHawkeyeSettingsSubsystem::SetSprintMode(EHawkeyeSprintMode NewSprintMode)
 	SetField(Settings.SprintMode, NewSprintMode);
 }
 
+void UHawkeyeSettingsSubsystem::SetShowHints(bool bShow)
+{
+	SetField(Settings.bShowHints, bShow);
+}
+
 void UHawkeyeSettingsSubsystem::SetHudScale(float NewScale)
 {
 	const float Clamped = ClampHudScale(NewScale);
@@ -280,8 +285,8 @@ void UHawkeyeSettingsSubsystem::Load()
 	if (LoadedVersion >= FHawkeyeSettings::OldestMigratedVersion && LoadedVersion < FHawkeyeSettings::CurrentVersion)
 	{
 		// Every field an older version lacks deserialises as its default (6: TimeOfDay, Night; 7: AimAssist, Normal;
-		// 8: SprintMode, Default; 9: MusicVolume, 0.6), so the rest of what the player set carries over. ClampSettings
-		// stamps the current version.
+		// 8: SprintMode, Default; 9: MusicVolume, 0.6; 10: bShowHints, on), so the rest of what the player set
+		// carries over. ClampSettings stamps the current version.
 		UE_LOG(LogHawkeye, Log, TEXT("Settings slot %s is version %d; migrated to %d."), *Slot, LoadedVersion,
 			FHawkeyeSettings::CurrentVersion);
 		Settings = ClampSettings(Loaded->Settings);

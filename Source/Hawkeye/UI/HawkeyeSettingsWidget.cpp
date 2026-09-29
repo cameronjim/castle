@@ -395,6 +395,7 @@ TSharedRef<SWidget> UHawkeyeSettingsWidget::RebuildWidget()
 			TEXT("AimAssist"));
 		AddChoiceRow(Left, NSLOCTEXT("Hawkeye", "SettingsSprintMode", "Sprint"), SprintModeButton, SprintModeValueText,
 			TEXT("SprintMode"));
+		AddChoiceRow(Left, NSLOCTEXT("Hawkeye", "SettingsHints", "Hints"), HintsButton, HintsValueText, TEXT("Hints"));
 		AddHeading(Left, NSLOCTEXT("Hawkeye", "SettingsAudio", "Audio"), TEXT("AudioHeading"));
 		AddSliderRow(Left, MasterVolumeLabel, MasterVolumeSlider, MasterVolumeValueText, MasterVolumeLabelText, TEXT("MasterVolume"));
 		AddSliderRow(Left, SfxVolumeLabel, SfxVolumeSlider, SfxVolumeValueText, SfxVolumeLabelText, TEXT("SfxVolume"));
@@ -529,6 +530,7 @@ void UHawkeyeSettingsWidget::BindControls(bool bBind)
 	HAWKEYE_BIND(TimeOfDayButton, OnClicked, HandleTimeOfDayClicked)
 	HAWKEYE_BIND(AimAssistButton, OnClicked, HandleAimAssistClicked)
 	HAWKEYE_BIND(SprintModeButton, OnClicked, HandleSprintModeClicked)
+	HAWKEYE_BIND(HintsButton, OnClicked, HandleHintsClicked)
 	HAWKEYE_BIND(ReduceShakeCheckBox, OnCheckStateChanged, HandleReduceShakeChanged)
 	HAWKEYE_BIND(ReduceFlashingCheckBox, OnCheckStateChanged, HandleReduceFlashingChanged)
 	HAWKEYE_BIND(HudScaleSlider, OnValueChanged, HandleHudScaleChanged)
@@ -590,6 +592,8 @@ void UHawkeyeSettingsWidget::RefreshFromSettings()
 	SetText(TimeOfDayValueText, UTimeOfDaySubsystem::GetTimeOfDayName(Current.TimeOfDay));
 	SetText(AimAssistValueText, UHawkeyeAimAssist::GetLevelName(Current.AimAssist));
 	SetText(SprintModeValueText, FHawkeyeSprintToggle::GetModeName(Current.SprintMode));
+	SetText(HintsValueText, Current.bShowHints ? NSLOCTEXT("Hawkeye", "SettingsHintsOn", "On")
+		: NSLOCTEXT("Hawkeye", "SettingsHintsOff", "Off"));
 }
 
 FText UHawkeyeSettingsWidget::GetDifficultyShown() const
@@ -605,6 +609,11 @@ FText UHawkeyeSettingsWidget::GetTimeOfDayShown() const
 FText UHawkeyeSettingsWidget::GetSprintModeShown() const
 {
 	return SprintModeValueText ? SprintModeValueText->GetText() : FText::GetEmpty();
+}
+
+FText UHawkeyeSettingsWidget::GetHintsShown() const
+{
+	return HintsValueText ? HintsValueText->GetText() : FText::GetEmpty();
 }
 
 void UHawkeyeSettingsWidget::UpdateVolumeText(UTextBlock* Text, float Value)
@@ -812,6 +821,16 @@ void UHawkeyeSettingsWidget::HandleSprintModeClicked()
 	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
 	{
 		SettingsSubsystem->SetSprintMode(HawkeyeSettingsWidgetLayout::Next(SettingsSubsystem->GetSettings().SprintMode, 3));
+	}
+	RefreshFromSettings();
+}
+
+void UHawkeyeSettingsWidget::HandleHintsClicked()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
+	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		SettingsSubsystem->SetShowHints(!SettingsSubsystem->GetSettings().bShowHints);
 	}
 	RefreshFromSettings();
 }

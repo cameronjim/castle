@@ -82,6 +82,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	FText GetSprintModeShown() const;
 
+	/** The Hints row's value as shown: "On" or "Off". */
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	FText GetHintsShown() const;
+
 	/** Rows the screen built, both columns together. */
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	int32 GetRowCount() const { return RowCount; }
@@ -159,6 +163,9 @@ protected:
 
 	UFUNCTION()
 	void HandleSprintModeClicked();
+
+	UFUNCTION()
+	void HandleHintsClicked();
 
 	/** Writes Value (0..1) into Text as a whole percentage. */
 	static void UpdateVolumeText(UTextBlock* Text, float Value);
@@ -341,6 +348,13 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings|Controls", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> SprintModeValueText = nullptr;
+
+	/** Controls: a button reading On / Off (the first-time hints). */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Controls", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> HintsButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Controls", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> HintsValueText = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;

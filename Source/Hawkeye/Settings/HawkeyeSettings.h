@@ -166,18 +166,22 @@ struct HAWKEYE_API FHawkeyeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Controls")
 	EHawkeyeSprintMode SprintMode = EHawkeyeSprintMode::Default;
 
+	/** The first-time control hints above the hotbar (UHawkeyeHintSubsystem). On by default. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Controls")
+	bool bShowHints = true;
+
 	/** Bumped whenever the meaning of a field changes. A mismatch on load yields defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-	int32 Version = 9;
+	int32 Version = 10;
 
 	/** The version this build writes and accepts. */
-	static constexpr int32 CurrentVersion = 9;
+	static constexpr int32 CurrentVersion = 10;
 
 	/**
 	 * The oldest save this build migrates rather than dropping: version 5 lacks TimeOfDay, AimAssist,
-	 * SprintMode and MusicVolume, 6 lacks AimAssist onward, 7 lacks SprintMode and MusicVolume, 8 lacks
-	 * MusicVolume; each loads as its default (Night, Normal, Default, 0.6), so everything else the player set
-	 * is kept. Older yields defaults.
+	 * SprintMode, MusicVolume and bShowHints, 6 lacks AimAssist onward, 7 lacks SprintMode onward, 8 lacks
+	 * MusicVolume and bShowHints, 9 lacks bShowHints; each loads as its default (Night, Normal, Default, 0.6,
+	 * hints on), so everything else the player set is kept. Older yields defaults.
 	 */
 	static constexpr int32 OldestMigratedVersion = 5;
 };
