@@ -264,15 +264,18 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
 	float GetHealthBarAlpha(float Distance) const;
 
-	/** Where the glyph and the bar sit: a little over his head. */
+	/** His capsule's top plus 28 cm: where the overhead stack sits for a thug with no head bone. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
 	FVector GetOverheadLocation() const;
 
-	/** Where the "!" and "?" sit: GlyphHeadClearance over his head bone (the capsule's top when he has none). */
+	/**
+	 * Where the overhead stack's bottom sits: GlyphHeadClearance over his head bone (GetOverheadLocation when he
+	 * has none). The health bar sits on it; the parry line and the glyph stack above the bar when it shows.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Thug|Readability")
 	FVector GetGlyphLocation() const;
 
-	/** How far over his head bone the glyphs sit, cm: about the top of his head, whatever his capsule. */
+	/** How far over his head bone the overhead stack sits, cm: about the top of his head, whatever his capsule. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Readability", meta = (ClampMin = "0.0"))
 	float GlyphHeadClearance = 20.f;
 

@@ -16,11 +16,11 @@ struct HAWKEYE_API FHawkeyeThugOverhead
 {
 	GENERATED_BODY()
 
-	/** Over his head, in the HUD's local space: the health bar's bottom centre. */
+	/** Just over his head bone, in the HUD's local space: the bottom centre of the stack (the health bar's bottom). */
 	UPROPERTY(BlueprintReadOnly, Category = "HUD|Thugs")
 	FVector2D Position = FVector2D::ZeroVector;
 
-	/** Just over his head bone, in the HUD's local space: the glyph's bottom centre (lifted over the bar when it shows). */
+	/** The same point: the glyph's bottom centre with no bar, the bar's with one (the glyph then stacks above it). */
 	UPROPERTY(BlueprintReadOnly, Category = "HUD|Thugs")
 	FVector2D GlyphPosition = FVector2D::ZeroVector;
 
@@ -125,6 +125,10 @@ public:
 	/** The parry line under it, px. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs")
 	FVector2D ParryCueSize = FVector2D(18.f, 3.f);
+
+	/** The gap between the bar, the parry line and the glyph stacked over his head, px (edges included). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs", meta = (ClampMin = "0.0"))
+	float StackGap = 4.f;
 
 	/** A gunner's raised pistol gets the telegraph glyph only this close to Kate, cm; further off his glint is the tell. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs", meta = (ClampMin = "0.0"))

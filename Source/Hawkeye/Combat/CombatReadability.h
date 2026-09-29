@@ -126,11 +126,13 @@ namespace HawkeyeCombatReadability
 		float PulseHz = 5.f, float PulseAmount = 0.12f);
 
 	/**
-	 * Where the bottom of the glyph over a thug goes on screen (y down, px): at AnchorY (his head bone plus a
-	 * little, projected), but never lower than StackTopY while bBarShown, so the "!" or "?" never covers his
-	 * health bar (StackTopY is the bar's top less its gap, and less the parry line when that shows).
+	 * Where the bottom of what stacks over a thug's health bar goes on screen (y down, px): the stack's bottom is
+	 * AnchorY (his head bone plus a little, projected). With no bar that is where the glyph (or the parry line
+	 * under a telegraph) sits; with the bar showing (BarHeight px tall, its edge included, bottom on AnchorY) it
+	 * sits Gap px over the bar's top, so the "!" or "?" never covers the bar and the whole stack stays just over
+	 * his head.
 	 */
-	HAWKEYE_API float ComputeGlyphBottom(float AnchorY, bool bBarShown, float StackTopY);
+	HAWKEYE_API float ComputeGlyphBottom(float AnchorY, bool bBarShown, float BarHeight, float Gap = 4.f);
 
 	/**
 	 * Whether Thug is telegraphing a strike the telegraph glyph is for: a melee swing or bash in its wind-up,

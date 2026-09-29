@@ -65,14 +65,12 @@ void UHawkeyeThugOverheadWidget::GatherEntries()
 		{
 			continue;
 		}
-		if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Thug->GetOverheadLocation(), Entry.Position, false))
+		// The whole stack sits on his head bone: the bar on it, the parry line and the glyph over the bar.
+		if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Thug->GetGlyphLocation(), Entry.GlyphPosition, false))
 		{
 			continue;
 		}
-		if (!UWidgetLayoutLibrary::ProjectWorldLocationToWidgetPosition(PC, Thug->GetGlyphLocation(), Entry.GlyphPosition, false))
-		{
-			Entry.GlyphPosition = Entry.Position;
-		}
+		Entry.Position = Entry.GlyphPosition;
 		if (Entry.bTelegraph)
 		{
 			// The strike coming outranks the alert it came with.
@@ -186,7 +184,15 @@ float UHawkeyeThugOverheadWidget::PaintGlyph(FSlateWindowElementList& OutDrawEle
 	const FVector2D Size = bCanMeasure
 		? FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(Text, Font)
 		: FVector2D(Font.Size * 0.5f, Font.Size);
-	const FVector2D TopLeft(X - Size.X * 0.5f, Bottom - Size.Y);
+	// Bottom is where the glyph's ink ends (its baseline, less its outline), not its line box: the box runs on
+	// below the baseline by the font's descent, which would leave the "!" floating well over the stack under it.
+	float Drop = Size.Y;
+	if (bCanMeasure)
+	{
+		const TSharedRef<FSlateFontMeasure> Measure = FSlateApplication::Get().GetRenderer()->GetFontMeasureService();
+		Drop = FMath::Clamp(static_cast<float>(Measure->GetMaxCharacterHeight(Font) + Measure->GetBaseline(Font)), Size.Y * 0.5f, Size.Y);
+	}
+	const FVector2D TopLeft(X - Size.X * 0.5f, Bottom - Drop - Font.OutlineSettings.OutlineSize);
 	const FLinearColor Shadow(0.f, 0.f, 0.f, 0.7f * Color.A);
 	FSlateDrawElement::MakeText(OutDrawElements, Layer,
 		AllottedGeometry.ToPaintGeometry(FVector2f(Size), FSlateLayoutTransform(FVector2f(TopLeft + FVector2D(1.5f, 1.5f)))),
@@ -236,11 +242,11 @@ int32 UHawkeyeThugOverheadWidget::NativePaint(const FPaintArgs& Args, const FGeo
 				ESlateDrawEffect::None, Ring, true, MarkerRingThickness);
 		}
 
-		float Top = Entry.Position.Y;
+		// Bottom up, just over his head: the bar, then the parry line, then the glyph, StackGap apart.
 		const bool bBar = Entry.BarAlpha > 0.f;
 		if (bBar)
 		{
-			const FVector2D BarTopLeft(Entry.Position.X - BarSize.X * 0.5f, Top - BarSize.Y);
+			const FVector2D BarTopLeft(Entry.Position.X - BarSize.X * 0.5f, Entry.Position.Y - BarSize.Y);
 			FLinearColor Back = BarBackColor;
 			Back.A *= Entry.BarAlpha;
 			// The marked thug's bar a little whiter, so the eye finds who she is hitting.
@@ -248,15 +254,15 @@ int32 UHawkeyeThugOverheadWidget::NativePaint(const FPaintArgs& Args, const FGeo
 			Fill.A = BarColor.A * Entry.BarAlpha;
 			Box(Layer, BarTopLeft - FVector2D(1.f, 1.f), BarSize + FVector2D(2.f, 2.f), Back);
 			Box(Layer + 1, BarTopLeft, FVector2D(BarSize.X * FMath::Clamp(Entry.HealthFraction, 0.f, 1.f), BarSize.Y), Fill);
-			Top -= BarSize.Y + 4.f;
 		}
 		if (Entry.Glyph.IsEmpty() || Entry.GlyphAlpha <= 0.f)
 		{
 			continue;
 		}
-		// The glyph sits just over his head, not over his capsule; lifted over the bar when that shows.
+		// The glyph sits just over his head, not over his capsule; stacked on the bar when that shows (its dark
+		// edge is 1 px over the fill).
 		const float X = Entry.GlyphPosition.X;
-		float Bottom = HawkeyeCombatReadability::ComputeGlyphBottom(Entry.GlyphPosition.Y, bBar, Top);
+		float Bottom = HawkeyeCombatReadability::ComputeGlyphBottom(Entry.GlyphPosition.Y, bBar, BarSize.Y + 1.f, StackGap);
 		if (!Entry.bTelegraph)
 		{
 			FLinearColor Color = GlyphColor;
@@ -270,7 +276,7 @@ int32 UHawkeyeThugOverheadWidget::NativePaint(const FPaintArgs& Args, const FGeo
 			const FVector2D CueTopLeft(X - ParryCueSize.X * 0.5f, Bottom - ParryCueSize.Y - 1.f);
 			Box(Layer, CueTopLeft - FVector2D(1.f, 1.f), ParryCueSize + FVector2D(2.f, 2.f), FLinearColor(0.f, 0.f, 0.f, 0.8f));
 			Box(Layer + 1, CueTopLeft, ParryCueSize, GlyphColor);
-			Bottom -= ParryCueSize.Y + 4.f;
+			Bottom -= ParryCueSize.Y + 2.f + StackGap;
 		}
 		FLinearColor Color = TelegraphColor;
 		Color.A *= Entry.GlyphAlpha;
