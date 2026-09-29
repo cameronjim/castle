@@ -748,6 +748,11 @@ the last input came from a pad.
   headshot, even when the nearest body was the head. Shields and walls are unchanged (12 cm).
 - Pickups are unchanged: a stuck arrow in a thug or on the ground is recovered within 150 cm; one
   in Kate is not.
+- Partner fire (2026-09-28, from Cameron's log: Kate downed by Clint's arrow after its thug died
+  mid-flight): an arrow shot by Kate or Clint flies through the other of the pair, whoever is
+  player-controlled; a hit on the partner that gets through anyway sticks and does nothing (no
+  damage, no stagger, no trick effect). Bola and putty only ever act on thugs. The explosive's blast
+  hurts the shooter's partner at half its falloff damage; the shooter still takes her own in full.
 
 ## Bow aim assist (built 2026-09-28, from playtest note "aim assist for the bows")
 - One setting, Aim assist: Off / Normal / Strong (default Normal), a choice row under Controls in

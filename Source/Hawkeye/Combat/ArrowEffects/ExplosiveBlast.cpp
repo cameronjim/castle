@@ -4,6 +4,7 @@
 
 #include "Settings/HawkeyeAccessibility.h"
 #include "Hawkeye.h"
+#include "Combat/ArrowProjectile.h"
 #include "Combat/HealthComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/StaticMeshComponent.h"
@@ -98,7 +99,9 @@ void AExplosiveBlast::ApplyBlast()
 	{
 		UHealthComponent* Health = Victim->FindComponentByClass<UHealthComponent>();
 		const float Distance = FVector::Dist(Victim->GetActorLocation(), ImpactPoint);
-		const float Damage = ComputeFalloffDamage(ArrowDamage, Distance, Radius);
+		// Her partner's blast still hurts, at PartnerDamageScale; the shooter takes her own in full.
+		const float Damage = ComputeFalloffDamage(ArrowDamage, Distance, Radius)
+			* (AArrowProjectile::IsPartnerOf(ShooterActor, Victim) ? PartnerDamageScale : 1.f);
 		if (!Health || Damage <= 0.f)
 		{
 			continue;

@@ -32,6 +32,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Explosive", meta = (ClampMin = "1.0"))
 	float Radius = 400.f;
 
+	/** The shooter's partner (Kate in Clint's blast, or Clint in hers) takes this share of the damage. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Explosive", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PartnerDamageScale = 0.5f;
+
 	/** How long a surviving thug is down, s. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Explosive", meta = (ClampMin = "0.0"))
 	float KnockdownSeconds = 2.f;

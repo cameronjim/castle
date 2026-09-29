@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Combat/ArrowDefinition.h"
+#include "Combat/ArrowEffects/ExplosiveBlast.h"
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
@@ -123,6 +124,92 @@ namespace HawkeyeArrowEmbedTest
 		Test.TestTrue(*FString::Printf(TEXT("%s: pointing along its flight"), *What),
 			FVector::DotProduct(Arrow->GetActorForwardVector(), Dir) > 0.999f);
 	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeArrowPartnerFire, "Hawkeye.Arrow.PartnerArrowsNeverHurtThePair",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeArrowPartnerFire::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeArrowEmbedTest;
+	FHawkeyeTestWorld TestWorld;
+	AHawkeyeCharacter* Clint = Cast<AHawkeyeCharacter>(
+		TestWorld.SpawnActor(AHawkeyeCharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator));
+	AHawkeyeCharacter* Kate = Cast<AHawkeyeCharacter>(
+		TestWorld.SpawnActor(AHawkeyeCharacter::StaticClass(), FVector(500.f, 0.f, 0.f), FRotator::ZeroRotator));
+	AThugCharacter* Thug = Cast<AThugCharacter>(
+		TestWorld.SpawnActor(AThugCharacter::StaticClass(), FVector(900.f, 300.f, 0.f), FRotator::ZeroRotator));
+	AHawkeyeTestBlocker* Wall = Cast<AHawkeyeTestBlocker>(
+		TestWorld.SpawnActor(AHawkeyeTestBlocker::StaticClass(), FVector(1000.f, 0.f, 0.f), FRotator::ZeroRotator));
+	if (!Clint || !Kate || !Thug || !Wall)
+	{
+		AddError(TEXT("Failed to spawn Clint, Kate, a thug and a wall."));
+		return false;
+	}
+	Wall->SetExtent(FVector(20.f, 300.f, 300.f));
+	TestTrue(TEXT("Kate is Clint's partner"), AArrowProjectile::IsPartnerOf(Clint, Kate));
+	TestTrue(TEXT("And he hers"), AArrowProjectile::IsPartnerOf(Kate, Clint));
+	TestFalse(TEXT("Nobody is his own partner"), AArrowProjectile::IsPartnerOf(Clint, Clint));
+	TestFalse(TEXT("A thug is nobody's partner"), AArrowProjectile::IsPartnerOf(Clint, Thug));
+	UHealthComponent* KateHealth = Kate->GetHealthComponent();
+	const float Before = KateHealth->GetCurrentHealth();
+
+	// Clint's arrow at a thug who is gone, with Kate in the way: it flies on through her into the wall.
+	UArrowDefinition* Standard = MakeStandard(GetTransientPackage());
+	Standard->Damage = 50.f;
+	AArrowProjectile* Arrow = Cast<AArrowProjectile>(TestWorld.SpawnActor(AArrowProjectile::StaticClass(), FVector(60.f, 0.f, 30.f),
+		FRotator::ZeroRotator));
+	if (!Arrow)
+	{
+		AddError(TEXT("No arrow."));
+		return false;
+	}
+	Arrow->InitArrow(Standard, nullptr, 50.f, Clint, nullptr);
+	Arrow->GetProjectileMovement()->ProjectileGravityScale = 0.f;
+	Arrow->LaunchWithVelocity(FVector(6000.f, 0.f, 0.f));
+	for (float Elapsed = 0.f; !Arrow->IsStuck() && Elapsed < 1.f; Elapsed += 0.005f)
+	{
+		Arrow->AdvanceFlight(0.005f);
+	}
+	TestTrue(TEXT("It stuck"), Arrow->IsStuck());
+	TestTrue(TEXT("In the wall behind her, not in her"), Arrow->GetStuckInActor() == Wall);
+	TestEqual(TEXT("Kate is unhurt"), KateHealth->GetCurrentHealth(), Before);
+
+	// A hit on her that got through anyway does nothing.
+	AArrowProjectile* Direct = Cast<AArrowProjectile>(TestWorld.SpawnActor(AArrowProjectile::StaticClass(), FVector(300.f, 0.f, 30.f),
+		FRotator::ZeroRotator));
+	Direct->InitArrow(Standard, nullptr, 50.f, Clint, nullptr);
+	FHitResult Hit;
+	Hit.bBlockingHit = true;
+	Hit.ImpactPoint = FVector(466.f, 0.f, 30.f);
+	Hit.Location = Hit.ImpactPoint;
+	Hit.TraceStart = FVector(300.f, 0.f, 30.f);
+	Hit.TraceEnd = FVector(600.f, 0.f, 30.f);
+	Hit.HitObjectHandle = FActorInstanceHandle(Kate);
+	Direct->HandleImpact(Hit);
+	TestEqual(TEXT("A direct hit from her partner does no damage"), KateHealth->GetCurrentHealth(), Before);
+
+	// His explosive near her: half the falloff damage for her, the full falloff for him in his own blast.
+	UArrowDefinition* Explosive = MakeStandard(GetTransientPackage());
+	Explosive->OnHitEffect = EArrowHitEffect::Explosive;
+	Explosive->Damage = 80.f;
+	UHealthComponent* ClintHealth = Clint->GetHealthComponent();
+	const float ClintBefore = ClintHealth->GetCurrentHealth();
+	FHitResult Blast;
+	Blast.bBlockingHit = true;
+	Blast.ImpactPoint = FVector(300.f, 0.f, 0.f);
+	Blast.Location = Blast.ImpactPoint;
+	AExplosiveBlast* Effect = Cast<AExplosiveBlast>(TestWorld.SpawnActor(AExplosiveBlast::StaticClass(), Blast.ImpactPoint, FRotator::ZeroRotator));
+	if (!Effect)
+	{
+		AddError(TEXT("No blast."));
+		return false;
+	}
+	Effect->InitEffect(Explosive, Clint, Blast);
+	Effect->Activate();
+	TestEqual(TEXT("Kate 200 cm from Clint's blast takes half of 40"), KateHealth->GetCurrentHealth(), Before - 20.f, 0.01f);
+	TestEqual(TEXT("Clint 300 cm from his own takes all of 20"), ClintHealth->GetCurrentHealth(), ClintBefore - 20.f, 0.01f);
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeArrowEmbedsInKate, "Hawkeye.Arrow.EmbedsInKatesBody",

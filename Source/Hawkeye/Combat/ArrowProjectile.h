@@ -64,6 +64,12 @@ public:
 	static bool FindBodyEntry(const USkeletalMeshComponent& Body, const FVector& Start, const FVector& Direction, float Length,
 		FVector& OutPoint, FName& OutBone, bool& bOutEntered);
 
+	/**
+	 * True when Victim is the other of the Kate and Clint pair from Shooter (both player characters, not the same
+	 * one): partner fire (gameplay-semantics.md, "Arrows in bodies"). Their arrows fly through each other.
+	 */
+	static bool IsPartnerOf(const AActor* Shooter, const AActor* Victim);
+
 	/** The skeletal mesh an arrow sticks into on Actor: a character's own mesh, else the first one it has. */
 	static USkeletalMeshComponent* FindBodyMesh(const AActor* Actor);
 

@@ -14,6 +14,7 @@
 #include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "EngineUtils.h"
 #include "GameFramework/Character.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 #include "PhysicsEngine/SkeletalBodySetup.h"
@@ -28,6 +29,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Player/HawkeyeCharacter.h"
 #include "Player/InventoryComponent.h"
 #include "HawkeyePlayerController.h"
 #include "UI/HawkeyeHudWidget.h"
@@ -49,6 +51,11 @@ namespace HawkeyeArrow
 	/** The walk's smallest step and most steps. */
 	static constexpr float BodyMinStep = 1.f;
 	static constexpr int32 BodyMaxSteps = 128;
+}
+
+bool AArrowProjectile::IsPartnerOf(const AActor* Shooter, const AActor* Victim)
+{
+	return Shooter && Victim && Shooter != Victim && Shooter->IsA<AHawkeyeCharacter>() && Victim->IsA<AHawkeyeCharacter>();
 }
 
 USkeletalMeshComponent* AArrowProjectile::FindBodyMesh(const AActor* Actor)
@@ -281,6 +288,17 @@ void AArrowProjectile::InitArrow(UArrowDefinition* InArrow, UBowDefinition* InBo
 	{
 		// It leaves from her hand, inside her own capsule.
 		Collision->IgnoreActorWhenMoving(InShooter, true);
+		// And never stops in her partner: Clint's arrow at a thug who dies before it lands flies on past Kate.
+		if (UWorld* World = GetWorld(); World && InShooter->IsA<AHawkeyeCharacter>())
+		{
+			for (TActorIterator<AHawkeyeCharacter> It(World); It; ++It)
+			{
+				if (IsPartnerOf(InShooter, *It))
+				{
+					Collision->IgnoreActorWhenMoving(*It, true);
+				}
+			}
+		}
 	}
 
 	// Pale shaft so it reads against a dark jacket, coloured fletching, Kate's purple nock (glowing
@@ -541,6 +559,15 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 		ShieldHit.BoneName = NAME_None;
 		Embed(ShieldHit, Direction, NAME_None);
 		SpawnHitEffect(Hit);
+		return;
+	}
+
+	// Her partner's arrow (a hit the flight's ignore list did not catch): it sticks, and does nothing else.
+	if (IsPartnerOf(Shooter.Get(), Hit.GetActor()))
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %s's arrow met %s, his partner: no damage, no effect."), *GetNameSafe(Arrow),
+			*GetNameSafe(Shooter.Get()), *GetNameSafe(Hit.GetActor()));
+		Embed(Hit, Direction, NAME_None);
 		return;
 	}
 
