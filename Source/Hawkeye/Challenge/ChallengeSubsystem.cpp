@@ -193,15 +193,20 @@ AChallengeStart* UChallengeSubsystem::FindUnnoticedStart(const FVector& From, fl
 AChallengeStart* UChallengeSubsystem::MarkNearestChallenge(const FVector& From)
 {
 	AChallengeStart* Nearest = FindNearestStart(From);
+	return MarkChallenge(Nearest) ? Nearest : nullptr;
+}
+
+bool UChallengeSubsystem::MarkChallenge(AChallengeStart* Start)
+{
 	UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
-	if (!Nearest || !Missions)
+	if (!IsValid(Start) || !Start->Definition || !Missions)
 	{
-		return nullptr;
+		return false;
 	}
-	MarkedStart = Nearest;
-	Missions->SetSecondaryMarkers(StartMarkerSource, { Nearest->GetActorLocation() + FVector(0.f, 0.f, StartMarkerUp) });
-	UE_LOG(LogHawkeye, Log, TEXT("%s: marked challenge %s at %s."), *GetName(), *Nearest->Definition->Id.ToString(), *Nearest->GetName());
-	return Nearest;
+	MarkedStart = Start;
+	Missions->SetSecondaryMarkers(StartMarkerSource, { Start->GetActorLocation() + FVector(0.f, 0.f, StartMarkerUp) });
+	UE_LOG(LogHawkeye, Log, TEXT("%s: marked challenge %s at %s."), *GetName(), *Start->Definition->Id.ToString(), *Start->GetName());
+	return true;
 }
 
 void UChallengeSubsystem::ClearChallengeMarker()

@@ -67,6 +67,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Challenge")
 	AChallengeStart* MarkNearestChallenge(const FVector& From);
 
+	/** A secondary marker on Start (the world map picks it). False for null or a pedestal with no definition. */
+	UFUNCTION(BlueprintCallable, Category = "Challenge")
+	bool MarkChallenge(AChallengeStart* Start);
+
 	/** Takes the pedestal marker down (starting any challenge does too). */
 	UFUNCTION(BlueprintCallable, Category = "Challenge")
 	void ClearChallengeMarker();
