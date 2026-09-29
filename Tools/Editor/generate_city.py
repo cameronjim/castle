@@ -72,6 +72,9 @@ What gets built, all with Geometry Script from Python (the GeometryScripting plu
 * clutter (see clutter_plan): water towers, HVAC boxes and chimneys on the roofs, hydrants, bins and
   bags, scaffolding and parked cars on the street; data in the props asset, drawn by the spawner as
   one instanced mesh per kind.
+* the world map (``/Game/City/EastVillage/DA_EastVillage_Map``, UCityMapData): every footprint and
+  the park as a few-point 2D outline, every street piece as a simplified centre line with its width,
+  and the ground rectangle's bounding box, all in world cm. UHawkeyeMapWidget draws it.
 
 Idempotent: each mesh carries a ``CityHash`` metadata tag (hash of its source record and the
 generator version); a mesh is rebuilt only when that hash changes. Actors are found by label
@@ -3033,6 +3036,125 @@ def ensure_ledge_spawner(district, existing):
     return changes
 
 
+# --------------------------------------------------------------------------------------
+# the world map: footprints, the park, street centre lines and the bounds as 2D data
+# --------------------------------------------------------------------------------------
+# UHawkeyeMapWidget draws DA_EastVillage_Map (UCityMapData). Footprints and the park are cleaned
+# harder than the meshes (edges under 1 m merged, vertices within 50 cm of the line through their
+# neighbours dropped) so each is a few points; street pieces are Douglas-Peucker'd to 50 cm. Points
+# are whole centimetres. Saved only when the hash of what it was written from changes.
+
+CITY_MAP_NAME = "DA_EastVillage_Map"
+MAP_MIN_EDGE = 100.0        # cm
+MAP_COLLINEAR = 50.0        # cm
+MAP_LINE_TOLERANCE = 50.0   # cm
+
+
+def _simplify_line(points, tolerance):
+    """Douglas-Peucker on an open polyline."""
+    if len(points) < 3:
+        return list(points)
+    a, b = points[0], points[-1]
+    worst, worst_i = -1.0, 0
+    for i in range(1, len(points) - 1):
+        d = _segment_distance(points[i], a, b)
+        if d > worst:
+            worst, worst_i = d, i
+    if worst <= tolerance:
+        return [a, b]
+    left = _simplify_line(points[:worst_i + 1], tolerance)
+    return left[:-1] + _simplify_line(points[worst_i:], tolerance)
+
+
+def _map_ring(ring_latlon, district):
+    ring = geo.clean_ring(district.ring_cm(ring_latlon), min_edge=MAP_MIN_EDGE, collinear_tol=MAP_COLLINEAR)
+    if len(ring) < 3:
+        ring = geo.clean_ring(district.ring_cm(ring_latlon), min_edge=5.0, collinear_tol=2.0)
+    return [(round(x), round(y)) for x, y in ring]
+
+
+def city_map_records(district):
+    """(bounds_min, bounds_max, footprints, parks, streets) in world cm. Footprints and parks are
+    (osm id, height m, points); streets (name, width m, points)."""
+    ground = ground_ring_cm(district)
+    xs = [p[0] for p in ground]
+    ys = [p[1] for p in ground]
+    bounds_min = (round(min(xs)), round(min(ys)))
+    bounds_max = (round(max(xs)), round(max(ys)))
+    footprints = []
+    for rec in district.buildings:
+        ring = _map_ring(rec["outer"], district)
+        if len(ring) >= 3:
+            footprints.append((rec["id"], round(rec["height_m"], 1), ring))
+    parks = []
+    for park in district.parks:
+        ring = _map_ring(park["outer"], district)
+        if len(ring) >= 3:
+            parks.append((park["id"], 0.0, ring))
+    streets = []
+    for rec, paths in road_paths(district):
+        for path in paths:
+            line = _simplify_line([tuple(p) for p in path], MAP_LINE_TOLERANCE)
+            if len(line) >= 2:
+                streets.append((rec.get("name") or "", float(rec["width_m"]), [(round(x), round(y)) for x, y in line]))
+    return bounds_min, bounds_max, footprints, parks, streets
+
+
+def _map_polygon(osm, height, ring):
+    rec = unreal.CityMapPolygon()
+    rec.set_editor_property("points", [unreal.Vector2D(float(x), float(y)) for x, y in ring])
+    rec.set_editor_property("osm_id", osm)
+    rec.set_editor_property("height_m", float(height))
+    return rec
+
+
+def _map_street(name, width, line):
+    rec = unreal.CityMapStreet()
+    rec.set_editor_property("points", [unreal.Vector2D(float(x), float(y)) for x, y in line])
+    rec.set_editor_property("width_m", float(width))
+    rec.set_editor_property("name", name)
+    return rec
+
+
+def ensure_city_map(district):
+    """DA_EastVillage_Map: the world map's data. Returns 1 when it was written, else 0."""
+    data_cls = getattr(unreal, "CityMapData", None)
+    if data_cls is None:
+        c.log("FAILED", CITY_MAP_NAME, "UCityMapData not found; build the module")
+        return 0
+    bounds_min, bounds_max, footprints, parks, streets = city_map_records(district)
+    want_hash = geo.record_hash(GENERATOR_VERSION, "map", list(bounds_min), list(bounds_max),
+                                [[f[0], f[1], [list(p) for p in f[2]]] for f in footprints],
+                                [[p[0], [list(q) for q in p[2]]] for p in parks],
+                                [[s[0], s[1], [list(p) for p in s[2]]] for s in streets])
+    full = c.asset_path(CITY_PROPS_PATH, CITY_MAP_NAME)
+    points = sum(len(f[2]) for f in footprints)
+    summary = "{0} footprints ({1} points, {2:.1f} avg), {3} park(s), {4} street pieces ({5} points), bounds {6:.0f} x {7:.0f} m".format(
+        len(footprints), points, points / max(len(footprints), 1), len(parks), len(streets),
+        sum(len(s[2]) for s in streets), (bounds_max[0] - bounds_min[0]) / 100.0, (bounds_max[1] - bounds_min[1]) / 100.0)
+    asset = c.load_or_none(full)
+    if asset is None:
+        factory = c.new_factory("DataAssetFactory")
+        c.set_props(factory, [("data_asset_class", data_cls)], "DataAssetFactory")
+        asset, _created = c.create_asset(CITY_MAP_NAME, CITY_PROPS_PATH, data_cls, factory, quiet=True)
+        if asset is None:
+            return 0
+    if str(asset.get_editor_property("source_hash")) == want_hash \
+            and len(asset.get_editor_property("footprints")) == len(footprints) \
+            and len(asset.get_editor_property("streets")) == len(streets):
+        c.log("exists", full, summary + "; hash unchanged")
+        return 0
+    asset.set_editor_property("bounds_min", unreal.Vector2D(float(bounds_min[0]), float(bounds_min[1])))
+    asset.set_editor_property("bounds_max", unreal.Vector2D(float(bounds_max[0]), float(bounds_max[1])))
+    asset.set_editor_property("footprints", [_map_polygon(*f) for f in footprints])
+    asset.set_editor_property("parks", [_map_polygon(*p) for p in parks])
+    asset.set_editor_property("streets", [_map_street(*s) for s in streets])
+    asset.set_editor_property("source_hash", want_hash)
+    c.save(asset)
+    c.log("updated", full, summary)
+    return 1
+
+
 _GROUND_PREFIXES = (ROAD_PREFIX, SIDEWALK_PREFIX, PARK_PREFIX, GROUND_LABEL)
 _GROUND_MESHES = {}
 
@@ -4406,6 +4528,8 @@ def run():
     changes += ensure_lamp_buzz(district, existing)
     changes += ensure_ledge_spawner(district, existing)
     changes += ensure_test_blocks(district, existing)
+    # The world map data is its own asset, not part of the level.
+    ensure_city_map(district)
 
     if created or changes:
         c.level_editor_subsystem().save_current_level()
