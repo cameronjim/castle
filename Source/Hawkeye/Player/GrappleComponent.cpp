@@ -16,6 +16,7 @@
 #include "EngineUtils.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/PlayerController.h"
 #include "Player/HawkeyeCharacter.h"
 #include "Player/InventoryComponent.h"
 #include "NiagaraComponent.h"
@@ -31,8 +32,11 @@ static TAutoConsoleVariable<int32> CVarHawkeyeDebugGrapple(
 
 namespace HawkeyeGrapple
 {
-	/** Line-of-sight traces per refresh at most; the candidates are tried smallest angle first. */
-	static constexpr int32 MaxSightTraces = 8;
+	/**
+	 * Line-of-sight traces per refresh at most; the candidates are tried nearest the middle first. At 8 a
+	 * visible anchor behind eight hidden ones nearer the middle was never marked (Hawkeye.Grapple.Audit).
+	 */
+	static constexpr int32 MaxSightTraces = 32;
 
 	/** How far below an anchor's landing point its building is looked for. */
 	static constexpr float SupportProbeDepth = 150.f;
@@ -170,7 +174,7 @@ void UGrappleComponent::GatherNearbyAnchors(const FVector& Location, TArray<AGra
 	}
 }
 
-bool UGrappleComponent::IsAnchorValid(const AGrappleAnchor* Anchor, const FVector& ViewLocation,
+bool UGrappleComponent::IsAnchorValid(const AGrappleAnchor* Anchor, const FVector& From, const FVector& ViewLocation,
 	const FVector& ViewForward, float& OutAngleDegrees) const
 {
 	if (!IsValid(Anchor) || !Anchor->bEnabled || (bZipping && Anchor == ZipAnchor.Get()))
@@ -178,10 +182,9 @@ bool UGrappleComponent::IsAnchorValid(const AGrappleAnchor* Anchor, const FVecto
 		return false;
 	}
 
-	const AActor* Owner = GetOwner();
 	const FVector Marker = Anchor->GetMarkerLocation();
-	const float Distance = Owner ? FVector::Dist(Owner->GetActorLocation(), Marker) : 0.f;
-	if (!Owner || Distance > Range || Distance < MinRange)
+	const float Distance = FVector::Dist(From, Marker);
+	if (Distance > Range || Distance < MinRange)
 	{
 		return false;
 	}
@@ -189,7 +192,46 @@ bool UGrappleComponent::IsAnchorValid(const AGrappleAnchor* Anchor, const FVecto
 	const FVector ToAnchor = (Marker - ViewLocation).GetSafeNormal();
 	const float Cosine = FMath::Clamp(FVector::DotProduct(ViewForward.GetSafeNormal(), ToAnchor), -1.f, 1.f);
 	OutAngleDegrees = FMath::RadiansToDegrees(FMath::Acos(Cosine));
-	return OutAngleDegrees <= ConeDegrees;
+	return OutAngleDegrees <= ConeDegrees && IsOnScreen(ViewLocation, ViewForward, Marker);
+}
+
+bool UGrappleComponent::IsOnScreen(const FVector& ViewLocation, const FVector& ViewForward, const FVector& Point) const
+{
+	// The view's own axes with no roll, as the camera has: the marker's angles off the middle, across and up.
+	const FRotationMatrix View(ViewForward.GetSafeNormal().Rotation());
+	const FVector Local = View.InverseTransformVector(Point - ViewLocation);
+	if (Local.X <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+	const float HalfAcross = FMath::DegreesToRadians(FMath::Clamp(ViewFieldOfView, 10.f, 170.f) * 0.5f);
+	const float HalfUp = FMath::Atan(FMath::Tan(HalfAcross) / FMath::Max(ViewAspectRatio, 0.1f));
+	const float Margin = FMath::DegreesToRadians(ScreenEdgeMarginDegrees);
+	return FMath::Abs(FMath::Atan2(Local.Y, Local.X)) <= HalfAcross - Margin
+		&& FMath::Abs(FMath::Atan2(Local.Z, Local.X)) <= HalfUp - Margin;
+}
+
+int32 UGrappleComponent::ChoosePick(const TArray<FVector2f>& AnglesAndDistances, float TieDegrees)
+{
+	// Nearest the middle of the screen; of those within TieDegrees of that, the nearest to her.
+	int32 Middle = INDEX_NONE;
+	for (int32 Index = 0; Index < AnglesAndDistances.Num(); ++Index)
+	{
+		if (Middle == INDEX_NONE || AnglesAndDistances[Index].X < AnglesAndDistances[Middle].X)
+		{
+			Middle = Index;
+		}
+	}
+	int32 Best = Middle;
+	for (int32 Index = 0; Index < AnglesAndDistances.Num() && Middle != INDEX_NONE; ++Index)
+	{
+		if (AnglesAndDistances[Index].X <= AnglesAndDistances[Middle].X + TieDegrees
+			&& AnglesAndDistances[Index].Y < AnglesAndDistances[Best].Y)
+		{
+			Best = Index;
+		}
+	}
+	return Best;
 }
 
 bool UGrappleComponent::HasLineOfSight(const AGrappleAnchor* Anchor, const FVector& ViewLocation) const
@@ -259,29 +301,43 @@ AGrappleAnchor* UGrappleComponent::SelectBestAnchor(const FVector& ViewLocation,
 	{
 		return nullptr;
 	}
-
-	TArray<AGrappleAnchor*> Nearby;
-	GatherNearbyAnchors(Owner->GetActorLocation(), Nearby);
-
-	TArray<TPair<float, AGrappleAnchor*>> Candidates;
-	for (AGrappleAnchor* Anchor : Nearby)
-	{
-		float Angle = 0.f;
-		if (IsAnchorValid(Anchor, ViewLocation, ViewForward, Angle))
-		{
-			Candidates.Emplace(Angle, Anchor);
-		}
-	}
-	Candidates.Sort([](const TPair<float, AGrappleAnchor*>& A, const TPair<float, AGrappleAnchor*>& B)
-	{
-		return A.Key < B.Key;
-	});
-
 	// The zip line is checked from where she is now, the way StartZip would fly it: from the
 	// ground with the hop, mid-zip (a chain) from here with the line she is on counting as her start.
 	const ACharacter* Character = GetCharacter();
 	const UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
 	const bool bFromGround = !bZipping && Movement && Movement->IsMovingOnGround();
+	return SelectBestAnchorFrom(Owner->GetActorLocation(), bFromGround, ViewLocation, ViewForward, OutBlocked, OutBlockedReason);
+}
+
+AGrappleAnchor* UGrappleComponent::SelectBestAnchorFrom(const FVector& From, bool bFromGround, const FVector& ViewLocation,
+	const FVector& ViewForward, AGrappleAnchor*& OutBlocked, FString& OutBlockedReason) const
+{
+	OutBlocked = nullptr;
+	OutBlockedReason.Reset();
+	TArray<AGrappleAnchor*> Nearby;
+	GatherNearbyAnchors(From, Nearby);
+
+	struct FCandidate
+	{
+		float Angle;
+		float Distance;
+		AGrappleAnchor* Anchor;
+	};
+	TArray<FCandidate> Candidates;
+	for (AGrappleAnchor* Anchor : Nearby)
+	{
+		float Angle = 0.f;
+		if (IsAnchorValid(Anchor, From, ViewLocation, ViewForward, Angle))
+		{
+			Candidates.Add({ Angle, static_cast<float>(FVector::Dist(From, Anchor->GetMarkerLocation())), Anchor });
+		}
+	}
+	Candidates.Sort([](const FCandidate& A, const FCandidate& B)
+	{
+		return A.Angle < B.Angle || (A.Angle == B.Angle && A.Distance < B.Distance);
+	});
+
+	const ACharacter* Character = GetCharacter();
 	TArray<AActor*> CurrentSupports;
 	if (bZipping)
 	{
@@ -294,18 +350,36 @@ AGrappleAnchor* UGrappleComponent::SelectBestAnchor(const FVector& ViewLocation,
 		}
 	}
 
+	// Nearest the middle first; once one passes, any as near the middle (within PickTieDegrees) that is nearer to
+	// her and passes too takes it (ChoosePick's rule).
 	const int32 Traces = FMath::Min(Candidates.Num(), HawkeyeGrapple::MaxSightTraces);
 	int32 ClearChecks = 0;
+	int32 Best = INDEX_NONE;
+	float WindowEnd = 0.f;   // the first to pass sets it: its angle plus PickTieDegrees
 	for (int32 Index = 0; Index < Traces; ++Index)
 	{
-		AGrappleAnchor* Anchor = Candidates[Index].Value;
+		const FCandidate& Candidate = Candidates[Index];
+		if (Best != INDEX_NONE)
+		{
+			if (Candidate.Angle > WindowEnd)
+			{
+				break;
+			}
+			if (Candidate.Distance >= Candidates[Best].Distance)
+			{
+				continue;
+			}
+		}
+		AGrappleAnchor* Anchor = Candidate.Anchor;
 		if (!HasLineOfSight(Anchor, ViewLocation))
 		{
 			continue;
 		}
 		if (!bRequireClearZip || !Character)
 		{
-			return Anchor;
+			WindowEnd = Best == INDEX_NONE ? Candidate.Angle + PickTieDegrees : WindowEnd;
+			Best = Index;
+			continue;
 		}
 		if (ClearChecks >= MaxClearChecks)
 		{
@@ -313,17 +387,19 @@ AGrappleAnchor* UGrappleComponent::SelectBestAnchor(const FVector& ViewLocation,
 		}
 		++ClearChecks;
 		AActor* Blocker = nullptr;
-		if (IsZipClear(Character->GetActorLocation(), Anchor, bFromGround, &Blocker, bZipping ? &CurrentSupports : nullptr))
+		if (IsZipClear(From, Anchor, bFromGround, &Blocker, bZipping ? &CurrentSupports : nullptr))
 		{
-			return Anchor;
+			WindowEnd = Best == INDEX_NONE ? Candidate.Angle + PickTieDegrees : WindowEnd;
+			Best = Index;
+			continue;
 		}
-		if (!OutBlocked)
+		if (!OutBlocked && Best == INDEX_NONE)
 		{
 			OutBlocked = Anchor;
 			OutBlockedReason = FString::Printf(TEXT("the line hits %s"), Blocker ? *Blocker->GetName() : TEXT("something"));
 		}
 	}
-	return nullptr;
+	return Best != INDEX_NONE ? Candidates[Best].Anchor : nullptr;
 }
 
 void UGrappleComponent::UpdateTarget(const FVector& ViewLocation, const FVector& ViewForward)
@@ -363,6 +439,23 @@ void UGrappleComponent::RefreshTarget()
 {
 	FVector ViewLocation, ViewForward;
 	GetViewPoint(ViewLocation, ViewForward);
+	// The screen the marker is drawn on: the camera's field of view and the viewport's shape.
+	if (const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(GetOwner()))
+	{
+		if (const UCameraComponent* Camera = Hawkeye->GetFollowCamera())
+		{
+			ViewFieldOfView = Camera->FieldOfView;
+		}
+		if (const APlayerController* PC = Cast<APlayerController>(Hawkeye->GetController()))
+		{
+			int32 SizeX = 0, SizeY = 0;
+			PC->GetViewportSize(SizeX, SizeY);
+			if (SizeX > 0 && SizeY > 0)
+			{
+				ViewAspectRatio = static_cast<float>(SizeX) / static_cast<float>(SizeY);
+			}
+		}
+	}
 	UpdateTarget(ViewLocation, ViewForward);
 }
 

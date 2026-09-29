@@ -115,6 +115,30 @@ public:
 	AGrappleAnchor* SelectBestAnchor(const FVector& ViewLocation, const FVector& ViewForward, AGrappleAnchor*& OutBlocked,
 		FString& OutBlockedReason) const;
 
+	/**
+	 * The same pick for a character whose capsule centre is at From (on the ground when bFromGround), wherever the
+	 * owner really is: range, the clear zip line and the grid lookup are all from From. Hawkeye.Grapple.Audit asks
+	 * it from every standing spot in the district without moving Kate.
+	 */
+	AGrappleAnchor* SelectBestAnchorFrom(const FVector& From, bool bFromGround, const FVector& ViewLocation,
+		const FVector& ViewForward, AGrappleAnchor*& OutBlocked, FString& OutBlockedReason) const;
+
+	/** The camera at ViewLocation sees Anchor's marker, give or take SightTolerance (the picker's sight rule). */
+	bool HasLineOfSight(const AGrappleAnchor* Anchor, const FVector& ViewLocation) const;
+
+	/**
+	 * Point is on the screen of a view from ViewLocation along ViewForward (no roll) with ViewFieldOfView across
+	 * and ViewAspectRatio, ScreenEdgeMarginDegrees inside every edge: a marked anchor's diamond is always drawn.
+	 */
+	bool IsOnScreen(const FVector& ViewLocation, const FVector& ViewForward, const FVector& Point) const;
+
+	/**
+	 * The picker's rule over anchors that pass everything (X the angle off the middle of the screen, degrees; Y the
+	 * distance, cm): the one nearest the middle, or of those within TieDegrees of it the nearest to her. Returns
+	 * the index, INDEX_NONE for none. Hawkeye.Grapple.Audit checks the picker against it.
+	 */
+	static int32 ChoosePick(const TArray<FVector2f>& AnglesAndDistances, float TieDegrees);
+
 	/** Re-picks the target from this view. RefreshTarget passes the camera's. */
 	void UpdateTarget(const FVector& ViewLocation, const FVector& ViewForward);
 
@@ -254,7 +278,22 @@ public:
 	bool bRequireClearZip = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "1"))
-	int32 MaxClearChecks = 3;
+	int32 MaxClearChecks = 6;
+
+	/** An anchor this close to the middle-most one's angle (degrees) that is nearer to her is marked instead. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float PickTieDegrees = 0.5f;
+
+	/** A candidate's marker must be this far inside every edge of the screen, degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.0"))
+	float ScreenEdgeMarginDegrees = 2.f;
+
+	/** The view's horizontal field of view and width over height; RefreshTarget reads them from the camera and viewport. */
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Grapple")
+	float ViewFieldOfView = 90.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "Grapple")
+	float ViewAspectRatio = 16.f / 9.f;
 
 	/** Seconds between target refreshes. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Grapple", meta = (ClampMin = "0.01"))
@@ -363,12 +402,9 @@ protected:
 	/** 0..1 for the zip loop: low on the hop up to the line, full along it at ZipSpeed. */
 	float ComputeZipSoundSpeed() const;
 
-	/** True when Anchor passes range, cone and sight; OutAngleDegrees is its angle from ViewForward. */
-	bool IsAnchorValid(const AGrappleAnchor* Anchor, const FVector& ViewLocation, const FVector& ViewForward,
+	/** True when Anchor passes range (from From) and cone; OutAngleDegrees is its angle from ViewForward. */
+	bool IsAnchorValid(const AGrappleAnchor* Anchor, const FVector& From, const FVector& ViewLocation, const FVector& ViewForward,
 		float& OutAngleDegrees) const;
-
-	/** The camera sees Anchor's marker, give or take SightTolerance. */
-	bool HasLineOfSight(const AGrappleAnchor* Anchor, const FVector& ViewLocation) const;
 
 	/** The owner's camera position and forward; the actor's eyes when it has no camera. */
 	void GetViewPoint(FVector& OutLocation, FVector& OutForward) const;
