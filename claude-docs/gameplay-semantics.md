@@ -43,8 +43,8 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - No crosshair. A 4 px reticle dot appears only while aiming and flashes white for 0.1 s
   on a hit. Hotbar slots are Hands, Bow, Reserved until arrows exist.
 - Grapple marker: a green hollow diamond with the key under it means a press zips there, always
-  (no use limit); grey means it would not (out of arrows, with "No grapple arrows" under it, or an
-  arrow still in flight); a smaller grey diamond marks an anchor in view whose line is blocked.
+  (no use limit, and grapple arrows have no count); grey means it would not (an arrow still in
+  flight); a smaller grey diamond marks an anchor in view whose line is blocked.
   Rules in the traversal section; the look per state is `UHawkeyeHudWidget::GetGrappleMarkerLook`.
 
 ## PLANNED: traversal
@@ -144,21 +144,25 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   to the anchor's landing point at 1800 cm/s, input locked except the camera, and lands
   in Walking with no fall damage. Chaining is allowed once past 70% of the line, when
   the marker returns. A zip is cancelled by static geometry on the path except within
-  150 cm of the anchor (corner anchors share walls with neighbours). Costs one grapple
-  arrow; the arrow stays in the anchor and is recovered within 200 cm of it.
+  150 cm of the anchor (corner anchors share walls with neighbours). Grapple arrows are
+  unlimited (revised 2026-09-29, "grapples should be infinite - it is definitely part of
+  traversal"): a shot costs nothing and is never refused for want of one; the arrow stays in
+  the anchor until she is within 200 cm of it and is then tidied away (nothing goes back in the
+  quiver, and nothing logs a recovery).
 - Grapple marker and arrows (revised 2026-09-28 after "there are green diamonds but it no longer
   tells you what button to press"; the key hint used to vanish after the fifth arrow, the diamond
   stayed green with an empty quiver, and anchors whose line was blocked were marked). The target
   also needs a clear zip line from where she is (`IsZipClear`, the same sweep and start and anchor
   allowances as the zip; mid-zip, the line she is on counts as her start), checked nearest the
   middle first, at most 3 per 0.1 s refresh. `GetTargetState()` is what a press would do: Ready
-  (green diamond, key hint), NoArrows (grey diamond, "No grapple arrows"), ArrowInFlight (grey, no
-  hint), TooEarlyToChain (no marker), None. A press fires only when Ready. An anchor nearer the
+  (green diamond, key hint), ArrowInFlight (grey, no hint), TooEarlyToChain (no marker), None
+  (the NoArrows state and its "No grapple arrows" line went with the count, 2026-09-29). A press
+  fires only when Ready. An anchor nearer the
   middle than the target that passes everything but the line is drawn as a smaller dim grey
   diamond and is never fired at; `hawkeye.DebugGrapple 1` writes why under it ("the line hits
-  FireEscapeLanding_34") and the state and arrow count next to the key. A zip blocked on the way,
-  or left by a chain, reels its arrow back into the quiver; letting go with jump or crouch leaves it
-  in the anchor. Stuck arrows belong to who shot them: the partner never pockets Kate's. Only the
+  FireEscapeLanding_34") and the state next to the key. A zip blocked on the way,
+  or left by a chain, reels its arrow back out of the anchor; letting go with jump or crouch leaves it
+  in the anchor. Stuck arrows belong to who shot them: the partner never tidies Kate's. Only the
   player's pawn keeps a target (the partner's AI does not refresh one).
 - Anchors sit on the parapet centre (15 cm in from the roof edge) at every roof corner
   and at mid-edge on edges over 25 m, on buildings over 8 m, none within 4 m of another.
@@ -169,14 +173,20 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 ## Bow and arrows (built 2026-09-26; the rules below hold, with these notes)
 - Data: `UBowDefinition` (DA_Bow_Kate 0.8 s draw, DA_Bow_Clint 1.0 s) and
   `UArrowDefinition` (DA_Arrow_Standard 40 damage, cap 30, recoverable; DA_Arrow_Grapple
-  cap 6, recoverable, hit effect Grapple). `UBowComponent` on the player; `AArrowProjectile`
+  hit effect Grapple, which makes it unlimited: `UInventoryComponent::IsUnlimitedArrow`; its cap 6
+  is unused). `UBowComponent` on the player; `AArrowProjectile`
   with gravity, sticks into what it hits for 30 s, recovered within 150 cm.
 - The quiver replaced the weapon slots: `Bow` (null means fists on left click), six
   arrow slots with standard always in slot 1, `ActiveArrowSlot`, keycards. Keys 1 to 6
   and the wheel skip empty slots. The mission grants `StartingBow` and `StartingArrows`;
-  CH01 gives Kate's bow, 30 standard, 6 grapple. `Clear()` returns to the grant.
-- Q fires a grapple arrow at the marked anchor from the quiver without changing the
-  nocked slot. Damage scales with draw from 40% to 100% of the arrow's damage.
+  CH01 gives Kate's bow, 30 standard, and the grapple (the grant's count, 6, is ignored). `Clear()`
+  returns to the grant.
+- The grapple slot has no count (2026-09-29): the hotbar, the quiver wheel and the inventory screen
+  show an infinity sign where a trick arrow shows "2/4"; it is never spent (`ConsumeArrow` always
+  succeeds and keeps it), a grapple pickup, a refill or a reward adds nothing (`AddArrows` only fills
+  the slot, returning 0), and it cannot be set to zero. Trick arrows keep their counts and caps.
+- Q fires a grapple arrow at the marked anchor without changing the nocked slot, spending
+  nothing. Damage scales with draw from 40% to 100% of the arrow's damage.
 - Arrows collide as WorldDynamic, not on the Weapon channel, because the invisible
   traversal ledge blocks sit on that channel along every roof edge.
 - Reticle while drawing: a ring whose radius is the current spread projected at 1500 cm,
@@ -585,7 +595,8 @@ the last input came from a pad.
   5.8 unchanged. One slot, `HawkeyeCampaign`; automation runs use `HawkeyeCampaignAutomation`.
 - Saved: Kate and Clint (transform, controller rotation, health, bow, quiver slot by slot,
   active slot; components are mirrored into save-tagged fields before a save and restored
-  after a load), thugs (position, dead flag; a dead thug goes down again on load without
+  after a load; the grapple slot's count is written but ignored on load, so a save from before
+  the grapple went unlimited, even one at 0, loads with the grapple ready), thugs (position, dead flag; a dead thug goes down again on load without
   dropping loot twice), campaign state (version, mission path, completed objectives,
   safehouses found, play time, which character was controlled). Not saved: stuck arrows,
   pickups, EMP lamp state, spawner-created actors, the partner's fight state.
@@ -851,7 +862,7 @@ the last input came from a pad.
   1.5 / 1.2 / 1.0 s; parry window +0.15 / 0 / -0.1 s (Story holds an early tap up to
   0.15 s; Hard ignores the first 0.1 s of a telegraph); regen delay 3 / 5 / 8 s at
   10 HP/s (regen didn't exist before and applies to Kate only); fall damage 0.5 / 1.0 /
-  1.0; Story adds 2 to each trick arrow cap. Added 2026-09-28 ("Ranged thug accuracy", "Bow aim
+  1.0; Story adds 2 to each trick arrow cap (never the grapple, which has no count). Added 2026-09-28 ("Ranged thug accuracy", "Bow aim
   assist"): ranged tracking lag 0.4 / 0.32 / 0.25 s; ranged cone scale 1.4 / 1.0 / 0.7; archer
   gap before the next draw 3.0-4.0 / 1.5-2.5 / 1.2-1.8 s; aim assist scale 1.25 / 1.0 / 0.5.
   `-Difficulty=Story|Normal|Hard` on the
@@ -881,7 +892,8 @@ the last input came from a pad.
   a runner (380 cm/s) who leaves when Kate is within 20 m, a thug is alerted, or 40 s
   pass, and drops the loot when downed; picking up the loot ends it. Ambush: four thugs
   alerted from the start. Rooftop: two thugs and an archer.
-- Stopping a crime gives +5 standard arrows, a toast, and a per-type count in the save.
+- Stopping a crime gives +5 standard arrows (never grapple arrows, which have no count), a toast,
+  and a per-type count in the save.
   Crime thugs despawn 60 s after success once the player is 40 m away, 20 s after failure.
 - Scripted mugging: rescued in 12.3 s with no hits. No alley spots yet; robbery, ambush,
   and rooftop are covered by headless world tests only.
@@ -891,7 +903,8 @@ the last input came from a pad.
   "[Safehouse 2]" on Avenue B at East 10th (OSM W250264779), 278 m apart. The generator
   picks the second as the nearest qualifying storefront at least 250 m from the first,
   skipping buildings whose fire escape would cut through the sign. Both must be entered
-  once to be discovered; undiscovered ones show greyed as "[Undiscovered]".
+  once to be discovered; undiscovered ones show greyed as "[Undiscovered]". Refill arrows tops up
+  standard and trick arrows only; the grapple has no count to refill.
 - Fast travel from a safehouse menu to any other discovered one: fade out 0.5 s, hold
   0.35 s during which Kate and Clint are moved to the destination door and the game
   autosaves with them there (destination recorded as last used), fade in 0.6 s; about
