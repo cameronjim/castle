@@ -44,8 +44,8 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   The Sprint row in Settings (Controls) reads "Hold on keys, toggle on pad" (the default), Hold or
   Toggle; Hold or Toggle apply to both devices. Which device pressed is the controller's last input
   (`IsUsingGamepad`). The toggle's on and off log at Log with the reason ("sprint toggle off (stick
-  centred for 0.6 s)"). The sample's `WantsToSprint` is still fed from the sprint gait. No HUD hint
-  shows the sprint key.
+  centred for 0.6 s)"). The sample's `WantsToSprint` is still fed from the sprint gait. The first-time hints show the
+  sprint key once a campaign (HUD, "First-time hints").
 - Jump height 90 cm, air control 0.3.
 - Slide: crouch while sprinting; 0.7 s, speed eases 750 to 200, capsule half-height 50,
   restored after.
@@ -64,6 +64,49 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   Rules in the traversal section; the look per state is `UHawkeyeHudWidget::GetGrappleMarkerLook`.
 - No minimap: the compass is the HUD. The world map is its own paused screen (M, or hold D-pad up); see
   "World map".
+- First-time hints (built 2026-09-29, so a new tester learns the controls from the game). One line, lower
+  centre, 12 px over the hotbar's top (it follows the hotbar's height and the HUD scale): white text on a
+  0.55 black backing with each key as a cream keycap, fading in over 0.2 s and out over 0.2 s. Rules in
+  `Source/Hawkeye/UI/HawkeyeHints.h` (`UHawkeyeHintRules`, C++ data on the class default, no asset;
+  `FHawkeyeHintQueue`, pure), sensed and saved by `UHawkeyeHintSubsystem`, drawn by `UHawkeyeHintWidget`.
+  - Tokens resolve to the device touched last (`IsUsingGamepad`): {Sprint} Shift / L3, {Jump} Space / A,
+    {Grapple} Q / RB, {Draw} LMB / RT, {Aim} RMB / LT, {Strike} V / X, {Dodge} and {Crouch} Ctrl / B,
+    {Interact} E / Y, {Takedown} F / Y, {Phone} P / Hold D-pad Down, {Map} M / Hold D-pad Up, {Switch} X / LB,
+    {Wheel} Tab / View, {Partner} the partner's name. The line re-resolves live when the device changes. The
+    sprint hint reads "Press" where the Sprint setting makes the button a toggle on that device.
+  - A hint arms when its trigger has held its hold time and it has shows left (one per campaign, counted
+    in the save's `HintIds` / `HintShowCounts` the moment it comes up, like `NoticedPlaces`); it stays up
+    until its action is done or 6 s after the trigger clears, and waits in the queue that long. One line
+    only: the most relevant armed hint shows; a higher one takes the line once the shown one has had 1.5 s,
+    or at once if urgent (parry, dodge). Doing a hint's action at any time, shown or not, counts it learned,
+    so a player who already sprints never sees the sprint hint. Chapter beats (title card, close-up, the
+    flow's end card and flashback), every menu and full screen (pause, settings, inventory, phone, map,
+    safehouse, main menu, the quiver wheel, anything paused), the downed state and a challenge results card
+    hide the line and freeze every clock, so a trigger that fires under a menu shows when it closes. Hints
+    only read the game: nothing takes input, pauses or slows. Each show logs "Hint: sprint "Hold [Shift] to
+    sprint"." at Log.
+  - The set, by priority: parry ("[V] as the ! flashes to parry"; a thug within 3 m in a parryable wind-up),
+    dodge ("Tap [Ctrl] to dodge"; the first health lost in a fight), finisher ("[F] to finish him"; a
+    knocked-down or parry-staggered thug within 8 m with the finisher open), takedown ("[F] from behind to
+    take him down"; a takedown is valid), strike ("[V] to strike, hold for heavy"; a standing thug within 3 m),
+    draw ("[RMB] then [LMB], release to fire"; with a bow, a standing thug 8 to 40 m out within 30 degrees
+    of the view and in sight), switch ("[X] to play as Clint"; the partner within 5 m in a fight, switching
+    allowed), chain ("[Q] again mid-zip to chain"; mid-zip past the chain point with another anchor ready),
+    grapple ("[Q] to zip"; the green diamond), vault ("[Space] or sprint into it to vault"; moving, a vault
+    obstacle within 3 m ahead), climb ("[Space] at the wall to climb it"; a 150 to 260 cm wall within 2 m
+    that a mantle or ledge grab takes), hang ("[Ctrl] at the edge to drop and hang"; at an edge with 3 m or
+    more of drop), sprint ("Hold [Shift] to sprint"; 3 s moving on open ground, nothing within 3 m ahead,
+    not sprinting, aiming or fighting), crime ("Follow the red ! to stop the crime"; a crime on, over 15 m
+    away), wheel ("Hold [Tab] to pick a trick arrow"; a trick arrow comes into the quiver), phone ("[P] to
+    read the text"; an unread text), safehouse ("[E] at the door to use the safehouse"; within 15 m),
+    challenge ("[E] at the pedestal to start a challenge"; within 10 m), fast travel ("Fast travel from
+    either safehouse's menu"; the second safehouse found), map ("[M] for the map"; 40 m from where the
+    session started with no objective marker on screen, or a "nearby" toast). The finisher and takedown use
+    {Takedown} (F) rather than {Interact} (E) because that is their key on a keyboard; on a pad both are Y.
+  - Off under automation unless `hawkeye.Hints 2` (0 never, 1 the default: outside automation), so no hint
+    lands in another pass's shot. Tests: `Hawkeye.Hints.*`; `hint_sprint.png`, `hint_grapple.png` and
+    `hint_parry.png` in the Kate pass (`Hawkeye.Screenshot.Hints` on its own) check the line is up, faded in,
+    centred on the lower half, over the hotbar and clear of the crime and challenge panels.
 
 ## PLANNED: traversal
 - Parkour (built 2026-09-26). Vault and mantle run through the Game Animation Sample's
@@ -527,6 +570,9 @@ the last input came from a pad.
   `-Difficulty=`; the `hawkeye.TimeOfDay Day|Night` console command overrides both, also
   unsaved, until `hawkeye.TimeOfDay Saved` or the player changes the row. The engine's
   SunPosition plugin is the route to a real cycle later (more rows, blended by the clock).
+- Hints (built 2026-09-29): an On / Off choice row under Controls, after Sprint, saved with the rest
+  (`bShowHints`, settings version 10; a version 5 to 9 save migrates and comes up On). Off hides the line
+  at once and nothing waits; what she does is still counted learned. See HUD, "First-time hints".
 - Lamps and the EMP share the lamps without fighting: the time of day owns each lamp's
   intensity, head glow and buzz; the EMP owns its lights' visibility. A lamp the EMP has dark
   keeps its head unlit and its buzz off through any time of day change, and when the outage
