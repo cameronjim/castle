@@ -33,6 +33,19 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Jump height 90 cm, air control 0.3.
 - Slide: crouch while sprinting; 0.7 s, speed eases 750 to 200, capsule half-height 50,
   restored after.
+- Sprint toggle (2026-09-29, after "sprint on controller should be pressing the left joystick once
+  and the character continues to sprint the whole time"). On a pad one L3 press turns sprint on
+  (`FHawkeyeSprintToggle`); it stays on with the stick let go of L3, through turns and stops of up to
+  0.6 s, and turns off on a second press, when the stick has sat in its dead zone for more than
+  0.6 s (counted from the raw stick, so a zip or a vault with the stick held keeps it), on aim (a
+  toggled sprint gives way to the aim; a held Shift still refuses it), on a bow draw, on a crouch (a
+  crouch at speed slides, and the toggle ends when the slide does, so she comes up at a run), and
+  when a menu opens (every pause-style screen, through `ApplyPauseInputMode`). Shift stays a hold.
+  The Sprint row in Settings (Controls) reads "Hold on keys, toggle on pad" (the default), Hold or
+  Toggle; Hold or Toggle apply to both devices. Which device pressed is the controller's last input
+  (`IsUsingGamepad`). The toggle's on and off log at Log with the reason ("sprint toggle off (stick
+  centred for 0.6 s)"). The sample's `WantsToSprint` is still fed from the sprint gait. No HUD hint
+  shows the sprint key.
 - Landing from above 400 cm halves speed and dips the camera 30 cm for 0.3 s (a
   placeholder for the roll and stumble). Fall damage starts at 900 cm at 10% of max
   health, rises to a 60% cap at 2500 cm, and never kills: it stops at 1 health.
@@ -437,7 +450,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 | B | Crouch hold, dodge tap, slide while sprinting, drop to hang at an edge |
 | X | Strike (tap light, hold heavy) |
 | Y | Takedown when a target is valid, otherwise interact |
-| L3 (press left stick) | Sprint hold |
+| L3 (press left stick) | Sprint: one press toggles it on (the Sprint setting can make it a hold) |
 | Right trigger | Draw and release |
 | Left trigger | Aim |
 | RB | Grapple |
@@ -884,7 +897,8 @@ the last input came from a pad.
   gap before the next draw 3.0-4.0 / 1.5-2.5 / 1.2-1.8 s; aim assist scale 1.25 / 1.0 / 0.5.
   `-Difficulty=Story|Normal|Hard` on the
   command line overrides without saving. Every scripted fight is won on all three.
-- Accessibility, all persisted (settings version 5; 6 adds the time of day): subtitle size
+- Accessibility, all persisted (settings version 5; 6 adds the time of day; 7 the aim assist; 8 the
+  sprint mode, and 5 to 7 migrate with it at Default): subtitle size
   20 / 26 / 34 px with a
   background opacity slider; hold or toggle for aim (default hold) and crouch (default
   toggle); a 1 px outline on the alert glyphs; four colour palettes (default,
