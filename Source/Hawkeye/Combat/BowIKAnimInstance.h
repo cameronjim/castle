@@ -70,8 +70,9 @@ public:
 	static FVector ComputeArrowLinePoint(const FVector& Rest, const FVector& LaunchDirection, const FVector& Point, float MinDraw);
 
 	/**
-	 * The aim offset's inputs for Aim with the body at BodyYaw: X the yaw off the body, Y the pitch, each
-	 * clamped to MaxAimOffsetYaw/Pitch and, with an AimOffsetAsset, to its first two axes' ranges.
+	 * The aim offset's inputs for Aim with the body at BodyYaw: X the yaw off the body, Y the pitch times
+	 * AimOffsetPitchScale (AimOffsetPitchScaleDown below level) plus AimOffsetPitchBias, each clamped to MaxAimOffsetYaw/Pitch and, with an AimOffsetAsset,
+	 * to its first two axes' ranges.
 	 */
 	static FVector2D ComputeAimOffsetInput(const FRotator& Aim, float BodyYaw, const FBowHandIKSettings& Settings,
 		const UBlendSpace* AimOffsetAsset);

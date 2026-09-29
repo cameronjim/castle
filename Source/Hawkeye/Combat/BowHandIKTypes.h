@@ -90,6 +90,25 @@ struct HAWKEYE_API FBowHandIKSettings
 	/** The aim offset's pitch is held within this up and down, degrees (and within its asset's range). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0", ClampMax = "90.0"))
 	float MaxAimOffsetPitch = 90.f;
+
+	/**
+	 * The aim offset's pitch input is an upward aim's pitch times this (a downward one's times
+	 * AimOffsetPitchScaleDown), plus AimOffsetPitchBias, before the clamps (2026-09-29). Sparrow's up and down poses
+	 * sit at +-90 on the axis but aim far less (and not alike), its centre pose holds the arrow 4 degrees low, and the
+	 * string hand's correction takes back part of any change, so the plain pitch left the nocked arrow 6 degrees under
+	 * at 30 up and 5 at 30 down. Fitted on Hawkeye.Screenshot.BowDraw's draw_1.00, aim_up_30 and aim_down_30 so a
+	 * 30 degree aim gives a 30 degree arrow.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0", ClampMax = "3.0"))
+	float AimOffsetPitchScale = 1.57f;
+
+	/** The same for an aim below level. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "0.0", ClampMax = "3.0"))
+	float AimOffsetPitchScaleDown = 1.85f;
+
+	/** Degrees added to the aim offset's pitch input after the scale (the centre pose's own droop). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bow|Hands|Clip", meta = (ClampMin = "-30.0", ClampMax = "30.0"))
+	float AimOffsetPitchBias = 5.f;
 };
 
 /** One frame of hand and elbow targets, in whatever space the aim frame was given in. */

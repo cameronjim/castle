@@ -65,8 +65,11 @@ FVector2D UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(const FRotator& Aim, 
 		PitchLow = FMath::Max(PitchLow, PitchAxis.Min);
 		PitchHigh = FMath::Min(PitchHigh, PitchAxis.Max);
 	}
+	const float Pitch = FRotator::NormalizeAxis(Aim.Pitch);
+	const float Scaled = Pitch * (Pitch >= 0.f ? Settings.AimOffsetPitchScale : Settings.AimOffsetPitchScaleDown)
+		+ Settings.AimOffsetPitchBias;
 	return FVector2D(FMath::Clamp(FRotator::NormalizeAxis(Aim.Yaw - BodyYaw), YawLow, FMath::Max(YawLow, YawHigh)),
-		FMath::Clamp(FRotator::NormalizeAxis(Aim.Pitch), PitchLow, FMath::Max(PitchLow, PitchHigh)));
+		FMath::Clamp(Scaled, PitchLow, FMath::Max(PitchLow, PitchHigh)));
 }
 
 float UHawkeyeBowIKAnimInstance::StepAlpha(float Current, float Target, float DeltaSeconds, float BlendSeconds)

@@ -250,19 +250,35 @@ bool FHawkeyeBowClipStringCorrection::RunTest(const FString& Parameters)
 	return true;
 }
 
-/** The aim offset's inputs: the aim's yaw off the body and its pitch, clamped to 90 and to the asset's own axes. */
+/**
+ * The aim offset's inputs: the aim's yaw off the body and its pitch (scaled by 1.57 up and 1.85 down, lifted 5 degrees,
+ * so a 30 degree aim gives a 30 degree arrow on Sparrow's poses), clamped to 90 and to the asset's own axes.
+ */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeBowAimOffsetInput, "Hawkeye.BowIK.AimOffsetInputsClamped",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
 bool FHawkeyeBowAimOffsetInput::RunTest(const FString& Parameters)
 {
-	const FBowHandIKSettings Settings;
+	FBowHandIKSettings Settings;
+	TestEqual(TEXT("Pitch scale 1.57 up"), Settings.AimOffsetPitchScale, 1.57f);
+	TestEqual(TEXT("Pitch scale 1.85 down"), Settings.AimOffsetPitchScaleDown, 1.85f);
+	TestEqual(TEXT("Pitch bias 5"), Settings.AimOffsetPitchBias, 5.f);
 	FVector2D In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(30.f, 100.f, 0.f), 90.f, Settings, nullptr);
 	TestEqual(TEXT("Yaw is off the body"), In.X, 10.0, 0.01);
-	TestEqual(TEXT("Pitch is the aim's"), In.Y, 30.0, 0.01);
+	TestEqual(TEXT("Pitch is the aim's, scaled and lifted"), In.Y, 30.0 * 1.57 + 5.0, 0.01);
+	In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(0.f, 0.f, 0.f), 0.f, Settings, nullptr);
+	TestEqual(TEXT("Level aim lifts the centre pose's droop"), In.Y, 5.0, 0.01);
 	In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(-30.f, 350.f, 0.f), 0.f, Settings, nullptr);
 	TestEqual(TEXT("Across the wrap: 350 is 10 left"), In.X, -10.0, 0.01);
-	TestEqual(TEXT("Down is negative"), In.Y, -30.0, 0.01);
+	TestEqual(TEXT("Down is negative, on the down scale"), In.Y, -30.0 * 1.85 + 5.0, 0.01);
+	In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(-60.f, 0.f, 0.f), 0.f, Settings, nullptr);
+	TestEqual(TEXT("Scaled past the axis, it clamps at -90"), In.Y, -90.0, 0.01);
+	Settings.AimOffsetPitchScale = 1.f;
+	Settings.AimOffsetPitchScaleDown = 1.f;
+	Settings.AimOffsetPitchBias = 0.f;
+	In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(30.f, 0.f, 0.f), 0.f, Settings, nullptr);
+	TestEqual(TEXT("Unscaled, the pitch is the aim's"), In.Y, 30.0, 0.01);
+	Settings = FBowHandIKSettings();
 	In = UHawkeyeBowIKAnimInstance::ComputeAimOffsetInput(FRotator(80.f, 180.f, 0.f), 0.f, Settings, nullptr);
 	TestEqual(TEXT("Behind her clamps to 90"), In.X, 90.0, 0.01);
 
