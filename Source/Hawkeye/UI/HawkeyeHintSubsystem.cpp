@@ -574,7 +574,8 @@ void UHawkeyeHintSubsystem::Tick(float DeltaTime)
 	uint64 Actions = 0;
 	if (bAllowed)
 	{
-		Sense(PC, Suppression.Any() ? 0.f : Dt, ComputeNeededTriggers(), Triggers, Actions);
+		// Off in Settings: no triggers to sense (no traces), but what she does is still learned.
+		Sense(PC, Suppression.Any() ? 0.f : Dt, bEnabled ? ComputeNeededTriggers() : 0, Triggers, Actions);
 	}
 	const FHawkeyeHintStep Step = Queue.Tick(Dt, Triggers, Actions, Suppression.Any(), bEnabled,
 		[this](FName Id) { return GetShowCount(Id); });
