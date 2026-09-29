@@ -97,6 +97,8 @@
  *   vault_mid.png    sprinting at City_Test_Vault (90 cm): the auto vault, mid-move
  *   mantle_mid.png   the jump key 36 cm from City_Test_Mantle (150 cm): hands on the top
  *   standing_vault.png  standing still, pressed against City_Test_Vault (90 cm), one press: mid-vault
+ *   roof_edge_guard.png  walking at a tenement's roof-edge parapet, one jump press: the roof-edge guard
+ *                    mantles her onto the parapet top and she stays there with the stick still held
  *   ledge_hang.png   dropped in against a tenement 230 cm under its parapet top: caught, hanging
  *   climb_top.png    the jump key from the hang: over the parapet onto the roof
  *
@@ -965,6 +967,8 @@ namespace HawkeyeKateShots
 		MantleStand,
 		MantleJump,
 		VaultStand,
+		RoofEdge,
+		RoofEdgeHold,
 		LedgeFall,
 		Climb,
 		EndInput,
@@ -1184,6 +1188,77 @@ bool FHawkeyeKateParkourShot::Update()
 			Test->AddWarning(TEXT("No City_Test_Vault block."));
 		}
 		break;
+	case EParkourShot::RoofEdge:
+	{
+		// The first parapet on the tenement roofs (as ParkourDistrictTest walks them) with a roof edge beyond and a top
+		// she fits on: 60 cm short of it, walking at it, one press.
+		UParkourComponent* Parkour = Kate->GetParkourComponent();
+		UCharacterMovementComponent* Movement = Kate->GetCharacterMovement();
+		const float Half = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const float Radius = Kate->GetCapsuleComponent()->GetScaledCapsuleRadius();
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(KateShotRoofEdge), false, Kate);
+		bool bFound = false;
+		for (float X = -9000.f; X <= -2000.f && !bFound; X += 200.f)
+		{
+			for (float Y = 9500.f; Y <= 13600.f && !bFound; Y += 200.f)
+			{
+				FHitResult Roof;
+				if (!World->LineTraceSingleByChannel(Roof, FVector(X, Y, 4000.f), FVector(X, Y, 500.f), ECC_Visibility, Params)
+					|| !Roof.GetActor() || !Roof.GetActor()->Tags.Contains(BuildingTag) || Roof.ImpactNormal.Z < 0.9f)
+				{
+					continue;
+				}
+				for (int32 Dir = 0; Dir < 8 && !bFound; ++Dir)
+				{
+					const FVector Toward = FVector::ForwardVector.RotateAngleAxis(Dir * 45.f, FVector::UpVector);
+					Kate->TeleportTo(Roof.ImpactPoint + FVector(0.f, 0.f, Half + 2.f), Toward.Rotation(), false, true);
+					Movement->SetMovementMode(MOVE_Walking);
+					FHawkeyeParkourObstacle Wall;
+					FVector Stand;
+					if (!Parkour->DetectObstacleAlong(Toward, 300.f, 320.f, Wall) || !Parkour->IsRoofEdgeParapet(Wall)
+						|| !Parkour->FindParapetStand(Wall, Stand))
+					{
+						continue;
+					}
+					FVector Ground;
+					const FVector Spot = Wall.WallPoint + Wall.WallNormal * (Radius + 60.f);
+					if (!FindGround(World, Spot, Roof.ImpactPoint.Z + 150.f, Kate, Ground) || FMath::Abs(Ground.Z - Roof.ImpactPoint.Z) > 20.f)
+					{
+						continue;
+					}
+					const FVector ToWall = -Wall.WallNormal;
+					PlaceKate(Kate, PC, Ground, ToWall.Rotation().Yaw, -15.f);
+					// From the roof, off to her right and behind: the parapet, her on it, and the drop past it.
+					PC->SetControlRotation(FRotator(-18.f, ToWall.Rotation().Yaw - 50.f, 0.f));
+					HoldMove(PC, MoveTowards(ToWall, PC->GetControlRotation().Yaw), true);
+					Test->AddInfo(FString::Printf(TEXT("roof_edge_guard.png: a %.0f cm parapet at %s with a %.0f cm drop past it, on %s"),
+						Wall.Height, *Wall.WallPoint.ToCompactString(), Wall.FarSideDrop, *GetNameSafe(Wall.Actor)));
+					bFound = true;
+				}
+			}
+		}
+		if (!bFound)
+		{
+			Test->AddWarning(TEXT("roof_edge_guard.png: no roof-edge parapet with a top she fits on."));
+		}
+		break;
+	}
+	case EParkourShot::RoofEdgeHold:
+	{
+		// A second or so after the mantle, the stick still at the drop: where she is and whether the guard holds her.
+		const UParkourComponent* Parkour = Kate->GetParkourComponent();
+		const FHawkeyeParkourObstacle Wall = Parkour->GetLastObstacle();
+		const float Feet = Kate->GetActorLocation().Z - Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		const bool bOnTop = Parkour->IsPerchedOnParapet() && FMath::Abs(Feet - Wall.LedgePoint.Z) < 15.f;
+		Test->AddInfo(FString::Printf(TEXT("roof_edge_guard.png: feet %.0f vs the parapet top %.0f, perched %d, %s, %.0f cm in from the face"),
+			Feet, Wall.LedgePoint.Z, Parkour->IsPerchedOnParapet() ? 1 : 0, *Kate->GetMovementDebugText(),
+			FVector::DotProduct(Wall.WallPoint - Kate->GetActorLocation(), Wall.WallNormal)));
+		if (!bOnTop)
+		{
+			Test->AddWarning(TEXT("roof_edge_guard.png: Kate is not standing on the parapet top."));
+		}
+		break;
+	}
 	case EParkourShot::LedgeFall:
 	{
 		FVector Face, Normal;
@@ -2886,6 +2961,18 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateReportParkour(this, TEXT("standing_vault.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("standing_vault.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+
+	// Walking at a roof-edge parapet, one press (2026-09-29, a 1679 cm fall): onto its top, and she stays there.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkourShot(this, static_cast<uint8>(EParkour::RoofEdge)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.3f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkourShot(this, static_cast<uint8>(EParkour::MantleJump)));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateWaitTraversal(this, 1.f, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkourShot(this, static_cast<uint8>(EParkour::RoofEdgeHold)));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("roof_edge_guard.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkourShot(this, static_cast<uint8>(EParkour::EndInput)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkourShot(this, static_cast<uint8>(EParkour::LedgeFall)));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateWaitTraversal(this, 3.f, true));
