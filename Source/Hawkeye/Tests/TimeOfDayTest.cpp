@@ -1,6 +1,13 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Combat/ArrowEffects/ArrowEffectsSubsystem.h"
+#include "Components/AudioComponent.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "Materials/MaterialInterface.h"
+#include "Sound/AmbientSound.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/SpotLightComponent.h"
@@ -278,6 +285,191 @@ bool FHawkeyeTimeOfDayRestoresNight::RunTest(const FString& Parameters)
 	TimeOfDay->Apply(EHawkeyeTimeOfDay::Night);
 	TestEqual(TEXT("Twice round: moon lux"), MoonLight->Intensity, 0.3f);
 	TestEqual(TEXT("Twice round: lamp"), Lamp->GetLightComponent()->Intensity, 1100.f);
+	return true;
+}
+
+namespace HawkeyeTimeOfDayTest
+{
+	static UMaterialInterface* LoadMaterial(const TCHAR* Path)
+	{
+		return LoadObject<UMaterialInterface>(nullptr, Path);
+	}
+
+	/** A cube wearing Material, tagged Tag (none if empty), movable so it takes materials at runtime. */
+	static AStaticMeshActor* SpawnGlowMesh(const FHawkeyeTestWorld& TestWorld, const FVector& Location, UMaterialInterface* Material,
+		FName Tag)
+	{
+		AStaticMeshActor* Actor = Cast<AStaticMeshActor>(TestWorld.SpawnActor(AStaticMeshActor::StaticClass(), Location, FRotator::ZeroRotator));
+		if (!Actor)
+		{
+			return nullptr;
+		}
+		UStaticMeshComponent* Mesh = Actor->GetStaticMeshComponent();
+		Mesh->SetMobility(EComponentMobility::Movable);
+		Mesh->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube")));
+		Mesh->SetMaterial(0, Material);
+		if (!Tag.IsNone())
+		{
+			Actor->Tags.Add(Tag);
+		}
+		return Actor;
+	}
+
+	static float Scalar(const UMaterialInterface* Material, FName Parameter)
+	{
+		float Value = -1.f;
+		if (Material)
+		{
+			Material->GetScalarParameterValue(FHashedMaterialParameterInfo(Parameter), Value);
+		}
+		return Value;
+	}
+
+	static float HeadGlow(const AStaticMeshActor* Head)
+	{
+		return Scalar(Head->GetStaticMeshComponent()->GetMaterial(0), TEXT("Intensity"));
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeTimeOfDayEmpLamps, "Hawkeye.TimeOfDay.EmpAndLampsDoNotFight", HawkeyeTimeOfDayTest::Flags)
+
+bool FHawkeyeTimeOfDayEmpLamps::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeTimeOfDayTest;
+	const FHawkeyeTestWorld TestWorld;
+	UWorld* World = TestWorld.Get();
+	UTimeOfDaySubsystem* TimeOfDay = World ? World->GetSubsystem<UTimeOfDaySubsystem>() : nullptr;
+	UArrowEffectsSubsystem* Effects = World ? World->GetSubsystem<UArrowEffectsSubsystem>() : nullptr;
+	UMaterialInterface* LampHead = LoadMaterial(TEXT("/Game/Materials/MI_StreetLamp.MI_StreetLamp"));
+	if (!TestNotNull(TEXT("Time of day"), TimeOfDay) || !TestNotNull(TEXT("Arrow effects"), Effects)
+		|| !TestNotNull(TEXT("MI_StreetLamp"), LampHead))
+	{
+		return false;
+	}
+	const float AuthoredGlow = Scalar(LampHead, TEXT("Intensity"));
+	TestTrue(TEXT("The lamp head glows as authored"), AuthoredGlow > 0.f);
+
+	// One lamp as the generator builds it: the light, the head and the buzz, three actors tagged CityLamp.
+	ASpotLight* Light = Cast<ASpotLight>(TestWorld.SpawnActor(ASpotLight::StaticClass(), FVector(300.f, 0.f, 690.f),
+		FRotator(-90.f, 0.f, 0.f)));
+	AStaticMeshActor* Head = SpawnGlowMesh(TestWorld, FVector(300.f, 0.f, 700.f), LampHead, UArrowEffectsSubsystem::LampTag);
+	AAmbientSound* Buzz = Cast<AAmbientSound>(TestWorld.SpawnActor(AAmbientSound::StaticClass(), FVector(300.f, 0.f, 300.f),
+		FRotator::ZeroRotator));
+	if (!Light || !Head || !Buzz)
+	{
+		AddError(TEXT("Could not spawn the lamp."));
+		return false;
+	}
+	Light->Tags.Add(UArrowEffectsSubsystem::LampTag);
+	Light->GetLightComponent()->SetMobility(EComponentMobility::Movable);
+	Light->GetLightComponent()->SetIntensity(1100.f);
+	Buzz->Tags.Add(UArrowEffectsSubsystem::LampTag);
+	ULightComponent* Lamp = Light->GetLightComponent();
+
+	// 1. Dark by EMP at night, before the time of day has recorded anything; Day picked while it is out.
+	TestEqual(TEXT("The EMP reaches all three"), Effects->DisableLampsInRadius(FVector::ZeroVector, 600.f, 20.f), 3);
+	TestEqual(TEXT("EMP: head dark"), HeadGlow(Head), 0.f);
+	TimeOfDay->Apply(EHawkeyeTimeOfDay::Day);
+	TestEqual(TEXT("The head is recorded at its authored glow, not the EMP's 0"), TimeOfDay->GetLampGlowCount(), 1);
+	TestEqual(TEXT("The buzz is recorded"), TimeOfDay->GetLampSoundCount(), 1);
+	TestEqual(TEXT("Day while dark: head still dark"), HeadGlow(Head), 0.f);
+	TestFalse(TEXT("Day while dark: light still hidden"), Lamp->IsVisible());
+	Effects->Tick(20.1f);
+	TestFalse(TEXT("The outage is over"), Effects->IsLampDisabled(Head));
+	TestTrue(TEXT("The EMP gives the light its visibility back"), Lamp->IsVisible());
+	TestEqual(TEXT("But by day it is off"), Lamp->Intensity, 0.f);
+	TestEqual(TEXT("And the head stays unlit, not back at the night's glow"), HeadGlow(Head), 0.f);
+	TestFalse(TEXT("No buzz by day"), TimeOfDay->IsLampLit(Buzz));
+
+	TimeOfDay->Apply(EHawkeyeTimeOfDay::Night);
+	TestEqual(TEXT("Night: the light is back"), Lamp->Intensity, 1100.f);
+	TestEqual(TEXT("Night: the head glows as authored"), HeadGlow(Head), AuthoredGlow);
+	TestTrue(TEXT("Night: the buzz plays"), TimeOfDay->IsLampLit(Buzz));
+
+	// 2. Dark by EMP by day; Night picked while it is out.
+	TimeOfDay->Apply(EHawkeyeTimeOfDay::Day);
+	Effects->DisableLampsInRadius(FVector::ZeroVector, 600.f, 20.f);
+	TimeOfDay->Apply(EHawkeyeTimeOfDay::Night);
+	TestFalse(TEXT("Night while dark: the light stays hidden"), Lamp->IsVisible());
+	TestEqual(TEXT("Night while dark: the head stays dark"), HeadGlow(Head), 0.f);
+	TestFalse(TEXT("Night while dark: no buzz"), TimeOfDay->IsLampLit(Buzz));
+	TestFalse(TEXT("Night while dark: the head is not lit"), TimeOfDay->IsLampLit(Head));
+	Effects->Tick(20.1f);
+	TestTrue(TEXT("Outage over at night: the light shows"), Lamp->IsVisible());
+	TestEqual(TEXT("At full"), Lamp->Intensity, 1100.f);
+	TestEqual(TEXT("The head glows again"), HeadGlow(Head), AuthoredGlow);
+	TestTrue(TEXT("And buzzes"), TimeOfDay->IsLampLit(Buzz));
+
+	// 3. A plain night EMP once the time of day owns the lamp.
+	Effects->DisableLampsInRadius(FVector::ZeroVector, 600.f, 20.f);
+	TestEqual(TEXT("Night EMP: head dark"), HeadGlow(Head), 0.f);
+	Effects->Tick(20.1f);
+	TestEqual(TEXT("Night EMP over: head back"), HeadGlow(Head), AuthoredGlow);
+	TestTrue(TEXT("Night EMP over: light back"), Lamp->IsVisible());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeTimeOfDayGlow, "Hawkeye.TimeOfDay.GlowScalesByDay", HawkeyeTimeOfDayTest::Flags)
+
+bool FHawkeyeTimeOfDayGlow::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeTimeOfDayTest;
+	const FHawkeyeTestWorld TestWorld;
+	UWorld* World = TestWorld.Get();
+	UTimeOfDaySubsystem* TimeOfDay = World ? World->GetSubsystem<UTimeOfDaySubsystem>() : nullptr;
+	UMaterialInterface* Beacon = LoadMaterial(TEXT("/Game/Materials/MI_ObjectiveBeacon.MI_ObjectiveBeacon"));
+	UMaterialInterface* Facade = LoadMaterial(TEXT("/Game/Materials/MI_Facade_BrickRed.MI_Facade_BrickRed"));
+	UMaterialInterface* Emissive = LoadMaterial(TEXT("/Game/Materials/M_Emissive.M_Emissive"));
+	if (!TestNotNull(TEXT("Time of day"), TimeOfDay) || !TestNotNull(TEXT("MI_ObjectiveBeacon"), Beacon)
+		|| !TestNotNull(TEXT("MI_Facade_BrickRed"), Facade) || !TestNotNull(TEXT("M_Emissive"), Emissive))
+	{
+		return false;
+	}
+	const FTimeOfDayPreset Day = UTimeOfDaySubsystem::GetPreset(EHawkeyeTimeOfDay::Day);
+	TestEqual(TEXT("Night's glow scale is 1"), UTimeOfDaySubsystem::GetPreset(EHawkeyeTimeOfDay::Night).GlowScale, 1.f);
+	TestTrue(TEXT("Day's is about 3"), FMath::IsNearlyEqual(Day.GlowScale, 3.f, 0.5f));
+
+	const float BeaconGlow = Scalar(Beacon, TEXT("Intensity"));
+	const float WindowGlow = Scalar(Facade, TEXT("WindowGlow"));
+	AStaticMeshActor* BeaconTop = SpawnGlowMesh(TestWorld, FVector(0.f, 0.f, 1000.f), Beacon, TEXT("CityBeacon"));
+	AStaticMeshActor* Building = SpawnGlowMesh(TestWorld, FVector(1000.f, 0.f, 0.f), Facade, TEXT("CityBuilding"));
+	AStaticMeshActor* InteriorSign = SpawnGlowMesh(TestWorld, FVector(0.f, 1000.f, 0.f), Beacon, TEXT("Interior"));
+	// A class's own glow (a pedestal cap, a target face, a checkpoint ring), set through the subsystem.
+	AStaticMeshActor* Cap = SpawnGlowMesh(TestWorld, FVector(-1000.f, 0.f, 0.f), Emissive, NAME_None);
+	if (!BeaconTop || !Building || !InteriorSign || !Cap)
+	{
+		AddError(TEXT("Could not spawn the glow scene."));
+		return false;
+	}
+	UMaterialInstanceDynamic* CapGlow = Cap->GetStaticMeshComponent()->CreateDynamicMaterialInstance(0);
+	UTimeOfDaySubsystem::SetGlow(Cap, CapGlow, 0.35f);
+	TestEqual(TEXT("Night: a set glow is its night value"), Scalar(CapGlow, TEXT("Intensity")), 0.35f);
+	TestEqual(TEXT("And the subsystem keeps it"), TimeOfDay->GetRegisteredGlowCount(), 1);
+
+	TimeOfDay->Apply(EHawkeyeTimeOfDay::Day);
+	TestEqual(TEXT("One beacon material found"), TimeOfDay->GetEmissiveMaterialCount(), 1);
+	TestEqual(TEXT("One facade material found"), TimeOfDay->GetWindowMaterialCount(), 1);
+	UMaterialInterface* DayBeacon = BeaconTop->GetStaticMeshComponent()->GetMaterial(0);
+	TestTrue(TEXT("Day: the beacon wears a copy"), DayBeacon != Beacon);
+	TestTrue(TEXT("Day: the beacon glows GlowScale times brighter"),
+		FMath::IsNearlyEqual(Scalar(DayBeacon, TEXT("Intensity")), BeaconGlow * Day.GlowScale, 1e-3f));
+	TestTrue(TEXT("Day: the windows at WindowGlowScale times GlowScale"),
+		FMath::IsNearlyEqual(Scalar(Building->GetStaticMeshComponent()->GetMaterial(0), TEXT("WindowGlow")),
+			WindowGlow * Day.WindowGlowScale * Day.GlowScale, 1e-4f));
+	TestTrue(TEXT("Day: the set glow is rescaled"), FMath::IsNearlyEqual(Scalar(CapGlow, TEXT("Intensity")), 0.35f * Day.GlowScale, 1e-4f));
+	TestTrue(TEXT("Day: an interior's glow is untouched"), InteriorSign->GetStaticMeshComponent()->GetMaterial(0) == Beacon);
+
+	// A glow set by day comes up scaled at once, and a second set replaces the first's night value.
+	UTimeOfDaySubsystem::SetGlow(Cap, CapGlow, 0.5f);
+	TestTrue(TEXT("Set by day: scaled at once"), FMath::IsNearlyEqual(Scalar(CapGlow, TEXT("Intensity")), 0.5f * Day.GlowScale, 1e-4f));
+	TestEqual(TEXT("Still one registered glow"), TimeOfDay->GetRegisteredGlowCount(), 1);
+	TestTrue(TEXT("GetGlowScale says Day's"), FMath::IsNearlyEqual(UTimeOfDaySubsystem::GetGlowScale(Cap), Day.GlowScale));
+
+	TimeOfDay->Apply(EHawkeyeTimeOfDay::Night);
+	TestTrue(TEXT("Night: the beacon's own material is back"), BeaconTop->GetStaticMeshComponent()->GetMaterial(0) == Beacon);
+	TestTrue(TEXT("Night: the facade's own material is back"), Building->GetStaticMeshComponent()->GetMaterial(0) == Facade);
+	TestEqual(TEXT("Night: the set glow at its latest night value"), Scalar(CapGlow, TEXT("Intensity")), 0.5f);
+	TestEqual(TEXT("GetGlowScale says 1"), UTimeOfDaySubsystem::GetGlowScale(Cap), 1.f);
 	return true;
 }
 
