@@ -225,7 +225,14 @@ Same gate every time. 468 tests at the end of it. New since the second night:
   with quit-and-continue in the middle and a death in a crime. Four bugs fixed: quitting
   to the menu didn't save, fast travel could be taken under fire, the chapter end could
   fire mid-fight or while downed. Open: the arrow's roof cannot be grappled onto from any
-  standing spot, and street anchors are erratic; an anchor audit is next.
+  standing spot, and street anchors are erratic; fixed below.
+- **Anchors.** The picker only ever sight-checked the eight anchors nearest the middle of
+  the screen, so a visible anchor behind hidden ones was never offered; it checks 32 now,
+  and a marked diamond is always on screen. 766 facade anchors were bolted to parapet
+  walls where the pavement and the roofs opposite can see them: every roof has one, roofs
+  unreachable from a sidewalk spot went from 236 to 34, and all three Chapter 1 roofs are
+  reachable from the street. The scripted lap's three-roof chain runs for the first time.
+- **Parapet corners** are flush at the source now (one mitred ring, no piers).
 - **Crouch.** A toggled crouch survives stairs, doorways and one-frame falls; a real fall
   or a vault or zip ends it. Worth a feel check.
 - **Also:** zero build warnings, packaged build refreshed on 09-29 (before this wave).
