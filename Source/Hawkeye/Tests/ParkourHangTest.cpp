@@ -239,6 +239,64 @@ bool FHawkeyeHangOutsideCorner::RunTest(const FString& Parameters)
 	return true;
 }
 
+/**
+ * The district's parapet corners: each parapet box runs 15 cm past its edge's end to close the corner, so its last
+ * 30 cm stands 15 cm proud of the next facade (generate_city.building_mesh). The pier stops her capsule about 55 cm
+ * short of the corner; she still goes round, onto the other face clear of the other pier.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeHangPierCorner, "Hawkeye.Parkour.HangTurnsAParapetCornerWithPiers",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeHangPierCorner::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeHangTest;
+	const FHawkeyeTestWorld TestWorld;
+	AHawkeyeAimTestCharacter* Kate = SpawnKate(TestWorld);
+	// The building to its roof at 710, and the parapet boxes on it as the generator builds them.
+	SpawnBox(TestWorld, FVector(100.f, -200.f, 0.f), FVector(500.f, 200.f, Top - 90.f));
+	SpawnBox(TestWorld, FVector(100.f, -215.f, Top - 90.f), FVector(130.f, 215.f, Top));
+	SpawnBox(TestWorld, FVector(85.f, 170.f, Top - 90.f), FVector(515.f, 200.f, Top));
+	UParkourComponent* Parkour = Kate->GetParkourComponent();
+	if (!TestTrue(TEXT("Hanging on the front parapet"), HangOn(Kate, 100.f, 0.f)))
+	{
+		return false;
+	}
+	bool bTurned = false;
+	float StoppedAt = 0.f;
+	int32 Clipping = 0;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HangPierTest), false, Kate);
+	for (float Time = 0.f; Time < 3.f; Time += Tick)
+	{
+		Parkour->SetHangInput(FVector(0.f, 1.f, 0.f));
+		if (Parkour->IsHanging())
+		{
+			StoppedAt = Kate->GetActorLocation().Y;
+			Parkour->AdvanceHang(Tick);
+			bTurned |= Parkour->GetActiveMove() == EHawkeyeParkourMove::HangCorner;
+		}
+		else if (Parkour->IsPerformingMove())
+		{
+			Parkour->AdvanceMove(Tick);
+			// Round the corner without going through the piers or the corner itself.
+			Clipping += TestWorld.Get()->OverlapBlockingTestByChannel(Kate->GetActorLocation(), FQuat::Identity, ECC_Pawn,
+				FCollisionShape::MakeCapsule(30.f, HalfHeight - 4.f), Params) ? 1 : 0;
+		}
+		if (bTurned && Parkour->IsHanging())
+		{
+			break;
+		}
+	}
+	AddInfo(FString::Printf(TEXT("The pier stopped her at y = %.0f; round at %s"), StoppedAt, *Kate->GetActorLocation().ToCompactString()));
+	TestTrue(TEXT("The pier stops her short of the corner"), StoppedAt < 160.f);
+	TestTrue(TEXT("She still turns the corner"), bTurned && Parkour->IsHanging());
+	TestEqual(TEXT("Never inside the parapet on the way round"), Clipping, 0);
+	TestEqual(TEXT("Facing the side (-Y)"), static_cast<float>(FRotator::NormalizeAxis(Kate->GetActorRotation().Yaw)), -90.f, 1.f);
+	TestEqual(TEXT("36 cm off the side"), static_cast<float>(Kate->GetActorLocation().Y), 236.f, 1.f);
+	TestTrue(TEXT("Clear of the front parapet's pier (it ends at x = 130, y = 215)"),
+		FVector::Dist2D(Kate->GetActorLocation(), FVector(130.f, 215.f, 0.f)) >= 32.f && Kate->GetActorLocation().X <= 190.f);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeHangInsideCorner, "Hawkeye.Parkour.HangTurnsAnInsideCorner",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
 
