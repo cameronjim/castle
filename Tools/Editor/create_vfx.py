@@ -429,7 +429,8 @@ def flash(name, life, color, size, delay=0.0, direct_life=False):
 
     direct_life: set the lifetime the way the template reads it (Lifetime Mode Direct Set). Without it the
     template keeps its own lifetime and Lifetime Min/Max go unread: NS_MeleeSpark's 0.08 s core was still
-    on screen 1.5 s later (knockdown_dust.png, 2026-09-29). The older flashes are left as they were built.
+    on screen 1.5 s later (knockdown_dust.png, 2026-09-29). Every short flash a shot checks sets it (the
+    melee, arrow hit, parry, muzzle and anchor flashes); the EMP's and the explosion's are left as built.
     """
     e = Emitter(name, "SimpleSpriteBurst")
     e.burst(1, delay).life(life, life).color(*color).size(size, size)
@@ -555,13 +556,13 @@ EFFECTS = {
         burst_sprites("Ring", "M_Vfx_Glow", 90, (0.22, 0.3), (1.6, 0.5, 3.2, 1.0), (10, 16), 8, (480, 520),
                       drag=2.5, fade=((0.0, 1.0), (0.5, 0.8), (1.0, 0.0)), grow=((0.0, 0.7), (1.0, 1.3)))
         .i("Shape Location", "Non Uniform Scale", vec(0.02, 1, 1)),
-        flash("Flash", 0.08, (1.4, 0.55, 2.8, 1.0), 60),
+        flash("Flash", 0.08, (1.4, 0.55, 2.8, 1.0), 60, direct_life=True),
         spark_streaks("Sparks", 18, (0.1, 0.25), (2.5, 1.4, 5.0, 1.0), (1.5, 10.0, 2.5, 24.0), (1, 0, 0), 80,
                       (500, 1000), gravity=-300, drag=3.0),
     ],
     # An arrow into a thug: no blood, a purple-white comic spark.
     "NS_HitSpark": [
-        flash("Star", 0.2, (2.2, 0.9, 4.5, 1.0), 120),
+        flash("Star", 0.2, (2.2, 0.9, 4.5, 1.0), 120, direct_life=True),
         spark_streaks("Streaks", 22, (0.15, 0.3), (2.5, 1.6, 5.0, 1.0), (4.0, 20.0, 6.0, 44.0), (1, 0, 0), 75,
                       (500, 1100), gravity=0, drag=4.0),
     ],
@@ -589,13 +590,13 @@ EFFECTS = {
     ],
     # Sparks where the grapple arrow bites into the parapet.
     "NS_AnchorSparks": [
-        flash("Bite", 0.1, (5.0, 3.2, 1.2, 1.0), 60),
+        flash("Bite", 0.1, (5.0, 3.2, 1.2, 1.0), 60, direct_life=True),
         spark_streaks("Sparks", 22, (0.2, 0.5), (5.0, 3.0, 1.0, 1.0), (1.5, 6.0, 2.5, 16.0), (1, 0, 0), 60,
                       (300, 900), gravity=-980, drag=0.5),
     ],
     # A gunner's shot: flash and sparks at the muzzle (the system's X is the shot).
     "NS_MuzzleFlash": [
-        flash("Flash", 0.05, (6.0, 4.2, 1.6, 1.0), 45),
+        flash("Flash", 0.05, (6.0, 4.2, 1.6, 1.0), 45, direct_life=True),
         spark_streaks("Sparks", 8, (0.04, 0.1), (5.0, 3.5, 1.2, 1.0), (1.5, 8.0, 2.5, 18.0), (1, 0, 0), 18,
                       (900, 1600), gravity=0, drag=2.0),
         burst_sprites("Smoke", "M_Vfx_Smoke", 3, (0.4, 0.6), (0.5, 0.5, 0.52, 0.25), (6, 10), 2, (20, 50),
