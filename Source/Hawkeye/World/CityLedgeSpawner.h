@@ -227,7 +227,7 @@ protected:
 	/** The ledge class at Transform, trace-only, tagged; Label in an editor world. */
 	AActor* SpawnLedgeActor(const FTransform& Transform, const TArray<FName>& LedgeTags, const FString& Label);
 
-	/** Hidden, query only, blocking nothing but the Traversable channel; the height labels hidden. */
+	/** Hidden, query only, blocking nothing but the Traversable channel; the height labels and the ledge splines hidden. */
 	static void MakeTraceOnly(AActor* Ledge);
 
 	/** The player pawn, else a PlayerStart, else this actor. */

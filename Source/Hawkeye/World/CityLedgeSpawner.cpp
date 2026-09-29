@@ -8,6 +8,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/HierarchicalInstancedStaticMeshComponent.h"
 #include "Components/TextRenderComponent.h"
+#include "Components/SplineComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Materials/MaterialInterface.h"
 #include "Engine/World.h"
@@ -224,6 +225,18 @@ void ACityLedgeSpawner::MakeTraceOnly(AActor* Ledge)
 		{
 			Text->SetVisibility(false);
 			Text->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			continue;
+		}
+		// The ledge lines the traversal reads: geometry only, never drawn in a game, but a visible spline is still a
+		// scene primitive (thousands of them once the block has streamed in: every frame's visibility pass walks
+		// them, and a level change spent 0.6 s of render thread removing them). Hidden, the queries work the same.
+		// In the editor they stay drawn: that is where someone looks at them.
+		if (USplineComponent* Spline = Cast<USplineComponent>(Primitive))
+		{
+			if (Ledge->GetWorld() && Ledge->GetWorld()->IsGameWorld())
+			{
+				Spline->SetVisibility(false);
+			}
 			continue;
 		}
 		if (!Primitive->IsA<UStaticMeshComponent>())
