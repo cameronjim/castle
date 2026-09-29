@@ -864,7 +864,8 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
 `Hawkeye.Camera.FightCamera*`, `Hawkeye.Melee.HitStopAndTelegraphGlyph`); drawn by
 `UHawkeyeThugOverheadWidget`.
 - Target read: the thug the melee assist picks for a swing that starts gets a thin ring on the ground
-  round his feet (his capsule radius plus 12 cm, 1.5 px, Kate's purple from the palette) and his
+  round his feet (his capsule radius plus 12 cm, 2.5 px on a 1 px dark edge so it reads on snow, Kate's
+  purple from the palette) and his
   health bar drawn 30% whiter. Full while that swing runs, fading to nothing over 0.3 s after it ends;
   a new pick moves it, a swing at nobody clears it, his death or removal clears it. A knocked-down
   thug's ring follows his body. One marker, Kate's only.
@@ -887,12 +888,28 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
 - Hit read: a landed light keeps 2 frames of hit stop (0.033 s); a landed heavy gets 4 (0.067 s, as
   the parry) and a camera punch, the lens 2.5 cm in toward her and back over 0.1 s of real time (a
   half sine), times the camera shake scale (0.3 with reduce camera shake). Every landed strike puts
-  `NS_MeleeSpark` on the thug's capsule surface toward her at chest height: a 26 cm core for 0.06 s and
-  9 short streaks, scale 1 on a light and 1.4 on a heavy (times 0.6 to 1 with reduce flashing). The
-  thug's own 0.1 s body flash is the dominant read; the spark only marks where. No damage numbers.
-- Ground thud: 0.45 s after a thug is knocked down, or dies standing, `MS_Roll_Thump` plays and
-  `NS_LandingSnow` at 0.6 scale puffs off the ground under his pelvis (both reused, nothing new built;
-  `GroundThudSound`, `GroundDustVfx` on the thug). Killed while already on the floor: no second thud.
+  `NS_MeleeSpark` on the thug's capsule surface toward her, at the height of whichever of her fists or feet
+  is nearest him (clamped to his knees and his face): a hot-gold 26 cm core (blended, so it keeps its colour
+  on his white flash) in a 46 cm additive glow, both 0.08 s, and 14 short streaks, scale 1 on a light and 1.4
+  on a heavy (times 0.6 to 1 with reduce flashing). When her own body would hide that point from the
+  player's lens (her axis within `SparkClearance`, 40 cm, of the line to it) it slides round his body to the
+  side the lens sees, up to 0.9 of his radius across. The thug's own 0.1 s body flash is the dominant read;
+  the spark only marks where. No damage numbers. (2026-09-29, from the first `hit_spark.png`: the old
+  white-violet core was lost in the flash and behind her head, and its sprite outlived its 0.06 s by over a
+  second because the template's own lifetime was never replaced; the spark's flashes now set it directly.)
+- Ground thud: when a thug's body meets the ground, `MS_Roll_Thump` plays and `NS_KnockdownDust` throws
+  dark grey slush up and out from the ground under his pelvis (`GroundThudSound`, `GroundDustVfx` at
+  `GroundDustScale` 1 on the thug). A knockdown his clip plays (a heavy, a trip) thuds 1.3 s after he goes
+  over (`KnockdownClipThudDelay`: the clip's pelvis is within 35 cm of the ground by then); a ragdoll
+  (a blast, a death standing) 0.45 s after (`GroundThudDelay`). Killed mid-fall: no later than 0.45 s more.
+  Killed while already on the floor: no second thud. (2026-09-29, from `knockdown_dust.png`: at 0.45 s
+  the clip still had him half-way down, and the white `NS_LandingSnow` puff it used did not show on
+  snow; `M_Vfx_Smoke` is also faded out within 60 cm of geometry, so the slush uses `M_Vfx_Snow`.)
+- Seen in `Hawkeye.Screenshot.Melee` (standalone, 2026-09-29), her own camera: `target_ring.png` 0.1 s into a
+  light at a hurt thug (the ring at his feet, his bar), `hit_spark.png` with time stopped in the tick the
+  light lands (the gold spark on his chest beside her head, 425 cm from the lens), `knockdown_dust.png`
+  0.2 s after a heavy's knockdown thud (the slush round his shoulders). `heavy_strike_2.png` is skipped
+  while her set has one heavy.
 - Fight camera: two or more alerted, living thugs within 600 cm (flat) and 300 cm up or down (counted
   every 0.1 s) make a fight. The hip arm lengthens by 70 cm and the lens tips down 4 degrees, blended
   at a constant rate over 0.5 s in and 1 s out, smoothstepped. It is multiplied out by the aim blend
