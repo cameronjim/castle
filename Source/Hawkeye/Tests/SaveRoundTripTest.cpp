@@ -1,6 +1,14 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Camera/CameraComponent.h"
+#include "Challenge/ChallengeSubsystem.h"
 #include "Combat/BowComponent.h"
+#include "Crime/CrimeDefinition.h"
+#include "Crime/CrimeSpot.h"
+#include "Crime/CrimeSubsystem.h"
+#include "Misc/App.h"
+#include "UI/HawkeyeHudWidget.h"
+#include "UI/HawkeyeObjectiveWidget.h"
 #include "Combat/HealthComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -111,6 +119,15 @@ namespace HawkeyeSaveRoundTrip
 		const FString FullPath = ShotPath(FileName);
 		HawkeyeShots::Request(Test, FullPath, /*bShowUI=*/true);
 	}
+
+	/** The death at the end of the save shots: what was set up in the fight, to check after the load. */
+	struct FDeathState
+	{
+		TWeakObjectPtr<UWorld> DiedWorld;
+		FName HurtThug;
+		FVector HurtThugLocation = FVector::ZeroVector;
+		int32 CrimeThugs = 0;
+	};
 
 	static TArray<int32> ReadArrowCounts(const UInventoryComponent* Inventory)
 	{
@@ -366,25 +383,48 @@ void HawkeyeAddSaveShots(FAutomationTestBase* Test)
 	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 
-	// A real death with no revive to be had: the fade to black, caught halfway.
-	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
+	// A real death mid-fight. The safehouse just saved; now a placed thug is hurt and a street crime
+	// starts, then Kate goes down with Clint (frozen) "coming": the ring, the 8 s running out, the fade
+	// with its line, and the load that has to put all of it back.
+	TSharedRef<FDeathState> Death = MakeShared<FDeathState>();
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, Death]()
 	{
 		UWorld* World = FindWorld();
 		if (AHawkeyePlayerController* PC = FindController(World))
 		{
 			PC->HideMainMenu();
 		}
-		for (TActorIterator<AHawkeyePartnerController> It(World); It; ++It)
-		{
-			It->SetLeader(nullptr);
-		}
 		PlaceBeforeDoor(World, 500.f, -6.f);
+		AHawkeyeCharacter* Kate = FindPlayer(World);
+		for (TActorIterator<AThugCharacter> It(World); It && Kate; ++It)
+		{
+			if (It->GetHealthComponent() && It->GetHealthComponent()->IsAlive())
+			{
+				Death->HurtThug = It->GetFName();
+				Death->HurtThugLocation = It->GetActorLocation();
+				It->GetHealthComponent()->ApplyDamage(20.f, Kate);
+				break;
+			}
+		}
+		UCrimeSubsystem* Crimes = UCrimeSubsystem::Get(World);
+		for (TActorIterator<ACrimeSpot> It(World); It && Crimes && Kate && !Crimes->IsCrimeActive(); ++It)
+		{
+			if (UCrimeDefinition* Mugging = It->FindCrime(ECrimeType::Mugging))
+			{
+				Crimes->StartCrimeAt(*It, Mugging, Kate);
+			}
+		}
+		Death->CrimeThugs = Crimes ? Crimes->GetThugs().Num() : 0;
+		Test->TestFalse(TEXT("A placed thug to hurt before the death"), Death->HurtThug.IsNone());
+		Test->TestTrue(TEXT("A crime is on before the death"), Crimes && Crimes->IsCrimeActive() && Death->CrimeThugs > 0);
 		return true;
 	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
-	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Death]()
 	{
-		if (AHawkeyeCharacter* Kate = FindPlayer(FindWorld()))
+		UWorld* World = FindWorld();
+		Death->DiedWorld = World;
+		if (AHawkeyeCharacter* Kate = FindPlayer(World))
 		{
 			Kate->GetHealthComponent()->SetInvulnerable(false);
 			Kate->GetHealthComponent()->SetCannotDie(false);
@@ -392,16 +432,97 @@ void HawkeyeAddSaveShots(FAutomationTestBase* Test)
 		}
 		return true;
 	}));
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.75f));
-	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]() { TakeShot(Test, TEXT("death_fade.png")); return true; }));
-	// Long enough for the fade to finish and the last save to load behind it.
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(8.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
 	{
+		const AHawkeyePlayerController* PC = FindController(FindWorld());
 		const AHawkeyeCharacter* Kate = FindPlayer(FindWorld());
-		Test->TestTrue(TEXT("After the death the last save loaded, alive"), Kate && Kate->GetHealthComponent()->IsAlive());
+		const UHawkeyeObjectiveWidget* Hud = PC && PC->GetHawkeyeHud() ? PC->GetHawkeyeHud()->GetObjectiveMarker() : nullptr;
+		// Clint is coming unless an earlier pass spent his revive in this fight; he is frozen either way.
+		Test->TestTrue(TEXT("She is down, not reloading yet"), Kate && Kate->IsDowned() && !Kate->HasDiedFromDown());
+		Test->TestTrue(TEXT("The ring is up"), Hud && Hud->IsDownedRingVisible());
+		Test->AddInfo(FString::Printf(TEXT("downed_timer.png: \"%s\", %.0f%% of the ring left."),
+			Hud ? *Hud->GetDownedText().ToString() : TEXT(""), Kate ? Kate->GetDownedFractionLeft() * 100.f : 0.f));
+		TakeShot(Test, TEXT("downed_timer.png"));
 		return true;
 	}));
+	// Nobody gets to her: the 8 s run out (6.5 more), then the fade, caught halfway.
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(7.2f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, Death]()
+	{
+		UWorld* World = FindWorld();
+		const AHawkeyeCharacter* Kate = FindPlayer(World);
+		if (World == Death->DiedWorld.Get())
+		{
+			Test->TestTrue(TEXT("The down ran out: she died of it"), Kate && Kate->HasDiedFromDown());
+			TakeShot(Test, TEXT("death_fade.png"));
+		}
+		return true;
+	}));
+	// The load swaps the world out; wait for the restored one.
+	ADD_LATENT_AUTOMATION_COMMAND(FUntilCommand([Death]()
+	{
+		UWorld* World = FindWorld();
+		const UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(World);
+		return World && World != Death->DiedWorld.Get() && Save && !Save->IsLoading() && FindPlayer(World);
+	}, [Test]()
+	{
+		Test->AddError(TEXT("The death's load did not finish within 45 s."));
+		return true;
+	}, 45.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, Death]()
+	{
+		UWorld* World = FindWorld();
+		const AHawkeyePlayerController* PC = FindController(World);
+		const AHawkeyeCharacter* Kate = FindPlayer(World);
+		Test->TestTrue(TEXT("After the death the last save loaded, alive"), Kate && Kate->GetHealthComponent()->IsAlive());
+		Test->TestFalse(TEXT("and up"), Kate && Kate->IsDowned());
+		Test->TestFalse(TEXT("The input is not locked"), !PC || PC->IsMoveInputIgnored() || PC->IsLookInputIgnored());
+		const UCameraComponent* Camera = Kate ? Kate->GetFollowCamera() : nullptr;
+		Test->TestFalse(TEXT("The grey is gone"), !Camera || Camera->PostProcessSettings.bOverride_ColorSaturation);
+		const UHawkeyeObjectiveWidget* Hud = PC && PC->GetHawkeyeHud() ? PC->GetHawkeyeHud()->GetObjectiveMarker() : nullptr;
+		Test->TestTrue(TEXT("No ring and no death line"), Hud && !Hud->IsDownedRingVisible() && Hud->GetDeathLine().IsEmpty());
+		const UCrimeSubsystem* Crimes = UCrimeSubsystem::Get(World);
+		Test->TestFalse(TEXT("The crime is over"), Crimes && Crimes->IsCrimeActive());
+		Test->TestEqual(TEXT("Its thugs are gone"), Crimes ? Crimes->GetThugs().Num() : -1, 0);
+		const UChallengeSubsystem* Challenges = UChallengeSubsystem::Get(World);
+		Test->TestFalse(TEXT("No challenge run"), Challenges && Challenges->IsRunning());
+		bool bFound = false;
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			if (It->GetFName() != Death->HurtThug)
+			{
+				continue;
+			}
+			bFound = true;
+			const UHealthComponent* Health = It->GetHealthComponent();
+			Test->TestTrue(TEXT("The hurt thug is back at full health"), Health && Health->IsAlive() && Health->GetHealthPercent() >= 0.999f);
+			Test->TestFalse(TEXT("and not alerted"), It->IsAlerted());
+			Test->AddInfo(FString::Printf(TEXT("%s back %.0f cm from where he was hurt, alert state %d."), *It->GetName(),
+				FVector::Dist(It->GetActorLocation(), Death->HurtThugLocation), static_cast<int32>(It->GetAlertState())));
+		}
+		Test->TestTrue(TEXT("The hurt thug is in the reloaded map"), bFound);
+		return true;
+	}));
+}
+
+/** The save shots on their own: the safehouse, the main menu, and the death flow through its reload. */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeScreenshotSave, "Hawkeye.Screenshot.Save",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeScreenshotSave::RunTest(const FString& Parameters)
+{
+	if (GIsEditor || !FApp::CanEverRender())
+	{
+		AddInfo(TEXT("The save shots reload the district; run them from the standalone game (-game)."));
+		return true;
+	}
+	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(6.f));
+	HawkeyeAddSaveShots(this);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
+	return true;
 }
 
 #endif

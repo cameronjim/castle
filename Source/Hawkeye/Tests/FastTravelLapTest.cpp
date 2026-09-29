@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Challenge/ChallengeDefinition.h"
+#include "Challenge/ChallengeStart.h"
 #include "Challenge/ChallengeSubsystem.h"
 #include "Challenge/ChallengeTracker.h"
 #include "CollisionQueryParams.h"
@@ -381,6 +382,86 @@ void HawkeyeAddFastTravelShots(FAutomationTestBase* Test)
 {
 	using namespace HawkeyeFastTravelLap;
 
+	// Before either safehouse is found: on the street below a challenge pedestal, "Mark nearest safehouse"
+	// marks an unfound one ("?" and "[Unknown safehouse]"), the compass has both houses hollow and the
+	// pedestal's medal, and the pedestal has its world marker.
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
+	{
+		UWorld* World = FindWorld();
+		AHawkeyePlayerController* PC = FindController(World);
+		AHawkeyeCharacter* Kate = FindPlayer(World);
+		const UChallengeSubsystem* Challenges = UChallengeSubsystem::Get(World);
+		if (PC && Kate && Kate->GetCharacterName().ToString() != TEXT("Kate"))
+		{
+			PC->bAllowSwitchingOverride = true;
+			PC->SwitchCharacter();
+			Kate = FindPlayer(World);
+		}
+		HawkeyeFreezePartner(World);
+		const ASafehouse* Second = FindSafehouse(World, SecondId);
+		const AChallengeStart* Pedestal = Challenges && Second ? Challenges->FindNearestStart(Second->GetActorLocation()) : nullptr;
+		if (!PC || !Kate || !Pedestal)
+		{
+			Test->AddError(TEXT("compass_markers.png: no player or no challenge pedestal."));
+			return true;
+		}
+		// 50 to 75 m from the pedestal on a street or sidewalk, looking up at it.
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(CompassMarkersShot), false, Kate);
+		bool bPlaced = false;
+		for (int32 Step = 0; Step < 48 && !bPlaced; ++Step)
+		{
+			const float Distance = Step < 24 ? 5500.f : 7000.f;
+			const FVector Probe = Pedestal->GetActorLocation() + FRotator(0.f, 15.f * Step, 0.f).Vector() * Distance;
+			FHitResult Hit;
+			const AActor* Ground = World->LineTraceSingleByChannel(Hit, FVector(Probe.X, Probe.Y, 20000.f),
+				FVector(Probe.X, Probe.Y, -500.f), ECC_Visibility, Params) ? Hit.GetActor() : nullptr;
+			if (!Ground || !(Ground->ActorHasTag(TEXT("CityRoad")) || Ground->ActorHasTag(TEXT("CitySidewalk"))))
+			{
+				continue;
+			}
+			bPlaced = true;
+			const FVector ToPedestal = Pedestal->GetActorLocation() - Hit.ImpactPoint;
+			const FRotator Facing(0.f, ToPedestal.Rotation().Yaw, 0.f);
+			Kate->TeleportTo(Hit.ImpactPoint + FVector(0.f, 0.f, 100.f), Facing);
+			PC->SetControlRotation(FRotator(FMath::Clamp(ToPedestal.Rotation().Pitch, 0.f, 20.f), Facing.Yaw, 0.f));
+		}
+		Test->TestTrue(TEXT("A street by the pedestal to stand on"), bPlaced);
+		Test->TestTrue(TEXT("Mark nearest safehouse marks one before any is found"), PC->MarkNearestSafehouse());
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
+	{
+		UWorld* World = FindWorld();
+		const AHawkeyePlayerController* PC = FindController(World);
+		const UHawkeyeHudWidget* Hud = PC ? PC->GetHawkeyeHud() : nullptr;
+		const UHawkeyeObjectiveWidget* Compass = Hud ? Hud->GetObjectiveMarker() : nullptr;
+		const UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(World);
+		const bool bNoneFound = Save && Save->GetDiscoveredSafehouses().Num() == 0;
+		Test->TestEqual(TEXT("Both safehouses are on the compass, found or not"), Compass ? Compass->GetCompassSafehouseCount() : 0, 2);
+		Test->TestTrue(TEXT("The pedestal's medal is on the compass"), Compass && Compass->GetCompassChallengeCount() >= 1);
+		if (bNoneFound)
+		{
+			Test->TestFalse(TEXT("Unfound houses are hollow"), Compass && Compass->IsCompassSafehouseDiscovered(0));
+			Test->TestEqual(TEXT("The marker names it the unknown safehouse"), Compass ? Compass->GetMarkedSafehouseLabel().ToString() : FString(),
+				FString(TEXT("[Unknown safehouse]")));
+		}
+		Test->AddInfo(FString::Printf(TEXT("compass_markers.png: %d house(s), %d medal(s), %d pedestal marker(s), marked \"%s\"."),
+			Compass ? Compass->GetCompassSafehouseCount() : 0, Compass ? Compass->GetCompassChallengeCount() : 0,
+			Compass ? Compass->GetChallengeMarkerCount() : 0, Compass ? *Compass->GetMarkedSafehouseLabel().ToString() : TEXT("")));
+		HawkeyeShots::Request(Test, ShotPath(TEXT("compass_markers.png")), true);
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
+	{
+		if (USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(FindWorld()))
+		{
+			Safehouses->ClearSafehouseMarker();
+		}
+		return true;
+	}));
+
 	// The second door from across the pavement.
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
 	{
@@ -502,6 +583,24 @@ void HawkeyeAddFastTravelShots(FAutomationTestBase* Test)
 		}
 		return true;
 	}));
+}
+
+/** The fast-travel shots on their own: the compass markers, the second door, the list, both houses. */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeScreenshotFastTravel, "Hawkeye.Screenshot.FastTravel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeScreenshotFastTravel::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddInfo(TEXT("No RHI: skipping the fast-travel screenshots."));
+		return true;
+	}
+	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(6.f));
+	HawkeyeAddFastTravelShots(this);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
+	return true;
 }
 
 #endif
