@@ -45,6 +45,7 @@
 #include "Settings/HawkeyeSettingsSubsystem.h"
 #include "Components/PawnNoiseEmitterComponent.h"
 #include "HAL/IConsoleManager.h"
+#include "Misc/App.h"
 #include "TimerManager.h"
 #include "UObject/UnrealType.h"
 #include "World/InteractionComponent.h"
@@ -152,6 +153,8 @@ AHawkeyeCharacter::AHawkeyeCharacter()
 	MeleeComponent = CreateDefaultSubobject<UMeleeComponent>(TEXT("MeleeComponent"));
 	// The assist (gameplay-semantics.md, "Melee assist"): her swings close on the thug she picked and forgive him.
 	MeleeComponent->bAssistSwings = true;
+	// Small and at the contact point: the thug's hit flash is what reads (gameplay-semantics.md, "Combat readability").
+	MeleeSparkVfx = TSoftObjectPtr<UNiagaraSystem>(FSoftObjectPath(TEXT("/Game/VFX/NS_MeleeSpark.NS_MeleeSpark")));
 	LightAttack.Name = FName(TEXT("light"));
 	LightAttack.Damage = 15.f;
 	LightAttack.WindupSeconds = 0.1f;
@@ -548,10 +551,10 @@ FString AHawkeyeCharacter::GetSwitchBlocker() const
 
 void AHawkeyeCharacter::ReleaseHeldInputs()
 {
+	StopSprintToggle(EHawkeyeSprintStop::Released);
 	bIsSprinting = false;
 	bAimInputHeld = false;
 	bMeleeHeld = false;
-	StopSprintToggle(EHawkeyeSprintStop::Released);
 	bLightBuffered = false;
 	bCrouchTapPending = false;
 	bInventoryKeyHeld = false;
@@ -1060,11 +1063,11 @@ void AHawkeyeCharacter::NotifyGrappleLanded()
 void AHawkeyeCharacter::Input_Move(const FInputActionValue& Value)
 {
 	const FVector2D MoveInput = Value.Get<FVector2D>();
+	// The sprint toggle only cares whether the thumb is on the stick, locked out or not (a zip, a vault).
+	bStickPushedThisFrame |= !MoveInput.IsNearlyZero();
 	const bool bParkourLock = ParkourComponent && ParkourComponent->IsLockingInput();
 	const bool bDead = HealthComponent && !HealthComponent->IsAlive();
 	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping() || bParkourLock || bDead)
-	// The sprint toggle only cares whether the thumb is on the stick, locked out or not (a zip, a vault).
-	bStickPushedThisFrame |= !MoveInput.IsNearlyZero();
 	{
 		return;
 	}
@@ -1145,10 +1148,10 @@ void AHawkeyeCharacter::ApplySettings(const FHawkeyeSettings& NewSettings)
 
 	bToggleAim = NewSettings.bToggleAim;
 	bToggleCrouch = NewSettings.bToggleCrouch;
+	SprintMode = NewSettings.SprintMode;
 	CameraShakeScale = UHawkeyeAccessibility::GetCameraShakeScale(NewSettings.bReduceCameraShake);
 	FlashScale = UHawkeyeAccessibility::GetFlashScale(NewSettings.bReduceFlashing);
 
-	SprintMode = NewSettings.SprintMode;
 	const EHawkeyeDifficulty Difficulty = NewSettings.Difficulty;
 	FallDamageScale = UDifficultySubsystem::GetTableValue(Difficulty, EDifficultyStat::FallDamage);
 	ParryWindowDelta = UDifficultySubsystem::GetTableValue(Difficulty, EDifficultyStat::ParryWindowSeconds);
@@ -1250,9 +1253,6 @@ void AHawkeyeCharacter::Input_LookStick(const FInputActionValue& Value)
 
 void AHawkeyeCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 {
-	UE_LOG(LogHawkeye, Verbose, TEXT("%s: sprint start at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
-	bIsSprinting = true;
-
 	// The controller sees every key before the action fires, so its last device is the one that pressed sprint.
 	const AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetController());
 	PressSprint(PC && PC->IsUsingGamepad());
@@ -1281,6 +1281,9 @@ void AHawkeyeCharacter::PressSprint(bool bFromGamepad)
 		// A held press takes over from a toggle left on by the other device.
 		SprintToggle.Stop();
 	}
+	UE_LOG(LogHawkeye, Verbose, TEXT("%s: sprint start at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
+	bIsSprinting = true;
+
 	// You cannot sprint down the sights; the aim (and any draw) drops before the speed goes up.
 	StopAim();
 	UpdateMaxWalkSpeed();
@@ -1294,19 +1297,16 @@ void AHawkeyeCharacter::PressSprint(bool bFromGamepad)
 
 void AHawkeyeCharacter::ReleaseSprint()
 {
-	UE_LOG(LogHawkeye, Verbose, TEXT("%s: sprint stop at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
-	bIsSprinting = false;
-	UpdateMaxWalkSpeed();
 	if (SprintToggle.IsOn())
 	{
 		// Toggled: the release means nothing; the next press, the stick or an aim ends it.
 		return;
 	}
+	UE_LOG(LogHawkeye, Verbose, TEXT("%s: sprint stop at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
+	bIsSprinting = false;
+	UpdateMaxWalkSpeed();
 }
 
-void AHawkeyeCharacter::Input_AimStarted(const FInputActionValue& /*Value*/)
-{
-	PressAim();
 bool AHawkeyeCharacter::StopSprintToggle(EHawkeyeSprintStop Why)
 {
 	if (!SprintToggle.Stop())
@@ -1332,15 +1332,18 @@ void AHawkeyeCharacter::UpdateSprintToggle(float DeltaSeconds)
 	}
 }
 
+void AHawkeyeCharacter::Input_AimStarted(const FInputActionValue& /*Value*/)
+{
+	PressAim();
 }
 
 void AHawkeyeCharacter::PressAim()
 {
+	// A toggled sprint gives way to the aim (a held one still refuses it, as before).
+	StopSprintToggle(EHawkeyeSprintStop::Aim);
 	// Toggled, the press flips what she is doing now (a sprint may have dropped the aim since).
 	bAimInputHeld = UHawkeyeAccessibility::ResolvePress(bToggleAim, bToggleAim ? bIsAiming : bAimInputHeld);
 	if (bAimInputHeld)
-	// A toggled sprint gives way to the aim (a held one still refuses it, as before).
-	StopSprintToggle(EHawkeyeSprintStop::Aim);
 	{
 		const bool bWasAiming = bIsAiming;
 		StartAim();
@@ -1377,10 +1380,10 @@ bool AHawkeyeCharacter::IsDrawingBow() const
 
 void AHawkeyeCharacter::NotifyBowDrawStarted()
 {
+	StopSprintToggle(EHawkeyeSprintStop::Aim);
 	if (bIsSprinting)
 	{
 		bIsSprinting = false;
-	StopSprintToggle(EHawkeyeSprintStop::Aim);
 	}
 	StartAim();
 	UpdateMaxWalkSpeed();
@@ -1632,10 +1635,35 @@ void AHawkeyeCharacter::UpdateCamera(float DeltaSeconds)
 	}
 
 	// A finisher pushes the lens in on the blow.
+	const float PushAlpha = FinisherComponent ? FinisherComponent->GetCameraPushAlpha() : 0.f;
 	if (FinisherComponent)
 	{
-		Blend.ArmLength -= FinisherComponent->CameraPushDistance * FinisherComponent->GetCameraPushAlpha();
+		Blend.ArmLength -= FinisherComponent->CameraPushDistance * PushAlpha;
 	}
+
+	// Two or more alerted thugs round her: the boom comes back and the lens tips down so they are all in
+	// frame; it gives way to the aim and to the finisher's push, and indoors never passes the room's cap.
+	UpdateFightCamera(DeltaSeconds);
+	float FightArm = 0.f;
+	float FightPitch = 0.f;
+	HawkeyeCombatReadability::ComputeFightOffsets(FightCameraAlpha, FMath::SmoothStep(0.f, 1.f, AimAlpha), PushAlpha, FightCamera,
+		FightArm, FightPitch);
+	if (bIndoorCamera)
+	{
+		FightArm = FMath::Min(FightArm, FMath::Max(IndoorArmLength - Blend.ArmLength, 0.f));
+	}
+	Blend.ArmLength += FightArm;
+
+	// A landed heavy punches the lens in a couple of centimetres, on real time so the hit stop does not stretch it.
+	if (CameraPunchElapsed >= 0.f)
+	{
+		CameraPunchElapsed += FApp::GetDeltaTime();
+		if (CameraPunchElapsed > HeavyCameraPunchSeconds)
+		{
+			CameraPunchElapsed = -1.f;
+		}
+	}
+	Blend.ArmLength -= GetCameraPunchOffset();
 
 	if (CameraBoom)
 	{
@@ -1646,13 +1674,66 @@ void AHawkeyeCharacter::UpdateCamera(float DeltaSeconds)
 	if (FollowCamera)
 	{
 		FollowCamera->SetFieldOfView(Blend.FieldOfView);
-		// A roll tips the lens down and back up with her.
-		const float RollPitch = GetLandingCameraPitch();
+		// A roll tips the lens down and back up with her; the fight camera tips it down a little more.
+		const float RollPitch = GetLandingCameraPitch() - FightPitch;
 		if (!FMath::IsNearlyEqual(FollowCamera->GetRelativeRotation().Pitch, RollPitch))
 		{
 			FollowCamera->SetRelativeRotation(FRotator(RollPitch, 0.f, 0.f));
 		}
 	}
+}
+
+void AHawkeyeCharacter::UpdateFightCamera(float DeltaSeconds)
+{
+	FightRecountRemaining -= FMath::Max(DeltaSeconds, 0.f);
+	UWorld* World = GetWorld();
+	if (FightRecountRemaining <= 0.f && World)
+	{
+		FightRecountRemaining = FightRecountSeconds;
+		TArray<FVector> Alerted;
+		for (TActorIterator<AThugCharacter> It(World); It; ++It)
+		{
+			const UHealthComponent* Health = It->GetHealthComponent();
+			if (It->IsAlerted() && !It->IsLimp() && Health && Health->IsAlive())
+			{
+				Alerted.Add(It->GetActorLocation());
+			}
+		}
+		const int32 Count = HawkeyeCombatReadability::CountEngaged(GetActorLocation(), Alerted, FightCamera.Radius, FightCamera.MaxHeight);
+		const bool bWasFight = HawkeyeCombatReadability::IsFight(EngagedThugCount, FightCamera);
+		const bool bFight = HawkeyeCombatReadability::IsFight(Count, FightCamera);
+		if (bFight != bWasFight)
+		{
+			UE_LOG(LogHawkeye, Log, TEXT("%s: fight camera %s (%d alerted thugs within %.0f cm)."), *GetNameSafe(this),
+				bFight ? TEXT("in") : TEXT("out"), Count, FightCamera.Radius);
+		}
+		EngagedThugCount = Count;
+	}
+	FightCameraAlpha = HawkeyeCombatReadability::AdvanceFightAlpha(FightCameraAlpha,
+		HawkeyeCombatReadability::IsFight(EngagedThugCount, FightCamera), DeltaSeconds, FightCamera);
+}
+
+float AHawkeyeCharacter::GetCameraPunchOffset() const
+{
+	return CameraPunchElapsed < 0.f ? 0.f
+		: HawkeyeCombatReadability::ComputeCameraPunch(CameraPunchElapsed, HeavyCameraPunchSeconds, HeavyCameraPunchDistance,
+			CameraShakeScale);
+}
+
+void AHawkeyeCharacter::SpawnMeleeSpark(const AActor* HitActor, bool bHeavy) const
+{
+	if (!HitActor)
+	{
+		return;
+	}
+	float Radius = 0.f;
+	float HalfHeight = 0.f;
+	HitActor->GetSimpleCollisionCylinder(Radius, HalfHeight);
+	const FVector ToHer = (GetActorLocation() - HitActor->GetActorLocation()).GetSafeNormal2D();
+	// The front of his body toward her, at chest height: where a fist or a foot meets him.
+	const FVector Contact = HitActor->GetActorLocation() + ToHer * Radius * 0.8f + FVector(0.f, 0.f, 35.f);
+	UHawkeyeVfxSubsystem::SpawnAt(this, MeleeSparkVfx, Contact, ToHer.Rotation(), UHawkeyeVfxSubsystem::MeleeSparkEvent,
+		(bHeavy ? HeavySparkScale : LightSparkScale) * FMath::Lerp(0.6f, 1.f, FlashScale));
 }
 
 void AHawkeyeCharacter::UpdateMoveInputTiming(float DeltaSeconds)
@@ -1674,10 +1755,12 @@ void AHawkeyeCharacter::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 
 	UpdateMoveInputTiming(DeltaSeconds);
+	UpdateSprintToggle(DeltaSeconds);
 	UpdateQuiverWheelHold();
 	UpdateCrouchTap(DeltaSeconds);
 	UpdateMeleeHold(DeltaSeconds);
 	AdvanceMeleeFlow(DeltaSeconds);
+	MeleeTargetMarker.Advance(DeltaSeconds, MeleeComponent && MeleeComponent->IsAttacking());
 	UpdateDodge(DeltaSeconds);
 	UpdateHitReactions(DeltaSeconds);
 	AdvanceDowned(DeltaSeconds);
@@ -1750,12 +1833,20 @@ void AHawkeyeCharacter::Input_CrouchToggle(const FInputActionValue& /*Value*/)
 
 void AHawkeyeCharacter::PressCrouch()
 {
+	// A crouch press ends a toggled sprint, unless it becomes (or lands in) a slide, which ends it as it stands up.
+	bool bKeepSprint = bIsSliding;
+	ON_SCOPE_EXIT
+	{
+		if (!bKeepSprint)
+		{
+			StopSprintToggle(EHawkeyeSprintStop::Crouch);
+		}
+	};
 	// The roll owns the crouch until it stands her up.
 	if (IsRolling())
 	{
 		return;
 	}
-	UpdateSprintToggle(DeltaSeconds);
 	// Crouch lets go of a ledge.
 	if (ParkourComponent && ParkourComponent->IsHanging())
 	{
@@ -1834,15 +1925,6 @@ void AHawkeyeCharacter::ReleaseCrouch()
 }
 
 bool AHawkeyeCharacter::IsCrouchWanted() const
-	// A crouch press ends a toggled sprint, unless it becomes (or lands in) a slide, which ends it as it stands up.
-	bool bKeepSprint = bIsSliding;
-	ON_SCOPE_EXIT
-	{
-		if (!bKeepSprint)
-		{
-			StopSprintToggle(EHawkeyeSprintStop::Crouch);
-		}
-	};
 {
 	// The movement component takes a crouch on its next update; until then only the wish is set.
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
@@ -2009,6 +2091,8 @@ bool AHawkeyeCharacter::StartMelee(const FHawkeyeMeleeAttack& Attack, EHawkeyeSt
 	{
 		return false;
 	}
+	// The pick gets a thin ring at his feet for the swing (nobody: whatever was marked goes).
+	MeleeTargetMarker.Mark(Target);
 	// The clip is the arms; the strike pose is what stands in for one.
 	if (MeleeComponent->GetCurrentMontage())
 	{
@@ -2322,8 +2406,15 @@ void AHawkeyeCharacter::HandleMeleeLanded(AActor* HitActor, float /*DamageDealt*
 	{
 		Combo.NotifyHit();
 	}
-	// Hit stop: the world nearly stops for two frames so the contact reads.
-	ApplyTimeWarp(HitStopSeconds, HitStopTimeDilation);
+	// Hit stop: the world nearly stops for two frames on a light, four on a heavy (with a small lens punch),
+	// so the contact reads; a small spark where the blow met him, under his own hit flash.
+	const bool bHeavy = !bSwingIsLight;
+	ApplyTimeWarp(GetMeleeHitStopSeconds(bHeavy), HitStopTimeDilation);
+	if (bHeavy && HeavyCameraPunchSeconds > 0.f)
+	{
+		CameraPunchElapsed = 0.f;
+	}
+	SpawnMeleeSpark(HitActor, bHeavy);
 }
 
 void AHawkeyeCharacter::HandleMeleeMissed(FName /*AttackName*/)
@@ -2401,25 +2492,40 @@ AThugCharacter* AHawkeyeCharacter::FindParryTarget(EHawkeyeParryKind& OutKind) c
 	}
 	AThugCharacter* Best = nullptr;
 	float BestDistance = BIG_NUMBER;
-	const FVector Forward = GetViewForward();
 	for (TActorIterator<AThugCharacter> It(World); It; ++It)
 	{
-		const EHawkeyeParryKind Kind = UHawkeyeMeleeRules::ClassifyParry(*It);
-		const FVector To = It->GetActorLocation() - GetActorLocation();
-		if (Kind == EHawkeyeParryKind::None || FMath::Abs(To.Z) > 150.f
-			|| !UHawkeyeMeleeRules::IsInParryWindow(UHawkeyeMeleeRules::GetTelegraphElapsed(*It), ParryWindowDelta)
-			|| !UHawkeyeMeleeRules::IsInFrontWithin(GetActorLocation(), Forward, It->GetActorLocation(), ParryRange, ParryAngleDegrees))
+		EHawkeyeParryKind Kind = EHawkeyeParryKind::None;
+		if (!CanParryNow(*It, &Kind))
 		{
 			continue;
 		}
-		if (To.Size2D() < BestDistance)
+		const float Distance = FVector::Dist2D(It->GetActorLocation(), GetActorLocation());
+		if (Distance < BestDistance)
 		{
 			Best = *It;
-			BestDistance = To.Size2D();
+			BestDistance = Distance;
 			OutKind = Kind;
 		}
 	}
 	return Best;
+}
+
+bool AHawkeyeCharacter::CanParryNow(const AThugCharacter* Thug, EHawkeyeParryKind* OutKind) const
+{
+	const EHawkeyeParryKind Kind = UHawkeyeMeleeRules::ClassifyParry(Thug);
+	if (OutKind)
+	{
+		*OutKind = Kind;
+	}
+	if (Kind == EHawkeyeParryKind::None)
+	{
+		return false;
+	}
+	const FVector To = Thug->GetActorLocation() - GetActorLocation();
+	return FMath::Abs(To.Z) <= 150.f
+		&& UHawkeyeMeleeRules::IsInParryWindow(UHawkeyeMeleeRules::GetTelegraphElapsed(Thug), ParryWindowDelta)
+		&& UHawkeyeMeleeRules::IsInFrontWithin(GetActorLocation(), GetViewForward(), Thug->GetActorLocation(), ParryRange,
+			ParryAngleDegrees);
 }
 
 void AHawkeyeCharacter::UpdateParryBuffer(float DeltaSeconds)
@@ -2871,6 +2977,8 @@ void AHawkeyeCharacter::EndSlide()
 
 	bIsSliding = false;
 	SlideRemaining = 0.f;
+	// A toggled sprint that slid is done: she comes up out of the slide at a run.
+	StopSprintToggle(EHawkeyeSprintStop::SlideEnded);
 	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
 	{
 		Movement->GroundFriction = PreSlideGroundFriction;
@@ -2977,8 +3085,6 @@ void AHawkeyeCharacter::Landed(const FHitResult& Hit)
 	Super::Landed(Hit);
 
 	const float Z = GetActorLocation().Z;
-	// A toggled sprint that slid is done: she comes up out of the slide at a run.
-	StopSprintToggle(EHawkeyeSprintStop::SlideEnded);
 	ApplyLanding(FMath::Max(0.f, FMath::Max(FallApexZ, Z) - Z));
 }
 

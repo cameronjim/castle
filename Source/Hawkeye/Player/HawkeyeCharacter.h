@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Audio/HawkeyeAudioTypes.h"
+#include "Combat/CombatReadability.h"
 #include "Combat/FinisherComponent.h"
 #include "Combat/MeleeCombo.h"
 #include "Combat/MeleeComponent.h"
@@ -12,8 +13,8 @@
 #include "GameFramework/Character.h"
 #include "ISpudObject.h"
 #include "Player/HawkeyeMovementTypes.h"
-#include "Settings/HawkeyeSettings.h"
 #include "Player/HawkeyeSprintToggle.h"
+#include "Settings/HawkeyeSettings.h"
 #include "HawkeyeCharacter.generated.h"
 
 class UAnimSequence;
@@ -265,7 +266,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
 	bool IsSprinting() const { return bIsSprinting; }
 
-	/** Current camera field of view. Exposed so a test or a Blueprint can read the blend. */
 	/**
 	 * The sprint button went down (Shift, or L3 on a pad). Held (the keyboard's default) it sprints until the release;
 	 * toggled (the pad's default, or the setting) the first press turns it on and a second turns it off
@@ -286,6 +286,7 @@ public:
 	/** The sprint setting ApplySettings last took. */
 	EHawkeyeSprintMode GetSprintMode() const { return SprintMode; }
 
+	/** Current camera field of view. Exposed so a test or a Blueprint can read the blend. */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Aim")
 	float GetCurrentFOV() const;
 
@@ -498,6 +499,35 @@ public:
 
 	/** The thug a parry would meet now (and what it would meet), or null. */
 	AThugCharacter* FindParryTarget(EHawkeyeParryKind& OutKind) const;
+
+	/**
+	 * True when a tap now would parry Thug: he is telegraphing something a parry answers, is in the window
+	 * (the difficulty's ParryWindowDelta), within ParryRange and ParryAngleDegrees of her view and 150 cm
+	 * up or down. What the telegraph glyph's parry line shows.
+	 */
+	bool CanParryNow(const AThugCharacter* Thug, EHawkeyeParryKind* OutKind = nullptr) const;
+
+	/** The marker on the thug her last swing was aimed at (gameplay-semantics.md, "Combat readability"). */
+	const FHawkeyeTargetMarker& GetMeleeTargetMarker() const { return MeleeTargetMarker; }
+
+	/** How far the fight camera is in, 0 to 1 (before its smoothstep). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	float GetFightCameraAlpha() const { return FightCameraAlpha; }
+
+	/** The fight camera's numbers (FightCamera). */
+	const FHawkeyeFightCameraSettings& GetFightCameraSettings() const { return FightCamera; }
+
+	/** Alerted thugs within the fight camera's radius at the last count. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	int32 GetEngagedThugCount() const { return EngagedThugCount; }
+
+	/** The heavy's camera punch now, cm toward her (0 outside one). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Camera")
+	float GetCameraPunchOffset() const;
+
+	/** The hit stop a landed swing gives, real seconds: HitStopSeconds for a light, HeavyHitStopSeconds for a heavy. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	float GetMeleeHitStopSeconds(bool bHeavy) const { return bHeavy ? HeavyHitStopSeconds : HitStopSeconds; }
 
 	/** F when no takedown is valid: the finisher on a staggered or knocked-down thug (UFinisherComponent). */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Melee")
@@ -945,6 +975,12 @@ protected:
 	/** Moves the aim blend one frame and writes arm length, socket offset and FOV. */
 	void UpdateCamera(float DeltaSeconds);
 
+	/** Counts the alerted thugs round her (every FightRecountSeconds) and moves the fight camera's blend. */
+	void UpdateFightCamera(float DeltaSeconds);
+
+	/** MeleeSparkVfx where her swing met HitActor: on his capsule's surface toward her, at chest height. */
+	void SpawnMeleeSpark(const AActor* HitActor, bool bHeavy) const;
+
 	/** Hides the body from its own camera while a wall has pulled the lens in to it. */
 	void UpdateBodyVisibilityForCamera();
 
@@ -1276,6 +1312,36 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.01", ClampMax = "1.0"))
 	float HitStopTimeDilation = 0.1f;
 
+	/** Real seconds of hit stop when a heavy lands: four frames at 60, as the parry. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float HeavyHitStopSeconds = 0.067f;
+
+	/** A landed heavy pushes the lens this far in toward her and back, cm (times the camera shake scale). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float HeavyCameraPunchDistance = 2.5f;
+
+	/** Real seconds the punch takes, in and back. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float HeavyCameraPunchSeconds = 0.1f;
+
+	/**
+	 * The spark where her strike lands (NS_MeleeSpark): small and at the contact point, so the thug's own hit
+	 * flash is what reads; a heavy's is a little bigger.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hawkeye|Melee")
+	TSoftObjectPtr<UNiagaraSystem> MeleeSparkVfx;
+
+	/** The spark's scale on a light; a heavy's is HeavySparkScale. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float LightSparkScale = 1.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float HeavySparkScale = 1.4f;
+
+	/** The marker on the assist's pick: its fade after the swing. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee|Assist")
+	FHawkeyeTargetMarker MeleeTargetMarker;
+
 	// --- Dodge ----------------------------------------------------------------------------------
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Dodge", meta = (ClampMin = "0.0"))
@@ -1495,6 +1561,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
 	float CameraLagSpeed = 10.f;
 
+	/**
+	 * The fight camera: with two or more alerted thugs within 6 m the hip boom lengthens 70 cm and the lens
+	 * tips down 4 degrees over 0.5 s, back over 1 s once the fight thins out. Never while aiming; a
+	 * finisher's push-in takes over from it.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Camera")
+	FHawkeyeFightCameraSettings FightCamera;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Hawkeye|Camera", meta = (ClampMin = "0.0"))
 	float CameraRotationLagSpeed = 12.f;
 
@@ -1619,6 +1693,16 @@ protected:
 	bool bToggleAim = false;
 	bool bToggleCrouch = true;
 
+	/** The sprint button's setting, and the toggle's state while a press toggled it. */
+	EHawkeyeSprintMode SprintMode = EHawkeyeSprintMode::Default;
+	FHawkeyeSprintToggle SprintToggle;
+
+	/** Moves the toggle a frame: the stick centred past its 0.6 s turns it off. */
+	void UpdateSprintToggle(float DeltaSeconds);
+
+	/** The move stick was off centre this frame, whether or not the move was locked out (a zip, a vault). */
+	bool bStickPushedThisFrame = false;
+
 	/** The accessibility scales and the difficulty's numbers ApplySettings last took. */
 	float CameraShakeScale = 1.f;
 	float FlashScale = 1.f;
@@ -1692,16 +1776,6 @@ protected:
 
 	/** Timer body: emits one movement noise event if the player is making any. */
 	void EmitMovementNoise();
-
-	/** The sprint button's setting, and the toggle's state while a press toggled it. */
-	EHawkeyeSprintMode SprintMode = EHawkeyeSprintMode::Default;
-	FHawkeyeSprintToggle SprintToggle;
-
-	/** Moves the toggle a frame: the stick centred past its 0.6 s turns it off. */
-	void UpdateSprintToggle(float DeltaSeconds);
-
-	/** The move stick was off centre this frame, whether or not the move was locked out (a zip, a vault). */
-	bool bStickPushedThisFrame = false;
 
 	UFUNCTION()
 	void HandleDeath(UHealthComponent* Health, AActor* Killer);
@@ -1940,6 +2014,17 @@ private:
 
 	/** Set while StopAim is letting the bow down, so the draw's own end does not re-enter it. */
 	bool bStoppingAim = false;
+
+	/** The fight camera's blend, 0 to 1, and the alerted thugs round her at the last count. */
+	float FightCameraAlpha = 0.f;
+	int32 EngagedThugCount = 0;
+	float FightRecountRemaining = 0.f;
+
+	/** Real seconds into the heavy's camera punch; below 0 when none is running. */
+	float CameraPunchElapsed = -1.f;
+
+	/** The fight is recounted this often, s. */
+	static constexpr float FightRecountSeconds = 0.1f;
 
 	/** Whichever of IdleAnim / WalkAnim the body is playing, so Tick only re-plays on a change. */
 	UPROPERTY(Transient)
