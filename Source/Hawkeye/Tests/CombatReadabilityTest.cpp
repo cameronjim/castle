@@ -225,10 +225,21 @@ bool FHawkeyeHitReadRules::RunTest(const FString& Parameters)
 	}
 	TestTrue(TEXT("It pulses on top of the growth"), MaxScale > 1.35f);
 
-	// The glyph sits on his head (y down: bigger is lower), lifted over the health bar when that shows.
-	TestEqual(TEXT("No bar: the glyph sits at his head"), ComputeGlyphBottom(300.f, false, 250.f), 300.f, 0.001f);
-	TestEqual(TEXT("A bar above his head: the glyph goes over it"), ComputeGlyphBottom(300.f, true, 250.f), 250.f, 0.001f);
-	TestEqual(TEXT("His head above the bar: the glyph stays at his head"), ComputeGlyphBottom(200.f, true, 250.f), 200.f, 0.001f);
+	// The stack sits on his head (y down: bigger is lower): the bar's bottom on the anchor, the glyph 4 px over its top.
+	TestEqual(TEXT("No bar: the glyph sits at his head"), ComputeGlyphBottom(300.f, false, 5.f), 300.f, 0.001f);
+	TestEqual(TEXT("A bar: the glyph sits 4 px over its top"), ComputeGlyphBottom(300.f, true, 5.f), 291.f, 0.001f);
+	TestEqual(TEXT("The gap is the caller's"), ComputeGlyphBottom(300.f, true, 5.f, 2.f), 293.f, 0.001f);
+	TestEqual(TEXT("A negative gap never pulls the glyph onto the bar"), ComputeGlyphBottom(300.f, true, 5.f, -3.f), 295.f, 0.001f);
+	// Never overlapping: wherever his head is on screen, the glyph's bottom is over the bar's top (anchor less its height).
+	for (float Anchor = -50.f; Anchor <= 1200.f; Anchor += 37.f)
+	{
+		const float Bottom = ComputeGlyphBottom(Anchor, true, 5.f);
+		if (Bottom > Anchor - 5.f)
+		{
+			AddError(FString::Printf(TEXT("At anchor %.0f the glyph's bottom %.1f is on the bar (its top %.1f)."), Anchor, Bottom,
+				Anchor - 5.f));
+		}
+	}
 	return true;
 }
 
