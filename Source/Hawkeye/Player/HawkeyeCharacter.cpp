@@ -1067,6 +1067,14 @@ void AHawkeyeCharacter::Input_Move(const FInputActionValue& Value)
 	bStickPushedThisFrame |= !MoveInput.IsNearlyZero();
 	const bool bParkourLock = ParkourComponent && ParkourComponent->IsLockingInput();
 	const bool bDead = HealthComponent && !HealthComponent->IsAlive();
+	// Hanging, the stick is the hang's: along the ledge shimmies, up climbs when held, and it picks a hang jump.
+	if (ParkourComponent && ParkourComponent->IsHanging() && Controller && !bDead && !MoveInput.IsNearlyZero())
+	{
+		const FRotator HangYaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
+		ParkourComponent->SetHangInput(FRotationMatrix(HangYaw).GetUnitAxis(EAxis::X) * MoveInput.Y
+			+ FRotationMatrix(HangYaw).GetUnitAxis(EAxis::Y) * MoveInput.X);
+		return;
+	}
 	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping() || bParkourLock || bDead)
 	{
 		return;
@@ -1664,6 +1672,12 @@ void AHawkeyeCharacter::UpdateCamera(float DeltaSeconds)
 		}
 	}
 	Blend.ArmLength -= GetCameraPunchOffset();
+
+	// Hanging, the lens goes over the shoulder on the open side of the wall.
+	if (ParkourComponent)
+	{
+		ParkourComponent->ApplyHangCamera(Blend, DeltaSeconds);
+	}
 
 	if (CameraBoom)
 	{
@@ -2420,8 +2434,16 @@ void AHawkeyeCharacter::UpdateArmPoses()
 	{
 		return;
 	}
-	Hands->SetStrikePose(StrikePose.Sample(), GetActorTransform());
-	Hands->SetHitLean(HitLean.GetDirection(), HitLean.GetAlpha());
+	FHawkeyeStrikePoseSample Pose = StrikePose.Sample();
+	FVector LeanDirection = HitLean.GetDirection();
+	float LeanAlpha = HitLean.GetAlpha();
+	// Hanging, the hands go hand over hand along the edge, and the body sways with each reach.
+	if (ParkourComponent && !Pose.IsActive())
+	{
+		ParkourComponent->GetHangArmPose(Pose, LeanDirection, LeanAlpha);
+	}
+	Hands->SetStrikePose(Pose, GetActorTransform());
+	Hands->SetHitLean(LeanDirection, LeanAlpha);
 }
 
 void AHawkeyeCharacter::HandleMeleeLanded(AActor* HitActor, float /*DamageDealt*/, FName /*AttackName*/)
@@ -3046,12 +3068,13 @@ void AHawkeyeCharacter::Jump()
 	}
 	if (ParkourComponent)
 	{
-		// Hanging, jump climbs. Mid-move the press waits for the end of the move. Otherwise an
-		// obstacle in the fan ahead turns it into a vault, mantle or ledge grab, and open ground gets
-		// a plain jump that keeps looking for a mantle or a ledge on the way up and down.
+		// Hanging, jump climbs (with the stick to one side it leaps along, with it back it hops round). Mid-move
+		// the press waits for the end of the move. Otherwise an obstacle in the fan ahead turns it into a vault,
+		// mantle or ledge grab, and open ground gets a plain jump that keeps looking for a mantle or a ledge on
+		// the way up and down.
 		if (ParkourComponent->IsHanging())
 		{
-			ParkourComponent->ClimbFromHang();
+			ParkourComponent->JumpFromHang();
 			return;
 		}
 		if (ParkourComponent->IsBusy())
