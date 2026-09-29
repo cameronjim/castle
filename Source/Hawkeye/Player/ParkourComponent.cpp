@@ -10,6 +10,7 @@
 #include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -45,6 +46,8 @@ namespace HawkeyeParkour
 	static constexpr float BeyondStep = 15.f;
 	/** Past the back edge, the landing capsule is this much further out, cm. */
 	static constexpr float LandingClearance = 25.f;
+	/** If the capsule does not fit there, the landing is looked for up to this much further out, cm. */
+	static constexpr float LandingSearch = 75.f;
 	/** On top, the standing capsule is this much further in than its radius, cm. */
 	static constexpr float StandInset = 15.f;
 	/** The top of the landing search below the feet, cm. */
@@ -63,6 +66,12 @@ namespace HawkeyeParkour
 	static constexpr float AirProbeLowest = 5.f;
 	/** In the air a top this far above the feet is still worth a mantle (she would slide down its face). */
 	static constexpr float AirMinHeight = 8.f;
+	/**
+	 * A walking capsule floats up to 2.4 cm over the floor (the movement's MAX_FLOOR_DIST), so a top
+	 * measured from the capsule's bottom reads that much low: a 40 cm wall is 38 above the "feet".
+	 * The lowest accepted height is compared this much short of its value.
+	 */
+	static constexpr float HeightSlack = 3.f;
 	/** A ledge within this of the one just let go of is the same ledge, cm. */
 	static constexpr float SameLedgeTolerance = 40.f;
 }
@@ -103,6 +112,12 @@ UCharacterMovementComponent* UParkourComponent::GetMovement() const
 {
 	const ACharacter* Character = GetCharacter();
 	return Character ? Character->GetCharacterMovement() : nullptr;
+}
+
+float UParkourComponent::GetFeetZ() const
+{
+	const ACharacter* Character = GetCharacter();
+	return Character ? Character->GetActorLocation().Z - Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
 }
 
 bool UParkourComponent::IsSampleTraversalActive() const
@@ -160,7 +175,9 @@ EHawkeyeParkourMove UParkourComponent::ChooseMoveFor(const FHawkeyeParkourObstac
 	const float MaxDrop = bAuto ? MaxAutoVaultDrop : MaxVaultDrop;
 	const bool bClear = Obstacle.bClearBeyond && Obstacle.LandingDrop <= MaxDrop;
 	// The jump key takes lower tops than the sprint trigger: a knee-high wall is worth a hop over.
-	return ChooseMoveFrom(bAuto ? VaultMinHeight : FMath::Min(JumpMinHeight, VaultMinHeight), Obstacle.Height, bClear,
+	// A probed height reads up to HeightSlack low (the capsule floats over the floor).
+	const float MinHeight = bAuto ? VaultMinHeight : FMath::Min(JumpMinHeight, VaultMinHeight);
+	return ChooseMoveFrom(MinHeight - HawkeyeParkour::HeightSlack, Obstacle.Height, bClear,
 		Obstacle.bStandingSurface);
 }
 
@@ -168,7 +185,10 @@ FString UParkourComponent::DescribeRefusal(const FHawkeyeParkourObstacle& Obstac
 {
 	const float MinHeight = FMath::Min(JumpMinHeight, VaultMinHeight);
 	const float MaxHeight = bLateCatch ? CatchMaxHeight : LedgeMaxHeight;
-	if (Obstacle.Height < MinHeight)
+	// In the air a top may be close above the feet and still count when it is well above the take-off.
+	const bool bHighOverTakeOff = bLateCatch && Obstacle.Height >= HawkeyeParkour::AirMinHeight
+		&& Obstacle.LedgePoint.Z - LateCatchTakeOffZ >= MinHeight - HawkeyeParkour::HeightSlack;
+	if (Obstacle.Height < MinHeight - HawkeyeParkour::HeightSlack && !bHighOverTakeOff)
 	{
 		return FString::Printf(TEXT("too low (%.0f cm, from %.0f)"), Obstacle.Height, MinHeight);
 	}
@@ -180,6 +200,12 @@ FString UParkourComponent::DescribeRefusal(const FHawkeyeParkourObstacle& Obstac
 		&& Obstacle.LandingDrop > (bLateCatch ? MaxAutoVaultDrop : MaxVaultDrop))
 	{
 		return FString::Printf(TEXT("a %.0f cm drop beyond and nowhere to stand on top"), Obstacle.LandingDrop);
+	}
+	if (!Obstacle.bClearBeyond && !Obstacle.BeyondWhyNot.IsEmpty())
+	{
+		return FString::Printf(TEXT("no room to stand on the %.0f cm top%s and no vault over it (%s)"), Obstacle.Height,
+			Obstacle.StandWhyNot.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" (%s)"), *Obstacle.StandWhyNot),
+			*Obstacle.BeyondWhyNot);
 	}
 	return FString::Printf(TEXT("no room to stand on the %.0f cm top"), Obstacle.Height);
 }
@@ -211,6 +237,29 @@ bool UParkourComponent::CapsuleFits(const FVector& Centre) const
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(HawkeyeParkourFit), false, Character);
 	return !World->OverlapBlockingTestByChannel(Centre, FQuat::Identity, ECC_Pawn,
 		FCollisionShape::MakeCapsule(Radius, HalfHeight), Params);
+}
+
+FString UParkourComponent::DescribeBlocker(const FVector& Centre) const
+{
+	const ACharacter* Character = GetCharacter();
+	const UWorld* World = GetWorld();
+	if (!Character || !World)
+	{
+		return TEXT("?");
+	}
+	const UCapsuleComponent* Capsule = Character->GetCapsuleComponent();
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(HawkeyeParkourBlocker), false, Character);
+	TArray<FOverlapResult> Overlaps;
+	World->OverlapMultiByChannel(Overlaps, Centre, FQuat::Identity, ECC_Pawn,
+		FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius() - 2.f, Capsule->GetScaledCapsuleHalfHeight() - 2.f), Params);
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		if (Overlap.bBlockingHit)
+		{
+			return FString::Printf(TEXT("%s.%s"), *GetNameSafe(Overlap.GetActor()), *GetNameSafe(Overlap.GetComponent()));
+		}
+	}
+	return TEXT("nothing found");
 }
 
 bool UParkourComponent::FindFrontFace(const FVector& Feet, const FVector& Forward, float Reach, float MaxHeight,
@@ -287,6 +336,7 @@ void UParkourComponent::ProbeBeyond(const FVector& Feet, FHawkeyeParkourObstacle
 	}
 	if (BackEdge <= 0.f)
 	{
+		Obstacle.BeyondWhyNot = FString::Printf(TEXT("no back edge within %.0f cm"), MaxVaultDepth);
 		return;
 	}
 	Obstacle.Depth = BackEdge;
@@ -294,14 +344,49 @@ void UParkourComponent::ProbeBeyond(const FVector& Feet, FHawkeyeParkourObstacle
 	const ACharacter* Character = GetCharacter();
 	const float Radius = Character->GetCapsuleComponent()->GetScaledCapsuleRadius();
 	const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	const FVector Land = Obstacle.LedgePoint - N * (BackEdge + Radius + HawkeyeParkour::LandingClearance);
+	// The landing: first LandingClearance past the back edge, then further out until the capsule fits.
+	// Behind a parapet there is often the neighbour's own parapet, lower (so the back edge is found at
+	// the first one's back) and right where the first landing spot would be (2026-09-29: the commonest refusal
+	// pressed against the tenement row's party walls from a standstill).
 	FHitResult Floor;
-	if (!TraceLine(FVector(Land.X, Land.Y, TopZ + 30.f), FVector(Land.X, Land.Y, Feet.Z - HawkeyeParkour::MaxProbeDrop), Floor)
-		|| Floor.ImpactNormal.Z < HawkeyeParkour::MinFloorNormalZ
-		|| !CapsuleFits(Floor.ImpactPoint + FVector(0.f, 0.f, HalfHeight + HawkeyeParkour::FloorGap)))
+	bool bLanded = false;
+	for (float Extra = HawkeyeParkour::LandingClearance; Extra <= HawkeyeParkour::LandingClearance + HawkeyeParkour::LandingSearch;
+		 Extra += HawkeyeParkour::BeyondStep)
+	{
+		const float Out = BackEdge + Radius + Extra;
+		const FVector Land = Obstacle.LedgePoint - N * Out;
+		if (!TraceLine(FVector(Land.X, Land.Y, TopZ + 30.f), FVector(Land.X, Land.Y, Feet.Z - HawkeyeParkour::MaxProbeDrop), Floor))
+		{
+			Obstacle.BeyondWhyNot = FString::Printf(TEXT("no floor within %.0f cm below the feet beyond it: a roof edge"), HawkeyeParkour::MaxProbeDrop);
+			continue;
+		}
+		if (Floor.bStartPenetrating || Floor.ImpactNormal.Z < HawkeyeParkour::MinFloorNormalZ)
+		{
+			Obstacle.BeyondWhyNot = FString::Printf(TEXT("the ground %.0f cm beyond is not a floor (normal z %.2f, on %s)"),
+				Out, Floor.ImpactNormal.Z, *GetNameSafe(Floor.GetActor()));
+			continue;
+		}
+		if (Floor.ImpactPoint.Z > TopZ - 20.f)
+		{
+			// Level with the top (the next parapet's top): that is not over it.
+			Obstacle.BeyondWhyNot = FString::Printf(TEXT("the far side %.0f cm beyond is as high as the top"), Out);
+			continue;
+		}
+		const FVector Centre = Floor.ImpactPoint + FVector(0.f, 0.f, HalfHeight + HawkeyeParkour::FloorGap);
+		if (!CapsuleFits(Centre))
+		{
+			Obstacle.BeyondWhyNot = FString::Printf(TEXT("no room to land %.0f cm beyond the face (%s in the way)"), Out,
+				*DescribeBlocker(Centre));
+			continue;
+		}
+		bLanded = true;
+		break;
+	}
+	if (!bLanded)
 	{
 		return;
 	}
+	Obstacle.BeyondWhyNot.Reset();
 	Obstacle.bClearBeyond = true;
 	Obstacle.LandingPoint = Floor.ImpactPoint;
 	Obstacle.LandingDrop = Feet.Z - Floor.ImpactPoint.Z;
@@ -315,10 +400,15 @@ void UParkourComponent::ProbeStanding(FHawkeyeParkourObstacle& Obstacle) const
 	const float TopZ = Obstacle.LedgePoint.Z;
 	const FVector Stand = Obstacle.LedgePoint - Obstacle.WallNormal * (Radius + HawkeyeParkour::StandInset);
 	FHitResult Floor;
-	const bool bOnTop = TraceLine(FVector(Stand.X, Stand.Y, TopZ + 30.f), FVector(Stand.X, Stand.Y, TopZ - 30.f), Floor)
+	const bool bTop = TraceLine(FVector(Stand.X, Stand.Y, TopZ + 30.f), FVector(Stand.X, Stand.Y, TopZ - 30.f), Floor)
 		&& Floor.ImpactNormal.Z >= HawkeyeParkour::MinFloorNormalZ
-		&& FMath::Abs(Floor.ImpactPoint.Z - TopZ) <= 25.f
-		&& CapsuleFits(Floor.ImpactPoint + FVector(0.f, 0.f, HalfHeight + HawkeyeParkour::FloorGap));
+		&& FMath::Abs(Floor.ImpactPoint.Z - TopZ) <= 25.f;
+	const FVector Centre = Floor.ImpactPoint + FVector(0.f, 0.f, HalfHeight + HawkeyeParkour::FloorGap);
+	const bool bOnTop = bTop && CapsuleFits(Centre);
+	if (bTop && !bOnTop)
+	{
+		Obstacle.StandWhyNot = FString::Printf(TEXT("%s in the way on top"), *DescribeBlocker(Centre));
+	}
 	if (bOnTop)
 	{
 		Obstacle.bStandingSurface = true;
@@ -503,7 +593,8 @@ bool UParkourComponent::ProbeJumpFan(const FVector& Direction, float Reach, bool
 			Move = ChooseMoveFor(Obstacle, /*bAuto=*/false);
 		}
 		else if (Obstacle.Height >= HawkeyeParkour::AirMinHeight && Obstacle.Height <= MantleMaxHeight
-			&& (Obstacle.Height >= MinHeight || Obstacle.LedgePoint.Z - LateCatchTakeOffZ >= MinHeight))
+			&& (Obstacle.Height >= MinHeight - HawkeyeParkour::HeightSlack
+				|| Obstacle.LedgePoint.Z - LateCatchTakeOffZ >= MinHeight - HawkeyeParkour::HeightSlack))
 		{
 			// In the air with the top in reach: onto it, or over a thin one with the sprint
 			// trigger's drop limit (a jump beside a parapet is not a request to go over it).
@@ -524,8 +615,8 @@ bool UParkourComponent::ProbeJumpFan(const FVector& Direction, float Reach, bool
 		}
 		if (FirstRefusal.IsEmpty())
 		{
-			FirstRefusal = FString::Printf(TEXT("%s at %+.0f degrees, %.0f cm away"), *DescribeRefusal(Obstacle, bLateCatch),
-				Angle, Obstacle.Distance);
+			FirstRefusal = FString::Printf(TEXT("%s at %+.0f degrees, %.0f cm away, on %s"),
+				*DescribeRefusal(Obstacle, bLateCatch), Angle, Obstacle.Distance, *GetNameSafe(Obstacle.Actor));
 		}
 	}
 	OutWhyNot = FirstRefusal.IsEmpty()
@@ -541,13 +632,21 @@ bool UParkourComponent::TryJumpParkour(const FVector& Direction)
 	{
 		return false;
 	}
+	// A press in the air (mashing on the way up) probes the late catch's way: from just above the feet,
+	// with tops measured against the take-off, so a wall she has risen level with is still found.
+	const bool bInAir = Movement->IsFalling();
+	if (bInAir && LateCatchRemaining <= 0.f)
+	{
+		LateCatchTakeOffZ = GetFeetZ();
+	}
 	FHawkeyeParkourObstacle Obstacle;
 	EHawkeyeParkourMove Move = EHawkeyeParkourMove::None;
 	FString WhyNot;
-	if (!ProbeJumpFan(Direction, ManualTriggerDistance, /*bLateCatch=*/false, Obstacle, Move, WhyNot))
+	if (!ProbeJumpFan(Direction, ManualTriggerDistance, /*bLateCatch=*/bInAir, Obstacle, Move, WhyNot))
 	{
 		LastJumpRefusal = WhyNot;
-		UE_LOG(LogHawkeye, Log, TEXT("%s: jump: no parkour move: %s"), *GetNameSafe(GetOwner()), *WhyNot);
+		UE_LOG(LogHawkeye, Log, TEXT("%s: jump%s: no parkour move: %s"), *GetNameSafe(GetOwner()),
+			bInAir ? TEXT(" (in the air)") : TEXT(""), *WhyNot);
 		return false;
 	}
 	if (StartChosenMove(Move, Obstacle, TEXT("jump")))
@@ -565,10 +664,16 @@ void UParkourComponent::ArmLateCatch()
 	{
 		return;
 	}
+	if (LateCatchRemaining > 0.f)
+	{
+		// Pressed again on the way up or down: the window restarts, the take-off stays where she left
+		// the ground (measured from her feet now, a wall's top would look 40 cm lower than it is).
+		LateCatchRemaining = LateCatchSeconds;
+		return;
+	}
 	LateCatchRemaining = LateCatchSeconds;
 	LateCatchElapsed = 0.f;
-	const ACharacter* Character = GetCharacter();
-	LateCatchTakeOffZ = Character ? Character->GetActorLocation().Z - Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
+	LateCatchTakeOffZ = GetFeetZ();
 	bLateCatchAirborne = false;
 }
 

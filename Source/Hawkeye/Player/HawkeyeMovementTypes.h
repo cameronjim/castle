@@ -122,6 +122,12 @@ struct HAWKEYE_API FHawkeyeParkourObstacle
 	/** The actor that owns the front face. */
 	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
 	TObjectPtr<AActor> Actor = nullptr;
+
+	/** Why bClearBeyond is false (no back edge, no floor, the landing blocked), for the refusal log. */
+	FString BeyondWhyNot;
+
+	/** Why the top is no standing surface when it is flat there (something in the way), for the refusal log. */
+	FString StandWhyNot;
 };
 
 /** Where the spring arm and lens want to be for one aim state. The camera blends between two of these. */

@@ -435,6 +435,9 @@ protected:
 	/** No blocking geometry overlaps the capsule with its centre at Centre. */
 	bool CapsuleFits(const FVector& Centre) const;
 
+	/** What stops the capsule fitting at Centre, for the refusal log. */
+	FString DescribeBlocker(const FVector& Centre) const;
+
 	bool TraceLine(const FVector& From, const FVector& To, FHitResult& OutHit) const;
 
 	/** The sample's TryTraversalAction; true when it started a montage. */
@@ -463,6 +466,9 @@ protected:
 
 	ACharacter* GetCharacter() const;
 	UCharacterMovementComponent* GetMovement() const;
+
+	/** The bottom of the capsule, world z. */
+	float GetFeetZ() const;
 
 	// --- Runtime state --------------------------------------------------------------------------
 
