@@ -49,6 +49,17 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Jump height 90 cm, air control 0.3.
 - Slide: crouch while sprinting; 0.7 s, speed eases 750 to 200, capsule half-height 50,
   restored after.
+- Crouch keeps (2026-09-29, from the interior stealth lap). A crouch ends only on the player's input (a toggle
+  press, or the release when crouch is held), a slide's start, a dodge, a parkour move, hang or zip (entering the
+  flying mode; she comes out of it standing, the movement component no longer crouches her again after), a
+  takedown or finisher (allowed; today both leave her crouched), the downed state (and the revive from it), or a
+  real fall: one of at least 0.3 s that has dropped at least 30 cm from its top (`CrouchKeepFallSeconds`,
+  `CrouchKeepFallHeight`). Stairs, landings,
+  doorways and door open events, a one-frame flick to falling and a stair's lip keep it
+  (`Hawkeye.Crouch.KeepsOnStairsAndThroughDoorways`). Every C++ stand-up goes through `EndCrouch(Why)`; every
+  crouch that ends logs its reason at Log ("crouch ended: a fall"), and one nobody in C++ asked for (a Blueprint
+  or engine `UnCrouch`, or the wish cleared behind the character) logs a warning with the caller
+  (`GetUnaskedCrouchEndCount`).
 - Landing from above 400 cm halves speed and dips the camera 30 cm for 0.3 s (a
   placeholder for the roll and stumble). Fall damage starts at 900 cm at 10% of max
   health, rises to a 60% cap at 2500 cm, and never kills: it stops at 1 health.
@@ -838,13 +849,19 @@ format is in `claude-docs/asset-conventions.md`, "Interior layouts".
 - Measured (standalone, 2026-09-29): `Hawkeye.Lap.InteriorStealth` in 57.2 s with 0 alerts, 0 suspicions,
   4 takedowns and 0 hits (the gunner taken when neither the bat thug nor the archer would hear the body);
   `Hawkeye.Lap.InteriorLoud` won in 40.1 s, all 4 alerted, 2 hits taken (24 damage, the gunner's), 18 arrows,
-  7 lights, 1 heavy, 1 finisher, the fight camera's arm held at 250 cm. Kate twice stood up by herself a moment
-  into a creep (at the stair's top landing and the hall archway, walking, not dodging or traversing); the lap
-  crouches her again. Cause not found.
+  7 lights, 1 heavy, 1 finisher, the fight camera's arm held at 250 cm. The "Kate stood up by herself a moment into
+  a creep" of that run was the lap's: it held the crouch key and let go of it to stand, which with the default
+  toggle does nothing, so she crept on from the lobby up the stair, and the next creep's press toggled her up.
+  The laps now press crouch as a player does and fail on any crouch that ends without a stand-up press (see
+  "Movement", crouch). Re-measured after the fix: the stealth lap in 46.6 s, 0 alerts, 0 suspicions, 4
+  takedowns, 0 hits, 3 stand-ups all asked for; the loud lap won in 29.3 s, all 4 alerted, 0 hits, 4 arrows,
+  11 lights, 1 heavy, 1 finisher, the arm held at 250 cm.
 - Seen in `Hawkeye.Screenshot.Interior`: `int_patrol.png` (the bat thug walking his beat through the chairs,
   from the archway), `int_takedown.png` (the lobby thug going limp in front of her), `int_gallery_gunner.png`
-  (the gunner at the rail from the stage, 9 m off: small, washed pale by the gallery's pendants, his pistol not
-  legible), `int_vault_open.png` (the vault doorway open on its shelves and lit case).
+  (re-framed 2026-09-29: from the gallery, 4.8 m along it, the gunner at the rail turned to her, whole and lit; his
+  pistol is a glint at his hand rather than a shape. From the stage 9 m off he was small and washed pale by the
+  pendants over the hall; from the hall floor under the gallery the parapet hides all but his head),
+  `int_vault_open.png` (the vault doorway open on its shelves and lit case).
 
 ## Save data (built 2026-09-26 on SPUD)
 - SPUD (MIT, vendored at `Plugins/SPUD`, commit 12a30da) persists the world; it built on
