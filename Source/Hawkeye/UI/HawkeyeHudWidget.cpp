@@ -1220,6 +1220,7 @@ void UHawkeyeHudWidget::ApplyPalette(EHawkeyeColorPalette Palette)
 	if (ThugOverhead)
 	{
 		ThugOverhead->SetAccentColors(ActivePalette.Cream, ActivePalette.HealthBar, bDesign);
+		ThugOverhead->SetThreatColors(ActivePalette.Danger, ReticleColor, bDesign);
 	}
 	if (Hotbar)
 	{

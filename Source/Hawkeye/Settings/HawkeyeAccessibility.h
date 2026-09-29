@@ -10,7 +10,8 @@
 /**
  * The HUD's accent colours for one palette. Green is the grapple marker, purple is Kate's (the reticle,
  * the secondary markers, the combo bonus, the phone badge), cream is the objective marker, the compass
- * caret and the thugs' "!" / "?", and the health bar is the thin bar over a hurt thug.
+ * caret and the thugs' "!" / "?", the health bar is the thin bar over a hurt thug, and danger is the
+ * telegraph glyph over a thug about to strike.
  */
 USTRUCT(BlueprintType)
 struct HAWKEYE_API FHawkeyePalette
@@ -28,6 +29,9 @@ struct HAWKEYE_API FHawkeyePalette
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Accessibility")
 	FLinearColor HealthBar = FLinearColor(0.95f, 0.3f, 0.25f, 1.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Accessibility")
+	FLinearColor Danger = FLinearColor(1.f, 0.35f, 0.08f, 1.f);
 };
 
 /**
