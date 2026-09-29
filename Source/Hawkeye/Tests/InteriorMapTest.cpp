@@ -574,18 +574,34 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 	AddShot(this, FVector(565.f, 900.f, 83.f), 90.f, 12.f, TEXT("interior_stairs.png"));
 	AddShot(this, FVector(1140.f, 520.f, FloorHeight), 20.f, -24.f, TEXT("interior_gallery.png"));
 
-	// The bat thug on his beat down the hall (x 1500), calm, seen through the archway from the lobby.
+	// The bat thug on his beat down the hall (x 1500), calm, from just inside the archway off the lobby: the
+	// shot waits for him to be walking, in the middle of her view. The lobby thug is moved off out of the way.
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
 	{
 		UWorld* World = FindWorld();
+		PlaceThug(Enemy(World, TEXT("lobby")), FVector(250.f, 330.f, 0.f), 60.f);
 		if (AThugAIController* Brain = Cast<AThugAIController>(Enemy(World, TEXT("hall")) ? Enemy(World, TEXT("hall"))->GetController() : nullptr))
 		{
 			Brain->SetPacified(true);
 			Brain->SetThinkingEnabled(true);
 		}
+		Place(World, FVector(880.f, 300.f, 0.f), 35.f, -4.f);
 		return true;
 	}));
-	AddShot(this, FVector(700.f, 300.f, 0.f), 0.f, -4.f, TEXT("int_patrol.png"));
+	ADD_LATENT_AUTOMATION_COMMAND(FUntilCommand([]()
+	{
+		UWorld* World = FindWorld();
+		const AThugCharacter* Thug = Enemy(World, TEXT("hall"));
+		const AHawkeyeCharacter* Kate = FindPlayer(World);
+		if (!Thug || !Kate)
+		{
+			return true;
+		}
+		const FVector To = Thug->GetActorLocation() - Kate->GetActorLocation();
+		const float Off = FMath::Abs(FMath::FindDeltaAngleDegrees(35.f, FMath::RadiansToDegrees(FMath::Atan2(To.Y, To.X))));
+		return Thug->GetVelocity().Size2D() > 150.f && Off < 22.f;
+	}, []() { return true; }, 25.f));
+	AddCapture(this, TEXT("int_patrol.png"));
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this]()
 	{
 		const AThugCharacter* Thug = Enemy(FindWorld(), TEXT("hall"));
@@ -622,8 +638,12 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 	{
 		UWorld* World = FindWorld();
 		AThugCharacter* Gunner = Enemy(World, TEXT("gallery"));
-		PlaceThug(Gunner, FVector(1150.f, 760.f, FloorHeight), -5.f);
-		Place(World, FVector(1750.f, 700.f, 0.f), 175.f, 16.f);
+		// Kate on a line no hall pendant crosses (the one at (1267, 700) hangs at his head height); a spot in the rows of
+		// chairs refuses the teleport; the bat thug put out of the frame.
+		PlaceThug(Enemy(World, TEXT("hall")), FVector(1700.f, 250.f, 0.f), 90.f);
+		PlaceThug(Gunner, FVector(1155.f, 450.f, FloorHeight), -7.f);
+		// From the stage at the hall's far end (40 cm up, 9 m off): flat enough that his pistol shows over the rail.
+		Place(World, FVector(2080.f, 330.f, 40.f), 173.f, 5.f);
 		return true;
 	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
@@ -648,7 +668,7 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
 	{
 		UWorld* World = FindWorld();
-		PlaceThug(Enemy(World, TEXT("vault")), FVector(2080.f, 880.f, 0.f), 180.f);
+		PlaceThug(Enemy(World, TEXT("vault")), FVector(1900.f, 600.f, 0.f), 180.f);
 		for (ADoorActor* Door : All<ADoorActor>(World))
 		{
 			if (Door->bLocked)
@@ -658,7 +678,7 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 		}
 		return true;
 	}));
-	AddShot(this, FVector(1960.f, 1150.f, 0.f), 0.f, -6.f, TEXT("int_vault_open.png"));
+	AddShot(this, FVector(2060.f, 1060.f, 0.f), 30.f, -6.f, TEXT("int_vault_open.png"));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
