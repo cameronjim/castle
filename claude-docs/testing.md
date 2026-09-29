@@ -117,6 +117,23 @@ So every pass that touches materials, meshes, lighting, or the viewmodel must al
 3. Load soft references synchronously in game code paths that need them immediately
    (viewmodel meshes, weapon definitions); never rely on an asset already being resident.
 
+## 2c. The campaign lap (Chapter 1 from a cold start)
+
+`Hawkeye.Lap.Campaign` (standalone `-game`, about 4 minutes) plays CH01 as a new tester: the main menu
+with no save (its own slot, `HawkeyeCampaignLap`, deleted first; the settings put back after), New Game,
+Normal, the title card, the first text read on the phone, `reach_roof` and `cross_block` by grapple (a
+planner that walks to a spot whose zip and camera line are clear, aims and presses Q), the RoofPair with
+a bola, the bow and melee, Esc > Quit to menu > Continue compared field by field (objective, quiver,
+thugs, hints, crime and challenge counts, phone, safehouses, position, health), the ArcherPair from
+parapet cover, the examine, the close-up, end card, slides and the placeholder room walked to its
+trigger, then on the street the save, map, music, a challenge, a fast travel, an ambush lost on purpose
+and its reload, and Quit and Continue again. Every step checks input, HUD, pause, dilation, fade, the
+grey post process and the widgets left in the viewport. It writes `Saved/Automation/campaign_lap.json`
+(timeline, checks, the LogHawkeye warnings, and everything it had to force, marked `[lap]` for a gap in
+its own driving and `[game]` for one in the game) and `Saved/Screenshots/Campaign/campaign_*.png`.
+`AHawkeyePlayerController::bAutomationPlaysAsPlayer` is the hook that gives it the boot menu, the prompt,
+the opening, the notices and the crime schedule; `hawkeye.Hints 2` turns the hints on.
+
 ## 3. Playtest checklist (human)
 
 Before any commit that touches player feel, AI, or a level, play through this in
