@@ -411,6 +411,13 @@ void UHawkeyeSaveSubsystem::HandleSpudPostLoad(const FString& SlotName, bool bSu
 	{
 		SceneReturn = FHawkeyeSceneReturn();
 	}
+	// Dying (or Restart) in a flashback's playable scene loads the district's entry save too: the scene
+	// is over as if its mission had completed, or every later save would be refused as "in a scene".
+	else if (SceneReturn.bInScene)
+	{
+		SceneReturn.Leave();
+		UE_LOG(LogHawkeye, Log, TEXT("%s: the playable scene ended with a load; back in the district."), *GetName());
+	}
 	// The map had no game mode to hand the objectives to (a test map, say): apply them here.
 
 	ApplyPendingRestore(World);
