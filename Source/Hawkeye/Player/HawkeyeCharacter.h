@@ -442,9 +442,21 @@ public:
 
 	// --- Debug ----------------------------------------------------------------------------------
 
-	/** One line for the HUD: gait, ground speed, fall height. Shown when hawkeye.DebugMovement is 1. */
+	/**
+	 * One line for the HUD: gait, ground speed, fall height. Shown when hawkeye.DebugMovement is 1. On a ledge
+	 * and in a parkour move it reads the traversal instead of the gait: "hang", "hang shimmy", or the move
+	 * ("corner 0.21 s", "leap", "hop", "climb"...) with how long it has run, at the speed she is actually
+	 * moving (a hang is moved by hand, so the velocity reads 0), and how far along the ledge she is.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Debug")
 	FString GetMovementDebugText() const;
+
+	/**
+	 * The debug line's state word for a traversal, or empty when there is none: Move (with MoveSeconds) wins
+	 * over the hang, and a hang reads "hang shimmy" while bShimmying.
+	 */
+	static FString FormatTraversalDebugState(bool bHanging, bool bShimmying, EHawkeyeParkourMove Move, float MoveSeconds,
+		bool bSampleTraversal);
 
 	/** Reads the hawkeye.DebugMovement console variable. */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Debug")
@@ -2001,6 +2013,14 @@ protected:
 private:
 	FTimerHandle NoiseTimerHandle;
 	FTimerHandle HitStopTimerHandle;
+
+	/** The debug line's traversal speed: how fast the actor really moves, smoothed (a hang has no velocity). */
+	void UpdateMovementDebugSample(float DeltaSeconds);
+	FVector DebugLastLocation = FVector::ZeroVector;
+	bool bDebugHasLocation = false;
+	float DebugTraversalSpeed = 0.f;
+	EHawkeyeParkourMove DebugMoveSeen = EHawkeyeParkourMove::None;
+	float DebugMoveSeconds = 0.f;
 
 	/** Where the feet were last frame, for the footstep distance. */
 	FVector LastFootLocation = FVector::ZeroVector;

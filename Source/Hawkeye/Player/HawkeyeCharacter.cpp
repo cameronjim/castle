@@ -1826,6 +1826,7 @@ void AHawkeyeCharacter::Tick(float DeltaSeconds)
 	UpdateFalling(DeltaSeconds);
 	UpdateLanding(DeltaSeconds);
 	UpdateFootsteps();
+	UpdateMovementDebugSample(DeltaSeconds);
 	UpdateMaxWalkSpeed();
 	UpdateAimAssist(DeltaSeconds);
 	UpdateCamera(DeltaSeconds);
@@ -3563,10 +3564,68 @@ bool AHawkeyeCharacter::IsMovementDebugEnabled()
 	return CVarHawkeyeDebugMovement.GetValueOnGameThread() != 0;
 }
 
+void AHawkeyeCharacter::UpdateMovementDebugSample(float DeltaSeconds)
+{
+	const FVector Location = GetActorLocation();
+	if (bDebugHasLocation && DeltaSeconds > UE_KINDA_SMALL_NUMBER)
+	{
+		// Smoothed over about a tenth of a second, so a shimmy reads steady rather than frame to frame.
+		const float Instant = FVector::Dist(Location, DebugLastLocation) / DeltaSeconds;
+		DebugTraversalSpeed = FMath::FInterpTo(DebugTraversalSpeed, Instant, DeltaSeconds, 12.f);
+	}
+	DebugLastLocation = Location;
+	bDebugHasLocation = true;
+
+	const EHawkeyeParkourMove Move = ParkourComponent ? ParkourComponent->GetActiveMove() : EHawkeyeParkourMove::None;
+	DebugMoveSeconds = Move == DebugMoveSeen ? DebugMoveSeconds + DeltaSeconds : 0.f;
+	DebugMoveSeen = Move;
+}
+
+FString AHawkeyeCharacter::FormatTraversalDebugState(bool bHanging, bool bShimmying, EHawkeyeParkourMove Move,
+	float MoveSeconds, bool bSampleTraversal)
+{
+	const TCHAR* MoveName = nullptr;
+	switch (Move)
+	{
+	case EHawkeyeParkourMove::Vault: MoveName = TEXT("vault"); break;
+	case EHawkeyeParkourMove::Mantle: MoveName = TEXT("mantle"); break;
+	case EHawkeyeParkourMove::LedgeGrab: MoveName = TEXT("ledge grab"); break;
+	case EHawkeyeParkourMove::Climb: MoveName = TEXT("climb"); break;
+	case EHawkeyeParkourMove::DropToHang: MoveName = TEXT("drop to hang"); break;
+	case EHawkeyeParkourMove::HangCorner: MoveName = TEXT("corner"); break;
+	case EHawkeyeParkourMove::HangLeap: MoveName = TEXT("leap"); break;
+	case EHawkeyeParkourMove::HangHop: MoveName = TEXT("hop"); break;
+	default: break;
+	}
+	if (MoveName)
+	{
+		return FString::Printf(TEXT("%s %.2f s"), MoveName, MoveSeconds);
+	}
+	if (bHanging)
+	{
+		return bShimmying ? TEXT("hang shimmy") : TEXT("hang");
+	}
+	return bSampleTraversal ? TEXT("traversal") : FString();
+}
+
 FString AHawkeyeCharacter::GetMovementDebugText() const
 {
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
 	const float Speed = GetVelocity().Size2D();
+
+	// On a ledge or in a move the capsule is placed by hand: the gait and the velocity mean nothing there.
+	if (ParkourComponent)
+	{
+		const bool bHanging = ParkourComponent->IsHanging();
+		const FString Traversal = FormatTraversalDebugState(bHanging, ParkourComponent->IsShimmying(),
+			ParkourComponent->GetActiveMove(), DebugMoveSeconds, ParkourComponent->IsSampleTraversalActive());
+		if (!Traversal.IsEmpty())
+		{
+			return FString::Printf(TEXT("%s  %.0f cm/s%s  last landing %.0f cm"), *Traversal, DebugTraversalSpeed,
+				bHanging ? *FString::Printf(TEXT("  along %.0f cm"), ParkourComponent->GetHangAlong()) : TEXT(""),
+				LastFallHeight);
+		}
+	}
 
 	const TCHAR* State = TEXT("walk");
 	if (Movement && Movement->IsFalling())

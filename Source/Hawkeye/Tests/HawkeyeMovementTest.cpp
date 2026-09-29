@@ -9,6 +9,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "Misc/AutomationTest.h"
 #include "Player/HawkeyeCharacter.h"
+#include "Player/ParkourComponent.h"
 #include "Tests/HawkeyeTestUtils.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
@@ -391,6 +392,94 @@ bool FHawkeyeJumpHeight::RunTest(const FString& Parameters)
 	TestTrue(TEXT("The jump rose at all"), Apex > 1.f);
 	TestTrue(TEXT("The apex is JumpHeight within 5 cm"), FMath::IsNearlyEqual(Apex, Kate->TestJumpHeight(), 5.f));
 	TestTrue(TEXT("Air control is 0.3"), FMath::IsNearlyEqual(Movement->AirControl, 0.3f));
+	return true;
+}
+
+/**
+ * hawkeye.DebugMovement on a ledge: the line reads the hang, the shimmy at the speed she really moves (the capsule
+ * is placed by hand, so its velocity is 0 and the gait reads idle), and each traversal move by name.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeMovementDebugReadsTheHang, "Hawkeye.Movement.DebugLineReadsTheHang",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeMovementDebugReadsTheHang::RunTest(const FString& Parameters)
+{
+	TestEqual(TEXT("A hang"), AHawkeyeCharacter::FormatTraversalDebugState(true, false, EHawkeyeParkourMove::None, 0.f, false),
+		FString(TEXT("hang")));
+	TestEqual(TEXT("A shimmy"), AHawkeyeCharacter::FormatTraversalDebugState(true, true, EHawkeyeParkourMove::None, 0.f, false),
+		FString(TEXT("hang shimmy")));
+	TestEqual(TEXT("A corner, with its time"),
+		AHawkeyeCharacter::FormatTraversalDebugState(false, false, EHawkeyeParkourMove::HangCorner, 0.21f, false),
+		FString(TEXT("corner 0.21 s")));
+	TestEqual(TEXT("A leap"), AHawkeyeCharacter::FormatTraversalDebugState(false, false, EHawkeyeParkourMove::HangLeap, 0.1f, false),
+		FString(TEXT("leap 0.10 s")));
+	TestEqual(TEXT("A hop"), AHawkeyeCharacter::FormatTraversalDebugState(false, false, EHawkeyeParkourMove::HangHop, 0.f, false),
+		FString(TEXT("hop 0.00 s")));
+	TestEqual(TEXT("A move wins over the hang it starts from"),
+		AHawkeyeCharacter::FormatTraversalDebugState(true, true, EHawkeyeParkourMove::Climb, 0.3f, false), FString(TEXT("climb 0.30 s")));
+	TestEqual(TEXT("The sample's traversal"), AHawkeyeCharacter::FormatTraversalDebugState(false, false, EHawkeyeParkourMove::None, 0.f, true),
+		FString(TEXT("traversal")));
+	TestTrue(TEXT("On the ground, nothing: the gait line"),
+		AHawkeyeCharacter::FormatTraversalDebugState(false, false, EHawkeyeParkourMove::None, 0.f, false).IsEmpty());
+
+	// A real hang and shimmy, the line read through the character's tick.
+	static constexpr float HalfHeight = 88.f;
+	static constexpr float Top = 800.f;
+	static constexpr float Step = 0.05f;
+	const FHawkeyeTestWorld TestWorld;
+	auto Box = [&TestWorld](const FVector& Min, const FVector& Max)
+	{
+		if (AHawkeyeTestBlocker* Blocker = Cast<AHawkeyeTestBlocker>(
+				TestWorld.SpawnActor(AHawkeyeTestBlocker::StaticClass(), (Min + Max) * 0.5f, FRotator::ZeroRotator)))
+		{
+			Blocker->SetExtent((Max - Min) * 0.5f);
+		}
+	};
+	Box(FVector(-3000.f, -3000.f, -100.f), FVector(3000.f, 3000.f, 0.f));
+	Box(FVector(100.f, -400.f, 0.f), FVector(130.f, 400.f, Top));
+	AHawkeyeAimTestCharacter* Kate = Cast<AHawkeyeAimTestCharacter>(TestWorld.SpawnActor(AHawkeyeAimTestCharacter::StaticClass(),
+		FVector(55.f, 0.f, Top - 200.f + HalfHeight), FRotator::ZeroRotator));
+	UParkourComponent* Parkour = Kate ? Kate->GetParkourComponent() : nullptr;
+	if (!TestNotNull(TEXT("Kate with parkour"), Parkour))
+	{
+		return false;
+	}
+	Kate->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+	Kate->GetCharacterMovement()->Velocity = FVector(0.f, 0.f, -150.f);
+	if (!TestTrue(TEXT("She catches the wall's top"), Parkour->TryCatchLedge()))
+	{
+		return false;
+	}
+	for (float Time = 0.f; Time < 1.5f && Parkour->IsPerformingMove(); Time += Step)
+	{
+		Parkour->AdvanceMove(Step);
+		static_cast<AActor*>(Kate)->Tick(Step);
+	}
+	if (!TestTrue(TEXT("Hanging"), Parkour->IsHanging()))
+	{
+		return false;
+	}
+	for (int32 Frame = 0; Frame < 10; ++Frame)
+	{
+		static_cast<AActor*>(Kate)->Tick(Step);
+	}
+	const FString Still = Kate->GetMovementDebugText();
+	AddInfo(FString::Printf(TEXT("Hanging still: \"%s\"."), *Still));
+	TestTrue(TEXT("Still on the ledge it reads the hang, not idle"), Still.StartsWith(TEXT("hang  0 cm/s")));
+	TestTrue(TEXT("with how far along the ledge"), Still.Contains(TEXT("  along ")));
+
+	for (int32 Frame = 0; Frame < 10; ++Frame)
+	{
+		Parkour->SetHangInput(FVector(0.f, 1.f, 0.f));
+		Parkour->AdvanceHang(Step);
+		static_cast<AActor*>(Kate)->Tick(Step);
+	}
+	const FString Shimmy = Kate->GetMovementDebugText();
+	AddInfo(FString::Printf(TEXT("Shimmying: \"%s\"."), *Shimmy));
+	TestTrue(TEXT("Shimmying it says so"), Shimmy.StartsWith(TEXT("hang shimmy  ")));
+	const int32 SpeedAt = FString(TEXT("hang shimmy  ")).Len();
+	const float Speed = FCString::Atof(*Shimmy.Mid(SpeedAt));
+	TestEqual(TEXT("at the shimmy's speed, 120 cm/s (not the velocity's 0)"), Speed, Parkour->ShimmySpeed, 12.f);
 	return true;
 }
 
