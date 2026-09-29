@@ -81,7 +81,8 @@ bool FHawkeyeTimeOfDayRoundTrip::RunTest(const FString& Parameters)
 	ClearSlot();
 
 	TestEqual(TEXT("The default is Night"), FHawkeyeSettings().TimeOfDay, EHawkeyeTimeOfDay::Night);
-	TestEqual(TEXT("Settings version 7 (6 added the time of day)"), FHawkeyeSettings::CurrentVersion, 7);
+	// The time of day came in at version 6; later rows bump the version without touching it.
+	TestTrue(TEXT("Settings version 6 or later (6 added the time of day)"), FHawkeyeSettings::CurrentVersion >= 6);
 
 	UHawkeyeSettingsSubsystem* Writer = MakeSettings();
 	Writer->Load();
