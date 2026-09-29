@@ -109,6 +109,8 @@
  *   hang_drop.png    standing on a second-floor landing, over the rail to the hang (drop to hang)
  *   hang_shimmy.png  0.9 s into a shimmy along a tenement parapet toward a roof corner, hands staggered
  *   hang_corner.png  part way round that corner (ParkourHangDistrictTest.cpp)
+ *   roof_corner_flush.png  that corner's parapet close up from its roof: one ring, the inside corner clean
+ *   roof_corner_outside.png  the same corner from the air past it: both facades flush up through the parapet
  *   grapple_level.png  a level roof-to-roof zip across a street, part way along
  *
  *   bow_holstered.png  hip camera on the street: DA_Bow_Kate across Kate's back

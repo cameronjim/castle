@@ -1,5 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
 #include "CollisionQueryParams.h"
 #include "Components/CapsuleComponent.h"
@@ -38,7 +39,7 @@
 namespace HawkeyeHangDistrict
 {
 	static const TCHAR* MoveActionPath = TEXT("/Game/Input/IA_Move.IA_Move");
-	/** Hang this far from the corner to start with, cm (the pier stops her about 60 cm short of it). */
+	/** Hang this far from the corner to start with, cm. */
 	static constexpr float StartBack = 300.f;
 
 	static UWorld* FindWorld()
@@ -129,8 +130,8 @@ namespace HawkeyeHangDistrict
 	}
 
 	/**
-	 * The outside roof corner nearest Near where both faces are open: a hang fits on A from 250 cm out to 70 cm from
-	 * the corner and on B 70 cm round it, half way round the corner too, with air out in front for the camera and the street a
+	 * The outside roof corner nearest Near where both faces are open: a hang fits on A from 350 cm out to 30 cm from
+	 * the corner and on B 30 cm round it, half way round the corner too, with air out in front for the camera and the street a
 	 * floor or more below.
 	 */
 	static FCorner FindCorner(UWorld* World, const AHawkeyeCharacter* Kate, const FVector& Near, FString& OutReport)
@@ -219,11 +220,12 @@ namespace HawkeyeHangDistrict
 							}
 							const float Z = Corner.Z + Half - 145.f;
 							const FVector HangA0 = Corner - Toward * (StartBack + 50.f) + EdgeA.Normal * 38.f;
-							// Clear of the parapet's piers (its last 30 cm stands 15 cm proud of the facade at every corner).
-							const FVector HangA1 = Corner - Toward * 70.f + EdgeA.Normal * 38.f;
-							const FVector HangB = Corner - TowardB * 70.f + EdgeB.Normal * 38.f;
+							// Where the end margin stops her on A and where she hangs on B (25 cm from the corner, and a few more):
+							// the parapet is flush with both facades, so nothing stands proud at the corner.
+							const FVector HangA1 = Corner - Toward * 30.f + EdgeA.Normal * 38.f;
+							const FVector HangB = Corner - TowardB * 30.f + EdgeB.Normal * 38.f;
 							// The swing round the corner, as the hang's turn makes it: about the corner through the open side,
-							// from where the piers stop her on A to where she hangs on B.
+							// from there on A to there on B.
 							const FVector Out = (EdgeA.Normal + EdgeB.Normal).GetSafeNormal2D();
 							auto Swing = [&](float Alpha)
 							{
@@ -547,7 +549,7 @@ public:
 				Test->AddInfo(FString::Printf(TEXT("Hanging on %s: line %s (%d data segments), %.0f to %.0f cm, at %.0f"), *Found.LedgeA,
 					*Line.Source, Line.DataSegments, Line.MinAlong, Line.MaxAlong, Parkour->GetHangAlong()));
 				Test->TestTrue(TEXT("The hang's line comes from the ledge data"), Line.DataSegments >= 1 && Line.Source.Contains(TEXT("Ledge_")));
-				// Its parapet box runs 15 cm on past the corner (the pier), and the line with it.
+				// The line ends at the corner (the parapet is flush there, nothing runs on past it).
 				Test->TestTrue(TEXT("It runs to the corner"),
 					FVector::Dist2D(Line.PointAt(CornerSide(Found) > 0.f ? Line.MaxAlong : Line.MinAlong), Found.Corner) < 20.f);
 				StartAlong = Parkour->GetHangAlong();
@@ -574,9 +576,15 @@ public:
 				Test->AddInfo(FString::Printf(TEXT("Shimmy speed over 0.8 s: %.0f cm/s"), Speed));
 				Test->TestEqual(TEXT("The shimmy runs at about 120 cm/s"), Speed, 120.f, 12.f);
 			}
+			if (Parkour->IsHanging())
+			{
+				LastToCorner = static_cast<float>(FVector::DotProduct(Found.Corner - Kate->GetActorLocation(), Found.TowardCorner));
+			}
 			if (Parkour->GetActiveMove() == EHawkeyeParkourMove::HangCorner)
 			{
-				Test->AddInfo(FString::Printf(TEXT("Round the corner %.2f s after the shimmy began"), InPhase));
+				Test->AddInfo(FString::Printf(TEXT("Round the corner %.2f s after the shimmy began, from %.0f cm short of it"), InPhase,
+					LastToCorner));
+				Test->TestTrue(TEXT("Nothing stops her short of the end margin (25 cm from the corner)"), LastToCorner <= 32.f);
 				Next(3);
 			}
 			else if (InPhase > 4.0)
@@ -592,6 +600,9 @@ public:
 				Test->AddInfo(FString::Printf(TEXT("Round the corner in %.2f s: %s"), InPhase, *DescribeHang(Kate)));
 				Test->TestTrue(TEXT("Facing the other face"), FVector::DotProduct(Kate->GetActorForwardVector().GetSafeNormal2D(), -Found.NormalB) > 0.98f);
 				Test->TestEqual(TEXT("36 cm off it"), static_cast<float>(FVector::DotProduct(Location - Found.Corner, Found.NormalB)), 36.f, 4.f);
+				// Along B away from the corner is -NormalA at an outside corner.
+				Test->TestEqual(TEXT("25 cm round the corner"), static_cast<float>(FVector::DotProduct(Location - Found.Corner, -Found.NormalA)),
+					25.f, 6.f);
 				Test->TestEqual(TEXT("Feet 145 cm under the top"),
 					Found.TopZ - static_cast<float>(Location.Z - Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight()), 145.f, 3.f);
 				Test->TestTrue(TEXT("Its line is the other ledge's"), Parkour->GetHangLine().Source.Contains(Found.LedgeB));
@@ -642,6 +653,7 @@ private:
 	int32 Phase = 0;
 	double PhaseStart = -1.0;
 	float StartAlong = 0.f;
+	float LastToCorner = 0.f;
 	double MoveStart = -1.0;
 	bool bSpeedTaken = false;
 	int32 ClippingFrames = 0;
@@ -832,6 +844,91 @@ void HawkeyeAddHangShots(FAutomationTestBase* Test)
 		return true;
 	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	// roof_corner_flush.png: the same corner's parapet close up from its roof, a little to one side, so both outer
+	// faces and the top meet in the frame (flush, nothing standing proud of either facade).
+	static TWeakObjectPtr<ACameraActor> CornerCamera;
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
+	{
+		APlayerController* PC = nullptr;
+		AHawkeyeCharacter* Kate = FindKate(PC);
+		UWorld* World = FindWorld();
+		if (!Found.bFound || !Kate || !PC || !World)
+		{
+			return true;
+		}
+		const FVector Inboard = -(Found.NormalA + Found.NormalB).GetSafeNormal2D();
+		const FVector Side = FVector::CrossProduct(FVector::UpVector, Inboard).GetSafeNormal2D();
+		const FVector Target = Found.Corner - FVector(0.f, 0.f, 25.f);
+		const FVector Eye = Found.Corner + Inboard * 230.f + Side * 60.f + FVector(0.f, 0.f, 70.f);
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		ACameraActor* Camera = World->SpawnActor<ACameraActor>(ACameraActor::StaticClass(), FTransform::Identity, Params);
+		CornerCamera = Camera;
+		if (Camera)
+		{
+			Camera->SetActorLocationAndRotation(Eye, (Target - Eye).Rotation());
+			Camera->GetCameraComponent()->SetFieldOfView(70.f);
+			Camera->GetCameraComponent()->bConstrainAspectRatio = false;
+			PC->SetViewTarget(Camera);
+		}
+		Test->AddInfo(FString::Printf(TEXT("roof_corner_flush.png: %s/%s corner at %s from %s"), *Found.LedgeA, *Found.LedgeB,
+			*Found.Corner.ToCompactString(), *Eye.ToCompactString()));
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.6f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
+	{
+		if (CornerCamera.IsValid())
+		{
+			HawkeyeShots::Request(Test, ShotPath(TEXT("roof_corner_flush.png")), /*bShowUI=*/false);
+		}
+		return true;
+	}));
+	// roof_corner_outside.png: the same corner from out in the air past it and a little above, both facades meeting
+	// in one straight edge up through the parapet.
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
+	{
+		if (HawkeyeShots::GetOutstanding(Test) > 0)
+		{
+			return false;
+		}
+		ACameraActor* Camera = CornerCamera.Get();
+		if (!Found.bFound || !Camera)
+		{
+			return true;
+		}
+		const FVector Out = (Found.NormalA + Found.NormalB).GetSafeNormal2D();
+		const FVector Eye = Found.Corner + Out * 260.f + FVector(0.f, 0.f, 90.f);
+		Camera->SetActorLocationAndRotation(Eye, (Found.Corner - FVector(0.f, 0.f, 80.f) - Eye).Rotation());
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.6f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
+	{
+		if (CornerCamera.IsValid())
+		{
+			HawkeyeShots::Request(Test, ShotPath(TEXT("roof_corner_outside.png")), /*bShowUI=*/false);
+		}
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test]()
+	{
+		if (HawkeyeShots::GetOutstanding(Test) > 0)
+		{
+			return false;
+		}
+		APlayerController* PC = nullptr;
+		AHawkeyeCharacter* Kate = FindKate(PC);
+		if (ACameraActor* Camera = CornerCamera.Get())
+		{
+			Camera->Destroy();
+		}
+		if (PC && Kate)
+		{
+			PC->SetViewTarget(Kate);
+		}
+		return true;
+	}));
 }
 
 /** The hang shots on their own. */
