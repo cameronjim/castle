@@ -1338,6 +1338,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
 	float HeavySparkScale = 1.4f;
 
+	/**
+	 * How far her axis must be off the lens's line to the spark, cm, for it to show past her; nearer, the spark
+	 * slides round his body (up to 0.9 of his radius across) to the side the lens sees.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
+	float SparkClearance = 40.f;
+
 	/** The marker on the assist's pick: its fade after the swing. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee|Assist")
 	FHawkeyeTargetMarker MeleeTargetMarker;

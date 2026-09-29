@@ -1730,8 +1730,47 @@ void AHawkeyeCharacter::SpawnMeleeSpark(const AActor* HitActor, bool bHeavy) con
 	float HalfHeight = 0.f;
 	HitActor->GetSimpleCollisionCylinder(Radius, HalfHeight);
 	const FVector ToHer = (GetActorLocation() - HitActor->GetActorLocation()).GetSafeNormal2D();
-	// The front of his body toward her, at chest height: where a fist or a foot meets him.
-	const FVector Contact = HitActor->GetActorLocation() + ToHer * Radius * 0.8f + FVector(0.f, 0.f, 35.f);
+	// The front of his body toward her, at the height of whichever fist or foot is nearest him (a jab at his
+	// face, a roundhouse at his ribs; 2026-09-29: always chest height hid it behind her head from her camera).
+	float Height = 35.f;
+	if (const USkeletalMeshComponent* Body = GetMesh())
+	{
+		float Nearest = BIG_NUMBER;
+		for (const TCHAR* Bone : { TEXT("hand_r"), TEXT("hand_l"), TEXT("foot_r"), TEXT("foot_l") })
+		{
+			if (Body->GetBoneIndex(Bone) == INDEX_NONE)
+			{
+				continue;
+			}
+			const FVector At = Body->GetBoneLocation(Bone);
+			const float Off = FVector::Dist2D(At, HitActor->GetActorLocation());
+			if (Off < Nearest)
+			{
+				Nearest = Off;
+				Height = FMath::Clamp(At.Z - HitActor->GetActorLocation().Z, -HalfHeight * 0.3f, HalfHeight * 0.75f);
+			}
+		}
+	}
+	// Round his body from the point facing her toward whichever side the player's lens sees past her: from
+	// behind her (her own camera) that point is behind her head and shoulders (2026-09-29, hit_spark.png).
+	FVector Out = ToHer;
+	const APlayerController* PC = Cast<APlayerController>(GetController());
+	if (PC && PC->PlayerCameraManager)
+	{
+		const FVector Lens = PC->PlayerCameraManager->GetCameraLocation();
+		const FVector Front = HitActor->GetActorLocation() + ToHer * Radius;
+		const FVector Across = FVector::CrossProduct(FVector::UpVector, (Front - Lens).GetSafeNormal2D());
+		// Her axis off the lens's line to that point, flat, cm; inside SparkClearance she hides it.
+		const float Off = FVector::DotProduct(GetActorLocation() - Front, Across);
+		if (FMath::Abs(Off) < SparkClearance)
+		{
+			// A point on his surface Slide cm across, at most 0.9 of his radius (about 65 degrees round).
+			const float Slide = FMath::Min(SparkClearance - FMath::Abs(Off), 0.9f * Radius);
+			Out = ToHer * FMath::Sqrt(FMath::Max(Radius * Radius - Slide * Slide, 0.f)) / FMath::Max(Radius, 1.f)
+				+ Across * (Off >= 0.f ? -Slide : Slide) / FMath::Max(Radius, 1.f);
+		}
+	}
+	const FVector Contact = HitActor->GetActorLocation() + Out * Radius + FVector(0.f, 0.f, Height);
 	UHawkeyeVfxSubsystem::SpawnAt(this, MeleeSparkVfx, Contact, ToHer.Rotation(), UHawkeyeVfxSubsystem::MeleeSparkEvent,
 		(bHeavy ? HeavySparkScale : LightSparkScale) * FMath::Lerp(0.6f, 1.f, FlashScale));
 }
