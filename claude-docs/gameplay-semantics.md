@@ -190,6 +190,10 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   (a child with the sample's level-visual lookups off) along every roof edge of 1 m or
   more, hidden, blocking only that channel, 2 cm proud of the facade; 3,723 on the
   district. Verify checks every spline end against the parapet corners within 5 cm.
+  The parapet itself (`generate_city.parapet_ring`, since 2026-09-29) is one ring: the footprint
+  minus the footprint offset 30 cm inward (mitred), 90 cm tall, so its outer faces are the facades
+  and every corner, convex or concave, is closed flush with nothing standing proud of either face.
+  Verify checks no building mesh stands past its footprint by more than 1 cm.
   The hang reads the same splines for the line it shimmies along ("Hang" below).
 - Ledges and grapple anchors are not saved in the map. `generate_city.py` writes their
   transforms into `DA_EastVillage_CityProps` (`UCityLedgeData`) and one `ACityLedgeSpawner`
@@ -239,23 +243,23 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   channel, up to 0.7 of its 5 degrees). A strike's pose overrides it; off the hang the IK lets go over
   0.15 s.
 - Corners: pushing into the line's end looks for a ledge round the corner. Outside (a face turning away at
-  the end, facing her way along) is tried whenever she is within 104 cm of the line's end, so a pier short of
-  the corner does not stop it: the district's parapet boxes run 15 cm past each corner to close it
-  (`generate_city.building_mesh`), so at every tenement corner the last 30 cm of each parapet stands 15 cm
-  proud of the other facade and stops her capsule about 60 cm short. Inside (a wall across the ledge facing
+  the end, facing her way along) is tried when she is within 59 cm of the line's end (the 44 cm reach plus
+  15 cm of slack, `CornerSlack`); the end margin stops her 25 cm short, since the district's parapets are
+  flush with both facades at every corner. Inside (a wall across the ledge facing
   back at her) is tried when that wall stopped her within 44 cm. The other ledge's top is within 15 cm of
   hers, its corner end within 60 cm (`CornerReach`) of this one's, both hands fit on it, and the capsule
   fits where she will hang: 25 cm (outside) or 38 cm (inside, clear of her old wall) from its corner end,
-  or up to 60 cm further along it until she clears the pier. Outside, the swing a quarter, half and three
+  or up to 15 cm further along it if the capsule does not fit right there. Outside, the swing a quarter, half and three
   quarters round must be clear too. Then a 0.4 s move (`HangCorner`): outside, round the point where the
   two faces meet, through the open side (the angle swings the way she turns, the distance from the corner
   blends from start to end); inside, turning where she is. She turns by the corner's angle and the camera
   turns with her. Anything else and she stops at the end (a taller wing, a 30 cm wall end, a ledge
   starting past 60 cm, a neighbour in the swing), and the log lists every candidate's reason.
   `Hawkeye.Parkour.DistrictHangCorner` found 4382 outside roof corners in the district's ledge data (each
-  counted from either face), 1516 of them open on both faces with the swing clear (most of the rest meet a
-  neighbour); on the nearest (17.8 m up, 32 m from the start) she
-  shimmied 120 cm/s, turned the corner in 0.40 s and turned back, never inside geometry.
+  counted from either face), 1558 of them open on both faces with the swing clear, hanging 30 cm from the
+  corner (most of the rest meet a neighbour); on the nearest (17.8 m up, 32 m from the start) she
+  shimmied 120 cm/s, reached the end margin 25 cm from the corner, turned it in 0.40 s onto the other face
+  25 cm round and turned back, never inside geometry.
 - Hang jumps. Jump with the stick at least half pushed and at least 0.6 of it to one side leaps sideways
   (`HangLeap`, 0.3 to 0.45 s by distance, a 25 cm arc, the catch clip reaching for the edge) to the first
   ledge past where a shimmy would stop that way: its top within 40 cm of hers, its face from 60 cm behind

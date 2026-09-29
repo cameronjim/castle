@@ -183,7 +183,8 @@ Facts that matter:
   Z up. Verified by tests that the avenues order 1st < A < B < C in X and E 6th is south
   of E 11th.
 - Heights: from the OSM `height` tag (524 of 526 buildings have it), else levels x 3.2 +
-  1.5, else 15 m. Parapets 90 cm high, 30 cm inset, skipped under 6 m.
+  1.5, else 15 m. Parapets 90 cm high, 30 cm thick, skipped under 6 m: one mitred ring whose outer
+  faces are the facades (flush at every corner; `parapet_ring`).
 - Meshes: one static mesh per building under `Content/City/EastVillage/Meshes/`, built
   with Geometry Script (`append_simple_extrude_polygon`, normals flipped if the signed
   volume is negative), complex-as-simple collision. Each actor carries a `CityHash`
