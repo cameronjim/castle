@@ -109,7 +109,35 @@ public:
 	 * catch window, auto vault limits). False with OutWhyNot saying why nothing did.
 	 */
 	bool ProbeJumpFan(const FVector& Direction, float Reach, bool bLateCatch, FHawkeyeParkourObstacle& OutObstacle,
-		EHawkeyeParkourMove& OutMove, FString& OutWhyNot) const;
+		EHawkeyeParkourMove& OutMove, FString& OutWhyNot, FHawkeyeParkourObstacle* OutRoofEdge = nullptr) const;
+
+	/**
+	 * A parapet at a roof edge (the roof-edge guard's case): a thin top (a back edge found) from the jump key's
+	 * lowest up to RoofEdgeGuardMaxHeight, with more than RoofEdgeGuardDrop below the feet just past it.
+	 */
+	bool IsRoofEdgeParapet(const FHawkeyeParkourObstacle& Obstacle) const;
+
+	/** Where the capsule can stand on Parapet's own top (its middle), for the guard's mantle. False when it does not fit. */
+	bool FindParapetStand(const FHawkeyeParkourObstacle& Parapet, FVector& OutStandPoint) const;
+
+	/** The last guarded press mantled onto the parapet (true) or became a plain jump held short of it (false). */
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	bool IsGuardMantle() const { return bGuardMantle; }
+
+	/** The double tap's hop over the parapet is running. */
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	bool IsGuardLeap() const { return bGuardLeap; }
+
+	/** A guarded plain jump is in the air, its speed toward the drop held at zero. */
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	bool IsGuardFlight() const { return bGuardFlight; }
+
+	/** Standing on a parapet top the guard put her on: walking off it is allowed only back toward the roof. */
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	bool IsPerchedOnParapet() const { return bPerched; }
+
+	/** The guard's state for one tick: the double-tap clock, the held flight, the perch. TickComponent calls it. */
+	void TickRoofEdgeGuard(float DeltaSeconds);
 
 	/** Where the jump key probes: the movement input when the stick is pushed, else the facing. */
 	UFUNCTION(BlueprintPure, Category = "Parkour")
@@ -336,6 +364,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Detection")
 	bool bUseSampleTraversal = true;
 
+	/**
+	 * The roof-edge guard (2026-09-29, a 1679 cm fall in Cameron's log): a jump press moving toward a parapet with
+	 * more than this below it on the far side does not launch her over it, cm.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Roof edge", meta = (ClampMin = "0.0"))
+	float RoofEdgeGuardDrop = 400.f;
+
+	/** The tallest parapet the guard looks at (a plain jump clears nothing taller), cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Roof edge", meta = (ClampMin = "0.0"))
+	float RoofEdgeGuardMaxHeight = 160.f;
+
+	/** Moving toward the parapet: this fast at it, or the stick pushed within 60 degrees of it, cm/s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Roof edge", meta = (ClampMin = "0.0"))
+	float RoofEdgeGuardMinSpeed = 50.f;
+
+	/** A second press this soon after the guarded one means "I know": she leaps, s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Roof edge", meta = (ClampMin = "0.0"))
+	float DoubleTapSeconds = 0.3f;
+
+	/** The double tap's leap: at least this fast toward the drop, cm/s (or her speed before the press, if more). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Roof edge", meta = (ClampMin = "0.0"))
+	float GuardLeapSpeed = 450.f;
+
 	// --- Timing, s ------------------------------------------------------------------------------
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Timing", meta = (ClampMin = "0.05"))
@@ -528,4 +579,33 @@ protected:
 	bool bLateCatchAirborne = false;
 	float JumpBufferRemaining = 0.f;
 	FString LastJumpRefusal;
+
+	// The roof-edge guard.
+	/** Seconds since the guarded press; below 0 when there was none (or the double-tap window is spent). */
+	float GuardPressAge = -1.f;
+	/** Toward the drop (into the parapet's front face), flat, and the leap's speed along it. */
+	FVector GuardDirection = FVector::ZeroVector;
+	float GuardSpeed = 0.f;
+	bool bGuardMantle = false;
+	bool bGuardFlight = false;
+	/** The double tap's hop over the top is running; at its end she is let go toward the drop. */
+	bool bGuardLeap = false;
+	/** The parapet the last guarded press met. */
+	FHawkeyeParkourObstacle GuardParapet;
+	bool bGuardFlightAirborne = false;
+	float GuardFlightElapsed = 0.f;
+	/** On the parapet top: the way back to the roof, the top's height, and bCanWalkOffLedges as it was. */
+	bool bPerched = false;
+	FVector PerchRoofDirection = FVector::ZeroVector;
+	float PerchTopZ = 0.f;
+	bool bPerchSavedWalkOff = true;
+
+	/** The guarded press: mantle onto the parapet top, or arm a plain jump held short of it. True when a move started. */
+	bool GuardRoofEdge(const FHawkeyeParkourObstacle& Parapet);
+	/** The double tap: out of the guard's mantle (or the held jump) and over the parapet. */
+	void LeapFromGuard(const TCHAR* Why);
+	void BeginPerch();
+	void EndPerch(const TCHAR* Why);
+	/** Moving toward Direction: by velocity, or by the stick. */
+	bool IsMovingToward(const FVector& Direction) const;
 };

@@ -355,7 +355,13 @@ void UParkourComponent::ProbeBeyond(const FVector& Feet, FHawkeyeParkourObstacle
 	{
 		const float Out = BackEdge + Radius + Extra;
 		const FVector Land = Obstacle.LedgePoint - N * Out;
-		if (!TraceLine(FVector(Land.X, Land.Y, TopZ + 30.f), FVector(Land.X, Land.Y, Feet.Z - HawkeyeParkour::MaxProbeDrop), Floor))
+		const bool bFloor = TraceLine(FVector(Land.X, Land.Y, TopZ + 30.f), FVector(Land.X, Land.Y, Feet.Z - HawkeyeParkour::MaxProbeDrop), Floor);
+		if (Extra == HawkeyeParkour::LandingClearance)
+		{
+			// The ground just past it, landable or not: what a jump over it would fall to.
+			Obstacle.FarSideDrop = bFloor ? Feet.Z - Floor.ImpactPoint.Z : HawkeyeParkour::MaxProbeDrop;
+		}
+		if (!bFloor)
 		{
 			Obstacle.BeyondWhyNot = FString::Printf(TEXT("no floor within %.0f cm below the feet beyond it: a roof edge"), HawkeyeParkour::MaxProbeDrop);
 			continue;
@@ -554,9 +560,13 @@ bool UParkourComponent::StartChosenMove(EHawkeyeParkourMove Move, const FHawkeye
 }
 
 bool UParkourComponent::ProbeJumpFan(const FVector& Direction, float Reach, bool bLateCatch,
-	FHawkeyeParkourObstacle& OutObstacle, EHawkeyeParkourMove& OutMove, FString& OutWhyNot) const
+	FHawkeyeParkourObstacle& OutObstacle, EHawkeyeParkourMove& OutMove, FString& OutWhyNot, FHawkeyeParkourObstacle* OutRoofEdge) const
 {
 	OutObstacle = FHawkeyeParkourObstacle();
+	if (OutRoofEdge)
+	{
+		*OutRoofEdge = FHawkeyeParkourObstacle();
+	}
 	OutMove = EHawkeyeParkourMove::None;
 	OutWhyNot.Reset();
 	const FVector Centre = Direction.GetSafeNormal2D();
@@ -613,6 +623,10 @@ bool UParkourComponent::ProbeJumpFan(const FVector& Direction, float Reach, bool
 			OutMove = Move;
 			return true;
 		}
+		if (OutRoofEdge && !OutRoofEdge->bFound && !bLateCatch && IsRoofEdgeParapet(Obstacle))
+		{
+			*OutRoofEdge = Obstacle;
+		}
 		if (FirstRefusal.IsEmpty())
 		{
 			FirstRefusal = FString::Printf(TEXT("%s at %+.0f degrees, %.0f cm away, on %s"),
@@ -635,6 +649,12 @@ bool UParkourComponent::TryJumpParkour(const FVector& Direction)
 	// A press in the air (mashing on the way up) probes the late catch's way: from just above the feet,
 	// with tops measured against the take-off, so a wall she has risen level with is still found.
 	const bool bInAir = Movement->IsFalling();
+	// A second press soon after a guarded one that became a held jump: "I know", over it after all.
+	if (bGuardFlight && GuardPressAge >= 0.f && GuardPressAge <= DoubleTapSeconds)
+	{
+		LeapFromGuard(TEXT("a double tap"));
+		return true;
+	}
 	if (bInAir && LateCatchRemaining <= 0.f)
 	{
 		LateCatchTakeOffZ = GetFeetZ();
@@ -642,11 +662,17 @@ bool UParkourComponent::TryJumpParkour(const FVector& Direction)
 	FHawkeyeParkourObstacle Obstacle;
 	EHawkeyeParkourMove Move = EHawkeyeParkourMove::None;
 	FString WhyNot;
-	if (!ProbeJumpFan(Direction, ManualTriggerDistance, /*bLateCatch=*/bInAir, Obstacle, Move, WhyNot))
+	FHawkeyeParkourObstacle RoofEdge;
+	if (!ProbeJumpFan(Direction, ManualTriggerDistance, /*bLateCatch=*/bInAir, Obstacle, Move, WhyNot, &RoofEdge))
 	{
 		LastJumpRefusal = WhyNot;
 		UE_LOG(LogHawkeye, Log, TEXT("%s: jump%s: no parkour move: %s"), *GetNameSafe(GetOwner()),
 			bInAir ? TEXT(" (in the air)") : TEXT(""), *WhyNot);
+		// A parapet at a roof edge she is heading for: the plain jump that would follow must not carry her over it.
+		if (!bInAir && RoofEdge.bFound && IsMovingToward(-RoofEdge.WallNormal))
+		{
+			return GuardRoofEdge(RoofEdge);
+		}
 		return false;
 	}
 	if (StartChosenMove(Move, Obstacle, TEXT("jump")))
@@ -718,7 +744,248 @@ bool UParkourComponent::TryLateCatch()
 
 void UParkourComponent::BufferJump()
 {
+	if (bGuardMantle && IsPerformingMove())
+	{
+		if (GuardPressAge >= 0.f && GuardPressAge <= DoubleTapSeconds)
+		{
+			LeapFromGuard(TEXT("a double tap during the mantle"));
+			return;
+		}
+		// Mashing on the way up would fire a jump off the top the moment she stands on it: the guard eats it.
+		UE_LOG(LogHawkeye, Log, TEXT("%s: jump dropped: the roof-edge guard's mantle is running (a double tap within %.1f s leaps)"),
+			*GetNameSafe(GetOwner()), DoubleTapSeconds);
+		return;
+	}
 	JumpBufferRemaining = JumpBufferSeconds;
+}
+
+// --- Roof-edge guard ------------------------------------------------------------------------------
+
+bool UParkourComponent::IsRoofEdgeParapet(const FHawkeyeParkourObstacle& Obstacle) const
+{
+	const float MinHeight = FMath::Min(JumpMinHeight, VaultMinHeight) - HawkeyeParkour::HeightSlack;
+	return Obstacle.bFound && Obstacle.Depth > 0.f && Obstacle.Height >= MinHeight && Obstacle.Height <= RoofEdgeGuardMaxHeight
+		&& Obstacle.FarSideDrop > RoofEdgeGuardDrop;
+}
+
+bool UParkourComponent::FindParapetStand(const FHawkeyeParkourObstacle& Parapet, FVector& OutStandPoint) const
+{
+	const ACharacter* Character = GetCharacter();
+	if (!Character || !Parapet.bFound || Parapet.Depth <= 0.f)
+	{
+		return false;
+	}
+	// The back edge was found somewhere in the last probe step: the middle of the top is about half of that in.
+	const float Middle = FMath::Max(Parapet.Depth - HawkeyeParkour::BeyondStep * 0.5f, 1.f) * 0.5f;
+	const FVector Point = Parapet.LedgePoint - Parapet.WallNormal * Middle;
+	FHitResult Top;
+	if (!TraceLine(Point + FVector(0.f, 0.f, 30.f), Point - FVector(0.f, 0.f, 30.f), Top)
+		|| Top.ImpactNormal.Z < HawkeyeParkour::MinFloorNormalZ || FMath::Abs(Top.ImpactPoint.Z - Parapet.LedgePoint.Z) > 25.f)
+	{
+		return false;
+	}
+	const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	if (!CapsuleFits(Top.ImpactPoint + FVector(0.f, 0.f, HalfHeight + HawkeyeParkour::FloorGap)))
+	{
+		return false;
+	}
+	OutStandPoint = Top.ImpactPoint;
+	return true;
+}
+
+bool UParkourComponent::IsMovingToward(const FVector& Direction) const
+{
+	const FVector Toward = Direction.GetSafeNormal2D();
+	const UCharacterMovementComponent* Movement = GetMovement();
+	if (Movement && FVector::DotProduct(FVector(Movement->Velocity.X, Movement->Velocity.Y, 0.f), Toward) >= RoofEdgeGuardMinSpeed)
+	{
+		return true;
+	}
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!Pawn)
+	{
+		return false;
+	}
+	FVector Input = Pawn->GetPendingMovementInputVector().GetSafeNormal2D();
+	if (Input.IsNearlyZero())
+	{
+		Input = Pawn->GetLastMovementInputVector().GetSafeNormal2D();
+	}
+	return FVector::DotProduct(Input, Toward) >= 0.5f;
+}
+
+bool UParkourComponent::GuardRoofEdge(const FHawkeyeParkourObstacle& Parapet)
+{
+	UCharacterMovementComponent* Movement = GetMovement();
+	if (!Movement)
+	{
+		return false;
+	}
+	GuardParapet = Parapet;
+	GuardDirection = -Parapet.WallNormal.GetSafeNormal2D();
+	GuardSpeed = FMath::Max(GuardLeapSpeed, FVector::DotProduct(Movement->Velocity, GuardDirection));
+	GuardPressAge = 0.f;
+	EndPerch(TEXT("a new guarded press"));
+	FVector Stand;
+	if (FindParapetStand(Parapet, Stand))
+	{
+		FHawkeyeParkourObstacle Onto = Parapet;
+		Onto.bStandingSurface = true;
+		Onto.StandPoint = Stand;
+		UE_LOG(LogHawkeye, Log,
+			TEXT("%s: jump: roof-edge guard: a %.0f cm parapet with a %.0f cm drop beyond, on %s: mantle onto its top and stop there (a double tap within %.1f s leaps)"),
+			*GetNameSafe(GetOwner()), Parapet.Height, Parapet.FarSideDrop, *GetNameSafe(Parapet.Actor), DoubleTapSeconds);
+		// Ours, not the sample's: the sample's traversal picks its own move and could hurdle it.
+		if (StartMove(EHawkeyeParkourMove::Mantle, Onto))
+		{
+			bGuardMantle = true;
+			bGuardFlight = false;
+			LastJumpRefusal.Reset();
+			return true;
+		}
+	}
+	UE_LOG(LogHawkeye, Log,
+		TEXT("%s: jump: roof-edge guard: a %.0f cm parapet with a %.0f cm drop beyond, on %s, and no room on its top: a plain jump held short of it (a double tap within %.1f s leaps)"),
+		*GetNameSafe(GetOwner()), Parapet.Height, Parapet.FarSideDrop, *GetNameSafe(Parapet.Actor), DoubleTapSeconds);
+	bGuardMantle = false;
+	bGuardFlight = true;
+	bGuardFlightAirborne = false;
+	GuardFlightElapsed = 0.f;
+	const float Toward = FVector::DotProduct(Movement->Velocity, GuardDirection);
+	if (Toward > 0.f)
+	{
+		Movement->Velocity -= GuardDirection * Toward;
+	}
+	return false;
+}
+
+void UParkourComponent::LeapFromGuard(const TCHAR* Why)
+{
+	const ACharacter* Character = GetCharacter();
+	UCharacterMovementComponent* Movement = GetMovement();
+	if (!Character || !Movement)
+	{
+		return;
+	}
+	if (IsPerformingMove())
+	{
+		// Out of the guard's mantle where she is: the leap's hop starts from there.
+		const EHawkeyeParkourMove Move = ActiveMove;
+		ActiveMove = EHawkeyeParkourMove::None;
+		StopClip(0.1f);
+		RestoreRootMotionMode();
+		OnParkourFinished.Broadcast(Move);
+	}
+	bGuardMantle = false;
+	bGuardFlight = false;
+	GuardPressAge = -1.f;
+	EndPerch(TEXT("a leap"));
+	// Over the top in a quick hop (a plain jump from a standstill 66 cm short of a 90 cm parapet does not clear it),
+	// out to just past its back edge at the top's height, then let go with her speed toward the drop.
+	const float Radius = Character->GetCapsuleComponent()->GetScaledCapsuleRadius();
+	const float HalfHeight = Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector Past = GuardParapet.LedgePoint - GuardParapet.WallNormal * (GuardParapet.Depth + Radius + HawkeyeParkour::LandingClearance);
+	const FVector End(Past.X, Past.Y, GuardParapet.LedgePoint.Z + HalfHeight + 10.f);
+	LastObstacle = GuardParapet;
+	// Arched enough that the feet clear the top from wherever the mantle had got to.
+	const float Rise = FMath::Max(30.f, (GuardParapet.LedgePoint.Z - GetFeetZ()) * 0.8f + 10.f);
+	if (BeginMove(EHawkeyeParkourMove::Vault, End, Rise, VaultSeconds * 0.7f, VaultClip))
+	{
+		bGuardLeap = true;
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: roof-edge guard: %s, so she leaps over (then %.0f cm/s toward the drop)"),
+		*GetNameSafe(GetOwner()), Why, GuardSpeed);
+}
+
+void UParkourComponent::BeginPerch()
+{
+	UCharacterMovementComponent* Movement = GetMovement();
+	if (!Movement)
+	{
+		return;
+	}
+	if (!bPerched)
+	{
+		bPerchSavedWalkOff = Movement->bCanWalkOffLedges;
+	}
+	bPerched = true;
+	PerchRoofDirection = -GuardDirection;
+	PerchTopZ = GetFeetZ();
+	Movement->bCanWalkOffLedges = false;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: roof-edge guard: on the parapet top at %.0f cm; she walks off it only back toward the roof"),
+		*GetNameSafe(GetOwner()), PerchTopZ);
+}
+
+void UParkourComponent::EndPerch(const TCHAR* Why)
+{
+	if (!bPerched)
+	{
+		return;
+	}
+	bPerched = false;
+	if (UCharacterMovementComponent* Movement = GetMovement())
+	{
+		Movement->bCanWalkOffLedges = bPerchSavedWalkOff;
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: roof-edge guard: off the parapet top (%s)"), *GetNameSafe(GetOwner()), Why);
+}
+
+void UParkourComponent::TickRoofEdgeGuard(float DeltaSeconds)
+{
+	if (GuardPressAge >= 0.f)
+	{
+		GuardPressAge += DeltaSeconds;
+		if (GuardPressAge > DoubleTapSeconds)
+		{
+			GuardPressAge = -1.f;
+		}
+	}
+	UCharacterMovementComponent* Movement = GetMovement();
+	if (bGuardFlight)
+	{
+		GuardFlightElapsed += DeltaSeconds;
+		if (!Movement || IsBusy() || Movement->MovementMode == MOVE_Flying)
+		{
+			bGuardFlight = false;
+		}
+		else if (Movement->IsFalling())
+		{
+			// Held short: nothing toward the drop, the stick's air control included.
+			bGuardFlightAirborne = true;
+			const float Toward = FVector::DotProduct(Movement->Velocity, GuardDirection);
+			if (Toward > 0.f)
+			{
+				Movement->Velocity -= GuardDirection * Toward;
+			}
+		}
+		else if (bGuardFlightAirborne || GuardFlightElapsed > 0.25f)
+		{
+			bGuardFlight = false;
+			UE_LOG(LogHawkeye, Log, TEXT("%s: roof-edge guard: the held jump landed short of the parapet"), *GetNameSafe(GetOwner()));
+		}
+	}
+	if (bPerched)
+	{
+		if (!Movement || IsBusy() || !Movement->IsMovingOnGround())
+		{
+			EndPerch(IsBusy() ? TEXT("a move or a hang") : TEXT("off the ground"));
+		}
+		else if (GetFeetZ() < PerchTopZ - 30.f)
+		{
+			EndPerch(TEXT("back on the roof"));
+		}
+		else
+		{
+			// Only back the way she came: toward the drop the top's edge holds her.
+			const APawn* Pawn = Cast<APawn>(GetOwner());
+			FVector Input = Pawn ? Pawn->GetPendingMovementInputVector().GetSafeNormal2D() : FVector::ZeroVector;
+			if (Input.IsNearlyZero() && Pawn)
+			{
+				Input = Pawn->GetLastMovementInputVector().GetSafeNormal2D();
+			}
+			Movement->bCanWalkOffLedges = FVector::DotProduct(Input, PerchRoofDirection) > 0.25f;
+		}
+	}
 }
 
 void UParkourComponent::TickJumpAssist(float DeltaSeconds)
@@ -981,6 +1248,24 @@ void UParkourComponent::FinishMove()
 {
 	const EHawkeyeParkourMove Move = ActiveMove;
 	ActiveMove = EHawkeyeParkourMove::None;
+	const bool bOntoParapet = bGuardMantle && Move == EHawkeyeParkourMove::Mantle;
+	bGuardMantle = false;
+	if (bGuardLeap)
+	{
+		// The leap's hop is over the top: she carries on out over the drop.
+		bGuardLeap = false;
+		StopClip(0.2f);
+		RestoreRootMotionMode();
+		if (UCharacterMovementComponent* Movement = GetMovement())
+		{
+			Movement->SetMovementMode(MOVE_Falling);
+			Movement->Velocity = GuardDirection * GuardSpeed;
+		}
+		UE_LOG(LogHawkeye, Log, TEXT("%s: roof-edge guard: over the parapet at %s, off the roof at %.0f cm/s"), *GetNameSafe(GetOwner()),
+			GetOwner() ? *GetOwner()->GetActorLocation().ToCompactString() : TEXT("?"), GuardSpeed);
+		OnParkourFinished.Broadcast(Move);
+		return;
+	}
 	if (Move == EHawkeyeParkourMove::LedgeGrab || Move == EHawkeyeParkourMove::DropToHang)
 	{
 		EnterHang();
@@ -995,6 +1280,10 @@ void UParkourComponent::FinishMove()
 	}
 	UE_LOG(LogHawkeye, Log, TEXT("%s: parkour %s done at %s"), *GetNameSafe(GetOwner()), *UEnum::GetValueAsString(Move),
 		GetOwner() ? *GetOwner()->GetActorLocation().ToCompactString() : TEXT("?"));
+	if (bOntoParapet)
+	{
+		BeginPerch();
+	}
 	OnParkourFinished.Broadcast(Move);
 }
 
@@ -1238,6 +1527,7 @@ void UParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	RegrabCooldown = FMath::Max(0.f, RegrabCooldown - DeltaTime);
 	TickJumpAssist(DeltaTime);
+	TickRoofEdgeGuard(DeltaTime);
 	if (bIgnoreDroppedLedge && !bHanging && !IsPerformingMove())
 	{
 		const UCharacterMovementComponent* Movement = GetMovement();

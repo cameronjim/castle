@@ -107,6 +107,13 @@ struct HAWKEYE_API FHawkeyeParkourObstacle
 	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
 	FVector LandingPoint = FVector::ZeroVector;
 
+	/**
+	 * How far below the feet the ground just past the back edge is, cm, whether or not she could land there; the
+	 * whole probe depth (800) when there is no ground at all. 0 without a back edge. The roof-edge guard reads it.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
+	float FarSideDrop = 0.f;
+
 	/** How far the far-side floor is below the feet now, cm (negative: higher). */
 	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
 	float LandingDrop = 0.f;
