@@ -51,6 +51,9 @@ namespace HawkeyeHang
 	static constexpr float JumpMinBack = 0.6f;
 	/** The leap looks this much further than it reaches, to say how far off the nearest ledge was, cm. */
 	static constexpr float SearchBeyond = 150.f;
+	/** A corner is tried this much past where the end margin stops her, and the hang round it may start this much further
+	 * along the new ledge than the margin, cm: slack for a spline end or a sill a few cm off, not a pier to get past. */
+	static constexpr float CornerSlack = 15.f;
 	/** A leap's target face may stand this far out from her wall (a fire-escape rail is 95 cm out) or in, cm. */
 	static constexpr float LeapFaceOut = 150.f;
 	static constexpr float LeapFaceIn = 60.f;
@@ -768,10 +771,9 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 			AcrossAlong = BlockAlong;
 		}
 	}
-	// An outside corner is tried at the line's end even when something short of it stopped her, as long as it is
-	// within reach: the district's parapets stand 15 cm proud of the facade for their last 30 cm at every corner
-	// (each box runs on past the corner to close it), which stops the capsule about 60 cm short.
-	const bool bNearEnd = Sign * (LineEnd - Here) <= Reach + CornerReach;
+	// An outside corner is tried at the line's end: the end margin stops her 25 cm short of it (the district's parapets
+	// are flush with both facades at every corner, so nothing stands proud there to stop her sooner).
+	const bool bNearEnd = Sign * (LineEnd - Here) <= Reach + CornerSlack;
 	// An inside corner only right at the wall across (a chimney or a rail short of the end is not a corner).
 	const bool bNearAcross = Sign * (AcrossAlong - Here) <= Reach;
 	if (!bNearEnd && !bNearAcross)
@@ -793,9 +795,9 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 	auto Turn = [&](const FVector& CornerEnd, const FVector& AwayFromCorner, float FirstOffset, const FVector& NewNormal, float NewTopZ,
 		AActor* Actor, bool bOutside, const FVector& Pivot, const FVector& End)
 	{
-		// The hang on the new ledge: FirstOffset in from its corner end, or further along it until the capsule clears
-		// whatever stands at the corner (the parapet's own pier).
-		for (float Extra = 0.f; Extra <= CornerReach; Extra += 5.f)
+		// The hang on the new ledge: FirstOffset in from its corner end, or a few cm further if the capsule does not fit
+		// right there.
+		for (float Extra = 0.f; Extra <= CornerSlack; Extra += 5.f)
 		{
 			const FVector Edge = CornerEnd + AwayFromCorner * (FirstOffset + Extra);
 			if (!IsHangLedgeAt(Edge + AwayFromCorner * HandReach, NewNormal, NewTopZ, nullptr, nullptr, &WhyNot))
@@ -842,7 +844,7 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 		const FVector End = HangLine.PointAt(LineEnd);
 		for (const float In : { 15.f, 35.f, 55.f, 75.f })
 		{
-			// Back past the line's end too: the line can run on past the corner (a parapet box's own overshoot).
+			// From past the line's end too: a line probed along the wall can end a little short of or past the corner.
 			const FVector From = End - N * In + D * (CornerReach + 30.f) - FVector(0.f, 0.f, 8.f);
 			FHitResult Face;
 			if (!TraceLine(From, From - D * (CornerReach + 90.f), Face))
@@ -876,7 +878,7 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 				Note();
 				continue;
 			}
-			// It swings round where the two faces meet (past a pier, not where her edge gave out).
+			// It swings round where the two faces meet.
 			const FVector Pivot = HangLine.PointAt(HangLine.AlongOf(CornerEnd));
 			if (Turn(CornerEnd, -N, ShimmyEndMargin, NewNormal, NewTopZ, Actor, true, Pivot, End))
 			{
