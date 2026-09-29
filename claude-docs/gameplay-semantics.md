@@ -65,6 +65,11 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   health, rises to a 60% cap at 2500 cm, and never kills: it stops at 1 health.
 - `hawkeye.DebugMovement 1` draws state, speed, and fall height on the HUD. Landing
   height, fall damage, and slide start are logged at Log; sprint start and stop at Verbose.
+  On a ledge and in a parkour move the line reads the traversal instead of the gait: "hang",
+  "hang shimmy", or the move with how long it has run ("corner 0.21 s", "leap", "hop", "climb",
+  "vault", "mantle", "ledge grab", "drop to hang", "traversal" for the sample's), at the speed the
+  capsule really moves (smoothed; a hang is placed by hand, so its velocity reads 0) and, hanging,
+  how far along the ledge (`Hawkeye.Movement.DebugLineReadsTheHang`).
 
 ## HUD (third person)
 - No crosshair. A 4 px reticle dot appears only while aiming and flashes white for 0.1 s
@@ -77,7 +82,12 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   "World map".
 - First-time hints (built 2026-09-29, so a new tester learns the controls from the game). One line, lower
   centre, 12 px over the hotbar's top (it follows the hotbar's height and the HUD scale): white text on a
-  0.55 black backing with each key as a cream keycap, fading in over 0.2 s and out over 0.2 s. Rules in
+  0.55 black backing with each key as a cream keycap, fading in over 0.2 s and out over 0.2 s. The bottom
+  centre is one stack: hotbar, the hint line's band (45 px at scale 1 times the HUD scale, reserved whether
+  or not a hint is up), and the banter subtitle 8 px over the band's top, never lower than its own 150 px, so
+  they never overlap and the subtitle never jumps when a hint comes or goes (at scale 1 the line's top used to
+  touch the subtitle's bottom exactly; at 1.4 they overlapped). Subtitle bottoms: 150 px at 0.8, 158 at 1.0,
+  204 at 1.4 (`Hawkeye.Hud.HintAndSubtitleStack`, the real HUD laid out headless). Rules in
   `Source/Hawkeye/UI/HawkeyeHints.h` (`UHawkeyeHintRules`, C++ data on the class default, no asset;
   `FHawkeyeHintQueue`, pure), sensed and saved by `UHawkeyeHintSubsystem`, drawn by `UHawkeyeHintWidget`.
   - Tokens resolve to the device touched last (`IsUsingGamepad`): {Sprint} Shift / L3, {Jump} Space / A,
@@ -473,7 +483,10 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   hidden within 3 m. A 400 px compass strip at the top centre shows ticks every 15
   degrees, N/E/S/W, and the objective's bearing.
 - Completing an objective shows a 2 s "Objective complete" toast; the next objective
-  shows a 2 s "New objective" toast.
+  shows a 2 s "New objective" toast. While the chapter title card is up (fade out included) every
+  toast is held: queued, not drawn, its clock and sound waiting; when the card has gone the front one
+  comes up for its full 2 s with its sound (`Hawkeye.Objective.ToastsWaitForTheTitle`; the campaign
+  lap checks it under the card and after it). Hints wait out the card too (below).
 - CH01's rooftop objectives each get a 1 m beacon with a purple emissive top and a 300 lm
   purple point light so the roof reads from the street at night.
 - An objective may carry a `Hint`, a second line under its title in the HUD. CH01's
@@ -728,6 +741,13 @@ the last input came from a pad.
   a build at BeginPlay if the map shipped with none. Maps are generated headlessly and no
   one presses Build Paths, so this is what makes guards able to move at all. The smoke
   test asserts a navmesh exists and at least one guard is moving after a few seconds.
+- A thug's move goal is snapped to the nearest navmesh point: within 2 m for most moves, 3 m for
+  cover, the circle round a downed Kate, a noise he walks to and Kate herself when following her
+  fails (hanging off a ledge, mid-zip, on a sill, down against a wall). Cover points without a
+  complete path from him (the next roof, past a locked door) are not cover. With nothing to snap to,
+  or no path, he holds position (a noise he cannot reach he watches from where he stands, and the
+  investigation clock runs) and says so at Verbose. The only move warning left is a level with no
+  navigation data at all; a bare test world with no navigation system logs at Verbose.
 
 ## Melee and thugs (built 2026-09-26)
 - Kate's strike is on V: tap for a light (15 damage, lands at 0.1 s, 0.3 s total, 120 cm
