@@ -776,7 +776,7 @@ the last input came from a pad.
   0.25 Hard): her position then and her velocity then (from 0.15 s of samples before it), taken
   every 0.05 s. He leads from that: her position then plus that velocity over the lag and the
   arrow's flight (with the drop). A steady runner is led right; a turn inside the lag is not seen.
-- Accuracy cone: every shot is scattered in a cone of a base (archer 0.75 degrees, gunner 5,
+- Accuracy cone: every shot is scattered in a cone of a base (archer 0.75 degrees, gunner 6,
   was a flat 4) plus the angle her sideways speed sweeps across his view in 0.2 s (her velocity
   across his line over the distance, times 0.2, in degrees), plus 3 degrees while she is in the
   air, all times the difficulty's cone scale (1.4 Story, 1.0 Normal, 0.7 Hard). At 8 m, sprinting
@@ -814,9 +814,9 @@ the last input came from a pad.
   pause menu's "Mark nearest challenge" puts a marker on the nearest pedestal (cleared on
   reaching it or starting any challenge); the first time the player comes within 40 m of a
   pedestal a "[Challenge nearby]" toast names it (once a campaign, ids kept in the save as
-  `NoticedPlaces`). The cap and ring icon are a deep purple (0.5, 0.06, 1) at 0.8 / 0.6
+  `NoticedPlaces`). The cap and ring icon are a deep purple (0.5, 0.06, 1) at 0.35 / 0.6
   night emissive, since 2.5 clipped to white under the night's +2 EV; by day the glows are
-  6 times that.
+  3.5 times that (checked in challenge_pedestal.png at night and by day).
 
 ## Difficulty and accessibility (built 2026-09-27)
 - One difficulty setting, Story / Normal / Hard (default Normal), asked once at New Game

@@ -41,10 +41,10 @@ public:
 
 	/**
 	 * The cap's emissive intensity at night. The top and the icon are what read from the next roof, but
-	 * past about 1 the night's +2 EV clips all three channels and the purple reads white (2.5 did).
+	 * past about 0.5 the night's +2 EV washes the purple out toward white (2.5 read white, 0.8 lilac).
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float CapGlow = 0.8f;
+	float CapGlow = 0.35f;
 
 	/** The icon's emissive intensity at night (a ring icon twice it). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
@@ -52,7 +52,7 @@ public:
 
 	/** Day's exposure is 2.5 EV under the night's and the roofs are sunlit: the glows times this by day. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float DayGlowScale = 6.f;
+	float DayGlowScale = 3.5f;
 
 	/** The purple point light's brightness, lm: 135, 30% of the 450 that washed the whole roof. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))

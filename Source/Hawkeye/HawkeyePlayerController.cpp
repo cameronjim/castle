@@ -211,8 +211,10 @@ void AHawkeyePlayerController::PlayerTick(float DeltaTime)
 	TickDPadDown(FPlatformTime::Seconds());
 
 	const double Now = FPlatformTime::Seconds();
-	// Automation drives its own notices (UpdatePlaceNotices directly), so no toast or marker lands in a shot.
-	if (Now >= NextPlaceNoticeSeconds && !IsPaused() && !GIsAutomationTesting)
+	// Automation drives its own notices (UpdatePlaceNotices directly), so no toast or marker lands in a shot;
+	// a -game run started to run tests counts from its first frame, before GIsAutomationTesting is set.
+	static const bool bRunTests = FCString::Stristr(FCommandLine::Get(), TEXT("RunTests")) != nullptr;
+	if (Now >= NextPlaceNoticeSeconds && !IsPaused() && !GIsAutomationTesting && !bRunTests)
 	{
 		NextPlaceNoticeSeconds = Now + 0.5;
 		UpdatePlaceNotices();
