@@ -17,6 +17,9 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - The arm probes on the Camera channel with a 12 cm radius and pulls in against walls,
   never inside geometry. Closer than 100 cm the character is hidden from the camera so
   the view isn't inside her shoulder.
+- Fight camera (2026-09-29): with two or more alerted thugs within 6 m of her (flat, 3 m up or
+  down), the hip boom lengthens 70 cm and the lens tips down 4 degrees, over 0.5 s; back over 1 s
+  when the fight thins out. See "Combat readability".
 - Movement input rotates the character toward the input direction; while aiming she
   faces the camera yaw. Look input never rotates her while idle.
 
@@ -30,9 +33,6 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - Native speeds: walk 250, run 500, sprint 700, crouch 200. Gamepad: stick at 0.9 or
   more runs immediately, 0.4 or more runs after 0.2 s, lighter walks. Keyboard always
   runs; Shift sprints.
-- Jump height 90 cm, air control 0.3.
-- Slide: crouch while sprinting; 0.7 s, speed eases 750 to 200, capsule half-height 50,
-  restored after.
 - Sprint toggle (2026-09-29, after "sprint on controller should be pressing the left joystick once
   and the character continues to sprint the whole time"). On a pad one L3 press turns sprint on
   (`FHawkeyeSprintToggle`); it stays on with the stick let go of L3, through turns and stops of up to
@@ -46,6 +46,9 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   (`IsUsingGamepad`). The toggle's on and off log at Log with the reason ("sprint toggle off (stick
   centred for 0.6 s)"). The sample's `WantsToSprint` is still fed from the sprint gait. No HUD hint
   shows the sprint key.
+- Jump height 90 cm, air control 0.3.
+- Slide: crouch while sprinting; 0.7 s, speed eases 750 to 200, capsule half-height 50,
+  restored after.
 - Landing from above 400 cm halves speed and dips the camera 30 cm for 0.3 s (a
   placeholder for the roll and stumble). Fall damage starts at 900 cm at 10% of max
   health, rises to a 60% cap at 2500 cm, and never kills: it stops at 1 health.
@@ -560,8 +563,9 @@ the last input came from a pad.
   250 cm they rush at 450 cm/s, close to 120 cm, and swing after a 0.6 s wind-up (a log
   line and a glowing mask) for 15 (fists) or 25 (bat) with a stagger; cooldown 1.2 s;
   after two swings they back off 2 m. Hitting a thug during the wind-up cancels the swing.
-- Feel: 2-frame hit stop (time 0.1 for 0.033 s) on melee hits, camera shake when Kate is
-  hit, a 0.1 s flash on a hit thug, and desaturation plus vignette under 40% health.
+- Feel: 2-frame hit stop (time 0.1 for 0.033 s) on melee hits (4 frames on a landed heavy since
+  2026-09-29, see "Combat readability"), camera shake when Kate is hit, a 0.1 s flash on a hit thug,
+  and desaturation plus vignette under 40% health.
 - Tracksuits: red suit, white stripes, black ski mask, all from one material on the old
   mannequin's single slot. No flashlight. Sight and hearing unchanged.
 - CH01 placements: a roof pair (fists, bat) on the `cross_block` roof tagged RoofPair, whose
@@ -592,7 +596,7 @@ the last input came from a pad.
   turn Suspicious toward the player's last seen position.
 - Heavy (built 2026-09-27): `BP_Thug_Heavy`, 200 HP, a 60 x 110 cm riot shield on the left forearm blocking arrows and light strikes in the front 120 degrees (arrows stick in it); staggered only by a heavy strike, bola, or explosive; putty holds him; shield bash with a 0.8 s telegraph, 30 damage, 250 cm knockback, plus a slow bat swing; walks at 300. One on his own 20 m patrol by the park corner, tagged StreetGroup.
 - Archer holds (built 2026-09-27): on losing line of sight mid-draw he holds up to 2.5 s and fires within 0.2 s of the player reappearing in his cone; a 0.6 s loose window after a shot leaves him open. Scripted duel: won with 1 hit taken.
-- Readability: a cream "!" for 0.6 s over a thug going Alerted, "?" for Suspicious; a thin health bar over damaged thugs within 1500 cm, fading after 3 s. Scripted street fight against bat, gunner, heavy: won, 0 hits, 0 untelegraphed hits, fairness metric 0% staggered time.
+- Readability: a cream "!" for 0.6 s over a thug going Alerted, "?" for Suspicious; a thin health bar over damaged thugs within 1500 cm, fading after 3 s (2026-09-29: a larger red-orange "!" while he winds up a strike, see "Combat readability"). Scripted street fight against bat, gunner, heavy: won, 0 hits, 0 untelegraphed hits, fairness metric 0% staggered time.
 
 ## Guard AI states (stage 2/3)
 - `Calm`: patrol. Hearing radius `CalmHearingRadius`, sight cone `SightHalfAngle`.
@@ -703,8 +707,10 @@ the last input came from a pad.
   following the camera. Scorch decal placed by a ground trace; EMP chromatic aberration is
   a post-process material.
 - Chimney smoke on the 6 chimneys nearest the player at load. Frame time 7.4 to 7.7 ms.
-- Open: the explosion still reads washed out (its light plus camera-shake blur); the hit
-  spark competes with the thug's hit flash; the footstep kick is faint.
+- Open: the explosion still reads washed out (its light plus camera-shake blur); the footstep
+  kick is faint. (The arrow's hit spark competing with the thug's hit flash: melee now has its own
+  small `NS_MeleeSpark` and the flash dominates, see "Combat readability"; the arrow's
+  `NS_HitSpark` is unchanged.)
 
 ## Narrative plumbing (built 2026-09-27; placeholder text only, story is written with Cameron)
 - Phone (`UPhoneWidget`, P or hold D-pad down 0.4 s): contacts and threads from
@@ -790,6 +796,43 @@ the last input came from a pad.
   Story roof 4.4 / 0 / 100, duel 9.1 / 0 / 100, street 15.3 / 1 / 100; Normal roof 4.4 / 0 / 100,
   duel 8.9 / 0 / 100, street 17.0 / 3 / 100; Hard roof 4.4 / 0 / 100, duel 9.1 / 0 / 100, street
   17.1 / 3 / 63. All won, 0 untelegraphed hits.
+
+## Combat readability (built 2026-09-29, from playtest note "combat isn't super clear at this stage")
+Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.Melee.TargetMarker*`,
+`Hawkeye.Camera.FightCamera*`, `Hawkeye.Melee.HitStopAndTelegraphGlyph`); drawn by
+`UHawkeyeThugOverheadWidget`.
+- Target read: the thug the melee assist picks for a swing that starts gets a thin ring on the ground
+  round his feet (his capsule radius plus 12 cm, 1.5 px, Kate's purple from the palette) and his
+  health bar drawn 30% whiter. Full while that swing runs, fading to nothing over 0.3 s after it ends;
+  a new pick moves it, a swing at nobody clears it, his death or removal clears it. A knocked-down
+  thug's ring follows his body. One marker, Kate's only.
+- Telegraph glyph: while a thug winds up a strike a parry answers (fists, bat, the heavy's bash and
+  slow swing), the "!" over him is the telegraph's, not the alert's: 30 px bold (the alert glyph is
+  20), a 2 px outline, the palette's danger colour (default red-orange 1.0/0.35/0.08; deuteranopia hot
+  pink, protanopia orange, tritanopia orange-yellow, each kept apart from that palette's other four
+  accents), growing to 1.3x by the hit and pulsing 5 times a second by up to 0.12x (reduce flashing
+  scales the pulse to 30%, the growth stays). A gunner's raised pistol gets it only within 600 cm of
+  her; an archer never does (his purple glint is the tell).
+- Parry line: under the telegraph glyph, an 18 x 3 px cream line on a dark edge, drawn only while a
+  tap now would parry him: in the difficulty's window (Hard: not the first 0.1 s), within 250 cm and
+  70 degrees of her view, 150 cm up or down (`AHawkeyeCharacter::CanParryNow`, the same test the
+  parry itself uses).
+- Hit read: a landed light keeps 2 frames of hit stop (0.033 s); a landed heavy gets 4 (0.067 s, as
+  the parry) and a camera punch, the lens 2.5 cm in toward her and back over 0.1 s of real time (a
+  half sine), times the camera shake scale (0.3 with reduce camera shake). Every landed strike puts
+  `NS_MeleeSpark` on the thug's capsule surface toward her at chest height: a 26 cm core for 0.06 s and
+  9 short streaks, scale 1 on a light and 1.4 on a heavy (times 0.6 to 1 with reduce flashing). The
+  thug's own 0.1 s body flash is the dominant read; the spark only marks where. No damage numbers.
+- Ground thud: 0.45 s after a thug is knocked down, or dies standing, `MS_Roll_Thump` plays and
+  `NS_LandingSnow` at 0.6 scale puffs off the ground under his pelvis (both reused, nothing new built;
+  `GroundThudSound`, `GroundDustVfx` on the thug). Killed while already on the floor: no second thud.
+- Fight camera: two or more alerted, living thugs within 600 cm (flat) and 300 cm up or down (counted
+  every 0.1 s) make a fight. The hip arm lengthens by 70 cm and the lens tips down 4 degrees, blended
+  at a constant rate over 0.5 s in and 1 s out, smoothstepped. It is multiplied out by the aim blend
+  (the bow's camera is untouched) and by a finisher's push-in (the push reads from the plain hip arm,
+  as before). Indoors the hip arm still never passes `IndoorArmLength`. The spring arm's probe still
+  pulls the longer arm in against walls (`fight_camera_wall.png` checks she stays framed and drawn).
+  The log says "fight camera in (2 alerted thugs within 600 cm)" and "out".
 
 ## Arrows in bodies (fixed 2026-09-28, from playtest note "they're like a foot away from her")
 - The cause: an arrow meets the capsule (34 to 42 cm radius), not the body, and was embedded at
