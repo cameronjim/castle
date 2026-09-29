@@ -968,6 +968,12 @@ void AHawkeyePlayerController::HandlePauseQuitToMenuClicked()
 
 void AHawkeyePlayerController::QuitToMenu()
 {
+	// Continue has to bring back this moment, not the last autosave: patrols, the quiver, health and
+	// hints since then would otherwise be lost. Refused (and logged) while down, in a scene or mid-load.
+	if (UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this))
+	{
+		Save->SaveCampaign(TEXT("quit to menu"));
+	}
 	SetPauseMenuOpen(false);
 	ShowMainMenu();
 	bMainMenuOverFreshBoot = false;
