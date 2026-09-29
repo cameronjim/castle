@@ -165,6 +165,11 @@ void UHawkeyeSettingsSubsystem::SetReduceFlashing(bool bReduce)
 	SetField(Settings.bReduceFlashing, bReduce);
 }
 
+void UHawkeyeSettingsSubsystem::SetAimAssist(EHawkeyeAimAssist NewAimAssist)
+{
+	SetField(Settings.AimAssist, NewAimAssist);
+}
+
 void UHawkeyeSettingsSubsystem::SetHudScale(float NewScale)
 {
 	const float Clamped = ClampHudScale(NewScale);
@@ -263,7 +268,7 @@ void UHawkeyeSettingsSubsystem::Load()
 	const int32 LoadedVersion = Loaded->Settings.Version;
 	if (LoadedVersion >= FHawkeyeSettings::OldestMigratedVersion && LoadedVersion < FHawkeyeSettings::CurrentVersion)
 	{
-		// Every field an older version lacks deserialises as its default (5 -> 6: TimeOfDay, Night), so
+		// Every field an older version lacks deserialises as its default (6: TimeOfDay, Night; 7: AimAssist, Normal), so
 		// the rest of what the player set carries over. ClampSettings stamps the current version.
 		UE_LOG(LogHawkeye, Log, TEXT("Settings slot %s is version %d; migrated to %d."), *Slot, LoadedVersion,
 			FHawkeyeSettings::CurrentVersion);

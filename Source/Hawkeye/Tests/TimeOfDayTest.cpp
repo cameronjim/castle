@@ -74,7 +74,7 @@ bool FHawkeyeTimeOfDayRoundTrip::RunTest(const FString& Parameters)
 	ClearSlot();
 
 	TestEqual(TEXT("The default is Night"), FHawkeyeSettings().TimeOfDay, EHawkeyeTimeOfDay::Night);
-	TestEqual(TEXT("Settings version 6"), FHawkeyeSettings::CurrentVersion, 6);
+	TestEqual(TEXT("Settings version 7 (6 added the time of day)"), FHawkeyeSettings::CurrentVersion, 7);
 
 	UHawkeyeSettingsSubsystem* Writer = MakeSettings();
 	Writer->Load();
@@ -104,7 +104,7 @@ bool FHawkeyeTimeOfDayRoundTrip::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Version 5 keeps the sensitivity"), Migrated->GetLookSensitivity(), 0.42f);
 	TestEqual(TEXT("And the difficulty"), Migrated->GetStoredSettings().Difficulty, EHawkeyeDifficulty::Hard);
 	TestEqual(TEXT("And gets Night"), Migrated->GetStoredSettings().TimeOfDay, EHawkeyeTimeOfDay::Night);
-	TestEqual(TEXT("And is stamped version 6"), Migrated->GetStoredSettings().Version, 6);
+	TestEqual(TEXT("And is stamped the current version"), Migrated->GetStoredSettings().Version, FHawkeyeSettings::CurrentVersion);
 
 	// Version 4 is still too old to trust.
 	Old->Settings.Version = 4;

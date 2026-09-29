@@ -130,6 +130,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Settings|Accessibility")
 	void SetReduceFlashing(bool bReduce);
 
+	/** The bow's aim assist: Off, Normal or Strong. Stores, saves and broadcasts. */
+	UFUNCTION(BlueprintCallable, Category = "Settings|Controls")
+	void SetAimAssist(EHawkeyeAimAssist NewAimAssist);
+
 	/** Clamps to [MinHudScale, MaxHudScale], stores, saves and broadcasts. */
 	UFUNCTION(BlueprintCallable, Category = "Settings|Accessibility")
 	void SetHudScale(float NewScale);

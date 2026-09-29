@@ -24,7 +24,16 @@ enum class EDifficultyStat : uint8
 	/** Multiplier on fall damage: 0.5 / 1.0 / 1.0. */
 	FallDamage,
 	/** Arrows added to every trick arrow's cap: 2 / 0 / 0. */
-	TrickArrowCapBonus
+	TrickArrowCapBonus,
+	/** How late an archer or gunner sees Kate, seconds: 0.4 / 0.32 / 0.25. */
+	RangedTrackingLagSeconds,
+	/** Multiplier on an archer's or gunner's scatter cone: 1.4 / 1.0 / 0.7. */
+	RangedConeScale,
+	/** The shortest and longest gap between an archer's release and his next draw, seconds: 3.0-4.0 / 1.5-2.5 / 1.2-1.8. */
+	ArcherShotGapMinSeconds,
+	ArcherShotGapMaxSeconds,
+	/** Multiplier on every cone, pull and bend of the bow's aim assist: 1.25 / 1.0 / 0.5. */
+	AimAssistScale
 };
 
 /**

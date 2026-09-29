@@ -27,6 +27,11 @@ namespace HawkeyeDifficulty
 		{ EDifficultyStat::RegenDelaySeconds, { 3.f, 5.f, 8.f } },
 		{ EDifficultyStat::FallDamage, { 0.5f, 1.0f, 1.0f } },
 		{ EDifficultyStat::TrickArrowCapBonus, { 2.f, 0.f, 0.f } },
+		{ EDifficultyStat::RangedTrackingLagSeconds, { 0.4f, 0.32f, 0.25f } },
+		{ EDifficultyStat::RangedConeScale, { 1.4f, 1.0f, 0.7f } },
+		{ EDifficultyStat::ArcherShotGapMinSeconds, { 3.0f, 1.5f, 1.2f } },
+		{ EDifficultyStat::ArcherShotGapMaxSeconds, { 4.0f, 2.5f, 1.8f } },
+		{ EDifficultyStat::AimAssistScale, { 1.25f, 1.0f, 0.5f } },
 	};
 
 	/** The command line's -Difficulty=, read once. */

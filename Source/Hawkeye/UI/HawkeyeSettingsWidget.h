@@ -144,6 +144,9 @@ protected:
 	UFUNCTION()
 	void HandleTimeOfDayClicked();
 
+	UFUNCTION()
+	void HandleAimAssistClicked();
+
 	/** Writes Value (0..1) into Text as a whole percentage. */
 	static void UpdateVolumeText(UTextBlock* Text, float Value);
 
@@ -302,6 +305,13 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings|World", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TimeOfDayValueText = nullptr;
+
+	/** Controls: a button reading Off / Normal / Strong (the bow's aim assist). */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Controls", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> AimAssistButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Controls", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> AimAssistValueText = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;

@@ -26,6 +26,7 @@
 #include "Settings/HawkeyeAccessibility.h"
 #include "Settings/HawkeyeSettingsSubsystem.h"
 #include "World/TimeOfDaySubsystem.h"
+#include "Combat/AimAssist.h"
 
 namespace HawkeyeSettingsWidgetLayout
 {
@@ -385,6 +386,8 @@ TSharedRef<SWidget> UHawkeyeSettingsWidget::RebuildWidget()
 			ToggleAimLabelText, TEXT("ToggleAim"));
 		AddCheckRow(Left, NSLOCTEXT("Hawkeye", "SettingsToggleCrouch", "Toggle crouch (press, not hold)"), ToggleCrouchCheckBox,
 			ToggleCrouchLabelText, TEXT("ToggleCrouch"));
+		AddChoiceRow(Left, NSLOCTEXT("Hawkeye", "SettingsAimAssist", "Aim assist (bow)"), AimAssistButton, AimAssistValueText,
+			TEXT("AimAssist"));
 		AddHeading(Left, NSLOCTEXT("Hawkeye", "SettingsAudio", "Audio"), TEXT("AudioHeading"));
 		AddSliderRow(Left, MasterVolumeLabel, MasterVolumeSlider, MasterVolumeValueText, MasterVolumeLabelText, TEXT("MasterVolume"));
 		AddSliderRow(Left, SfxVolumeLabel, SfxVolumeSlider, SfxVolumeValueText, SfxVolumeLabelText, TEXT("SfxVolume"));
@@ -515,6 +518,7 @@ void UHawkeyeSettingsWidget::BindControls(bool bBind)
 	HAWKEYE_BIND(SubtitleBackgroundSlider, OnValueChanged, HandleSubtitleBackgroundChanged)
 	HAWKEYE_BIND(PaletteButton, OnClicked, HandlePaletteClicked)
 	HAWKEYE_BIND(TimeOfDayButton, OnClicked, HandleTimeOfDayClicked)
+	HAWKEYE_BIND(AimAssistButton, OnClicked, HandleAimAssistClicked)
 	HAWKEYE_BIND(ReduceShakeCheckBox, OnCheckStateChanged, HandleReduceShakeChanged)
 	HAWKEYE_BIND(ReduceFlashingCheckBox, OnCheckStateChanged, HandleReduceFlashingChanged)
 	HAWKEYE_BIND(HudScaleSlider, OnValueChanged, HandleHudScaleChanged)
@@ -573,6 +577,7 @@ void UHawkeyeSettingsWidget::RefreshFromSettings()
 		FText::AsNumber(UHawkeyeAccessibility::GetSubtitleFontSize(Current.SubtitleSize))));
 	SetText(PaletteValueText, UHawkeyeAccessibility::GetPaletteName(Current.ColorPalette));
 	SetText(TimeOfDayValueText, UTimeOfDaySubsystem::GetTimeOfDayName(Current.TimeOfDay));
+	SetText(AimAssistValueText, UHawkeyeAimAssist::GetLevelName(Current.AimAssist));
 }
 
 FText UHawkeyeSettingsWidget::GetDifficultyShown() const
@@ -759,6 +764,16 @@ void UHawkeyeSettingsWidget::HandlePaletteClicked()
 	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
 	{
 		SettingsSubsystem->SetColorPalette(HawkeyeSettingsWidgetLayout::Next(SettingsSubsystem->GetSettings().ColorPalette, 4));
+	}
+	RefreshFromSettings();
+}
+
+void UHawkeyeSettingsWidget::HandleAimAssistClicked()
+{
+	UHawkeyeAudioSubsystem::PlayUI(this, EHawkeyeUISound::Click);
+	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
+	{
+		SettingsSubsystem->SetAimAssist(HawkeyeSettingsWidgetLayout::Next(SettingsSubsystem->GetSettings().AimAssist, 3));
 	}
 	RefreshFromSettings();
 }

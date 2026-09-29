@@ -46,6 +46,15 @@ enum class EHawkeyeTimeOfDay : uint8
 	Day
 };
 
+/** How much the bow's aim assist helps (UHawkeyeAimAssist::GetTuning). Normal is the default. */
+UENUM(BlueprintType)
+enum class EHawkeyeAimAssist : uint8
+{
+	Off,
+	Normal,
+	Strong
+};
+
 /**
  * Every player-facing option, in one struct, so the save file is one blob and the Settings
  * screen has one thing to read. Adding an option means a new field here and a Version bump;
@@ -133,16 +142,21 @@ struct HAWKEYE_API FHawkeyeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|World")
 	EHawkeyeTimeOfDay TimeOfDay = EHawkeyeTimeOfDay::Night;
 
+	/** The bow's aim assist: Off, Normal (default) or Strong; the difficulty scales it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Controls")
+	EHawkeyeAimAssist AimAssist = EHawkeyeAimAssist::Normal;
+
 	/** Bumped whenever the meaning of a field changes. A mismatch on load yields defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-	int32 Version = 6;
+	int32 Version = 7;
 
 	/** The version this build writes and accepts. */
-	static constexpr int32 CurrentVersion = 6;
+	static constexpr int32 CurrentVersion = 7;
 
 	/**
-	 * The oldest save this build migrates rather than dropping: version 5 lacks only TimeOfDay, which
-	 * loads as its default (Night), so everything else the player set is kept. Older yields defaults.
+	 * The oldest save this build migrates rather than dropping: version 5 lacks TimeOfDay and AimAssist,
+	 * 6 lacks AimAssist; each loads as its default (Night, Normal), so everything else the player set is
+	 * kept. Older yields defaults.
 	 */
 	static constexpr int32 OldestMigratedVersion = 5;
 };

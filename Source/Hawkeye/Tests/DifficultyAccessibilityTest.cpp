@@ -143,7 +143,7 @@ bool FHawkeyeDifficultyPersists::RunTest(const FString& Parameters)
 	UHawkeyeSettingsSubsystem* Settings = NewObject<UHawkeyeSettingsSubsystem>(Outer);
 	Settings->SlotNameOverride = TestSlot;
 	Settings->Load();
-	TestEqual(TEXT("Version 6"), FHawkeyeSettings::CurrentVersion, 6);
+	TestEqual(TEXT("Version 7"), FHawkeyeSettings::CurrentVersion, 7);
 
 	Settings->SetDifficulty(EHawkeyeDifficulty::Hard);
 	Settings->SetSubtitleSize(EHawkeyeSubtitleSize::Large);
