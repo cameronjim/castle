@@ -336,4 +336,127 @@ bool FHawkeyeParkourLateCatchFalling::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeParkourJumpStandstill, "Hawkeye.Parkour.JumpOverAThinWallFromAStandstill",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeParkourJumpStandstill::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeParkourJumpTest;
+	using EMove = EHawkeyeParkourMove;
+	// 2026-09-29, "if you try to jump moving forward with no momentum, it still takes a hundred tries to
+	// hurdle over": one press at a thin wall, from pressed against it to 30 cm off, standing, walking or
+	// jogging, square or turned 20 degrees, is a vault or a mantle, from the press or the late catch
+	// within 0.8 s, and never a plain jump into the wall.
+	struct FWall
+	{
+		float Height;
+		float Depth;
+	};
+	const FWall Walls[] = { { 90.f, 30.f }, { 70.f, 40.f }, { 100.f, 40.f }, { 40.f, 30.f }, { 110.f, 30.f } };
+	for (const FWall& Wall : Walls)
+	{
+		for (const float Gap : { 0.f, 5.f, 10.f, 30.f })
+		{
+			for (const float Speed : { 0.f, 100.f, 250.f })
+			{
+				for (const float Yaw : { 0.f, 20.f })
+				{
+					// The park walls and the extra heights only from a standstill, square and turned.
+					const bool bThin90 = Wall.Height == 90.f;
+					if (!bThin90 && Speed > 0.f)
+					{
+						continue;
+					}
+					const FString What = FString::Printf(TEXT("%.0f cm wall %.0f deep, %.0f cm off, %.0f cm/s, facing %.0f deg"),
+						Wall.Height, Wall.Depth, Gap, Speed, Yaw);
+					const FHawkeyeTestWorld TestWorld;
+					AHawkeyeAimTestCharacter* Kate = SpawnKate(TestWorld, Yaw);
+					UParkourComponent* Parkour = Kate ? Kate->GetParkourComponent() : nullptr;
+					if (!Parkour)
+					{
+						AddError(TEXT("No Kate"));
+						return false;
+					}
+					// The capsule's front is Gap from the face along the facing.
+					const float Front = (Radius + Gap) / FMath::Cos(FMath::DegreesToRadians(Yaw));
+					SpawnBlock(TestWorld, Wall.Height, Wall.Depth, Front);
+					const FVector Facing = Kate->GetActorForwardVector();
+					if (Speed > 0.f)
+					{
+						PushStick(Kate, Facing);
+						Kate->GetCharacterMovement()->Velocity = Facing * Speed;
+					}
+					Kate->Jump();
+					EMove Move = Parkour->GetActiveMove();
+					const bool bFromPress = Move != EMove::None;
+					if (!bFromPress)
+					{
+						TestTrue(What + TEXT(": a plain jump keeps looking"), Parkour->IsLateCatchArmed());
+						FlyJump(Kate, Parkour, FVector(Facing.X * Speed, Facing.Y * Speed, 420.f), 0.8f);
+						Move = Parkour->GetActiveMove();
+					}
+					TestTrue(What + TEXT(": vaulted or mantled (") + UEnum::GetValueAsString(Move) + TEXT(", ")
+						+ Parkour->GetLastJumpRefusal() + TEXT(")"), Move == EMove::Vault || Move == EMove::Mantle);
+					RunMove(Parkour, 1.f);
+					TestTrue(What + TEXT(": over it or on it"),
+						Kate->GetActorLocation().X > Front + Wall.Depth || Feet(Kate) >= Wall.Height - 1.f);
+				}
+			}
+		}
+	}
+
+	// The 150 cm block (150 deep) from a standstill, pressed against it or near: mantled.
+	for (const float Gap : { 0.f, 5.f, 10.f })
+	{
+		const FHawkeyeTestWorld TestWorld;
+		AHawkeyeAimTestCharacter* Kate = SpawnKate(TestWorld);
+		SpawnBlock(TestWorld, 150.f, 150.f, Radius + Gap);
+		UParkourComponent* Parkour = Kate->GetParkourComponent();
+		Kate->Jump();
+		if (!Parkour->IsBusy())
+		{
+			FlyJump(Kate, Parkour, FVector(0.f, 0.f, 420.f), 0.8f);
+		}
+		TestEqual(FString::Printf(TEXT("150 cm block %.0f cm off, standing: mantled"), Gap), Parkour->GetActiveMove(), EMove::Mantle);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeParkourLateCatchTakeOff, "Hawkeye.Parkour.LateCatchMeasuresFromTheTakeOff",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeParkourLateCatchTakeOff::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeParkourJumpTest;
+	// A jog and a press with nothing in reach; a 90 cm wall 150 cm ahead comes into the late catch's
+	// 100 cm only once her feet are 50 to 70 cm up, its top 20 to 40 cm above them but 90 above the
+	// take-off, so the late catch goes over it. A second press on the way up does not move the take-off.
+	for (const bool bMash : { false, true })
+	{
+		const FString What = bMash ? TEXT("Pressed again in the air") : TEXT("One press");
+		const FHawkeyeTestWorld TestWorld;
+		AHawkeyeAimTestCharacter* Kate = SpawnKate(TestWorld);
+		UParkourComponent* Parkour = Kate->GetParkourComponent();
+		PushStick(Kate, FVector::ForwardVector);
+		Kate->GetCharacterMovement()->Velocity = FVector(250.f, 0.f, 0.f);
+		Kate->Jump();
+		TestTrue(What + TEXT(": a plain jump"), !Parkour->IsBusy() && Parkour->IsLateCatchArmed());
+		SpawnBlock(TestWorld, 90.f, 30.f, Radius + 150.f);
+		FlyJump(Kate, Parkour, FVector(250.f, 0.f, 420.f), 0.12f);
+		TestFalse(What + TEXT(": not yet in the late catch's reach"), Parkour->IsBusy());
+		if (bMash)
+		{
+			Kate->Jump();
+		}
+		if (!Parkour->IsBusy())
+		{
+			FlyJump(Kate, Parkour, Kate->GetCharacterMovement()->Velocity, 0.68f);
+		}
+		const EHawkeyeParkourMove Move = Parkour->GetActiveMove();
+		TestTrue(What + TEXT(": over the wall (") + UEnum::GetValueAsString(Move) + TEXT(", ") + Parkour->GetLastJumpRefusal() + TEXT(")"),
+			Move == EHawkeyeParkourMove::Vault || Move == EHawkeyeParkourMove::Mantle);
+	}
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS
