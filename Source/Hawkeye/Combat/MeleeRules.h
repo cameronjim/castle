@@ -60,6 +60,30 @@ public:
 	static int32 SelectSoftLockIndex(const FVector& Origin, const FVector& Forward, const TArray<FVector>& Candidates,
 		float Range, float AngleDegrees, float MaxHeight);
 
+	/**
+	 * Index into Candidates of the melee assist's target (gameplay-semantics.md, "Melee assist"): of those
+	 * within Range (flat), within HalfAngleDegrees of AimDirection and within MaxHeight above or below
+	 * Origin, the one with the lowest Distance / Range + Angle / HalfAngleDegrees, so a thug straight down
+	 * the stick beats a nearer one off to the side. INDEX_NONE if none.
+	 */
+	static int32 SelectMeleeAssistIndex(const FVector& Origin, const FVector& AimDirection, const TArray<FVector>& Candidates,
+		float Range, float HalfAngleDegrees, float MaxHeight);
+
+	/**
+	 * The gap-closing step for a strike at a target DistanceToTarget away (flat, centre to centre): far
+	 * enough to stop StandOff short of him, never less than the attack's own MinLunge, never more than
+	 * MaxClose. Pure.
+	 */
+	static float ComputeGapCloseDistance(float DistanceToTarget, float StandOff, float MinLunge, float MaxClose);
+
+	/**
+	 * The assist's forgiveness at the hit: a target picked at the press who is still within
+	 * Reach * ReachScale of Origin (flat, measured to his capsule's edge, TargetRadius) and within
+	 * ForgiveDegrees of SwingDirection is hit even though the sweep missed him. Pure.
+	 */
+	static bool IsAssistHitForgiven(const FVector& Origin, const FVector& SwingDirection, const FVector& Target, float TargetRadius,
+		float Reach, float ReachScale, float ForgiveDegrees);
+
 	/** True when Target is within Range of Origin (flat) and within HalfAngleDegrees of Forward. */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
 	static bool IsInFrontWithin(const FVector& Origin, const FVector& Forward, const FVector& Target, float Range,

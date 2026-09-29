@@ -290,6 +290,39 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Melee|Animation")
 	FOnMeleeComboWindowSignature OnComboWindowChanged;
 
+	/**
+	 * The melee assist (gameplay-semantics.md, "Melee assist"; Kate only): the swing closes the gap to the
+	 * target given by SetNextAttackTarget (a longer lunge, or the warp for a root-motion clip), keeps the
+	 * warp target on him through the wind-up, and a sweep that misses him still lands on him when he was
+	 * that target and is within AssistReachScale of the attack's reach and AssistForgiveDegrees of the swing.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|Assist")
+	bool bAssistSwings = false;
+
+	/** The longest the gap-closing step goes, cm (the assist's 350 cm less the stand-off). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|Assist", meta = (ClampMin = "0.0"))
+	float AssistMaxCloseDistance = 260.f;
+
+	/** A target picked at the press is still hit this far past the attack's reach (Range + Radius). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|Assist", meta = (ClampMin = "1.0"))
+	float AssistReachScale = 1.3f;
+
+	/** And this far off the swing's direction, degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Melee|Assist", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float AssistForgiveDegrees = 30.f;
+
+	/** The target the current (or last) swing was aimed at, or null. */
+	UFUNCTION(BlueprintPure, Category = "Melee|Assist")
+	AActor* GetSwingTarget() const { return SwingTarget.Get(); }
+
+	/** How far the current (or last) swing's procedural step asked to go, cm (0 for a warped clip). */
+	UFUNCTION(BlueprintPure, Category = "Melee|Assist")
+	float GetLastLungeDistance() const { return LastLungeDistance; }
+
+	/** Swings whose hit the assist's forgiveness gave (the sweep alone would have missed). */
+	UFUNCTION(BlueprintPure, Category = "Melee|Assist")
+	int32 GetForgivenHitCount() const { return ForgivenHitCount; }
+
 	/** The motion warping target a strike clip is warped to. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Melee|Animation")
 	FName WarpTargetName = FName(TEXT("CombatTarget"));
@@ -332,7 +365,7 @@ protected:
 	bool ResolveSweep();
 
 	/** Plays the attack's clip when it has one that will play, and takes the swing's timing from it. */
-	bool TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack);
+	bool TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack, float& OutHitDelaySeconds);
 
 	/** Picks the next variant of Attack's role and logs it; null when the role has none. */
 	UAnimMontage* PickSwingVariant(const FHawkeyeMeleeAttack& Attack);
@@ -358,8 +391,14 @@ protected:
 	/** True when Animation is the current swing's montage, or there is none to compare with (tests). */
 	bool IsCurrentClip(const UAnimSequenceBase* Animation) const;
 
-	/** The procedural step into the swing, as a root motion force on a character owner. */
-	void ApplyLunge(const FHawkeyeMeleeAttack& Attack) const;
+	/**
+	 * The procedural step into the swing, as a root motion force on a character owner; toward an assist target
+	 * it grows to close the gap, finishing a little before HitDelaySeconds.
+	 */
+	void ApplyLunge(const FHawkeyeMeleeAttack& Attack, float HitDelaySeconds);
+
+	/** The assist target when the sweep missed him but the forgiveness still reaches him, else null. */
+	AActor* FindForgivenTarget() const;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Melee")
 	EMeleePhase Phase = EMeleePhase::Idle;
@@ -371,6 +410,9 @@ protected:
 	float PhaseRemaining = 0.f;
 
 	int32 BlockedCount = 0;
+
+	float LastLungeDistance = 0.f;
+	int32 ForgivenHitCount = 0;
 
 	/** SetNextAttackDirection's value, waiting for the next swing, and the one the current swing took. */
 	FVector PendingDirection = FVector::ZeroVector;

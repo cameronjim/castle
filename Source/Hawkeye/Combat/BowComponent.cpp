@@ -7,6 +7,8 @@
 #include "Audio/HawkeyeAudioSubsystem.h"
 #include "Components/AudioComponent.h"
 #include "CollisionQueryParams.h"
+#include "AIController.h"
+#include "Combat/AimAssist.h"
 #include "Combat/ArrowDefinition.h"
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowDefinition.h"
@@ -29,6 +31,7 @@
 #include "Player/GrappleComponent.h"
 #include "Player/InventoryComponent.h"
 #include "Vfx/HawkeyeVfxSubsystem.h"
+#include "World/ThugAIController.h"
 
 namespace HawkeyeBow
 {
@@ -476,6 +479,7 @@ bool UBowComponent::FireArrow(float Elapsed)
 	{
 		Aim = Owner->GetActorForwardVector();
 	}
+	Aim = ApplyReleaseBend(Start, Aim, Speed);
 	const FVector Direction = UWeaponComponent::ApplyConeSpread(Aim, Spread, SpreadStream);
 
 	if (AArrowProjectile* Projectile = SpawnArrowProjectile(Arrow, DefaultProjectileClass, Direction))
@@ -500,6 +504,46 @@ bool UBowComponent::FireArrow(float Elapsed)
 	FollowThroughUntilSeconds = GetNowSeconds() + FollowThroughSeconds;
 	OnArrowFired.Broadcast(Arrow);
 	return true;
+}
+
+FVector UBowComponent::ApplyReleaseBend(const FVector& Start, const FVector& Aim, float Speed) const
+{
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!bAimAssist || !Pawn || Cast<AAIController>(Pawn->GetController()))
+	{
+		return Aim;
+	}
+	const FHawkeyeAimAssistTuning Tuning = UHawkeyeAimAssist::GetTuningFor(this);
+	if (Tuning.BendMaxDegrees <= 0.f || Tuning.MagnetismConeDegrees <= 0.f)
+	{
+		return Aim;
+	}
+	TArray<FHawkeyeAimAssistCandidate> Candidates;
+	UHawkeyeAimAssist::GatherCandidates(GetWorld(), Start, UHawkeyeAimAssist::MaxRange, Pawn, Candidates);
+	for (const FHawkeyeAimAssistCandidate& Candidate : Candidates)
+	{
+		if (UHawkeyeAimAssist::IsLineOnBody(Start, Aim, Candidate))
+		{
+			// Her own aim is on someone (a head included): the arrow goes where she put it.
+			return Aim;
+		}
+	}
+	const int32 Pick = UHawkeyeAimAssist::FindBestIndex(Start, Aim, Candidates, Tuning.MagnetismConeDegrees,
+		UHawkeyeAimAssist::MaxRange);
+	if (!Candidates.IsValidIndex(Pick))
+	{
+		return Aim;
+	}
+	const FHawkeyeAimAssistCandidate& Target = Candidates[Pick];
+	const UWorld* World = GetWorld();
+	const FVector Lead = AThugAIController::ComputeLeadAimPoint(Start, Target.Chest, Target.Velocity, Speed,
+		World ? World->GetGravityZ() : -980.f);
+	const FVector Bent = UHawkeyeAimAssist::BendToward(Aim, Lead - Start, Tuning.BendMaxDegrees);
+	++BentReleases;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: aim assist bends the release %.2f deg toward %s (up to %.1f)."), *GetNameSafe(Pawn),
+		FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(Aim.GetSafeNormal(), Bent), -1.f, 1.f))),
+		*GetNameSafe(Target.Actor.Get()), Tuning.BendMaxDegrees);
+	return Bent;
 }
 
 AArrowProjectile* UBowComponent::SpawnArrowProjectile(UArrowDefinition* Arrow, TSubclassOf<AArrowProjectile> FallbackClass,

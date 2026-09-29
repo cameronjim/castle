@@ -10,6 +10,7 @@
 #include "Combat/AnimNotifyState_HitWindow.h"
 #include "Combat/CombatAnimPlayback.h"
 #include "Combat/HealthComponent.h"
+#include "Combat/MeleeRules.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "MotionWarpingComponent.h"
@@ -65,14 +66,16 @@ bool UMeleeComponent::StartAttack(const FHawkeyeMeleeAttack& Attack)
 	}
 
 	OnAttackWindup.Broadcast(Attack.Name, Attack.WindupSeconds);
-	const bool bClip = TryPlaySwingClip(Attack);
+	LastLungeDistance = 0.f;
+	float HitDelaySeconds = Attack.WindupSeconds;
+	const bool bClip = TryPlaySwingClip(Attack, HitDelaySeconds);
 	if (!bClip && OldMontage)
 	{
 		HawkeyeCombatAnim::Stop(OldInstance.Get(), OldMontage, 0.15f);
 	}
 	if (!bClipMovesOwner)
 	{
-		ApplyLunge(Attack);
+		ApplyLunge(Attack, HitDelaySeconds);
 	}
 
 	// A zero wind-up lands on the frame it starts, not a tick later.
@@ -106,7 +109,7 @@ UAnimMontage* UMeleeComponent::PickSwingVariant(const FHawkeyeMeleeAttack& Attac
 	return Montage;
 }
 
-bool UMeleeComponent::TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack)
+bool UMeleeComponent::TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack, float& OutHitDelaySeconds)
 {
 	UAnimMontage* Montage = PickSwingVariant(Attack);
 	if (bForceNotifyTimingForTest)
@@ -148,6 +151,10 @@ bool UMeleeComponent::TryPlaySwingClip(const FHawkeyeMeleeAttack& Attack)
 		return false;
 	}
 	MontageInstance = Instance;
+	if (bHasHit)
+	{
+		OutHitDelaySeconds = Fit.HoldSeconds + FMath::Max(HitStart - Fit.StartAtSeconds, 0.f) / FMath::Max(Rate, 0.05f);
+	}
 	bHitFromNotify = bHasHit;
 	bComboFromNotify = bHasCombo;
 	ClipRate = Rate;
@@ -216,6 +223,11 @@ void UMeleeComponent::UpdateWarpTarget() const
 		Toward = GetSwingDirection();
 	}
 	FVector Stand = Target->GetActorLocation() - Toward * WarpStandOffDistance;
+	if (bAssistSwings && FVector::Dist2D(Target->GetActorLocation(), Owner->GetActorLocation()) <= WarpStandOffDistance)
+	{
+		// Already inside the stand-off: the clip turns her to him but does not back her off.
+		Stand = Owner->GetActorLocation();
+	}
 	Stand.Z = Owner->GetActorLocation().Z;
 	Warp->AddOrUpdateWarpTargetFromLocationAndRotation(WarpTargetName, Stand, Toward.Rotation());
 }
@@ -415,6 +427,11 @@ void UMeleeComponent::AdvanceAttack(float DeltaSeconds)
 	{
 		return;
 	}
+	// The assist keeps the warp on him while he moves in the wind-up.
+	if (bAssistSwings && bClipMovesOwner && Phase == EMeleePhase::Windup && SwingTarget.IsValid())
+	{
+		UpdateWarpTarget();
+	}
 	if (AdvanceClipSwing(DeltaSeconds))
 	{
 		return;
@@ -495,10 +512,41 @@ void UMeleeComponent::Strike()
 	}
 }
 
+AActor* UMeleeComponent::FindForgivenTarget() const
+{
+	AActor* Target = SwingTarget.Get();
+	const AActor* Owner = GetOwner();
+	if (!bAssistSwings || !Target || !Owner || Target == Owner || (!IgnoreTag.IsNone() && Target->ActorHasTag(IgnoreTag)))
+	{
+		return nullptr;
+	}
+	const UHealthComponent* Health = Target->FindComponentByClass<UHealthComponent>();
+	if (!Health || !Health->IsAlive() || FMath::Abs(Target->GetActorLocation().Z - Owner->GetActorLocation().Z) > 200.f)
+	{
+		return nullptr;
+	}
+	float TargetRadius = 0.f;
+	float TargetHalfHeight = 0.f;
+	Target->GetSimpleCollisionCylinder(TargetRadius, TargetHalfHeight);
+	return UHawkeyeMeleeRules::IsAssistHitForgiven(Owner->GetActorLocation(), GetSwingDirection(), Target->GetActorLocation(),
+		TargetRadius, CurrentAttack.Range + CurrentAttack.Radius, AssistReachScale, AssistForgiveDegrees) ? Target : nullptr;
+}
+
 bool UMeleeComponent::ResolveSweep()
 {
 	AActor* Owner = GetOwner();
 	AActor* Target = FindTarget(CurrentAttack);
+	if (!Target)
+	{
+		Target = FindForgivenTarget();
+		if (Target)
+		{
+			++ForgivenHitCount;
+			UE_LOG(LogHawkeye, Log, TEXT("%s: %s assist: the sweep missed %s at %.0f cm, but he was the target at the press; it lands."),
+				*GetNameSafe(Owner), *CurrentAttack.Name.ToString(), *GetNameSafe(Target),
+				Owner ? FVector::Dist2D(Owner->GetActorLocation(), Target->GetActorLocation()) : 0.f);
+		}
+	}
 	UHealthComponent* Health = Target ? Target->FindComponentByClass<UHealthComponent>() : nullptr;
 	if (!Health)
 	{
@@ -543,11 +591,28 @@ bool UMeleeComponent::ResolveSweep()
 	return true;
 }
 
-void UMeleeComponent::ApplyLunge(const FHawkeyeMeleeAttack& Attack) const
+void UMeleeComponent::ApplyLunge(const FHawkeyeMeleeAttack& Attack, float HitDelaySeconds)
 {
+	float Distance = Attack.LungeDistance;
+	float Seconds = Attack.LungeSeconds;
+	const AActor* Target = SwingTarget.Get();
+	if (bAssistSwings && Target && GetOwner())
+	{
+		// Close the gap: the step ends WarpStandOffDistance short of where he stands at the press, and is over
+		// a little before the hit so the blow comes from the end of it.
+		const float ToTarget = FVector::Dist2D(Target->GetActorLocation(), GetOwner()->GetActorLocation());
+		Distance = UHawkeyeMeleeRules::ComputeGapCloseDistance(ToTarget, WarpStandOffDistance, Attack.LungeDistance,
+			AssistMaxCloseDistance);
+		if (Distance > Attack.LungeDistance + KINDA_SMALL_NUMBER)
+		{
+			Seconds = FMath::Max(Attack.LungeSeconds, 0.8f * HitDelaySeconds);
+		}
+	}
+	LastLungeDistance = Distance;
+
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
-	if (!Movement || Attack.LungeDistance <= 0.f || !Movement->IsMovingOnGround() || !GetWorld())
+	if (!Movement || Distance <= 0.f || !Movement->IsMovingOnGround() || !GetWorld())
 	{
 		return;
 	}
@@ -558,8 +623,8 @@ void UMeleeComponent::ApplyLunge(const FHawkeyeMeleeAttack& Attack) const
 	Lunge->InstanceName = FName(TEXT("MeleeLunge"));
 	Lunge->AccumulateMode = ERootMotionAccumulateMode::Override;
 	Lunge->Priority = 4;
-	Lunge->Force = GetSwingDirection() * (Attack.LungeDistance / Attack.LungeSeconds);
-	Lunge->Duration = Attack.LungeSeconds;
+	Lunge->Force = GetSwingDirection() * (Distance / FMath::Max(Seconds, 0.01f));
+	Lunge->Duration = Seconds;
 	Lunge->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::SetVelocity;
 	Lunge->FinishVelocityParams.SetVelocity = FVector::ZeroVector;
 	Movement->ApplyRootMotionSource(Lunge);

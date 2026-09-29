@@ -188,6 +188,25 @@ public:
 	void ReleaseAim();
 
 	/**
+	 * The bow aim assist (gameplay-semantics.md, "Bow aim assist"), each tick while aiming with a bow: the
+	 * aim press's snap while it runs, else the magnetism's pull toward the chest nearest the reticle.
+	 */
+	void UpdateAimAssist(float DeltaSeconds);
+
+	/** The aim press's snap: turns the view over 0.1 s onto the chest nearest the reticle in the snap cone. False with none. */
+	bool BeginAimSnap();
+
+	/** LookDelta (degrees) slowed by the magnetism near a thug's chest; bFromStick picks the pad's numbers. */
+	FVector2D ApplyAimSlowdown(FVector2D LookDelta, bool bFromStick) const;
+
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Aim")
+	bool IsAimSnapping() const { return AimSnapRemaining > 0.f; }
+
+	/** The thug the aim assist last acted on, or null. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Aim")
+	AActor* GetAimAssistTarget() const { return AimAssistTarget.Get(); }
+
+	/**
 	 * The crouch button went down / up. Toggled (the default), a press crouches and the next stands;
 	 * held, she stands again when it is let go. Taps still dodge and presses at a sprint still slide.
 	 */
@@ -466,6 +485,20 @@ public:
 	/** The closest living thug within SoftLockRange and SoftLockAngleDegrees of the camera's forward. */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
 	AActor* FindSoftLockTarget() const;
+
+	/**
+	 * The melee assist's pick for a strike now (gameplay-semantics.md, "Melee assist"): the best living,
+	 * standing thug within MeleeAssistRange and MeleeAssistAngleDegrees of GetMeleeAssistDirection. Null if none.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	AActor* FindMeleeAssistTarget() const;
+
+	/** Where a strike now is meant: the move stick if it was pushed within MeleeAssistInputSeconds, else the camera's forward. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Melee")
+	FVector GetMeleeAssistDirection() const;
+
+	/** Tests: the stick points WorldDirection now, as Input_Move would record it. */
+	void SetMoveInputDirectionForTest(const FVector& WorldDirection);
 
 	/** Turns her to face Direction (flat) over SoftTurnSeconds. */
 	void BeginSoftTurn(const FVector& Direction);
@@ -1199,6 +1232,22 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float SoftLockAngleDegrees = 60.f;
 
+	/** The melee assist: a strike picks the best thug this close (flat, cm)... */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee|Assist", meta = (ClampMin = "0.0"))
+	float MeleeAssistRange = 350.f;
+
+	/** ...and this far off the stick (or the camera), degrees. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee|Assist", meta = (ClampMin = "1.0", ClampMax = "180.0"))
+	float MeleeAssistAngleDegrees = 60.f;
+
+	/** The stick counts as where she means to strike when it was pushed this recently, s. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee|Assist", meta = (ClampMin = "0.0"))
+	float MeleeAssistInputSeconds = 0.15f;
+
+	/** After the soft turn, the wind-up keeps her facing the assist target at up to this rate, degrees per second. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee|Assist", meta = (ClampMin = "0.0"))
+	float MeleeAssistTrackDegreesPerSecond = 720.f;
+
 	/** Real seconds the world is slowed when one of her strikes lands. Two frames at 60. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Melee", meta = (ClampMin = "0.0"))
 	float HitStopSeconds = 0.033f;
@@ -1786,6 +1835,22 @@ protected:
 	/** The world direction of the last move input, for the dodge. */
 	UPROPERTY(Transient)
 	FVector LastMoveWorldDirection = FVector::ZeroVector;
+
+	/** Game time LastMoveWorldDirection was last set; below 0 before any move input. */
+	double LastMoveInputSeconds = -1.0;
+
+	/** The aim snap: from and to, and how long is left. */
+	FRotator AimSnapFrom = FRotator::ZeroRotator;
+	FRotator AimSnapTo = FRotator::ZeroRotator;
+	float AimSnapRemaining = 0.f;
+
+	/** The last look input came from the stick (the pad's magnetism), not the mouse. */
+	bool bLookFromStick = false;
+
+	TWeakObjectPtr<AActor> AimAssistTarget;
+
+	/** Where the reticle looks from and along: the player's view, or the eyes with no player controller. */
+	void GetAimAssistView(FVector& OutLocation, FRotator& OutRotation) const;
 
 private:
 	FTimerHandle NoiseTimerHandle;

@@ -83,6 +83,66 @@ int32 UHawkeyeMeleeRules::SelectSoftLockIndex(const FVector& Origin, const FVect
 	return Best;
 }
 
+int32 UHawkeyeMeleeRules::SelectMeleeAssistIndex(const FVector& Origin, const FVector& AimDirection,
+	const TArray<FVector>& Candidates, float Range, float HalfAngleDegrees, float MaxHeight)
+{
+	const FVector Aim = AimDirection.GetSafeNormal2D();
+	const float HalfAngle = FMath::Clamp(HalfAngleDegrees, 1.f, 180.f);
+	const float SafeRange = FMath::Max(Range, 1.f);
+	int32 Best = INDEX_NONE;
+	float BestScore = TNumericLimits<float>::Max();
+	for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+	{
+		const FVector To = Candidates[Index] - Origin;
+		const float Distance = To.Size2D();
+		if (Distance > Range || FMath::Abs(To.Z) > MaxHeight)
+		{
+			continue;
+		}
+		float Angle = 0.f;
+		if (Distance > KINDA_SMALL_NUMBER && !Aim.IsNearlyZero())
+		{
+			const float Dot = FMath::Clamp(FVector::DotProduct(To.GetSafeNormal2D(), Aim), -1.f, 1.f);
+			Angle = FMath::RadiansToDegrees(FMath::Acos(Dot));
+		}
+		if (Angle > HalfAngle + KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+		const float Score = Distance / SafeRange + Angle / HalfAngle;
+		if (Score < BestScore)
+		{
+			Best = Index;
+			BestScore = Score;
+		}
+	}
+	return Best;
+}
+
+float UHawkeyeMeleeRules::ComputeGapCloseDistance(float DistanceToTarget, float StandOff, float MinLunge, float MaxClose)
+{
+	const float Wanted = FMath::Max(DistanceToTarget - FMath::Max(StandOff, 0.f), 0.f);
+	return FMath::Max(FMath::Min(Wanted, FMath::Max(MaxClose, 0.f)), FMath::Max(MinLunge, 0.f));
+}
+
+bool UHawkeyeMeleeRules::IsAssistHitForgiven(const FVector& Origin, const FVector& SwingDirection, const FVector& Target,
+	float TargetRadius, float Reach, float ReachScale, float ForgiveDegrees)
+{
+	const FVector To = Target - Origin;
+	const float Edge = FMath::Max(To.Size2D() - FMath::Max(TargetRadius, 0.f), 0.f);
+	if (Edge > Reach * ReachScale)
+	{
+		return false;
+	}
+	const FVector Swing = SwingDirection.GetSafeNormal2D();
+	if (To.Size2D() <= KINDA_SMALL_NUMBER || Swing.IsNearlyZero())
+	{
+		return true;
+	}
+	return FVector::DotProduct(To.GetSafeNormal2D(), Swing)
+		>= FMath::Cos(FMath::DegreesToRadians(FMath::Clamp(ForgiveDegrees, 0.f, 180.f))) - KINDA_SMALL_NUMBER;
+}
+
 bool UHawkeyeMeleeRules::IsInFrontWithin(const FVector& Origin, const FVector& Forward, const FVector& Target, float Range,
 	float HalfAngleDegrees)
 {

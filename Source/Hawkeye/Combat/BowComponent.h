@@ -85,6 +85,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bow", meta = (ClampMin = "0.1"))
 	float DrawRate = 1.f;
 
+	/**
+	 * The release's bend (gameplay-semantics.md, "Bow aim assist"): a line that would miss every thug turns up
+	 * to the setting's BendMaxDegrees toward the nearest chest in the magnetism cone. Kate only; never while
+	 * an AI controller owns the bow (archers, Clint as the partner).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bow|Aim assist")
+	bool bAimAssist = false;
+
+	/**
+	 * Aim, from Start, bent by the aim assist for an arrow leaving at Speed: unchanged with the assist off, a line
+	 * already on someone's body, or nobody in the cone. Public for tests.
+	 */
+	FVector ApplyReleaseBend(const FVector& Start, const FVector& Aim, float Speed) const;
+
+	/** Releases the bend has turned. */
+	UFUNCTION(BlueprintPure, Category = "Bow|Aim assist")
+	int32 GetBentReleaseCount() const { return BentReleases; }
+
 	/** Cone half-angle a release now would get, degrees. The bow's MaxSpread while not drawing. */
 	UFUNCTION(BlueprintPure, Category = "Bow")
 	float GetCurrentSpreadDegrees() const;
@@ -421,6 +439,8 @@ protected:
 
 	/** Spends one arrow of the active slot and launches it. False when the slot is at zero. */
 	bool FireArrow(float Elapsed);
+
+	mutable int32 BentReleases = 0;
 
 	/** The grapple arrow's release: the grapple component takes the shot. */
 	bool FireGrapple(UArrowDefinition* Arrow);

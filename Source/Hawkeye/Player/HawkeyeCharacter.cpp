@@ -48,6 +48,7 @@
 #include "UObject/UnrealType.h"
 #include "World/InteractionComponent.h"
 #include "Partner/HawkeyePartnerController.h"
+#include "Combat/AimAssist.h"
 #include "Combat/ArrowDefinition.h"
 #include "Combat/BowDefinition.h"
 #include "UObject/SoftObjectPath.h"
@@ -143,16 +144,20 @@ AHawkeyeCharacter::AHawkeyeCharacter()
 	WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
 	WeaponComponent->bHasWeapon = false;
 	BowComponent = CreateDefaultSubobject<UBowComponent>(TEXT("BowComponent"));
+	BowComponent->bAimAssist = true;
 
 	// Bow strikes. Numbers from docs/plans/02-prototype.md step 7: a quick jab and a slow heavy
 	// that puts a thug on the floor. The lunge stands in for an attack animation (none yet).
 	MeleeComponent = CreateDefaultSubobject<UMeleeComponent>(TEXT("MeleeComponent"));
+	// The assist (gameplay-semantics.md, "Melee assist"): her swings close on the thug she picked and forgive him.
+	MeleeComponent->bAssistSwings = true;
 	LightAttack.Name = FName(TEXT("light"));
 	LightAttack.Damage = 15.f;
 	LightAttack.WindupSeconds = 0.1f;
 	LightAttack.RecoverSeconds = 0.2f;
 	LightAttack.Range = 120.f;
-	LightAttack.Radius = 35.f;
+	// A generous sweep (35 before the assist): punching his general direction lands.
+	LightAttack.Radius = 60.f;
 	LightAttack.bStagger = true;
 	LightAttack.LungeDistance = 20.f;
 	LightAttack.AnimRole = ECombatAnimRole::Light1;
@@ -1065,6 +1070,7 @@ void AHawkeyeCharacter::Input_Move(const FInputActionValue& Value)
 	const FRotator InputYaw(0.f, Controller->GetControlRotation().Yaw, 0.f);
 	LastMoveWorldDirection = (FRotationMatrix(InputYaw).GetUnitAxis(EAxis::X) * MoveInput.Y
 		+ FRotationMatrix(InputYaw).GetUnitAxis(EAxis::Y) * MoveInput.X).GetSafeNormal2D();
+	LastMoveInputSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
 
 	// A swing, a dodge, a stagger or the start of a landing roll owns the body for its length.
 	if (IsMeleeAttacking() || IsDodging() || IsStaggered() || IsLandingInputLocked())
@@ -1178,7 +1184,8 @@ void AHawkeyeCharacter::Input_Look(const FInputActionValue& Value)
 		SetQuiverWheelCursor(QuiverWheelCursor + FVector2D(Raw.X, -Raw.Y));
 		return;
 	}
-	const FVector2D LookInput = ComputeLookDelta(Value.Get<FVector2D>(), bIsAiming);
+	const FVector2D LookInput = ApplyAimSlowdown(ComputeLookDelta(Value.Get<FVector2D>(), bIsAiming), /*bFromStick=*/false);
+	bLookFromStick = false;
 
 	AddControllerYawInput(LookInput.X);
 	AddControllerPitchInput(LookInput.Y);
@@ -1229,7 +1236,8 @@ void AHawkeyeCharacter::Input_LookStick(const FInputActionValue& Value)
 	}
 
 	const float DeltaSeconds = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.f;
-	const FVector2D LookDelta = ComputeStickLookDelta(RawInput, DeltaSeconds, bIsAiming);
+	const FVector2D LookDelta = ApplyAimSlowdown(ComputeStickLookDelta(RawInput, DeltaSeconds, bIsAiming), /*bFromStick=*/true);
+	bLookFromStick = true;
 
 	AddControllerYawInput(LookDelta.X);
 	AddControllerPitchInput(LookDelta.Y);
@@ -1269,7 +1277,12 @@ void AHawkeyeCharacter::PressAim()
 	bAimInputHeld = UHawkeyeAccessibility::ResolvePress(bToggleAim, bToggleAim ? bIsAiming : bAimInputHeld);
 	if (bAimInputHeld)
 	{
+		const bool bWasAiming = bIsAiming;
 		StartAim();
+		if (!bWasAiming && bIsAiming && InventoryComponent && InventoryComponent->HasBow())
+		{
+			BeginAimSnap();
+		}
 	}
 	else if (!IsDrawingBow())
 	{
@@ -1612,6 +1625,7 @@ void AHawkeyeCharacter::Tick(float DeltaSeconds)
 	UpdateLanding(DeltaSeconds);
 	UpdateFootsteps();
 	UpdateMaxWalkSpeed();
+	UpdateAimAssist(DeltaSeconds);
 	UpdateCamera(DeltaSeconds);
 	UpdateBodyVisibilityForCamera();
 	UpdateBodyLocomotion();
@@ -1888,13 +1902,23 @@ bool AHawkeyeCharacter::StartMelee(const FHawkeyeMeleeAttack& Attack, EHawkeyeSt
 		return false;
 	}
 
-	// Face the thug she means to hit; with nobody close, the way the camera looks. The blow goes that
-	// way at once; the body turns over SoftTurnSeconds (and a root-motion clip warps to him).
-	FVector Facing = GetViewForward();
-	AActor* Target = FindSoftLockTarget();
+	// Face the thug she means to hit (the assist's pick, down the stick or the camera); with nobody there,
+	// the way she meant. The blow goes that way at once; the body turns over SoftTurnSeconds and keeps on
+	// him through the wind-up, and the swing closes the gap (a root-motion clip warps to him).
+	const FVector Meant = GetMeleeAssistDirection();
+	FVector Facing = Meant;
+	AActor* Target = FindMeleeAssistTarget();
 	if (Target)
 	{
 		Facing = (Target->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %s assist picks %s at %.0f cm, %.0f deg off where she meant."), *GetNameSafe(this),
+			*Attack.Name.ToString(), *GetNameSafe(Target), FVector::Dist2D(Target->GetActorLocation(), GetActorLocation()),
+			FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(Facing, Meant.GetSafeNormal2D()), -1.f, 1.f))));
+	}
+	else
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %s assist finds nobody within %.0f cm and %.0f deg."), *GetNameSafe(this),
+			*Attack.Name.ToString(), MeleeAssistRange, MeleeAssistAngleDegrees);
 	}
 	if (!Facing.IsNearlyZero())
 	{
@@ -1949,6 +1973,168 @@ AActor* AHawkeyeCharacter::FindSoftLockTarget() const
 	return Thugs.IsValidIndex(Pick) ? Thugs[Pick] : nullptr;
 }
 
+FVector AHawkeyeCharacter::GetMeleeAssistDirection() const
+{
+	const double Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	if (LastMoveInputSeconds >= 0.0 && Now - LastMoveInputSeconds <= MeleeAssistInputSeconds && !LastMoveWorldDirection.IsNearlyZero())
+	{
+		return LastMoveWorldDirection;
+	}
+	return GetViewForward();
+}
+
+void AHawkeyeCharacter::GetAimAssistView(FVector& OutLocation, FRotator& OutRotation) const
+{
+	// The reticle looks along the control rotation, from the camera once it has been placed (a world that
+	// has not ticked yet has no camera, so from her eyes).
+	GetActorEyesViewPoint(OutLocation, OutRotation);
+	const APlayerController* PC = Cast<APlayerController>(Controller);
+	if (PC && PC->PlayerCameraManager && PC->PlayerCameraManager->GetCameraCacheTime() > 0.f)
+	{
+		OutLocation = PC->PlayerCameraManager->GetCameraLocation();
+	}
+	if (Controller)
+	{
+		OutRotation = Controller->GetControlRotation();
+	}
+}
+
+bool AHawkeyeCharacter::BeginAimSnap()
+{
+	const FHawkeyeAimAssistTuning Tuning = UHawkeyeAimAssist::GetTuningFor(this);
+	if (Tuning.SnapConeDegrees <= 0.f || !Controller)
+	{
+		return false;
+	}
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetAimAssistView(ViewLocation, ViewRotation);
+	TArray<FHawkeyeAimAssistCandidate> Candidates;
+	UHawkeyeAimAssist::GatherCandidates(GetWorld(), ViewLocation, UHawkeyeAimAssist::MaxRange, this, Candidates);
+	const int32 Pick = UHawkeyeAimAssist::FindBestIndex(ViewLocation, ViewRotation.Vector(), Candidates, Tuning.SnapConeDegrees,
+		UHawkeyeAimAssist::MaxRange);
+	if (!Candidates.IsValidIndex(Pick))
+	{
+		return false;
+	}
+	AimAssistTarget = Candidates[Pick].Actor;
+	AimSnapFrom = Controller->GetControlRotation();
+	AimSnapTo = UHawkeyeAimAssist::ComputeSnapRotation(ViewLocation, Candidates[Pick].Chest);
+	AimSnapRemaining = UHawkeyeAimAssist::SnapSeconds;
+	UE_LOG(LogHawkeye, Log, TEXT("%s: aim snaps %.1f deg onto %s at %.0f cm."), *GetNameSafe(this),
+		UHawkeyeAimAssist::AngleToPoint(ViewLocation, ViewRotation.Vector(), Candidates[Pick].Chest),
+		*GetNameSafe(Candidates[Pick].Actor.Get()), FVector::Dist(ViewLocation, Candidates[Pick].Chest));
+	return true;
+}
+
+void AHawkeyeCharacter::UpdateAimAssist(float DeltaSeconds)
+{
+	const bool bBowUp = bIsAiming && InventoryComponent && InventoryComponent->HasBow();
+	if (!bBowUp || !Controller)
+	{
+		AimSnapRemaining = 0.f;
+		return;
+	}
+	if (AimSnapRemaining > 0.f)
+	{
+		// The snap: from where the view was to his chest, eased, done on time.
+		AimSnapRemaining = FMath::Max(AimSnapRemaining - FMath::Max(DeltaSeconds, 0.f), 0.f);
+		const float Alpha = FMath::InterpEaseOut(0.f, 1.f, 1.f - AimSnapRemaining / UHawkeyeAimAssist::SnapSeconds, 2.f);
+		FRotator View = FQuat::Slerp(AimSnapFrom.Quaternion(), AimSnapTo.Quaternion(), Alpha).Rotator();
+		View.Roll = 0.f;
+		Controller->SetControlRotation(View);
+		return;
+	}
+
+	const FHawkeyeAimAssistTuning Tuning = UHawkeyeAimAssist::GetTuningFor(this);
+	const float Pull = bLookFromStick ? Tuning.PadPullDegreesPerSecond : Tuning.MousePullDegreesPerSecond;
+	if (Tuning.MagnetismConeDegrees <= 0.f || Pull <= 0.f)
+	{
+		return;
+	}
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetAimAssistView(ViewLocation, ViewRotation);
+	TArray<FHawkeyeAimAssistCandidate> Candidates;
+	UHawkeyeAimAssist::GatherCandidates(GetWorld(), ViewLocation, UHawkeyeAimAssist::MaxRange, this, Candidates);
+	const int32 Pick = UHawkeyeAimAssist::FindBestIndex(ViewLocation, ViewRotation.Vector(), Candidates,
+		Tuning.MagnetismConeDegrees, UHawkeyeAimAssist::MaxRange);
+	if (!Candidates.IsValidIndex(Pick))
+	{
+		AimAssistTarget = nullptr;
+		return;
+	}
+	AimAssistTarget = Candidates[Pick].Actor;
+	// Already over his body (a head included): no pull, so a headshot is hers to line up.
+	if (UHawkeyeAimAssist::IsLineOnBody(ViewLocation, ViewRotation.Vector(), Candidates[Pick]))
+	{
+		return;
+	}
+	const FRotator Control = Controller->GetControlRotation();
+	const FRotator Pulled = UHawkeyeAimAssist::ComputePull(ViewRotation, ViewLocation, Candidates[Pick].Chest,
+		Tuning.MagnetismConeDegrees, Pull, DeltaSeconds);
+	// The camera may sit off the control rotation's origin; move the control rotation by the same turn.
+	const FRotator Delta = (Pulled - ViewRotation).GetNormalized();
+	Controller->SetControlRotation(FRotator(Control.Pitch + Delta.Pitch, Control.Yaw + Delta.Yaw, 0.f));
+}
+
+FVector2D AHawkeyeCharacter::ApplyAimSlowdown(FVector2D LookDelta, bool bFromStick) const
+{
+	const bool bBowUp = bIsAiming && InventoryComponent && InventoryComponent->HasBow();
+	if (!bBowUp || LookDelta.IsNearlyZero())
+	{
+		return LookDelta;
+	}
+	const FHawkeyeAimAssistTuning Tuning = UHawkeyeAimAssist::GetTuningFor(this);
+	if (Tuning.MagnetismConeDegrees <= 0.f)
+	{
+		return LookDelta;
+	}
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	GetAimAssistView(ViewLocation, ViewRotation);
+	TArray<FHawkeyeAimAssistCandidate> Candidates;
+	UHawkeyeAimAssist::GatherCandidates(GetWorld(), ViewLocation, UHawkeyeAimAssist::MaxRange, this, Candidates);
+	const int32 Pick = UHawkeyeAimAssist::FindBestIndex(ViewLocation, ViewRotation.Vector(), Candidates,
+		Tuning.MagnetismConeDegrees, UHawkeyeAimAssist::MaxRange);
+	if (!Candidates.IsValidIndex(Pick))
+	{
+		return LookDelta;
+	}
+	const float Angle = UHawkeyeAimAssist::AngleToPoint(ViewLocation, ViewRotation.Vector(), Candidates[Pick].Chest);
+	return LookDelta * UHawkeyeAimAssist::ComputeLookScale(Angle, Tuning.MagnetismConeDegrees,
+		bFromStick ? Tuning.PadSlowdown : Tuning.MouseSlowdown);
+}
+
+void AHawkeyeCharacter::SetMoveInputDirectionForTest(const FVector& WorldDirection)
+{
+	LastMoveWorldDirection = WorldDirection.GetSafeNormal2D();
+	LastMoveInputSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+}
+
+AActor* AHawkeyeCharacter::FindMeleeAssistTarget() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+	TArray<AThugCharacter*> Thugs;
+	TArray<FVector> Where;
+	for (TActorIterator<AThugCharacter> It(World); It; ++It)
+	{
+		const UHealthComponent* Health = It->GetHealthComponent();
+		if (Health && Health->IsAlive() && !It->IsLimp())
+		{
+			Thugs.Add(*It);
+			Where.Add(It->GetActorLocation());
+		}
+	}
+	const int32 Pick = UHawkeyeMeleeRules::SelectMeleeAssistIndex(GetActorLocation(), GetMeleeAssistDirection(), Where,
+		MeleeAssistRange, MeleeAssistAngleDegrees, 200.f);
+	return Thugs.IsValidIndex(Pick) ? Thugs[Pick] : nullptr;
+}
+
 void AHawkeyeCharacter::BeginSoftTurn(const FVector& Direction)
 {
 	const FVector Flat = Direction.GetSafeNormal2D();
@@ -1978,6 +2164,18 @@ void AHawkeyeCharacter::UpdateSoftTurn(float DeltaSeconds)
 		{
 			SoftTurnRemaining = 0.f;
 			SetActorRotation(FRotator(0.f, SoftTurnYaw, 0.f));
+		}
+	}
+	else if (MeleeComponent && MeleeComponent->IsWindingUp() && MeleeComponent->GetSwingTarget())
+	{
+		// The assist: through the rest of the wind-up she keeps her eyes on the thug she picked as he moves.
+		const FVector To = (MeleeComponent->GetSwingTarget()->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		if (!To.IsNearlyZero())
+		{
+			const float Current = GetActorRotation().Yaw;
+			const float MaxStep = MeleeAssistTrackDegreesPerSecond * FMath::Max(DeltaSeconds, 0.f);
+			const float Step = FMath::Clamp(FRotator::NormalizeAxis(To.Rotation().Yaw - Current), -MaxStep, MaxStep);
+			SetActorRotation(FRotator(0.f, Current + Step, 0.f));
 		}
 	}
 
