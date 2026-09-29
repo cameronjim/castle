@@ -9,6 +9,7 @@
 #include "Tests/HawkeyeTestUtils.h"
 #include "World/Safehouse.h"
 #include "World/SafehouseSubsystem.h"
+#include "World/TimeOfDaySubsystem.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -112,7 +113,7 @@ bool FHawkeyeMarkChallenge::RunTest(const FString& Parameters)
 
 	// The glow: purple, not a pale lilac that clips to white, and brighter by day.
 	TestTrue(TEXT("The cap's night glow stays under the clip"), Archery->CapGlow <= 1.f);
-	TestTrue(TEXT("Brighter by day"), Archery->DayGlowScale > 1.f);
+	TestTrue(TEXT("Brighter by day"), UTimeOfDaySubsystem::GetPreset(EHawkeyeTimeOfDay::Day).GlowScale > 1.f);
 	return true;
 }
 

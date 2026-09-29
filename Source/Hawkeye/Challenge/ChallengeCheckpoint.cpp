@@ -11,6 +11,7 @@
 #include "Math/RotationMatrix.h"
 #include "Misc/App.h"
 #include "UObject/ConstructorHelpers.h"
+#include "World/TimeOfDaySubsystem.h"
 
 namespace HawkeyeChallengeCheckpoint
 {
@@ -115,7 +116,7 @@ void AChallengeCheckpoint::SetState(EChallengeCheckpointState NewState)
 		{
 			const bool bNext = State == EChallengeCheckpointState::Next;
 			Material->SetVectorParameterValue(TEXT("Color"), bNext ? Purple : DimColor);
-			Material->SetScalarParameterValue(TEXT("Intensity"), bNext ? NextGlow : NextGlow * 0.25f);
+			UTimeOfDaySubsystem::SetGlow(Segment, Material, bNext ? NextGlow : NextGlow * 0.25f);
 		}
 	}
 	if (!IsTemplate())

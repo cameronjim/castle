@@ -11,6 +11,7 @@
 #include "Materials/MaterialInterface.h"
 #include "Misc/App.h"
 #include "UObject/ConstructorHelpers.h"
+#include "World/TimeOfDaySubsystem.h"
 
 namespace HawkeyeChallengeTarget
 {
@@ -107,7 +108,8 @@ void AChallengeTarget::Tint(UStaticMeshComponent* Part, const FLinearColor& Colo
 		Material->SetVectorParameterValue(TEXT("Color"), Color);
 		if (Glow >= 0.f)
 		{
-			Material->SetScalarParameterValue(TEXT("Intensity"), Glow);
+			// The night's value; the time of day scales it (3x by day) and keeps it scaled.
+			UTimeOfDaySubsystem::SetGlow(Part, Material, Glow);
 		}
 	}
 }

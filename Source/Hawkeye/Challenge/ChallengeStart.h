@@ -50,10 +50,6 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
 	float IconGlow = 0.6f;
 
-	/** Day's exposure is 2.5 EV under the night's and the roofs are sunlit: the glows times this by day. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float DayGlowScale = 3.5f;
-
 	/** The purple point light's brightness, lm: 135, 30% of the 450 that washed the whole roof. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
 	float GlowLumens = 135.f;
@@ -121,7 +117,4 @@ protected:
 	/** Standing in here counts as being at the pedestal, as with the safehouse door. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Challenge")
 	TObjectPtr<UBoxComponent> EntryZone;
-
-	/** The time of day RefreshLook last lit for, so a change relights it. */
-	bool bLitForDay = false;
 };
