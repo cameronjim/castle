@@ -25,6 +25,7 @@ class UBowComponent;
 class UChallengePanelWidget;
 class UCrimePanelWidget;
 class UCanvasPanel;
+class UHawkeyeHintWidget;
 class UHawkeyeHotbarWidget;
 class UHawkeyeObjectiveWidget;
 class UHawkeyeQuiverWheelWidget;
@@ -103,6 +104,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "HUD|Hotbar")
 	UHawkeyeHotbarWidget* GetHotbar() const { return Hotbar; }
+
+	/** The first-time hint line just above the hotbar (UHawkeyeHintSubsystem's). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Hints")
+	UHawkeyeHintWidget* GetHintLine() const { return HintLine; }
 
 	// --- Quiver wheel ---------------------------------------------------------------------------
 
@@ -581,6 +586,9 @@ protected:
 	/** The hotbar along the bottom of the screen. Built into the HUD's own overlay. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hotbar")
 	TObjectPtr<UHawkeyeHotbarWidget> Hotbar = nullptr;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Hints")
+	TObjectPtr<UHawkeyeHintWidget> HintLine = nullptr;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "HUD|Quiver Wheel")
 	TObjectPtr<UHawkeyeQuiverWheelWidget> QuiverWheel = nullptr;

@@ -38,6 +38,7 @@
 #include "Components/HorizontalBoxSlot.h"
 #include "Components/SizeBox.h"
 #include "Phone/PhoneSubsystem.h"
+#include "UI/HawkeyeHintWidget.h"
 #include "Settings/HawkeyeSettingsSubsystem.h"
 
 TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
@@ -128,6 +129,15 @@ TSharedRef<SWidget> UHawkeyeHudWidget::RebuildWidget()
 			HotbarSlot->SetHorizontalAlignment(HAlign_Center);
 			HotbarSlot->SetVerticalAlignment(VAlign_Bottom);
 			HotbarSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 24.f));
+		}
+
+		// The first-time hint line, just above the hotbar (it places itself by the hotbar's height).
+		HintLine = WidgetTree->ConstructWidget<UHawkeyeHintWidget>(UHawkeyeHintWidget::StaticClass(), TEXT("HintLine"));
+		HintLine->SetHotbar(Hotbar);
+		if (UOverlaySlot* HintSlot = Cast<UOverlaySlot>(Root->AddChild(HintLine)))
+		{
+			HintSlot->SetHorizontalAlignment(HAlign_Center);
+			HintSlot->SetVerticalAlignment(VAlign_Bottom);
 		}
 
 		// Last, so the wheel draws over everything else while it is open.
@@ -1269,6 +1279,10 @@ void UHawkeyeHudWidget::ApplyHudScale(float Scale)
 	ScaleAbout(ChallengePanel, FVector2D(1.f, 0.f));
 	ScaleAbout(CrimePanel, FVector2D(1.f, 0.f));
 	ScaleAbout(Hotbar, FVector2D(0.5f, 1.f));
+	if (HintLine)
+	{
+		HintLine->SetHudScale(Scale);
+	}
 	ScaleAbout(GrappleMarker, FVector2D(0.5f, 0.5f));
 	ScaleAbout(GrappleBlockedMarker, FVector2D(0.5f, 0.5f));
 	if (ObjectiveMarker)
