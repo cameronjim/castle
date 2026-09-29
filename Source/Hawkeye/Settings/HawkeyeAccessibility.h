@@ -31,7 +31,7 @@ struct HAWKEYE_API FHawkeyePalette
 	FLinearColor HealthBar = FLinearColor(0.95f, 0.3f, 0.25f, 1.f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Accessibility")
-	FLinearColor Danger = FLinearColor(1.f, 0.35f, 0.08f, 1.f);
+	FLinearColor Danger = FLinearColor(1.f, 0.16f, 0.03f, 1.f);
 };
 
 /**

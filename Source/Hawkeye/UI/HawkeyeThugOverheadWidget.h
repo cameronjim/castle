@@ -108,7 +108,7 @@ public:
 
 	/** The telegraph glyph: red-orange in the default palette. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs")
-	FLinearColor TelegraphColor = FLinearColor(1.f, 0.35f, 0.08f, 1.f);
+	FLinearColor TelegraphColor = FLinearColor(1.f, 0.16f, 0.03f, 1.f);
 
 	/** The ring at the assist's pick's feet: Kate's purple. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs")
@@ -116,7 +116,7 @@ public:
 
 	/** The telegraph glyph's size before it grows, px. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs", meta = (ClampMin = "6"))
-	int32 TelegraphFontSize = 30;
+	int32 TelegraphFontSize = 36;
 
 	/** The parry line under it, px. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HUD|Thugs")
