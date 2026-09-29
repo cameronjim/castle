@@ -46,6 +46,9 @@
  *                                the vault door; his keycard; the vault opened; a grapple to the gallery and
  *                                out by the roof door. Every move is input: crouch, the stick, F, E, the grapple.
  *                                Must finish with no thug ever Alerted.
+ *                                Crouch is pressed as a player presses it (a toggle by default: down for 0.3 s
+ *                                when she is not as the script wants), and both laps fail if she ever stands up
+ *                                where the script did not press to stand.
  *   Hawkeye.Lap.InteriorLoud     the same way in, walking in the open: the lobby thug is fought, then the hall's
  *                                three (bat, gunner on the gallery, archer) with fists, heavies, dodges and
  *                                full-draw arrows, then the keycard, the vault and the roof. Must be won.
@@ -113,15 +116,27 @@ namespace HawkeyeInteriorLap
 		bool bFailed = false;
 		bool bFinished = false;
 
-		/** Movement: the path she is following, recomputed every 0.3 s; crouch and move holds. */
+		/** Movement: the path she is following, recomputed every 0.3 s; the crouch the script wants and the move hold. */
 		TArray<FVector> Path;
 		int32 PathIndex = 0;
 		double PathAt = -10.0;
 		double LastProgress = 0.0;
 		float BestDistance = 1.e9f;
 		double LastJump = 0.0;
-		bool bCrouchHeld = false;
+		bool bCrouchWanted = false;
 		bool bMoveHeld = false;
+
+		/**
+		 * The crouch key as a player works it (PumpCrouch). Toggled (the default) it goes down for 0.3 s, past the
+		 * dodge tap, whenever she is not where bCrouchWanted says, and comes up; held, it stays down while wanted.
+		 * Every crouch that ends is checked against the stand-up presses: any other is a stand-up by herself.
+		 */
+		bool bCrouchKeyDown = false;
+		double CrouchKeyAt = -10.0;
+		bool bStandPressed = false;
+		int32 CrouchEndsSeen = 0;
+		int32 ScriptedStands = 0;
+		TArray<FString> StandUps;
 
 		/** The step's own scratch. */
 		int32 Phase = 0;
@@ -155,12 +170,67 @@ namespace HawkeyeInteriorLap
 		TWeakObjectPtr<AThugCharacter> DrawTarget;
 		double NextActionAt = 0.0;
 
-		void Crouch(AHawkeyePlayerController* PC, bool bCrouch)
+		/** What the script wants; PumpCrouch works the key to get her there. */
+		void Crouch(AHawkeyePlayerController* /*PC*/, bool bCrouch)
 		{
-			if (bCrouch != bCrouchHeld)
+			bCrouchWanted = bCrouch;
+		}
+
+		/** Crouched (or asked to be) as the script wants. */
+		bool IsCrouchSettled(const AHawkeyeCharacter* Kate) const
+		{
+			return Kate->IsCrouchWanted() == bCrouchWanted;
+		}
+
+		void PumpCrouch(AHawkeyePlayerController* PC, AHawkeyeCharacter* Kate, double Now)
+		{
+			if (!Kate->IsCrouchToggle())
 			{
-				Hold(PC, CrouchPath, bCrouch);
-				bCrouchHeld = bCrouch;
+				if (bCrouchKeyDown != bCrouchWanted)
+				{
+					Hold(PC, CrouchPath, bCrouchWanted);
+					bCrouchKeyDown = bCrouchWanted;
+					bStandPressed = bStandPressed || !bCrouchWanted;
+				}
+				return;
+			}
+			if (bCrouchKeyDown)
+			{
+				if (Now - CrouchKeyAt >= 0.3)
+				{
+					Hold(PC, CrouchPath, false);
+					bCrouchKeyDown = false;
+					CrouchKeyAt = Now;
+				}
+				return;
+			}
+			if (IsCrouchSettled(Kate) || Now - CrouchKeyAt < 0.15 || Kate->IsSliding() || Kate->IsRolling() || Kate->IsTraversing()
+				|| Kate->IsZipping() || Kate->IsLockedOutByTakedown())
+			{
+				return;
+			}
+			Hold(PC, CrouchPath, true);
+			bCrouchKeyDown = true;
+			CrouchKeyAt = Now;
+			bStandPressed = bStandPressed || !bCrouchWanted;
+		}
+
+		/** Every crouch that ended since last frame: the script's stand-up press, or she stood up by herself. */
+		void CheckStandUps(AHawkeyeCharacter* Kate)
+		{
+			while (CrouchEndsSeen < Kate->GetCrouchEndCount())
+			{
+				++CrouchEndsSeen;
+				const FString& Why = Kate->GetLastCrouchEndReason();
+				if (bStandPressed && Why.StartsWith(TEXT("crouch input")))
+				{
+					++ScriptedStands;
+					bStandPressed = false;
+					continue;
+				}
+				StandUps.Add(FString::Printf(TEXT("in '%s' at %s: %s"), StepIndex >= 0 && StepIndex < Steps.Num() ? *Steps[StepIndex].Name : TEXT("?"),
+					*Feet(Kate).ToCompactString(), *Why));
+				UE_LOG(LogTemp, Warning, TEXT("[Hawkeye] Kate stood up without the script asking %s"), *StandUps.Last());
 			}
 		}
 
@@ -232,7 +302,7 @@ namespace HawkeyeInteriorLap
 			else if (Now - LastProgress > 1.5 && Now - LastJump > 1.5)
 			{
 				LastJump = Now;
-				if (!bCrouchHeld)
+				if (!bCrouchWanted)
 				{
 					Tap(PC, JumpPath);
 				}
@@ -551,13 +621,18 @@ namespace HawkeyeInteriorLap
 	void FRunner::Finish(UWorld* World)
 	{
 		bFinished = true;
+		if (bCrouchKeyDown)
+		{
+			Hold(FindController(World), CrouchPath, false);
+			bCrouchKeyDown = false;
+		}
 		const double Seconds = FPlatformTime::Seconds() - LapStart;
 		const FString Json = FString::Printf(TEXT("{\n  \"test\": \"Hawkeye.Lap.%s\",\n  \"completed\": %s,\n  \"seconds\": %.1f,\n  \"alerts\": %d,\n"
 			"  \"suspicions\": %d,\n  \"takedowns\": %d,\n  \"hits_taken\": %d,\n  \"damage_taken\": %.1f,\n  \"light_swings\": %d,\n"
 			"  \"heavy_swings\": %d,\n  \"dodges\": %d,\n  \"arrows\": %d,\n  \"finishers\": %d,\n  \"max_fight_camera_arm\": %.0f,\n"
-			"  \"indoor_arm_length\": %.0f,\n  \"notes\": \"%s\",\n  \"legs\": [\n%s\n  ]\n}\n"),
+			"  \"indoor_arm_length\": %.0f,\n  \"stand_ups_asked\": %d,\n  \"stand_ups_by_herself\": %d,\n  \"notes\": \"%s\",\n  \"legs\": [\n%s\n  ]\n}\n"),
 			bLoud ? TEXT("InteriorLoud") : TEXT("InteriorStealth"), bFailed ? TEXT("false") : TEXT("true"), Seconds, Alerts, Suspicions, Takedowns,
-			Hits, Damage, LightSwings, HeavySwings, Dodges, ArrowsLoosed, Finishers, MaxFightArm, IndoorCap,
+			Hits, Damage, LightSwings, HeavySwings, Dodges, ArrowsLoosed, Finishers, MaxFightArm, IndoorCap, ScriptedStands, StandUps.Num(),
 			*FString::Join(AlertNotes, TEXT("; ")).ReplaceCharWithEscapedChar(), *FString::Join(Legs, TEXT(",\n")));
 		WriteText(bLoud ? TEXT("interior_loud.json") : TEXT("interior_stealth.json"), Json);
 		Test->AddInfo(FString::Printf(TEXT("%s:\n%s"), bLoud ? TEXT("interior_loud.json") : TEXT("interior_stealth.json"), *Json));
@@ -566,6 +641,8 @@ namespace HawkeyeInteriorLap
 		{
 			Test->TestEqual(TEXT("Stealth: no thug was ever Alerted"), Alerts, 0);
 		}
+		// A crouch ends only where the script pressed to stand (gameplay-semantics.md, "Movement", crouch).
+		Test->TestEqual(FString::Printf(TEXT("Kate never stood up by herself (%s)"), *FString::Join(StandUps, TEXT("; "))), StandUps.Num(), 0);
 		if (MaxFightArm > 0.f)
 		{
 			Test->TestTrue(FString::Printf(TEXT("The fight camera's arm never passed the indoor cap (%.0f of %.0f cm)"), MaxFightArm, IndoorCap),
@@ -614,6 +691,8 @@ namespace HawkeyeInteriorLap
 		}
 		else if (World && PC && Kate)
 		{
+			PumpCrouch(PC, Kate, Now);
+			CheckStandUps(Kate);
 			Result = Step.Run(*this, World, PC, Kate, Now);
 		}
 		if (Result == EStep::Running)
@@ -716,14 +795,14 @@ namespace HawkeyeInteriorLap
 	{
 		R.Steps.Add({ Name, Timeout, [Goal, bCrouch, Reach](FRunner& Run, UWorld* World, AHawkeyePlayerController* PC, AHawkeyeCharacter* Kate, double Now)
 		{
-			if (Run.bCrouchHeld != bCrouch)
+			if (Run.bCrouchWanted != bCrouch)
 			{
 				Run.StopMoving(PC);
 				Run.Crouch(PC, bCrouch);
 				Run.PhaseAt = Now;
 			}
-			// Let a crouch press land standing still (moving, a tap is a dodge).
-			if (Now - Run.PhaseAt < 0.35)
+			// Let the crouch press land standing still.
+			if (!Run.IsCrouchSettled(Kate) && Now - Run.PhaseAt < 1.0)
 			{
 				return EStep::Running;
 			}
@@ -809,24 +888,15 @@ namespace HawkeyeInteriorLap
 					*Thug->GetActorLocation().ToCompactString(), Thug->GetActorRotation().Yaw,
 					Thug->GetAlertState() == EThugAlertState::Suspicious ? TEXT("suspicious") : TEXT("calm"), Thug->GetVelocity().Size2D(), *Run.StepDetail);
 			}
-			if (!Run.bCrouchHeld)
+			if (!Run.bCrouchWanted)
 			{
 				Run.StopMoving(PC);
 				Run.Crouch(PC, true);
 				Run.PhaseAt = Now;
 				return EStep::Running;
 			}
-			if (Now - Run.PhaseAt < 0.35 || Kate->IsLockedOutByTakedown())
+			if ((!Run.IsCrouchSettled(Kate) && Now - Run.PhaseAt < 1.0) || Kate->IsLockedOutByTakedown())
 			{
-				return EStep::Running;
-			}
-			// Stood up while creeping (seen at the stair's top landing): down again, as a player would.
-			if (!Kate->bIsCrouched && Now - Run.PhaseAt > 0.6)
-			{
-				UE_LOG(LogTemp, Display, TEXT("[Hawkeye] stalk %s: Kate stood up at %s (mode %d); crouching again."), *Enemy, *Feet(Kate).ToCompactString(),
-					static_cast<int32>(Kate->GetCharacterMovement()->MovementMode.GetValue()));
-				Run.StopMoving(PC);
-				Run.Crouch(PC, false);
 				return EStep::Running;
 			}
 			UTakedownComponent* Takedown = Kate->GetTakedownComponent();
