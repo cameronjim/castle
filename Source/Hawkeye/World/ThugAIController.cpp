@@ -22,6 +22,7 @@
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "NavigationSystem.h"
+#include "NavigationPath.h"
 #include "Navigation/PathFollowingComponent.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISense_Hearing.h"
@@ -995,23 +996,73 @@ void AThugAIController::AdvancePatrol()
 	RequestMoveToActor(Point, /*AcceptanceRadius=*/60.f);
 }
 
-void AThugAIController::RequestMoveToActor(AActor* Goal, float AcceptanceRadius)
+bool AThugAIController::RequestMoveToActor(AActor* Goal, float AcceptanceRadius)
 {
-	ReportMoveResult(MoveToActor(Goal, AcceptanceRadius), GetNameSafe(Goal));
+	if (!IsValid(Goal))
+	{
+		return false;
+	}
+	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
+	if (!NavSystem || !NavSystem->GetDefaultNavDataInstance())
+	{
+		const EPathFollowingRequestResult::Type Result = MoveToActor(Goal, AcceptanceRadius);
+		ReportMoveResult(Result, GetNameSafe(Goal));
+		return Result != EPathFollowingRequestResult::Failed;
+	}
+	// Following her needs her on the navmesh. Hanging off a ledge, mid-zip, on a sill or down against a
+	// wall she is not, and the follow fails: he walks to the nearest spot he can stand on under her instead.
+	if (MoveToActor(Goal, AcceptanceRadius) != EPathFollowingRequestResult::Failed)
+	{
+		return true;
+	}
+	return RequestMoveToLocation(Goal->GetActorLocation(), AcceptanceRadius, WideNavSnap, *GetNameSafe(Goal));
 }
 
-void AThugAIController::RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius)
+bool AThugAIController::RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius, const FVector& SnapExtent,
+	const TCHAR* GoalName)
 {
+	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
+	if (!NavSystem || !NavSystem->GetDefaultNavDataInstance())
+	{
+		const EPathFollowingRequestResult::Type Result = MoveToLocation(Goal, AcceptanceRadius);
+		ReportMoveResult(Result, Goal.ToCompactString());
+		return Result != EPathFollowingRequestResult::Failed;
+	}
 	// A goal just off the navmesh (where she landed a zip by a parapet, a ledge) is walked to its nearest
 	// navigable point instead of failing: the mesh stops short of roof edges and walls by the agent radius.
-	FVector Target = Goal;
-	const UNavigationSystemV1* NavSystem = UNavigationSystemV1::GetCurrent(GetWorld());
 	FNavLocation OnNav;
-	if (NavSystem && NavSystem->ProjectPointToNavigation(Goal, OnNav, FVector(200.f, 200.f, 250.f)))
+	if (!NavSystem->ProjectPointToNavigation(Goal, OnNav, SnapExtent))
 	{
-		Target = OnNav.Location;
+		HoldPosition(Goal, *FString::Printf(TEXT("no navmesh within %.0f cm"), SnapExtent.X), GoalName);
+		return false;
 	}
-	ReportMoveResult(MoveToLocation(Target, AcceptanceRadius), Goal.ToCompactString());
+	if (MoveToLocation(OnNav.Location, AcceptanceRadius) == EPathFollowingRequestResult::Failed)
+	{
+		HoldPosition(Goal, TEXT("no path from where he stands"), GoalName);
+		return false;
+	}
+	return true;
+}
+
+void AThugAIController::HoldPosition(const FVector& Goal, const TCHAR* Why, const TCHAR* GoalName)
+{
+	StopMovement();
+	UE_LOG(LogHawkeye, Verbose, TEXT("%s: holds position instead of moving to %s (%s): %s."), *GetName(),
+		GoalName ? GoalName : TEXT("a point"), *Goal.ToCompactString(), Why);
+}
+
+bool AThugAIController::IsReachable(const FVector& Point) const
+{
+	UWorld* World = GetWorld();
+	UNavigationSystemV1* NavSystem = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
+	const APawn* Me = GetPawn();
+	if (!NavSystem || !NavSystem->GetDefaultNavDataInstance() || !Me)
+	{
+		return true;
+	}
+	const UNavigationPath* Path = NavSystem->FindPathToLocationSynchronously(World, Me->GetNavAgentLocation(),
+		Point, const_cast<APawn*>(Me));
+	return Path && Path->IsValid() && !Path->IsPartial();
 }
 
 void AThugAIController::ReportMoveResult(EPathFollowingRequestResult::Type Result, const FString& GoalDescription)
@@ -1027,15 +1078,15 @@ void AThugAIController::ReportMoveResult(EPathFollowingRequestResult::Type Resul
 	}
 	bLoggedMoveFailure = true;
 
-	const FString Reason = !NavSystem
-		? TEXT("there is no navigation system in this world")
-		: (NavSystem->GetDefaultNavDataInstance() == nullptr
-			? TEXT("no navigation data exists - the level needs a NavMeshBoundsVolume and "
-				"RuntimeGeneration=Dynamic in DefaultEngine.ini")
-			: TEXT("the goal is off the navmesh or unreachable"));
-
-	UE_LOG(LogHawkeye, Warning, TEXT("%s: cannot move to %s: %s."),
-		*GetName(), *GoalDescription, *Reason);
+	// A world with no navigation system at all is a unit test's bare world, not a level: nothing to fix.
+	if (!NavSystem)
+	{
+		UE_LOG(LogHawkeye, Verbose, TEXT("%s: cannot move to %s: there is no navigation system in this world."),
+			*GetName(), *GoalDescription);
+		return;
+	}
+	UE_LOG(LogHawkeye, Warning, TEXT("%s: cannot move to %s: no navigation data exists - the level needs a "
+		"NavMeshBoundsVolume and RuntimeGeneration=Dynamic in DefaultEngine.ini."), *GetName(), *GoalDescription);
 }
 
 void AThugAIController::TickSuspicious(float DeltaSeconds)
@@ -1056,8 +1107,12 @@ void AThugAIController::TickSuspicious(float DeltaSeconds)
 	}
 	else if (FVector::DistSquared2D(Thug->GetActorLocation(), LastStimulusLocation) > FMath::Square(120.f))
 	{
-		RequestMoveToLocation(LastStimulusLocation, /*AcceptanceRadius=*/60.f);
-		return;
+		// A noise he cannot walk to (on the roof over him, in the air where she zipped) he watches from here.
+		if (RequestMoveToLocation(LastStimulusLocation, /*AcceptanceRadius=*/60.f, WideNavSnap, TEXT("the noise")))
+		{
+			return;
+		}
+		FaceTarget(Thug, LastStimulusLocation - Thug->GetActorLocation());
 	}
 
 	// Standing on the noise (or facing it) with nothing to show for it.
@@ -1246,7 +1301,7 @@ void AThugAIController::TickGunner(float DeltaSeconds, const FVector& ToTarget)
 			// Back behind the same cover.
 			GunnerPhase = EGunnerPhase::Covering;
 			HideElapsed = 0.f;
-			RequestMoveToLocation(CoverPoint, 40.f);
+			RequestMoveToLocation(CoverPoint, 40.f, WideNavSnap, TEXT("cover"));
 			UE_LOG(LogHawkeye, Log, TEXT("%s: back into cover after %d shots."), *Thug->GetName(), ShotsSinceCover);
 			ShotsSinceCover = 0;
 		}
@@ -1285,7 +1340,7 @@ bool AThugAIController::BeginCover(const TCHAR* Why, const FVector* Avoid)
 	HideElapsed = 0.f;
 	ShotsSinceCover = 0;
 	GunnerPhase = EGunnerPhase::Covering;
-	RequestMoveToLocation(CoverPoint, 40.f);
+	RequestMoveToLocation(CoverPoint, 40.f, WideNavSnap, TEXT("cover"));
 	UE_LOG(LogHawkeye, Log, TEXT("%s: takes cover (%s) at %s, %.0f cm away, out of %s's line."), *Thug->GetName(), Why,
 		*CoverPoint.ToCompactString(), FVector::Dist2D(CoverPoint, Thug->GetActorLocation()), *GetNameSafe(TargetActor));
 	return true;
@@ -1304,7 +1359,7 @@ void AThugAIController::TickGunnerCover(float DeltaSeconds)
 	{
 		if (GetMoveStatus() != EPathFollowingStatus::Moving)
 		{
-			RequestMoveToLocation(CoverPoint, 40.f);
+			RequestMoveToLocation(CoverPoint, 40.f, WideNavSnap, TEXT("cover"));
 		}
 		// Never stuck on the way: after the relocation time he gives up on this one.
 		if (CoverElapsed < RelocateSeconds)
@@ -1461,6 +1516,11 @@ bool AThugAIController::FindCoverPointEqs(FVector& OutPoint, const FVector* Avoi
 		{
 			continue;
 		}
+		// On the navmesh is not enough: behind a parapet on the next roof, past a locked door, he cannot get there.
+		if (!IsReachable(Point))
+		{
+			continue;
+		}
 		OutPoint = Point;
 		return true;
 	}
@@ -1513,20 +1573,22 @@ bool AThugAIController::FindCoverPointRing(const FVector& Threat, FVector& OutPo
 			{
 				continue;
 			}
-			const FVector Side = FVector::CrossProduct((Candidate - Eye).GetSafeNormal2D(), FVector::UpVector) * Radius;
-			if (!World->LineTraceTestByChannel(Eye, Candidate, ECC_Visibility, Params)
-				|| !World->LineTraceTestByChannel(Eye, Candidate + Side, ECC_Visibility, Params)
-				|| !World->LineTraceTestByChannel(Eye, Candidate - Side, ECC_Visibility, Params))
+			const float Distance = FVector::Dist2D(Candidate, Me->GetActorLocation());
+			if (Distance >= BestDistance)
 			{
 				continue;
 			}
-			const float Distance = FVector::Dist2D(Candidate, Me->GetActorLocation());
-			if (Distance < BestDistance)
+			const FVector Side = FVector::CrossProduct((Candidate - Eye).GetSafeNormal2D(), FVector::UpVector) * Radius;
+			if (!World->LineTraceTestByChannel(Eye, Candidate, ECC_Visibility, Params)
+				|| !World->LineTraceTestByChannel(Eye, Candidate + Side, ECC_Visibility, Params)
+				|| !World->LineTraceTestByChannel(Eye, Candidate - Side, ECC_Visibility, Params)
+				|| !IsReachable(Candidate))
 			{
-				BestDistance = Distance;
-				OutPoint = Candidate;
-				bFound = true;
+				continue;
 			}
+			BestDistance = Distance;
+			OutPoint = Candidate;
+			bFound = true;
 		}
 		if (bFound)
 		{
@@ -1950,7 +2012,8 @@ void AThugAIController::TickStandOff(float DeltaSeconds, const FVector& ToTarget
 	}
 	StandOffRepathRemaining = 1.f;
 	const FVector Spot = TargetActor->GetActorLocation() + FRotator(0.f, StandOffAngle, 0.f).Vector() * StandOffDistance;
-	RequestMoveToLocation(Spot, 60.f);
+	// Round her against a wall or a parapet some of the ring is inside it: the nearest floor within 3 m.
+	RequestMoveToLocation(Spot, 60.f, WideNavSnap, TEXT("the circle round her"));
 }
 
 void AThugAIController::FinishSwing(const FVector& ToTarget)

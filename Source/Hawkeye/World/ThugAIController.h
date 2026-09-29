@@ -562,13 +562,24 @@ protected:
 	void AdvancePatrol();
 
 	/**
-	 * MoveToActor / MoveToLocation with the failure reported. A thug that cannot move is
-	 * almost always a missing navmesh rather than a broken state machine, and that used to be
-	 * invisible in the log; this says so once per controller instead of every think tick.
+	 * MoveToActor / MoveToLocation with the failure reported. A goal off the navmesh (she hangs off
+	 * a ledge, lands a zip by a parapet, is down against a wall) is walked to its nearest navigable
+	 * point within SnapExtent; with none, or no path from where he stands, he holds position and it
+	 * is logged at Verbose. Only a world with no navigation data at all warns (once per controller):
+	 * that is a missing NavMeshBoundsVolume, not a bad goal. True when a move was started.
 	 */
-	void RequestMoveToActor(AActor* Goal, float AcceptanceRadius);
-	void RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius);
+	bool RequestMoveToActor(AActor* Goal, float AcceptanceRadius);
+	bool RequestMoveToLocation(const FVector& Goal, float AcceptanceRadius, const FVector& SnapExtent = NarrowNavSnap,
+		const TCHAR* GoalName = nullptr);
 	void ReportMoveResult(EPathFollowingRequestResult::Type Result, const FString& GoalDescription);
+	/** Stops and logs, at Verbose, why the move to Goal was not started. */
+	void HoldPosition(const FVector& Goal, const TCHAR* Why, const TCHAR* GoalName);
+	/** True when there is a complete navmesh path from the pawn to Point (always true without navigation data). */
+	bool IsReachable(const FVector& Point) const;
+
+	/** How far a move goal is snapped onto the navmesh: 2 m for most, 3 m for cover, circling, noises and her. */
+	static inline const FVector NarrowNavSnap = FVector(200.f, 200.f, 250.f);
+	static inline const FVector WideNavSnap = FVector(300.f, 300.f, 300.f);
 
 	/**
 	 * Turns a stopped thug to face ToTarget. Only ever called when he is not moving: while he
