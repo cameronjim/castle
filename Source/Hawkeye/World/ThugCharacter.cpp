@@ -231,6 +231,13 @@ void AThugCharacter::BeginPlay()
 	CreateBodyMaterials();
 	UpdateLocomotionAnimation();
 	ApplyCombatAnimSet();
+	for (APickupActor* Carried : CarriedPickups)
+	{
+		if (IsValid(Carried))
+		{
+			Carried->SetCarried(true);
+		}
+	}
 
 	// The difficulty's toughness, on whatever the class gave him (100, the heavy's 200).
 	const float HealthScale = UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::ThugHealth);
@@ -678,6 +685,8 @@ bool AThugCharacter::BeginKnockdownRagdoll(AActor* By, float LaunchSpeed)
 	SkeletalMesh->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
 	SkeletalMesh->SetCollisionProfileName(TEXT("Ragdoll"));
 	SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	// A thrown body must not tunnel an interior's 20 cm wall.
+	SkeletalMesh->SetAllUseCCD(true);
 	SkeletalMesh->SetAllBodiesSimulatePhysics(true);
 	SkeletalMesh->SetSimulatePhysics(true);
 	SkeletalMesh->WakeAllRigidBodies();
@@ -1220,6 +1229,7 @@ void AThugCharacter::GoLimp(AActor* Killer)
 	{
 		SkeletalMesh->SetCollisionProfileName(TEXT("Ragdoll"));
 		SkeletalMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		SkeletalMesh->SetAllUseCCD(true);
 		SkeletalMesh->SetAllBodiesSimulatePhysics(true);
 		SkeletalMesh->SetSimulatePhysics(true);
 		SkeletalMesh->WakeAllRigidBodies();
@@ -1366,6 +1376,7 @@ void AThugCharacter::DropLoot()
 	}
 
 	int32 Index = 0;
+	const int32 Drops = DropOnDeath.Num() + CarriedPickups.Num();
 	for (const TSubclassOf<APickupActor>& PickupClass : DropOnDeath)
 	{
 		if (!PickupClass)
@@ -1375,7 +1386,7 @@ void AThugCharacter::DropLoot()
 
 		// Fan the drops around the body so two of them never land inside each other, and drop
 		// them to floor level: the pickups hover back up to their own height from there.
-		const float FanDegrees = 360.f / FMath::Max(DropOnDeath.Num(), 1) * Index;
+		const float FanDegrees = 360.f / FMath::Max(Drops, 1) * Index;
 		const FVector Fan = FVector(DropSpacing, 0.f, 0.f).RotateAngleAxis(FanDegrees, FVector::UpVector);
 		const FVector Offset = GetActorRotation().RotateVector(Fan)
 			+ FVector(0.f, 0.f, -GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
@@ -1388,6 +1399,18 @@ void AThugCharacter::DropLoot()
 		{
 			++Index;
 		}
+	}
+	// What he carried comes out of his pocket onto the same fan.
+	for (APickupActor* Carried : CarriedPickups)
+	{
+		if (!IsValid(Carried) || !Carried->IsCarried())
+		{
+			continue;
+		}
+		const FVector Fan = FVector(DropSpacing, 0.f, 0.f).RotateAngleAxis(360.f / FMath::Max(Drops, 1) * Index, FVector::UpVector);
+		Carried->DropAt(GetActorLocation() + GetActorRotation().RotateVector(Fan)
+			- FVector(0.f, 0.f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight()));
+		++Index;
 	}
 
 	UE_LOG(LogHawkeye, Log, TEXT("%s dropped %d pickup(s)."), *GetName(), Index);

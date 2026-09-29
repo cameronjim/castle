@@ -499,6 +499,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Loot")
 	TArray<TSubclassOf<APickupActor>> DropOnDeath;
 
+	/**
+	 * Pickups placed in the level that he carries (an interior's keycard, generate_interior.py): out of
+	 * sight and reach from BeginPlay, dropped at his feet with DropOnDeath when he goes down.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Loot")
+	TArray<TObjectPtr<APickupActor>> CarriedPickups;
+
+	/** His crew. His squad alert reaches only thugs of the same group; None reaches only None. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Squad")
+	FName AlertGroup;
+
+	/**
+	 * The archer's own eyes see all round (a lookout on a roof). Off, as indoors: while Calm he sees only
+	 * inside his sight cone, like any thug, and all round once Suspicious or Alerted.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Thug|Archer")
+	bool bArcherSeesAllRound = true;
+
 	UPROPERTY(BlueprintAssignable, Category = "Thug")
 	FOnAlertStateChangedSignature OnAlertStateChanged;
 

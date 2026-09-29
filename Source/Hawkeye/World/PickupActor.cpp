@@ -84,7 +84,23 @@ void APickupActor::Tick(float DeltaSeconds)
 
 bool APickupActor::CanInteract_Implementation(AActor* Interactor) const
 {
-	return Cast<AHawkeyeCharacter>(Interactor) != nullptr;
+	return !bCarried && Cast<AHawkeyeCharacter>(Interactor) != nullptr;
+}
+
+void APickupActor::SetCarried(bool bInCarried)
+{
+	bCarried = bInCarried;
+	SetActorHiddenInGame(bCarried);
+	SetActorEnableCollision(!bCarried);
+	SetActorTickEnabled(!bCarried);
+}
+
+void APickupActor::DropAt(FVector Where)
+{
+	SetCarried(false);
+	RestLocation = Where;
+	SetActorLocation(RestLocation + FVector(0.f, 0.f, HoverHeight));
+	UE_LOG(LogHawkeye, Log, TEXT("%s dropped at %s."), *GetName(), *Where.ToCompactString());
 }
 
 FText APickupActor::GetInteractPrompt_Implementation() const
@@ -114,7 +130,7 @@ void APickupActor::Interact_Implementation(AActor* Interactor)
 bool APickupActor::ApplyTo(AActor* Interactor)
 {
 	AHawkeyeCharacter* Character = Cast<AHawkeyeCharacter>(Interactor);
-	if (!Character)
+	if (!Character || bCarried)
 	{
 		return false;
 	}

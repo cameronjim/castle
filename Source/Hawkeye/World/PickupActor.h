@@ -126,6 +126,20 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category = "Pickup")
 	void OnPickedUp(AActor* Interactor);
 
+	/**
+	 * In a thug's pocket (AThugCharacter::CarriedPickups): hidden, no collision, no motion, and nothing
+	 * to interact with, until DropAt. The thug sets it at BeginPlay.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Pickup")
+	void SetCarried(bool bInCarried);
+
+	UFUNCTION(BlueprintPure, Category = "Pickup")
+	bool IsCarried() const { return bCarried; }
+
+	/** Out of the carrier's pocket onto the floor at Where: shown, reachable, hovering up from there. */
+	UFUNCTION(BlueprintCallable, Category = "Pickup")
+	void DropAt(FVector Where);
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
@@ -139,6 +153,8 @@ protected:
 	float BobPhase = 0.f;
 
 	float BobElapsed = 0.f;
+
+	bool bCarried = false;
 
 public:
 	//~ Begin IInteractable interface
