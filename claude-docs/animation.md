@@ -287,10 +287,12 @@ Nobody can watch a headless run, so the scripts read bones:
   set (`"in_set": false`) would make every swing the jab, at the cost of variety.
 - There is no GetUp clip yet: a Mixamo knockdown holds its last frame on the floor, then blends back
   to locomotion over 0.4 s.
-- The aim offset under-pitches a little: Sparrow's CU and CD poses sit at +-90 on the axis but aim
-  less far, so at 30 degrees up the nocked arrow points 24 up (6 degrees off the launch, the string
-  hand 16 cm off the line with the correction at its 0.5 cap). The arrow still flies to the reticle;
-  only its look is off. Scaling the pitch input would fix it if it shows in play.
+- The aim offset under-pitched (Sparrow's CU and CD poses sit at +-90 on the axis but aim less far): at
+  30 degrees up the nocked arrow pointed 24 up. Fixed 2026-09-29 by scaling the pitch input (1.57 up,
+  1.85 down, +5; gameplay-semantics.md, "Aim offset pitch"): 30.6 up, -30.2 down, -1.5 level. Looking
+  down the arrow now follows the view while it flies along a shallower line from the bow hand (the
+  string hand sits 34 cm off that line with the correction at its 0.5 cap); it still flies to the
+  reticle.
 - The first 0.1 s of a draw is still a blend from locomotion: the bow turns up in the hand while the
   arms rise, and the nocked arrow points down across the body (28 degrees off) for a few frames.
 - `bow_aim_half.png` (the BowIK still at half draw) shows the anchor: the draw clip is at its end

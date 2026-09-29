@@ -107,6 +107,27 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   stand on the 88 cm top and no vault over it (no floor within 800 cm below the feet beyond it: a roof
   edge)`), and a late catch that found nothing says so when its window closes. A roof-edge parapet
   and a parapet backed by a taller neighbour are refused on purpose.
+- Roof-edge guard (2026-09-29, after a 1679 cm fall in Cameron's log: the refusal was right, but the
+  plain jump that followed carried her over the parapet and off the roof). When the jump key's fan
+  refuses a parapet (a thin top with a back edge, from the jump key's 40 cm up to 160 cm) whose far
+  side drops more than 400 cm below her feet (`FarSideDrop`, measured just past its back edge, 800
+  when there is no ground within the probe) and she is moving toward it (50 cm/s at it, or the stick
+  within 60 degrees of it), the press does not become a plain jump. If the capsule fits on the
+  middle of the parapet's top she mantles onto it with our own procedural mantle (never the
+  sample's, which picks its own move) and stays there: while she stands on it, walking off is
+  allowed only back toward the roof (`bCanWalkOffLedges` is off otherwise), so the stick still held
+  at the drop does not walk her off; from there crouch drops to the hang and the grapple works as
+  anywhere. A press during that mantle is dropped rather than buffered (mashing would otherwise jump
+  her off the top the moment she stood on it). With no room on the top the plain jump goes ahead
+  with her speed toward the drop held at zero until she lands, so she lands short of it. A second
+  press within 0.3 s of the guarded one means "I know": from the mantle or the held jump, a quick
+  hop (0.35 s, arched to clear the top) takes her just past its back edge and lets her go at 450
+  cm/s, or her speed before the press if faster. An open roof edge (no parapet), a parapet over a
+  drop of 400 cm or less (the jump key's vault), a standstill with the stick centred, a hang (jump
+  climbs) and the sprint trigger (which never vaults off a roof) are unchanged. Every step logs at
+  Log ("jump: roof-edge guard: a 88 cm parapet with a 800 cm drop beyond, on ...: mantle onto its
+  top and stop there", "on the parapet top ...", "a double tap during the mantle, so she leaps
+  over"). `roof_edge_guard.png` in the Kate pass shows her on a tenement's parapet after one press.
 - Traversable ledges: the sample detects `LevelBlock_Traversable` actors on the
   `GameTraceChannel1` sweep (our Weapon channel) with four `Ledge_1..4` splines whose up
   vector is the ledge's outward normal. The generator places `BP_TraversableBlock`
@@ -1125,3 +1146,12 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   aim override for the AI), each clamped to the blend space's own axis range and to
   MaxAimOffsetYaw/Pitch (90). Under it the spine's turn toward the aim is not added (the aim offset
   turns the body); with no aim offset asset the old turn stays.
+- Aim offset pitch (2026-09-29): the pitch input is the aim's pitch times `AimOffsetPitchScale` (1.57)
+  above level or `AimOffsetPitchScaleDown` (1.85) below, plus `AimOffsetPitchBias` (5), then clamped
+  as above. Sparrow's up and down poses aim far less than their +-90 on the axis, not alike, its centre
+  pose holds the arrow 4 degrees low, and the string hand's correction takes back part of any change.
+  Measured by `Hawkeye.Screenshot.BowDraw` (nocked arrow pitch, standalone): before, 23.9 at 30 up,
+  -25.2 at 30 down, -4.0 level; after, 30.6, -30.2 and -1.5. Looking down, the launch line from the
+  bow hand to the aim point is shallower than the view (-19.3 at 30 down), so there the arrow points
+  with the view rather than along its flight; the arrow still flies to the reticle. Clint shares
+  Kate's skeleton and settings; the archers take the same scales on their own aim offset.
