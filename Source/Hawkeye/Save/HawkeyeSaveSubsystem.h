@@ -226,6 +226,9 @@ public:
 	 */
 	bool ConsumeBootMenu();
 
+	/** Test hook: the next world to boot shows the main menu again, as the first one did. */
+	void RearmBootMenu() { bBootMenuConsumed = false; }
+
 	UFUNCTION(BlueprintPure, Category = "Save")
 	UHawkeyeCampaignState* GetCampaignState() const { return Campaign; }
 

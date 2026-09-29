@@ -65,6 +65,8 @@
 #include "Playtest/PlaytestPhotoMode.h"
 #include "Playtest/PlaytestSubsystem.h"
 
+bool AHawkeyePlayerController::bAutomationPlaysAsPlayer = false;
+
 AHawkeyePlayerController::AHawkeyePlayerController()
 {
 	Banter = CreateDefaultSubobject<UBanterComponent>(TEXT("Banter"));
@@ -243,7 +245,7 @@ void AHawkeyePlayerController::PlayerTick(float DeltaTime)
 	// Automation drives its own notices (UpdatePlaceNotices directly), so no toast or marker lands in a shot;
 	// a -game run started to run tests counts from its first frame, before GIsAutomationTesting is set.
 	static const bool bRunTests = FCString::Stristr(FCommandLine::Get(), TEXT("RunTests")) != nullptr;
-	if (Now >= NextPlaceNoticeSeconds && !IsPaused() && !GIsAutomationTesting && !bRunTests)
+	if (Now >= NextPlaceNoticeSeconds && !IsPaused() && ((!GIsAutomationTesting && !bRunTests) || bAutomationPlaysAsPlayer))
 	{
 		NextPlaceNoticeSeconds = Now + 0.5;
 		UpdatePlaceNotices();
@@ -1802,6 +1804,10 @@ void AHawkeyePlayerController::HandleReturnedFromScene()
 
 bool AHawkeyePlayerController::IsAutomationRun()
 {
+	if (bAutomationPlaysAsPlayer)
+	{
+		return false;
+	}
 	const TCHAR* CommandLine = FCommandLine::Get();
 	return GIsAutomationTesting || FCString::Stristr(CommandLine, TEXT("RunTests")) != nullptr
 		|| FParse::Param(CommandLine, TEXT("NoChapterOpening"));

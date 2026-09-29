@@ -708,8 +708,9 @@ bool UHawkeyeSaveSubsystem::ConsumeBootMenu()
 
 	// Automation drives the game itself; a menu pausing the first world would only get in its way.
 	const TCHAR* CommandLine = FCommandLine::Get();
-	if (FParse::Param(CommandLine, TEXT("NoMainMenu")) || FCString::Stristr(CommandLine, TEXT("RunTests")) != nullptr
-		|| GIsAutomationTesting)
+	const bool bAutomation = (FCString::Stristr(CommandLine, TEXT("RunTests")) != nullptr || GIsAutomationTesting)
+		&& !AHawkeyePlayerController::bAutomationPlaysAsPlayer;
+	if (FParse::Param(CommandLine, TEXT("NoMainMenu")) || bAutomation)
 	{
 		return false;
 	}
