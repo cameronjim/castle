@@ -773,15 +773,20 @@ the last input came from a pad.
 - Chimney smoke on the 6 chimneys nearest the player at load. Frame time 7.4 to 7.7 ms.
 - Flash lifetimes (2026-09-29): a `SimpleSpriteBurst` flash keeps the template's own lifetime unless its
   Lifetime Mode is set to Direct Set, and Lifetime Min/Max are then never read; `create_vfx.py`'s
-  `flash(..., direct_life=True)` sets it. Every flash a shot checks uses it: `NS_MeleeSpark`'s core and glow
-  (0.08 s), `NS_HitSpark`'s star (0.2 s), `NS_ParryRing`'s flash (0.08 s; the ring itself, 0.22 to 0.3 s, is
-  a burst and was always honoured), `NS_MuzzleFlash`'s flash (0.05 s), `NS_AnchorSparks`' bite (0.1 s). The
-  EMP's and the explosion's flashes are still built the old way. Checked by particle count in the screenshot
-  passes: `arrow_hit_spark_later.png` (0.5 s after the hit, nothing of `NS_HitSpark` left),
-  `muzzle_flash_later.png` (0.3 s after the shot, no flash or sparks; the smoke puff may stay),
-  `anchor_spark_later.png` (0.5 s after the bite, no bite flash) and `parry_flash.png` (0.17 s after the
-  parry, no flash, the ring out) fail if a flash is still alive. `Hawkeye.Screenshot.Vfx` runs the effect
-  shots on their own.
+  `flash(..., direct_life=True)` sets it. Every flash uses it: `NS_MeleeSpark`'s core and glow (0.08 s),
+  `NS_HitSpark`'s star (0.2 s), `NS_ParryRing`'s flash (0.08 s; the ring itself, 0.22 to 0.3 s, is a burst and
+  was always honoured), `NS_MuzzleFlash`'s flash (0.05 s), `NS_AnchorSparks`' bite (0.12 s, 120 cm and a hot
+  warm core so it reads from the street 20 m off; a disc round the anchor block, not a fireball), `NS_EmpPulse`'s
+  flash (0.14 s) and `NS_Explosion`'s core (0.1 s; the fireball, sparks, smoke and scorch still linger).
+  Checked by particle count in the screenshot passes: `arrow_hit_spark_later.png` (0.5 s after the hit,
+  nothing of `NS_HitSpark` left), `muzzle_flash_later.png` (0.3 s after the shot, no flash or sparks; the smoke
+  puff may stay), `anchor_spark_later.png` (0.5 s after the bite, no bite flash), `parry_flash.png` (0.17 s
+  after the parry, no flash, the ring out), `emp_flash_later.png` (0.5 s after the flash tick, `Flash` at 0, the
+  ring may remain) and `explosion_flash_later.png` (0.6 s after, `Core` at 0, sparks and smoke may remain) fail
+  if a flash is still alive. The `emp_flash` and `explosion_flash` shots stop time 0.05 s in; `vfx_explosion.png`
+  is stopped 0.15 s in too, because as a timed capture it was sometimes taken from the editor's own level
+  viewport instead of the game's (a night-sky frame with the axis gizmo) once the explosion's core lived only
+  0.1 s. `Hawkeye.Screenshot.Vfx` runs the effect shots on their own.
 - Open: the explosion still reads washed out (its light plus camera-shake blur); the footstep
   kick is faint. (The arrow's hit spark competing with the thug's hit flash: melee now has its own
   small `NS_MeleeSpark` and the flash dominates, see "Combat readability".)
