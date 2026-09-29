@@ -52,6 +52,7 @@
 #include "Tests/CrimeScreenshots.h"
 #include "Tests/EnemyScreenshots.h"
 #include "Tests/FastTravelScreenshots.h"
+#include "Tests/HangScreenshots.h"
 #include "Tests/InteriorScreenshots.h"
 #include "Tests/HintScreenshots.h"
 #include "Tests/MapScreenshots.h"
@@ -106,6 +107,8 @@
  *
  *   fire_escape.png  from the street, a tenement facade with its zig-zag fire escape
  *   hang_drop.png    standing on a second-floor landing, over the rail to the hang (drop to hang)
+ *   hang_shimmy.png  0.9 s into a shimmy along a tenement parapet toward a roof corner, hands staggered
+ *   hang_corner.png  part way round that corner (ParkourHangDistrictTest.cpp)
  *   grapple_level.png  a level roof-to-roof zip across a street, part way along
  *
  *   bow_holstered.png  hip camera on the street: DA_Bow_Kate across Kate's back
@@ -3013,6 +3016,8 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateReportParkour(this, TEXT("hang_drop.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("hang_drop.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	// Shimmying along a tenement parapet and round its corner (ParkourHangDistrictTest.cpp).
+	HawkeyeAddHangShots(this);
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateWaysDownShot(this, static_cast<uint8>(EWaysDown::LevelZipSetup)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateWaysDownShot(this, static_cast<uint8>(EWaysDown::LevelZipGo)));
