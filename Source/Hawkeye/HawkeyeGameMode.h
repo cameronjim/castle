@@ -133,6 +133,12 @@ public:
 
 	virtual void Tick(float DeltaSeconds) override;
 
+	/**
+	 * -HawkeyePerfLog: names the part of a scripted run that follows ("map", "fight"); the perf lines say
+	 * "<test>/<phase>". Empty clears it. Static so it survives the level change a phase may cause.
+	 */
+	static void SetPerfPhase(const FString& Phase);
+
 protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -141,6 +147,12 @@ protected:
 
 	/** One real frame of the watch after the playable mark. */
 	void WatchFrame(double Now);
+
+	/** -HawkeyePerfLog: adds one frame to the perf window and logs the window every PerfLogSeconds. */
+	void WatchPerf(double Now, double FrameSeconds, bool bScreenshot);
+
+	/** Logs the perf window (and the process memory) under the current label and starts a new one. */
+	void FlushPerfWindow(double Now);
 
 	/** Timer body: actually reopens the level. */
 	void ReopenCurrentLevel();
@@ -202,6 +214,16 @@ private:
 	/** -HawkeyeReloadAfterPlayable=<s>: the load measurement reopens the level once, this long after the mark. */
 	float ReloadAfterPlayableSeconds = -1.f;
 	bool bQuitRequested = false;
+
+	/** -HawkeyePerfLog=<s>: log frame time, the stat unit split and memory every this many seconds; negative: off. */
+	float PerfLogSeconds = -1.f;
+	/** -HawkeyeStatDump=<s>: run "stat dumpave" this often after the playable mark; negative: off. */
+	float StatDumpSeconds = -1.f;
+	FHawkeyePerfWindow PerfWindow;
+	double PerfWindowStartSeconds = 0.0;
+	double LastStatDumpSeconds = 0.0;
+	/** The running automation test when the window began (the window closes when it changes). */
+	FString PerfLabel;
 
 	bool bRestartPending = false;
 	FTimerHandle RestartTimerHandle;

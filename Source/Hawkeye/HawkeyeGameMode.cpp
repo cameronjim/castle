@@ -28,6 +28,10 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
+#include "Misc/AutomationTest.h"
+#include "HAL/PlatformMemory.h"
+#include "RenderTimer.h"
+#include "DynamicRHI.h"
 #include "UnrealClient.h"
 #include "UObject/UObjectIterator.h"
 #if WITH_EDITOR
@@ -96,7 +100,13 @@ void AHawkeyeGameMode::NotePlayable()
 	PlayableWallSeconds = Now;
 	LastFrameWallSeconds = Now;
 	FrameWatch = FHawkeyeFrameWatch();
-	FrameWatch.ThresholdSeconds = HitchLogMs / 1000.0;
+	float HitchMs = HitchLogMs;
+	FParse::Value(FCommandLine::Get(), TEXT("HawkeyeHitchMs="), HitchMs);
+	FrameWatch.ThresholdSeconds = FMath::Max(HitchMs, 1.f) / 1000.0;
+	PerfWindow = FHawkeyePerfWindow();
+	PerfWindow.OverMs = 50.f;
+	PerfWindowStartSeconds = Now;
+	LastStatDumpSeconds = Now;
 	const bool bFirstMap = HawkeyeGameModeClock::LevelChangeStartSeconds <= 0.0;
 	const double From = bFirstMap ? GStartTime : HawkeyeGameModeClock::LevelChangeStartSeconds;
 	PlayableSeconds = static_cast<float>(Now - From);
@@ -145,8 +155,9 @@ void AHawkeyeGameMode::WatchFrame(double Now)
 		UE_LOG(LogHawkeye, Log, TEXT("First %.0f s after the playable mark: %d frames, worst %.0f ms at %.2f s%s; worst without captures %.0f ms at %.2f s; %d frame(s) of %.0f ms or more (%d of them screenshot captures)."),
 			FrameSummarySeconds, FrameWatch.Frames, FrameWatch.WorstSeconds * 1000.0, FrameWatch.WorstAtSeconds,
 			FrameWatch.bWorstWasScreenshot ? TEXT(" (a capture)") : TEXT(""), FrameWatch.WorstGameSeconds * 1000.0,
-			FrameWatch.WorstGameAtSeconds, FrameWatch.HitchFrames, HitchLogMs, FrameWatch.ScreenshotHitchFrames);
+			FrameWatch.WorstGameAtSeconds, FrameWatch.HitchFrames, FrameWatch.ThresholdSeconds * 1000.0, FrameWatch.ScreenshotHitchFrames);
 	}
+	WatchPerf(Now, FrameSeconds, bScreenshot);
 	// The reload measurement: one OpenLevel of the same map, as a death with no save does.
 	if (ReloadAfterPlayableSeconds >= 0.f && !HawkeyeGameModeClock::bMeasuredReloadDone && Since >= ReloadAfterPlayableSeconds)
 	{
@@ -165,12 +176,78 @@ void AHawkeyeGameMode::WatchFrame(double Now)
 	}
 }
 
+namespace HawkeyeGameModePerf
+{
+	static FString Phase;
+
+	static FString CurrentLabel()
+	{
+		FString Label = TEXT("play");
+#if WITH_AUTOMATION_TESTS
+		if (const FAutomationTestBase* Test = FAutomationTestFramework::Get().GetCurrentTest())
+		{
+			Label = Test->GetTestFullName();
+		}
+#endif
+		return Phase.IsEmpty() ? Label : Label + TEXT("/") + Phase;
+	}
+}
+
+void AHawkeyeGameMode::SetPerfPhase(const FString& Phase)
+{
+	HawkeyeGameModePerf::Phase = Phase;
+}
+
+void AHawkeyeGameMode::WatchPerf(double Now, double FrameSeconds, bool bScreenshot)
+{
+	if (PerfLogSeconds <= 0.f && StatDumpSeconds <= 0.f)
+	{
+		return;
+	}
+	const FString Label = HawkeyeGameModePerf::CurrentLabel();
+	if (Label != PerfLabel)
+	{
+		FlushPerfWindow(Now);
+		PerfLabel = Label;
+	}
+	// What stat unit shows: the last completed frame's game, render thread and GPU times.
+	PerfWindow.AddFrame(float(FrameSeconds * 1000.0), FPlatformTime::ToMilliseconds(GGameThreadTime),
+		FPlatformTime::ToMilliseconds(GRenderThreadTime), FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles(0)), bScreenshot);
+	if (PerfLogSeconds > 0.f && Now - PerfWindowStartSeconds >= PerfLogSeconds)
+	{
+		FlushPerfWindow(Now);
+	}
+	if (StatDumpSeconds > 0.f && Now - LastStatDumpSeconds >= StatDumpSeconds && GEngine)
+	{
+		LastStatDumpSeconds = Now;
+		UE_LOG(LogHawkeye, Log, TEXT("Perf stat dump [%s] %.1f s after the playable mark."), *PerfLabel, Now - PlayableWallSeconds);
+		GEngine->Exec(GetWorld(), TEXT("stat dumpave -num=120 -ms=0.1"));
+	}
+}
+
+void AHawkeyeGameMode::FlushPerfWindow(double Now)
+{
+	if (PerfWindow.Num() > 0 || PerfWindow.CaptureFrames > 0)
+	{
+		const FPlatformMemoryStats Memory = FPlatformMemory::GetStats();
+		UE_LOG(LogHawkeye, Log, TEXT("Perf [%s] %s %.1f-%.1f s: %s; working set %.2f GB, peak %.2f GB."),
+			*PerfLabel, *GetNameSafe(GetWorld()), PerfWindowStartSeconds - PlayableWallSeconds, Now - PlayableWallSeconds,
+			*PerfWindow.Describe(), Memory.UsedPhysical / double(1 << 30), Memory.PeakUsedPhysical / double(1 << 30));
+	}
+	const float OverMs = PerfWindow.OverMs;
+	PerfWindow = FHawkeyePerfWindow();
+	PerfWindow.OverMs = OverMs;
+	PerfWindowStartSeconds = Now;
+}
+
 void AHawkeyeGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 	BeginPlayWallSeconds = FPlatformTime::Seconds();
 	FParse::Value(FCommandLine::Get(), TEXT("HawkeyeQuitAfterPlayable="), QuitAfterPlayableSeconds);
 	FParse::Value(FCommandLine::Get(), TEXT("HawkeyeReloadAfterPlayable="), ReloadAfterPlayableSeconds);
+	FParse::Value(FCommandLine::Get(), TEXT("HawkeyePerfLog="), PerfLogSeconds);
+	FParse::Value(FCommandLine::Get(), TEXT("HawkeyeStatDump="), StatDumpSeconds);
 
 	IndexMotionMatchingDatabases();
 	// What this map loaded that the next one will want too stays loaded through the level change.
@@ -429,6 +506,10 @@ void AHawkeyeGameMode::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (EndPlayReason == EEndPlayReason::LevelTransition)
 	{
 		HawkeyeGameModeClock::LevelChangeStartSeconds = FPlatformTime::Seconds();
+	}
+	if (PlayableSeconds >= 0.f && (PerfLogSeconds > 0.f || StatDumpSeconds > 0.f))
+	{
+		FlushPerfWindow(FPlatformTime::Seconds());
 	}
 	if (ScreenshotProcessedHandle.IsValid())
 	{

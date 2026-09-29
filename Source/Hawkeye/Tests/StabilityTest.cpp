@@ -195,6 +195,29 @@ bool FHawkeyeLoadFrameWatch::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLoadPerfWindow, "Hawkeye.Load.PerfWindow", HawkeyeStabilityTest::Flags)
+
+bool FHawkeyeLoadPerfWindow::RunTest(const FString& Parameters)
+{
+	FHawkeyePerfWindow Window;
+	TestEqual(TEXT("An empty window's p95 is 0"), Window.PercentileMs(95.f), 0.f);
+	for (int32 Index = 1; Index <= 20; ++Index)
+	{
+		Window.AddFrame(float(Index), 2.f, 3.f, 4.f, false);
+	}
+	Window.AddFrame(500.f, 0.f, 0.f, 0.f, true);
+	Window.AddFrame(60.f, 2.f, 3.f, 4.f, false);
+	TestEqual(TEXT("The capture is left out"), Window.Num(), 21);
+	TestEqual(TEXT("and counted apart"), Window.CaptureFrames, 1);
+	TestEqual(TEXT("One frame over 50 ms"), Window.FramesOver, 1);
+	TestEqual(TEXT("Worst is the 60 ms frame"), Window.WorstMs(), 60.f);
+	TestEqual(TEXT("p95 of 1..20 and 60 is 20 (rank 20 of 21)"), Window.PercentileMs(95.f), 20.f);
+	TestEqual(TEXT("Average"), Window.AverageMs(), (210.f + 60.f) / 21.f, 1e-4f);
+	TestEqual(TEXT("Game thread average"), Window.AverageGameMs(), 2.f, 1e-4f);
+	TestEqual(TEXT("GPU average"), Window.AverageGpuMs(), 4.f, 1e-4f);
+	return true;
+}
+
 // --- What stays loaded across a level change -----------------------------------------------------
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeLoadResidentAssets, "Hawkeye.Load.ResidentAssets", HawkeyeStabilityTest::Flags)

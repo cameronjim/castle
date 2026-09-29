@@ -33,3 +33,35 @@ struct HAWKEYE_API FHawkeyeFrameWatch
 	/** Hitches that were not screenshot captures. */
 	int32 GetGameHitchFrames() const { return HitchFrames - ScreenshotHitchFrames; }
 };
+
+/**
+ * A window of frames for the -HawkeyePerfLog line: frame time (average, 95th percentile, worst) and
+ * the stat unit split (game thread, render thread, GPU), screenshot captures left out. Also plain
+ * numbers only; the game mode feeds it and logs Describe().
+ */
+struct HAWKEYE_API FHawkeyePerfWindow
+{
+	/** Frame times, ms, in arrival order (captures excluded). */
+	TArray<float> FrameMs;
+	double GameMsSum = 0.0;
+	double RenderMsSum = 0.0;
+	double GpuMsSum = 0.0;
+	int32 CaptureFrames = 0;
+	/** Frames at or over OverMs (captures excluded). */
+	int32 FramesOver = 0;
+	float OverMs = 50.f;
+
+	void AddFrame(float FrameMilliseconds, float GameMs, float RenderMs, float GpuMs, bool bScreenshotFrame);
+
+	int32 Num() const { return FrameMs.Num(); }
+	float AverageMs() const;
+	/** The Percent'th percentile frame (nearest rank), ms; 0 with no frames. */
+	float PercentileMs(float Percent) const;
+	float WorstMs() const;
+	float AverageGameMs() const { return FrameMs.Num() ? float(GameMsSum / FrameMs.Num()) : 0.f; }
+	float AverageRenderMs() const { return FrameMs.Num() ? float(RenderMsSum / FrameMs.Num()) : 0.f; }
+	float AverageGpuMs() const { return FrameMs.Num() ? float(GpuMsSum / FrameMs.Num()) : 0.f; }
+
+	/** "120 frames, avg 16.7 ms, p95 18.0, worst 22.1, game 6.1, draw 5.0, gpu 12.3, 0 over 50 ms, 0 captures". */
+	FString Describe() const;
+};

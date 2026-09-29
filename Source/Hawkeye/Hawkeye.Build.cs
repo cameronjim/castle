@@ -54,6 +54,9 @@ public class Hawkeye : ModuleRules
 		// load in uncooked runs, instead of on the first frame.
 		PrivateDependencyModuleNames.Add("PoseSearch");
 
+		// -HawkeyePerfLog reads the stat unit split (game and render thread, GPU) the engine keeps.
+		PrivateDependencyModuleNames.AddRange(new string[] { "RenderCore", "RHI" });
+
 		// UHawkeyePartnerTreeBuilder authors ST_Partner headless through the StateTree editor API;
 		// UHawkeyeBowIKGraphBuilder authors the bow hands AnimBlueprints through the anim graph nodes;
 		// UHawkeyeVfxBuilder authors the Niagara systems through the Niagara editor's stack view model;
