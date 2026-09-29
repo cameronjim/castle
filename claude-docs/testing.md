@@ -136,6 +136,48 @@ Before any commit that touches player feel, AI, or a level, play through this in
 Per-mission and per-boss playtests are in `docs/plans/04-content.md`. Formal playtesting
 with other people is `docs/plans/06-polish-ship.md`.
 
+## 3b. Playtest capture (the note key, photo mode, the session report)
+
+Cameron reports feel problems from memory, and every fix so far came from a log line matched to what he
+described. The capture kit (`Source/Hawkeye/Playtest/`, bindings in gameplay-semantics.md, Controller) turns
+"it felt wrong when I zipped off the roof near the park" into a timestamped record with the state, a picture
+and the log around it.
+
+How to use it:
+- Start with `.\Tools\play.ps1 -Notes`. It names the session after the launch time, waits for the game to
+  close, prints the session folder and writes its `report.md`. Without `-Notes` the kit still records; the
+  folder is the newest one under `Saved\Playtest\`.
+- **F12** (or **hold Menu 0.6 s** on a pad) the moment something feels off: a note. Keep holding 2 s and the
+  next 10 s log LogHawkeye at Verbose, so the thing you do next is captured in detail. A "Note 3 saved" toast
+  confirms it.
+- **F11** (or **Pause > Photo mode**) for a clean shot: WASD / left stick, mouse / right stick, E and Q (RT and
+  LT) up and down, Shift (L3) fast, wheel (LB / RB) field of view, R (Y) back to Kate's view, F12 (A) takes
+  the photo, Esc (B) returns to the game exactly where it was.
+
+Where files land, `Saved/Playtest/<session>/` (`<session>` is the launch time, `2026-09-29_14-03-11`, or
+`-PlaytestSession=<name>`):
+
+| File | What |
+|------|------|
+| `note_<n>.png` | the frame at the note, HUD on |
+| `notes.json` | every note: index, seconds into the session, wall clock, position, yaw, the state (movement mode, speed, sprint, crouch, parkour move or hang, zip, aim, downed, health, alerted thugs, crime, challenge, interior, map, time of day, difficulty, paused), the state line, the screenshot's name and path, and the last 20 LogHawkeye lines |
+| `photo_<n>.png` | photo mode's shots, no UI |
+| `summary.json` | notes, photos, session and play time, paused time, deaths, fights and fights won, crimes started and stopped, challenges run and medals, fast travels, distance, grapples, time aiming and in fights, time in each movement state, the maps played. Written on every map change and at exit |
+| `Hawkeye.log` | the game's own log, copied at exit (only when the running log is `Saved/Logs/Hawkeye.log`) |
+| `report.md` | `python Tools\playtest-report.py <folder>` (or `--latest`, `--stdout`): one markdown file with the summary, each note's state and screenshot link and log lines, the photos, and the log's LogHawkeye warnings |
+
+The log line to grep is `LogHawkeye: NOTE #<n> at <s>s: pos=(x,y,z) yaw=<deg> state=move=Walking speed=512
+... fight=2 ...`; the kit's own lines start `Playtest:` and `Photo mode:`. Automation runs (a `-game` run with
+`RunTests`, the headless suite) write a session folder only once a note or photo is taken, so test runs do not
+fill `Saved/Playtest`. Screenshots go through the same one-at-a-time, off-thread queue as the screenshot tests
+(`World/HawkeyeCapture`), so a note can never take a test's capture.
+
+Tests: `Hawkeye.Playtest.*` (headless: the state line, the NOTE line, the note JSON round trip, the summary
+counters and the fight rule, the log ring and session name, the photo camera's steps). `Hawkeye.Screenshot.Playtest`
+(standalone, `-game`): presses F12, opens photo mode with F11, flies the camera and narrows the view, takes a
+photo, leaves with Esc, and checks `note_<n>.png`, `photo_<n>.png`, `notes.json` and `summary.json`; read the two
+images after (the photo must have no HUD and no corner card).
+
 ## What's not tested with code
 Level layout, materials, lighting, animation feel, sound mix, slideshow imagery, story
 pacing. These get the human checklist and the playtest rounds. Don't write brittle

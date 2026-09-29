@@ -530,7 +530,29 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 | RB | Grapple |
 | D-pad up / down | Tap: standard arrows / grapple arrows (on release). Hold 0.4 s: the world map / the phone. Left / right cycle slots |
 | View | Inventory (tap), quiver wheel (hold); so the map is a hold of D-pad up, M on keys |
-| Menu | Pause |
+| Menu | Pause, on release of a tap (under 0.6 s). Hold 0.6 s: a playtest note, as F12 on keys (still held at 2 s: 10 s of Verbose LogHawkeye). Under a menu it closes the menu on the press, as before |
+
+Playtest capture (2026-09-29; how to use it is in testing.md, "Playtest capture"). Both are read raw by
+`AHawkeyePlayerController::InputKey`, before Enhanced Input, so no input asset changed:
+- **Note:** F12, or Menu held 0.6 s. Every press logs `LogHawkeye: NOTE #<n> at <s>s: pos=(x,y,z) yaw=<deg>
+  state=<HawkeyePlaytest::DescribeState>`, queues `note_<n>.png` with the HUD on (the "Note 3 saved" toast goes
+  up once it is written, so it is not in the shot) and rewrites `notes.json`. F12 works anywhere, menus and
+  pauses included; the Menu hold only in play (the world running), because under a menu Menu closes it. The
+  Menu hold is why a pad's pause now opens on release. F12 or Menu still down 2 s after the press: LogHawkeye
+  at Verbose for 10 s, logged when it starts and ends. `Hawkeye.Playtest.*` test the record, the JSON, the
+  counters and the state line.
+- **Photo mode:** F11 on keys; on a pad, Photo mode in the pause menu (View is the quiver's tap and hold, and
+  Menu's hold is the note, so the pad has no free button for it). Refused, with a toast and a `Photo mode: not
+  now (<why>)` line, under a menu, in a flashback, in a chapter beat (the close-up, the end sequence, the title
+  card), downed, dead, reloading, or with the quiver wheel open. It pauses the world, hides the HUD and flies a
+  camera from where Kate's camera was: WASD or the left stick, mouse or the right stick (eased, 120 / 80 deg/s),
+  E / RT up and Q / LT down, Shift held or L3 clicked for 4x (500 cm/s base; RT is up, so it cannot also be the
+  speed), wheel or LB / RB for the field of view 40 to 110 (5 degrees a notch, 40 deg/s held), R or Y back to
+  Kate's view, F12 or A for `photo_<n>.png` at the window's resolution with no UI at all (the corner card
+  included), Esc, B or F11 back. It never goes more than 50 m from where it started and does not collide. While
+  it is on, every key and axis goes to it and nothing reaches the game; leaving flushes the held keys, puts the
+  view target back, unpauses, and changes nothing else (no save, no sprint-toggle stop, no pause menu).
+  Alt+Enter still toggles fullscreen; `bF11TogglesFullscreen` is off in `DefaultInput.ini`.
 
 Stick up looks up by default (a double negation once inverted it; fixed 2026-09-27). `bInvertMouseY`
 and `bInvertStickY` toggles live in Settings. Mouse look uses `LookSensitivity`; stick look uses `StickSensitivity` (default 1.0, clamp

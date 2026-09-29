@@ -264,6 +264,8 @@ Get-Content "C:\Users\camer\code\hawkeye\Saved\Logs\Hawkeye.log" -Tail 50 | Sele
   warnings); the synchronous build is 0.5 s.
 - Screenshot captures in tests run one at a time, write off the game thread, and fail the
   test if the file is missing, empty, or older than the request.
+  The queue is `World/HawkeyeCapture` (2026-09-29); `Tests/HawkeyeShots` wraps it for tests and the playtest
+  kit's notes and photos (`Saved/Playtest/<session>/`, see testing.md) go through the same one.
 
 ## Packaged builds (working since 2026-09-27)
 - `Tools\package.ps1`: Development by default, `-Shipping`, `-NoZip`, `-NoIoStore`. Cooks
