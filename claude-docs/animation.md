@@ -112,15 +112,15 @@ the striking hand is about two thirds out, and the stretch starts at or just bef
 | AM_Light3_JabElbow (the left jab; the elbow after it is cut) | 2 of 2 | 0.48-1.40 | 1.7 | 0.25 s | 0.34-0.52 s | 0.54 s |
 | AM_Kick_Kicking (the front kick) | 1 of 2 | 0.20-1.35 | 1.2 | 0.29 s | 0.46-0.92 s | 0.96 s |
 | AM_Kick_SideKick | 2 of 2 | 0.20-1.45 | 1.4 | 0.29 s | 0.46-0.87 s | 0.89 s |
-| AM_Heavy_Roundhouse (right roundhouse kick) | 1 of 2 | 0.40-1.65 | 1.2 | 0.39 s | 0.58-1.00 s | 1.04 s |
-| AM_Heavy_SurpriseUppercut | 2 of 2 | 0.65-1.80 | 1.1 | 0.41 s | 0.59-1.00 s | 1.05 s |
+| AM_Heavy_Roundhouse (right roundhouse kick) | 1 of 1 | 0.40-1.65 | 1.2 | 0.39 s | 0.58-1.00 s | 1.04 s |
+| AM_Heavy_SurpriseUppercut | out of the set | 0.65-1.80 | 1.1 | 0.41 s | 0.59-1.00 s | 1.05 s |
 
-Variants (2026-09-28): each strike takes the next clip of its role in manifest order, so Kate's heavy
-goes Roundhouse, Surprise Uppercut, Roundhouse (Roundhouse first since 2026-09-29: side on, the
-uppercut's hit window shows her back, hips 47 degrees turned and the fist still 46 cm out to her right
-at 101 cm, while the roundhouse's foot is 61 cm out at 83 cm; a later trim would not help, the turn is
-the move); the log line "heavy variant 2 of 2 for ECombatAnimRole::Heavy: AM_Heavy_SurpriseUppercut"
-says which. The second variants were measured the same
+Variants (2026-09-28): each strike takes the next clip of its role in manifest order; the log line
+"... variant 2 of 2 for ECombatAnimRole::Light1: AM_Light1_Punching" says which. Kate's heavy is the
+Roundhouse only since 2026-09-29: side on, the Surprise Uppercut's hit window shows her back, hips 47
+degrees turned and the fist still 46 cm out to her right at 101 cm, while the roundhouse's foot is 61 cm
+out at 83 cm; a later trim would not help, the turn is the move. It stays imported with `"in_set": false`
+until a better second heavy exists. The second variants were measured the same
 way (`GetRawBoneLocation` per frame of the retargeted `A_` clip): the hit opens when the fist or foot is
 80 to 90% of its way out. The Roundhouse's standing leg straightens from her bent-knee idle: her pelvis
 is 16 cm above standing at the hit (95 against 79 cm), the standing foot flat on the ground.

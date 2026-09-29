@@ -813,6 +813,11 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   accents), growing to 1.3x by the hit and pulsing 5 times a second by up to 0.12x (reduce flashing
   scales the pulse to 30%, the growth stays). A gunner's raised pistol gets it only within 600 cm of
   her; an archer never does (his purple glint is the tell).
+- Glyph anchor (2026-09-29): the alert "!" and "?" and the telegraph "!" sit on his head bone plus 20 cm
+  (`GlyphHeadClearance` on the thug, about the top of his head), not on his capsule's top plus 28 cm, which
+  put the "!" about 60 px over his head at close range. The health bar keeps the capsule anchor; while it
+  shows, the glyph (and the parry line under a telegraph) is lifted to sit over the bar's top, never on it
+  (`HawkeyeCombatReadability::ComputeGlyphBottom`, tested in `Hawkeye.Melee.HitStopAndTelegraphGlyph`).
 - Parry line: under the telegraph glyph, an 18 x 3 px cream line on a dark edge, drawn only while a
   tap now would parry him: in the difficulty's window (Hard: not the first 0.1 s), within 250 cm and
   70 degrees of her view, 150 cm up or down (`AHawkeyeCharacter::CanParryNow`, the same test the
@@ -839,9 +844,10 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   150 cm from a building the probe holds the lens at 147 cm; she is drawn (not hidden), head at -0.36,
   feet at +0.50 (the bottom edge), both thugs in frame. The shot fails if she is hidden or her head
   or feet leave the screen.
-- Clip order for readability (2026-09-29): Kate's first heavy is the Roundhouse and the Surprise
-  Uppercut second (side on, the uppercut's hit window shows her back, hips 47 degrees turned, the
-  striking hand 46 cm out to her right at 101 cm; the roundhouse's foot is 61 cm out at 83 cm). The
+- Clip order for readability (2026-09-29): Kate's heavy is the Roundhouse only. The Surprise Uppercut
+  (side on, its hit window shows her back, hips 47 degrees turned, the striking hand 46 cm out to her
+  right at 101 cm; the roundhouse's foot is 61 cm out at 83 cm) is `"in_set": false` in the manifest
+  until a better second heavy exists; `heavy_strike_2.png` is skipped while the set has one heavy. The
   thug's first fists swing is Jab To Elbow and Standing Melee Punch second (0.3 s into the telegraph
   the jab has his guard up, right hand at 160 cm; the punch is still holding its first frame, hands
   low at 107 to 112 cm, which reads as standing about).
@@ -1022,7 +1028,7 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   Heavy, Kick) takes the next variant of its role in order, round again after the last, so with two or
   more no clip plays twice running; a role with one clip plays it every time, as before. The cycle is
   per character and per role (a chain's Light1 and the next chain's Light1 differ). The log says which:
-  "heavy variant 2 of 2 for ECombatAnimRole::Heavy: AM_Heavy_SurpriseUppercut". Every other role (dodges,
+  "... variant 2 of 2 for ECombatAnimRole::Light1: AM_Light1_Punching". Every other role (dodges,
   reactions, knockdown, finisher, bow) plays its first clip only. A variant that does not load gives way
   to the role's first clip.
 - Clips are retargeted, never used on their source skeleton: Kate and Clint's onto the UEFN
@@ -1049,8 +1055,8 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   0.35 s timer and ends the swing at RecoverSeconds.
 - Kate's strike timing with clips (2026-09-28; each clip's start, end, rate and windows are in the
   manifest, in the source clip's seconds): Light1, Light2 and Light3 land 0.24 to 0.26 s after the
-  input with either variant, Kick 0.29 s (Kicking and Side Kick), Heavy 0.39 s (Roundhouse, first since
-  2026-09-29) or 0.41 s (Surprise Uppercut). A light's montage lasts 0.54 to 0.81 s; its combo window opens
+  input with either variant, Kick 0.29 s (Kicking and Side Kick), Heavy 0.39 s (the Roundhouse, her only
+  heavy since 2026-09-29; the Surprise Uppercut, 0.41 s, is imported but out of the set). A light's montage lasts 0.54 to 0.81 s; its combo window opens
   about 0.1 s after its hit and closes 0.3 to 0.5 s after it, so the 0.35 s chain rule holds to within
   about 0.15 s either way. Pressed as each lands, three lights land at about 0.25, 0.6 and 1.0 s and the
   chain is over by about 1.4 s. The procedural lights still land at 0.1 s.
