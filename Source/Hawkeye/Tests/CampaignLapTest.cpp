@@ -71,6 +71,8 @@
 #include "UObject/UObjectIterator.h"
 #include "World/ChapterEndInteractable.h"
 #include "World/FireEscapeLanding.h"
+#include "Player/ParkourComponent.h"
+#include "Tests/GrappleAuditKit.h"
 #include "World/GrappleAnchor.h"
 #include "World/InteractionComponent.h"
 #include "World/Safehouse.h"
@@ -94,9 +96,12 @@
  *
  * The run: the main menu with no save, New Game, Normal at the prompt, the title card, the first text
  * read on the phone (P, then P again), reach_roof and cross_block by grapple (a planner that walks to a
- * spot with a clear line, aims, presses Q and walks the roof), clear_roof against the RoofPair with the
+ * spot with a clear line, aims, presses Q and walks the roof; with nothing in reach from a roof, down its
+ * fire escape and up again from the street), clear_roof against the RoofPair with the
  * bow, a bola and melee, then Esc > Quit to menu and Continue, compared field by field with what was
- * there before; find_arrow, the examine (E), the close-up, the end card, the slides, the placeholder
+ * there before; find_arrow, its roof reached by grapple (down cross_block's fire escape and up from the
+ * street to the facade anchor on its street wall; never put on it: an error if it cannot), the examine (E),
+ * the close-up, the end card, the slides, the placeholder
  * room walked to its trigger, and the street again, where the save, the map, the music, a challenge, a
  * fast travel and the crime schedule are tried; an ambush lost on purpose and the reload after it; and
  * Quit to menu and Continue once more. Every step checks input, the HUD, the pause, the time dilation,
@@ -584,6 +589,7 @@ private:
 		Walk,
 		Aim,
 		Zip,
+		Descend,
 		Final,
 	};
 
@@ -622,6 +628,25 @@ private:
 	FVector LastProgressSpot = FVector::ZeroVector;
 	double LastProgressAt = 0.0;
 	TArray<FString> LegNotes;
+
+	// Down a fire escape (the find_arrow leg: the street to it is wider than the grapple's range).
+	int32 DescendPhase = 0;
+	FVector DescendStand = FVector::ZeroVector;
+	FVector DescendOut = FVector::ForwardVector;
+	FString DescendRoute;
+	double DescendStart = 0.0;
+	bool bDescendPushed = false;
+	int32 DescendRetries = 0;
+	int32 DescendHangs = 0;
+	int32 DescendCatches = 0;
+	int32 DescendStops = 0;
+	float StreetZ = 0.f;
+
+	/** The top landing of the fire escape on Roof, or null. */
+	AFireEscapeLanding* TopLandingOn(UWorld* World, const AActor* Roof) const;
+
+	/** Down the fire escape on the roof she stands on: false when it has none. */
+	bool BeginDescend(UWorld* World, AHawkeyeCharacter* Kate);
 
 	// The fight.
 	FName FightTag = HawkeyeCampaignLap::RoofPairTag;
@@ -1118,12 +1143,19 @@ bool FHawkeyeCampaignLapRunner::PlanHop(UWorld* World, AHawkeyeCharacter* Kate, 
 	TMap<FString, int32> Blockers;
 	for (const TPair<float, AGrappleAnchor*>& Entry : Ranked)
 	{
+		AGrappleAnchor* Anchor = Entry.Value;
+		const FVector Marker = Anchor->GetMarkerLocation();
+		// Only anchors a stand spot could be in range of count against the 25 tried: the far ones nearer the goal
+		// used to use the budget up before one in reach was looked at.
+		if (FVector::Dist2D(Here, Marker) > Grapple->Range + (OnBuilding ? 2200.f : 9000.f))
+		{
+			continue;
+		}
 		if (++Tried > 25)
 		{
 			break;
 		}
-		AGrappleAnchor* Anchor = Entry.Value;
-		const FVector Marker = Anchor->GetMarkerLocation();
+		const int32 SpotsBefore = Spots;
 		TArray<FVector> Stands;
 		Stands.Add(Here);
 		for (const float Distance : { 300.f, 600.f, 900.f, 1200.f, 1600.f, 2000.f })
@@ -1176,31 +1208,26 @@ bool FHawkeyeCampaignLapRunner::PlanHop(UWorld* World, AHawkeyeCharacter* Kate, 
 			{
 				continue;
 			}
-			// The grapple picks by what the lens sees: the camera sits an arm's length behind her, pitched up at the
-			// anchor (as far as the pitch limit lets it), so an awning or a fire escape over her can hide it.
+			// The grapple picks by what the lens sees: the hip camera turned to put the anchor in the middle of the
+			// screen (the spring arm's sums, the pitch limit and the probe, as Hawkeye.Grapple.Audit has it), so an
+			// awning or a fire escape over her can hide it, and past the pitch limit it can leave the screen.
 			{
-				const FRotator Look((Marker - From).Rotation());
-				const FRotator Clamped(Kate->ClampCameraPitch(Look.Pitch), Look.Yaw, 0.f);
-				const float Arm = Kate->GetCameraBoom() ? Kate->GetCameraBoom()->TargetArmLength : 350.f;
-				// The boom pulls the lens in where it would go into the ground or a wall, as the spring arm does.
-				const FVector Pivot = From + FVector(0.f, 0.f, 60.f);
-				FVector Lens = Pivot - Clamped.Vector() * Arm;
-				FCollisionQueryParams SightParams(SCENE_QUERY_STAT(CampaignLens), false, Kate);
-				SightParams.AddIgnoredActor(Anchor);
-				FHitResult SightHit;
-				if (World->LineTraceSingleByChannel(SightHit, Pivot, Lens, ECC_Camera, SightParams))
-				{
-					Lens = SightHit.Location + Clamped.Vector() * 15.f;
-				}
-				if (World->LineTraceSingleByChannel(SightHit, Lens, Marker, ECC_Visibility, SightParams)
-					&& SightHit.Distance < FVector::Dist(Lens, Marker) - 60.f)
-				{
-					Blockers.FindOrAdd(FString(TEXT("the lens: ")) + GetNameSafe(SightHit.GetActor()))++;
-					continue;
-				}
-				if (FMath::Abs(Look.Pitch - Clamped.Pitch) > 25.f)
+				FVector Lens, Forward;
+				HawkeyeGrappleView::PredictLens(Kate, From, Marker, Lens, Forward);
+				const float Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
+					FVector::DotProduct(Forward, (Marker - Lens).GetSafeNormal()), -1.f, 1.f)));
+				if (Angle > Grapple->ConeDegrees - 3.f || !Grapple->IsOnScreen(Lens, Forward, Marker))
 				{
 					Blockers.FindOrAdd(TEXT("too steep for the camera"))++;
+					continue;
+				}
+				if (!Grapple->HasLineOfSight(Anchor, Lens))
+				{
+					FCollisionQueryParams SightParams(SCENE_QUERY_STAT(CampaignLens), false, Kate);
+					SightParams.AddIgnoredActor(Anchor);
+					FHitResult SightHit;
+					World->LineTraceSingleByChannel(SightHit, Lens, Marker, ECC_Visibility, SightParams);
+					Blockers.FindOrAdd(FString(TEXT("the lens: ")) + GetNameSafe(SightHit.GetActor()))++;
 					continue;
 				}
 			}
@@ -1262,6 +1289,10 @@ bool FHawkeyeCampaignLapRunner::PlanHop(UWorld* World, AHawkeyeCharacter* Kate, 
 				FVector::Dist2D(Anchor->GetLandingLocation(), Goal) / 100.f, *BestStand.ToCompactString(), BestCost / 100.f, Tried);
 			return true;
 		}
+		if (Spots == SpotsBefore)
+		{
+			--Tried;
+		}
 	}
 	Blockers.ValueSort([](int32 A, int32 B) { return A > B; });
 	TArray<FString> Worst;
@@ -1276,6 +1307,60 @@ bool FHawkeyeCampaignLapRunner::PlanHop(UWorld* World, AHawkeyeCharacter* Kate, 
 		*Here.ToCompactString(), OnBuilding ? *OnBuilding->GetName() : TEXT("street"), Ranked.Num(), Tried, Spots,
 		Worst.Num() ? *FString::Join(Worst, TEXT(", ")) : TEXT("nothing"));
 	return false;
+}
+
+AFireEscapeLanding* FHawkeyeCampaignLapRunner::TopLandingOn(UWorld* World, const AActor* Roof) const
+{
+	if (!Roof)
+	{
+		return nullptr;
+	}
+	FString Osm;
+	for (const FName& Tag : Roof->Tags)
+	{
+		if (Tag.ToString().StartsWith(TEXT("osm:")))
+		{
+			Osm = Tag.ToString().Mid(4);
+		}
+	}
+	AFireEscapeLanding* Top = nullptr;
+	for (TActorIterator<AFireEscapeLanding> It(World); It; ++It)
+	{
+		if (!Osm.IsEmpty() && It->GetRecord().OsmId == Osm && (!Top || It->GetRecord().Floor > Top->GetRecord().Floor))
+		{
+			Top = *It;
+		}
+	}
+	return Top;
+}
+
+bool FHawkeyeCampaignLapRunner::BeginDescend(UWorld* World, AHawkeyeCharacter* Kate)
+{
+	using namespace HawkeyeCampaignLap;
+	AActor* Roof = BuildingUnder(World, Feet(Kate), Kate);
+	const AFireEscapeLanding* Landing = TopLandingOn(World, Roof);
+	if (!Landing)
+	{
+		return false;
+	}
+	// On the roof, square behind the top landing's middle: parapet (30), capsule (34), a margin.
+	DescendOut = Landing->GetActorRightVector().GetSafeNormal2D();
+	const FVector Facade = Landing->GetActorLocation();
+	DescendStand = FVector(Facade.X, Facade.Y, Feet(Kate).Z) - DescendOut * 110.f;
+	DescendRoute = FString::Printf(TEXT("fire escape of %s (%d landings)"), *GetNameSafe(Roof), Landing->GetRecord().Floor);
+	FVector Street;
+	AActor* Under = nullptr;
+	StreetZ = GroundAt(World, Facade + DescendOut * 300.f, Facade.Z, Facade.Z - 5000.f, Kate, Street, &Under) ? Street.Z : 0.f;
+	DescendPhase = 1;
+	DescendStart = FPlatformTime::Seconds();
+	SubStart = DescendStart;
+	DescendRetries = 0;
+	DescendHangs = 0;
+	DescendCatches = 0;
+	DescendStops = 0;
+	bDescendPushed = false;
+	Leg = ELeg::Descend;
+	return true;
 }
 
 bool FHawkeyeCampaignLapRunner::TickLeg(UWorld* World, AHawkeyePlayerController* PC, AHawkeyeCharacter* Kate)
@@ -1293,6 +1378,10 @@ bool FHawkeyeCampaignLapRunner::TickLeg(UWorld* World, AHawkeyePlayerController*
 	if (Now - LegStart > 150.0)
 	{
 		StopMoving(PC);
+		if (LegObjective == TEXT("find_arrow"))
+		{
+			Test->AddError(FString::Printf(TEXT("Campaign: find_arrow roof not reached by grapple in 150 s: %s"), *FString::Join(LegNotes, TEXT("; "))));
+		}
 		Force(FString::Printf(TEXT("%s not reached in 150 s (%s); completing it"), *LegObjective.ToString(), *FString::Join(LegNotes, TEXT("; "))));
 		if (UMissionSubsystem* Missions = UMissionSubsystem::Get(World))
 		{
@@ -1320,8 +1409,13 @@ bool FHawkeyeCampaignLapRunner::TickLeg(UWorld* World, AHawkeyePlayerController*
 		FString Note;
 		if (Hops < 14 && On && !PlanHop(World, Kate, Note))
 		{
-			// Nothing in reach from this roof: a player takes a fire escape down (the EastVillage lap drives that
-			// descent; this one does not), then grapples up again from the street.
+			// Nothing in reach from this roof: down its fire escape as a player would, then up again from the street.
+			if (BeginDescend(World, Kate))
+			{
+				LegNotes.Add(Note);
+				Mark(FString::Printf(TEXT("%s: %s; down the %s"), *LegObjective.ToString(), *Note, *DescendRoute));
+				return false;
+			}
 			FVector Street = FVector::ZeroVector;
 			AActor* StreetActor = nullptr;
 			bool bFound = false;
@@ -1336,7 +1430,11 @@ bool FHawkeyeCampaignLapRunner::TickLeg(UWorld* World, AHawkeyePlayerController*
 			}
 			if (bFound)
 			{
-				Force(FString::Printf(TEXT("%s: %s; no descent scripted, putting Kate on the street %.0f m below"), *LegObjective.ToString(),
+				if (LegObjective == TEXT("find_arrow"))
+				{
+					Test->AddError(FString::Printf(TEXT("Campaign: find_arrow: no fire escape down from %s"), *GetNameSafe(On)));
+				}
+				Force(FString::Printf(TEXT("%s: %s; no fire escape here, putting Kate on the street %.0f m below"), *LegObjective.ToString(),
 					*Note, (Feet(Kate).Z - Street.Z) / 100.f), /*bLapOnly=*/true);
 				StopMoving(PC);
 				Kate->TeleportTo(Street + FVector(0.f, 0.f, Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 5.f), Kate->GetActorRotation());
@@ -1347,6 +1445,11 @@ bool FHawkeyeCampaignLapRunner::TickLeg(UWorld* World, AHawkeyePlayerController*
 		{
 			LegNotes.Add(Note);
 			StopMoving(PC);
+			if (LegObjective == TEXT("find_arrow"))
+			{
+				// The find_arrow roof must be reached by grapple (generate_city's facade anchor on its street wall).
+				Test->AddError(FString::Printf(TEXT("Campaign: find_arrow roof not reached by grapple: %s"), *Note));
+			}
 			Force(FString::Printf(TEXT("%s: %s; putting Kate on the goal"), *LegObjective.ToString(), *Note));
 			Kate->TeleportTo(Goal + FVector(0.f, 0.f, Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 5.f), Kate->GetActorRotation());
 			Leg = ELeg::Final;
@@ -1459,6 +1562,119 @@ bool FHawkeyeCampaignLapRunner::TickLeg(UWorld* World, AHawkeyePlayerController*
 		Mark(FString::Printf(TEXT("landed on %s"), *GetNameSafe(BuildingUnder(World, Feet(Kate), Kate))));
 		Leg = ELeg::Plan;
 		return false;
+
+	case ELeg::Descend:
+	{
+		// As the EastVillage lap: crouch at the parapet over the top landing (a drop to hang), crouch to drop, and
+		// at each landing catch its rail on the way down or stand on it and crouch at its rail, to the street.
+		UParkourComponent* Parkour = Kate->GetParkourComponent();
+		const float FeetZ = Feet(Kate).Z;
+		auto Fail = [&](const FString& Why)
+		{
+			StopMoving(PC);
+			LegNotes.Add(TEXT("descent: ") + Why);
+			Mark(FString::Printf(TEXT("%s: the descent stopped: %s"), *LegObjective.ToString(), *Why));
+			Leg = ELeg::Plan;
+			++Hops;
+		};
+		if (Now - DescendStart > 45.0)
+		{
+			Fail(FString::Printf(TEXT("over 45 s (phase %d at %s)"), DescendPhase, *Kate->GetActorLocation().ToCompactString()));
+			return false;
+		}
+		if (DescendPhase == 1)
+		{
+			if (Steer(PC, Kate, DescendStand, false, 40.f) || Now - SubStart > 10.0)
+			{
+				StopMoving(PC);
+				DescendPhase = 2;
+				SubStart = Now;
+				bDescendPushed = false;
+			}
+		}
+		else if (DescendPhase == 2)
+		{
+			Steer(PC, Kate, FVector(DescendStand.X, DescendStand.Y, FeetZ) + DescendOut * 1000.f, false, 1.f);
+			if (Parkour->IsBusy())
+			{
+				StopMoving(PC);
+				DescendRetries = 0;
+				DescendPhase = 3;
+				SubStart = Now;
+			}
+			else if (Now - SubStart > 0.25 && !bDescendPushed)
+			{
+				bDescendPushed = true;
+				Tap(PC, CrouchPath);
+			}
+			else if (Now - SubStart > 1.0)
+			{
+				bDescendPushed = false;
+				SubStart = Now;
+				if (++DescendRetries >= 3)
+				{
+					Fail(FString::Printf(TEXT("crouch at the edge found no drop to hang three times at %s"), *Kate->GetActorLocation().ToCompactString()));
+				}
+			}
+		}
+		else if (DescendPhase == 3)
+		{
+			if (Parkour->IsHanging())
+			{
+				if (Now - SubStart > 0.3)
+				{
+					++DescendHangs;
+					Tap(PC, CrouchPath);
+					DescendPhase = 4;
+					SubStart = Now;
+				}
+			}
+			else if (!Parkour->IsBusy() && Now - SubStart > 2.0)
+			{
+				Fail(FString::Printf(TEXT("the move over the edge did not end in a hang (at %s)"), *Kate->GetActorLocation().ToCompactString()));
+			}
+		}
+		else if (DescendPhase == 4 && Now - SubStart > 0.15)
+		{
+			if (Parkour->IsBusy())
+			{
+				if (Parkour->IsHanging() || Parkour->GetActiveMove() == EHawkeyeParkourMove::LedgeGrab)
+				{
+					++DescendCatches;
+					DescendPhase = 3;
+					SubStart = Now;
+				}
+			}
+			else if (Kate->GetCharacterMovement()->IsMovingOnGround() && Now - SubStart > 0.2)
+			{
+				if (FeetZ - StreetZ > 200.f)
+				{
+					++DescendStops;
+					DescendStand = FVector(Kate->GetActorLocation().X, Kate->GetActorLocation().Y, FeetZ);
+					DescendRetries = 0;
+					bDescendPushed = false;
+					DescendPhase = 2;
+					SubStart = Now;
+				}
+				else
+				{
+					StopMoving(PC);
+					const FString Done = FString::Printf(TEXT("down the %s: %d hang(s), %d catch(es), %d stop(s) on a landing, %.1f s"),
+						*DescendRoute, DescendHangs, DescendCatches, DescendStops, Now - DescendStart);
+					LegNotes.Add(Done);
+					Mark(FString::Printf(TEXT("%s: on the street, %s"), *LegObjective.ToString(), *Done));
+					VisitedRoofs.Reset();
+					Excluded.Reset();
+					Leg = ELeg::Plan;
+				}
+			}
+			else if (Now - SubStart > 5.0)
+			{
+				Fail(FString::Printf(TEXT("still in the air 5 s after a drop (at %s)"), *Kate->GetActorLocation().ToCompactString()));
+			}
+		}
+		return false;
+	}
 
 	case ELeg::Final:
 	{

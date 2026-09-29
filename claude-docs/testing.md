@@ -122,10 +122,14 @@ So every pass that touches materials, meshes, lighting, or the viewmodel must al
 `Hawkeye.Lap.Campaign` (standalone `-game`, about 4 minutes) plays CH01 as a new tester: the main menu
 with no save (its own slot, `HawkeyeCampaignLap`, deleted first; the settings put back after), New Game,
 Normal, the title card, the first text read on the phone, `reach_roof` and `cross_block` by grapple (a
-planner that walks to a spot whose zip and camera line are clear, aims and presses Q), the RoofPair with
+planner that walks to a spot whose zip and camera line are clear, aims and presses Q; the camera line is the
+hip camera turned to the anchor, `HawkeyeGrappleView::PredictLens`, as `Hawkeye.Grapple.Audit` has it; with
+nothing in reach from a roof she goes down its fire escape and grapples up again from the street), the RoofPair with
 a bola, the bow and melee, Esc > Quit to menu > Continue compared field by field (objective, quiver,
 thugs, hints, crime and challenge counts, phone, safehouses, position, health), the ArcherPair from
-parapet cover, the examine, the close-up, end card, slides and the placeholder room walked to its
+parapet cover (`find_arrow`'s roof reached by grapple, never put on it: from cross_block down a fire escape and
+up to the facade anchor on its street wall, an error if it cannot), the examine, the close-up, end card, slides
+and the placeholder room walked to its
 trigger, then on the street the save, map, music, a challenge, a fast travel, an ambush lost on purpose
 and its reload, and Quit and Continue again. Every step checks input, HUD, pause, dilation, fade, the
 grey post process and the widgets left in the viewport. It writes `Saved/Automation/campaign_lap.json`
