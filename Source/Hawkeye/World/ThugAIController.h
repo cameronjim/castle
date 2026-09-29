@@ -7,6 +7,7 @@
 #include "Perception/AIPerceptionTypes.h"
 #include "World/ThugCharacter.h"
 #include "World/ThugTypes.h"
+#include "World/ThugAim.h"
 #include "ThugAIController.generated.h"
 
 class AGrappleAnchor;
@@ -83,9 +84,16 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.0"))
 	float LoseTargetSeconds = 5.f;
 
-	/** Half-angle of the random cone the thug's shots are scattered into. */
+	/**
+	 * The gunner's base scatter cone, degrees (gameplay-semantics.md, "Ranged thug accuracy"; was a flat 4):
+	 * her sideways speed and the air widen it, the difficulty scales it.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.0"))
-	float AimSpreadDegrees = 4.f;
+	float AimSpreadDegrees = HawkeyeThugAim::GunnerBaseConeDegrees;
+
+	/** The archer's base scatter cone, degrees, widened and scaled like the gunner's. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
+	float ArcherAimConeDegrees = HawkeyeThugAim::ArcherBaseConeDegrees;
 
 	/** Inside this the thug shoots instead of closing the distance. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.0"))
@@ -151,9 +159,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
 	float ArcherCloseRange = 800.f;
 
-	/** Between one arrow and the next draw, seconds. */
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
-	float ArcherShotCooldownSeconds = 2.f;
+	/**
+	 * Between one arrow and the next draw, seconds. Below 0 (the default) it is drawn each time from the
+	 * difficulty's ArcherShotGapMin/MaxSeconds (1.5 to 2.5 s at Normal); 0 or more fixes it (tests).
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer")
+	float ArcherShotCooldownSeconds = -1.f;
 
 	/** Between one relocation and the next, seconds. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Archer", meta = (ClampMin = "0.0"))
@@ -425,6 +436,34 @@ public:
 	 */
 	bool FindCoverPoint(const FVector& Threat, FVector& OutPoint, const FVector* Avoid = nullptr) const;
 
+	// --- Ranged aim (gameplay-semantics.md, "Ranged thug accuracy") -----------------------------------
+
+	/** Takes one look at the target for the tracking lag (the fast timer calls it; public for tests). */
+	void RecordTargetSample();
+
+	/** What he has seen of the target lately. */
+	const FHawkeyeTargetTrack& GetTargetTrack() const { return TargetTrack; }
+
+	/**
+	 * Where a shot from From at ProjectileSpeed (0 for the pistol) with a BaseConeDegrees cone goes at the
+	 * target now: the lagged lead, the cone, the forced miss after a jink. Logs a forced miss.
+	 */
+	FHawkeyeRangedAim ComputeRangedAim(const FVector& From, float ProjectileSpeed, float BaseConeDegrees);
+
+	/** Shots sent wide on purpose because she jinked. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Ranged")
+	int32 GetForcedMisses() const { return ForcedMisses; }
+
+	/** The gap before an archer's next draw, from his last release, s. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Archer")
+	float GetNextArcherGapSeconds() const { return NextArcherGapSeconds; }
+
+	/** Picks the gap before his next draw (ArcherShotCooldownSeconds, or the difficulty's range). Each release and broken draw calls it. */
+	void RollArcherGap();
+
+	/** Replaces the aim scatter stream so a test gets the same shots every run. */
+	void SetAimRandomStream(const FRandomStream& InStream) { AimStream = InStream; }
+
 	// --- Archer state --------------------------------------------------------------------------------
 
 	UFUNCTION(BlueprintPure, Category = "Thug|Archer")
@@ -672,6 +711,16 @@ private:
 	bool bRetreating = false;
 	FVector RetreatGoal = FVector::ZeroVector;
 	float RetreatElapsed = 0.f;
+
+	/** Ranged aim state. */
+	FHawkeyeTargetTrack TargetTrack;
+	FRandomStream AimStream;
+	FTimerHandle TrackTimerHandle;
+	int32 ForcedMisses = 0;
+	float NextArcherGapSeconds = 0.f;
+
+	/** Starts (or stops) the fast look at the target a gunner or an archer keeps for his aim. */
+	void UpdateTrackTimer();
 
 	/** Archer state. */
 	double LastArrowSeconds = -100.0;

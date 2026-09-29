@@ -204,6 +204,78 @@ void AThugAIController::OnPossess(APawn* InPawn)
 		World->GetTimerManager().SetTimer(
 			ThinkTimerHandle, this, &AThugAIController::TickThink, ThinkIntervalSeconds, true);
 	}
+	AimStream.Initialize(GetTypeHash(GetNameSafe(InPawn)));
+	UpdateTrackTimer();
+}
+
+void AThugAIController::UpdateTrackTimer()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	const AThugCharacter* Thug = GetThug();
+	const bool bRanged = Thug && (Thug->IsArcher() || Thug->IsGunner());
+	if (bRanged && bThinkingEnabled)
+	{
+		if (!World->GetTimerManager().IsTimerActive(TrackTimerHandle))
+		{
+			World->GetTimerManager().SetTimer(TrackTimerHandle, this, &AThugAIController::RecordTargetSample,
+				HawkeyeThugAim::SampleSeconds, true);
+		}
+		return;
+	}
+	World->GetTimerManager().ClearTimer(TrackTimerHandle);
+	TargetTrack.Reset();
+}
+
+void AThugAIController::RecordTargetSample()
+{
+	const AActor* Target = IsValid(TargetActor) ? TargetActor.Get() : FindPlayerPawn();
+	if (!Target)
+	{
+		return;
+	}
+	const ACharacter* TargetCharacter = Cast<ACharacter>(Target);
+	const UCharacterMovementComponent* Movement = TargetCharacter ? TargetCharacter->GetCharacterMovement() : nullptr;
+	const AHawkeyeCharacter* Kate = Cast<AHawkeyeCharacter>(Target);
+	TargetTrack.AddSample(GetNowSeconds(), GetAimPointOn(Target), Target->GetVelocity(), Movement && Movement->IsFalling(),
+		Kate && Kate->IsDodging());
+}
+
+FHawkeyeRangedAim AThugAIController::ComputeRangedAim(const FVector& From, float ProjectileSpeed, float BaseConeDegrees)
+{
+	FHawkeyeRangedAim Out;
+	const AActor* Target = TargetActor.Get();
+	if (!IsValid(Target))
+	{
+		Out.AimPoint = From + (GetPawn() ? GetPawn()->GetActorForwardVector() : FVector::ForwardVector) * 1000.f;
+		return Out;
+	}
+	// Always at least the look he is taking now, so a thug with no history still aims.
+	RecordTargetSample();
+	float Radius = 34.f;
+	float HalfHeight = 88.f;
+	Target->GetSimpleCollisionCylinder(Radius, HalfHeight);
+	const UWorld* World = GetWorld();
+	const FHawkeyeRangedShot Shot = HawkeyeThugAim::BuildShot(TargetTrack, GetNowSeconds(), From, GetAimPointOn(Target),
+		Target->GetVelocity(), UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::RangedTrackingLagSeconds), ProjectileSpeed,
+		World ? World->GetGravityZ() : -980.f, BaseConeDegrees,
+		UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::RangedConeScale), Radius);
+	Out = HawkeyeThugAim::ComputeShot(Shot, AimStream);
+	if (Out.bForcedMiss)
+	{
+		++ForcedMisses;
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %s jinked (a sharp turn or a dodge in the last %.1f s) at %.0f cm: this shot goes wide."),
+			*GetNameSafe(GetPawn()), *GetNameSafe(Target), HawkeyeThugAim::ErraticWindowSeconds, FVector::Dist(From, Shot.ChestNow));
+	}
+	else
+	{
+		UE_LOG(LogHawkeye, Verbose, TEXT("%s: aims %.2f s behind %s, cone %.1f deg."), *GetNameSafe(GetPawn()),
+			Shot.TrackingLagSeconds, *GetNameSafe(Target), Out.ConeDegrees);
+	}
+	return Out;
 }
 
 void AThugAIController::SetThinkingEnabled(bool bEnabled)
@@ -224,6 +296,7 @@ void AThugAIController::SetThinkingEnabled(bool bEnabled)
 		{
 			World->GetTimerManager().ClearTimer(ThinkTimerHandle);
 		}
+		UpdateTrackTimer();
 		return;
 	}
 	if (World && GetPawn())
@@ -231,6 +304,7 @@ void AThugAIController::SetThinkingEnabled(bool bEnabled)
 		World->GetTimerManager().SetTimer(
 			ThinkTimerHandle, this, &AThugAIController::TickThink, ThinkIntervalSeconds, true);
 	}
+	UpdateTrackTimer();
 }
 
 void AThugAIController::OnUnPossess()
@@ -239,6 +313,7 @@ void AThugAIController::OnUnPossess()
 	{
 		World->GetTimerManager().ClearTimer(ThinkTimerHandle);
 		World->GetTimerManager().ClearTimer(ArcherHoldTimerHandle);
+		World->GetTimerManager().ClearTimer(TrackTimerHandle);
 	}
 	if (StateTreeComponent && StateTreeComponent->IsRunning())
 	{
@@ -260,6 +335,7 @@ void AThugAIController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		World->GetTimerManager().ClearTimer(ThinkTimerHandle);
 		World->GetTimerManager().ClearTimer(ArcherHoldTimerHandle);
+		World->GetTimerManager().ClearTimer(TrackTimerHandle);
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -1378,6 +1454,7 @@ void AThugAIController::CancelArcherDraw(const TCHAR* Why)
 		UE_LOG(LogHawkeye, Log, TEXT("%s: draw broken (%s)."), *Thug->GetName(), Why);
 		// A broken draw still costs him the cooldown before the next.
 		LastArrowSeconds = GetNowSeconds();
+		RollArcherGap();
 	}
 	Thug->SetTelegraphGlint(false);
 }
@@ -1450,7 +1527,7 @@ void AThugAIController::TickArcher(float DeltaSeconds, const FVector& ToTarget)
 	const bool bLine = HasLineTo(Chest, TargetActor);
 	if (!Bow->IsDrawing())
 	{
-		if (!bLine || Now - LastArrowSeconds < ArcherShotCooldownSeconds)
+		if (!bLine || Now - LastArrowSeconds < NextArcherGapSeconds)
 		{
 			return;
 		}
@@ -1472,7 +1549,10 @@ void AThugAIController::TickArcher(float DeltaSeconds, const FVector& ToTarget)
 	}
 	if (Bow->GetDrawElapsed() + KINDA_SMALL_NUMBER >= BowDef->FullDrawSeconds)
 	{
-		LooseArcherDraw(Aim, *FString::Printf(TEXT("leading %.0f cm for her speed %.0f cm/s"), FVector::Dist(Aim, Chest),
+		// The shot itself: where he saw her a lag ago, led on, scattered by how hard she is to follow.
+		const FHawkeyeRangedAim Shot = ComputeRangedAim(Bow->GetArrowSpawnLocation(), BowDef->MaxSpeed, ArcherAimConeDegrees);
+		LooseArcherDraw(Shot.AimPoint, *FString::Printf(TEXT("%s, %.0f cm off her chest, cone %.1f deg, her speed %.0f cm/s"),
+			Shot.bForcedMiss ? TEXT("wide on purpose") : TEXT("leading"), FVector::Dist(Shot.AimPoint, Chest), Shot.ConeDegrees,
 			TargetActor->GetVelocity().Size()));
 	}
 }
@@ -1490,6 +1570,14 @@ void AThugAIController::BeginArcherHold(const FVector& AimPoint)
 	StartArcherHoldTimer();
 	UE_LOG(LogHawkeye, Log, TEXT("%s: lost his line %.2f s into the draw; holds it up to %.1f s on where %s went."),
 		*Thug->GetName(), Bow->GetDrawElapsed(), ArcherHold.MaxHoldSeconds, *GetNameSafe(TargetActor));
+}
+
+void AThugAIController::RollArcherGap()
+{
+	NextArcherGapSeconds = ArcherShotCooldownSeconds >= 0.f
+		? ArcherShotCooldownSeconds
+		: AimStream.FRandRange(UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::ArcherShotGapMinSeconds),
+			UDifficultySubsystem::GetScalarFor(this, EDifficultyStat::ArcherShotGapMaxSeconds));
 }
 
 void AThugAIController::LooseArcherDraw(const FVector& AimPoint, const TCHAR* Why)
@@ -1510,6 +1598,7 @@ void AThugAIController::LooseArcherDraw(const FVector& AimPoint, const TCHAR* Wh
 		return;
 	}
 	LastArrowSeconds = GetNowSeconds();
+	RollArcherGap();
 	ArcherHold.BeginLoose();
 	StartArcherHoldTimer();
 	UE_LOG(LogHawkeye, Log, TEXT("%s: looses at %s (%s); %.1f s loose window."), *Thug->GetName(), *GetNameSafe(TargetActor),
@@ -1564,10 +1653,9 @@ void AThugAIController::TickArcherHold(float DeltaSeconds)
 	{
 	case EArcherHoldStep::Fire:
 	{
-		const UWorld* World = GetWorld();
-		const FVector Aim = ComputeLeadAimPoint(From, Chest, TargetActor->GetVelocity(), BowDef->MaxSpeed,
-			World ? World->GetGravityZ() : -980.f);
-		LooseArcherDraw(Aim, *FString::Printf(TEXT("she showed again after a %.2f s hold"), Held));
+		const FHawkeyeRangedAim Shot = ComputeRangedAim(From, BowDef->MaxSpeed, ArcherAimConeDegrees);
+		LooseArcherDraw(Shot.AimPoint, *FString::Printf(TEXT("she showed again after a %.2f s hold%s"), Held,
+			Shot.bForcedMiss ? TEXT(", wide on purpose") : TEXT("")));
 		break;
 	}
 	case EArcherHoldStep::Relax:
@@ -1797,10 +1885,11 @@ void AThugAIController::FireAtTarget()
 		return;
 	}
 
-	// Scatter the shot by rotating the aim inside a cone; the weapon traces the control rotation.
-	const FVector Chest = GetAimPointOn(TargetActor);
-	const FVector AimDirection = (Chest - Thug->GetPawnViewLocation()).GetSafeNormal();
-	const FVector Scattered = FMath::VRandCone(AimDirection, FMath::DegreesToRadians(AimSpreadDegrees));
+	// Where he saw her a lag ago, scattered by how hard she is to follow (or wide after a jink); the weapon
+	// traces the control rotation.
+	const FVector View = Thug->GetPawnViewLocation();
+	const FHawkeyeRangedAim Shot = ComputeRangedAim(View, /*ProjectileSpeed=*/0.f, AimSpreadDegrees);
+	const FVector Scattered = (Shot.AimPoint - View).GetSafeNormal();
 
 	FRotator AimRotation = Scattered.Rotation();
 	AimRotation.Roll = 0.f;
