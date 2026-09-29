@@ -7,7 +7,13 @@
 #include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Mission/MissionSubsystem.h"
+#include "Navigation/NavLinkProxy.h"
+#include "NavAreas/NavArea_Default.h"
+#include "NavAreas/NavArea_Null.h"
+#include "NavigationSystem.h"
 #include "Player/HawkeyeCharacter.h"
+#include "TimerManager.h"
+#include "World/ThugCharacter.h"
 
 ADoorActor::ADoorActor()
 {
@@ -63,6 +69,53 @@ void ADoorActor::BeginPlay()
 	{
 		ClosedRelativeLocation = DoorMesh->GetRelativeLocation();
 		ClosedRelativeRotation = DoorMesh->GetRelativeRotation();
+	}
+	if (InteractZone)
+	{
+		InteractZone->OnComponentBeginOverlap.AddDynamic(this, &ADoorActor::HandleZoneBeginOverlap);
+	}
+	UpdateNavLink();
+}
+
+void ADoorActor::UpdateNavLink()
+{
+	// Shut and locked, the leaf cuts the navmesh too: a 100 cm doorway is not always eroded shut, and a strip
+	// of navmesh under the leaf would carry paths into a locked room without the link.
+	if (DoorMesh && DoorMesh->CanEverAffectNavigation() != !IsPassable())
+	{
+		DoorMesh->SetCanEverAffectNavigation(!IsPassable());
+		UNavigationSystemV1::UpdateComponentInNavOctree(*DoorMesh);
+	}
+	if (!NavLink)
+	{
+		return;
+	}
+	// A Null link is left out of the navmesh (the vault's, from the first build at BeginPlay); a Default one
+	// goes in when its tiles are rebuilt, which updating the proxy in the octree asks for.
+	UClass* Want = IsPassable() ? UNavArea_Default::StaticClass() : UNavArea_Null::StaticClass();
+	bool bChanged = false;
+	for (FNavigationLink& Link : NavLink->PointLinks)
+	{
+		if (Link.GetAreaClass() != Want)
+		{
+			Link.SetAreaClass(Want);
+			bChanged = true;
+		}
+	}
+	if (bChanged)
+	{
+		UNavigationSystemV1::UpdateActorInNavOctree(*NavLink);
+		UE_LOG(LogHawkeye, Log, TEXT("%s: paths through it %s."), *GetName(), IsPassable() ? TEXT("on") : TEXT("off (locked)"));
+	}
+}
+
+void ADoorActor::HandleZoneBeginOverlap(UPrimitiveComponent* /*OverlappedComponent*/, AActor* OtherActor,
+	UPrimitiveComponent* /*OtherComp*/, int32 /*OtherBodyIndex*/, bool /*bFromSweep*/, const FHitResult& /*SweepResult*/)
+{
+	const AThugCharacter* Thug = Cast<AThugCharacter>(OtherActor);
+	if (bOpensForThugs && !bLocked && !bOpen && Thug && !Thug->IsLimp())
+	{
+		OpenNow(OtherActor);
 	}
 }
 
@@ -123,6 +176,7 @@ bool ADoorActor::OpenNow(AActor* Interactor)
 	bOpen = true;
 	bAnimating = true;
 	SetActorTickEnabled(true);
+	UpdateNavLink();
 
 	// Once open the leaf is scenery; stop it blocking the corridor it just cleared.
 	if (DoorMesh)

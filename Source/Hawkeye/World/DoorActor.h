@@ -7,7 +7,9 @@
 #include "World/Interactable.h"
 #include "DoorActor.generated.h"
 
+class ANavLinkProxy;
 class UBoxComponent;
+class UPrimitiveComponent;
 class USceneComponent;
 class UStaticMeshComponent;
 
@@ -74,6 +76,25 @@ public:
 	/** Height of the frame surround, same deal. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Door", meta = (ClampMin = "1.0"))
 	float FrameHeight = 260.f;
+
+	/**
+	 * An unlocked door opens for a thug who walks into InteractZone (patrols go through doors). A locked
+	 * one never does: only her keycard opens it.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door")
+	bool bOpensForThugs = true;
+
+	/**
+	 * The nav link that carries paths through this doorway (generate_interior.py places it: the navmesh
+	 * leaves nothing of a 100 cm doorway). While the door is locked and shut its area is Null, so nobody
+	 * plans a walk through it; from the moment it opens it is Default again and its tiles are rebuilt.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door")
+	TObjectPtr<ANavLinkProxy> NavLink;
+
+	/** True when NavLink lets paths through: the door is unlocked or open. */
+	UFUNCTION(BlueprintPure, Category = "Door")
+	bool IsPassable() const { return !bLocked || bOpen; }
 
 	UPROPERTY(BlueprintAssignable, Category = "Door")
 	FOnDoorOpenedSignature OnDoorOpened;
@@ -152,6 +173,13 @@ protected:
 	/** Puts the leaf at OpenAlpha along its closed -> open path. */
 	void ApplyOpenAlpha();
 
+	/** NavLink's area Default when IsPassable, Null otherwise. */
+	void UpdateNavLink();
+
+	UFUNCTION()
+	void HandleZoneBeginOverlap(UPrimitiveComponent* OverlappedComponent, AActor* OtherActor, UPrimitiveComponent* OtherComp,
+		int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Door")
 	bool bOpen = false;
 
@@ -164,4 +192,5 @@ private:
 	FRotator ClosedRelativeRotation = FRotator::ZeroRotator;
 
 	bool bAnimating = false;
+
 };
