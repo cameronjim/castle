@@ -34,6 +34,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective", meta = (MultiLine = "true"))
 	FText Description;
 
+	/** A second, smaller line under the title in the HUD while this is current (where to look). Empty for none. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective")
+	FText Hint;
+
 	/** Optional objectives do not block mission completion. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Objective")
 	bool bOptional = false;

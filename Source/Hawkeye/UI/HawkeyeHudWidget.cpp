@@ -849,7 +849,9 @@ FText UHawkeyeHudWidget::BuildObjectiveText() const
 
 	if (const UMissionObjective* Objective = Missions->GetCurrentObjective())
 	{
-		return Objective->Title;
+		// The hint goes on its own line under the title.
+		return Objective->Hint.IsEmpty() ? Objective->Title
+			: FText::Format(NSLOCTEXT("Hawkeye", "ObjectiveWithHint", "{0}\n{1}"), Objective->Title, Objective->Hint);
 	}
 
 	return Missions->IsMissionComplete() ? MissionCompleteText : FText::GetEmpty();

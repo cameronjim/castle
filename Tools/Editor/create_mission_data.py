@@ -94,6 +94,19 @@ CH01_OBJECTIVES = [
     ("find_arrow", "Find the arrow", "Someone else has been shooting up here."),
 ]
 
+# The HUD's second line under an objective's title (UMissionObjective::Hint), by id. Placeholder text:
+# the first objective points at the safehouse on East 7th so the player finds it on the way up.
+OBJECTIVE_HINTS = {
+    "reach_roof": "[Hint: the safehouse door is on East 7th Street, across from the park]",
+}
+
+
+def _hint_value(obj):
+    try:
+        return _text_value(obj.get_editor_property("hint"))
+    except Exception:  # noqa: BLE001
+        return ""
+
 
 # The chapter's starting quiver: the bow, then (arrow asset, count) per type. The trick arrows are
 # here for testing (claude-docs/gameplay-semantics.md, "trick arrows"); explosive is left out, so
@@ -169,6 +182,8 @@ def _objectives_match(asset, wanted):
             return False
         if _text_value(obj.get_editor_property("description")) != description:
             return False
+        if _hint_value(obj) != OBJECTIVE_HINTS.get(oid, ""):
+            return False
         if bool(obj.get_editor_property("optional")):
             return False
     return True
@@ -181,6 +196,8 @@ def _build_objectives(asset, objective_cls, wanted):
         c.set_first_prop(objective, OBJECTIVE_ID_PROPS, oid, "MissionObjective " + oid)
         c.set_props(objective, [("title", title), ("description", description), ("optional", False)],
                     "MissionObjective " + oid)
+        if OBJECTIVE_HINTS.get(oid):
+            c.set_props(objective, [("hint", OBJECTIVE_HINTS[oid])], "MissionObjective " + oid)
         objectives.append(objective)
     return objectives
 
