@@ -5,7 +5,9 @@
 #include "Hawkeye.h"
 #include "HawkeyePlayerController.h"
 #include "CollisionQueryParams.h"
+#include "Combat/HealthComponent.h"
 #include "Combat/TakedownComponent.h"
+#include "Player/HawkeyeCharacter.h"
 #include "Engine/World.h"
 #include "GameFramework/Controller.h"
 #include "GameFramework/Pawn.h"
@@ -68,6 +70,13 @@ AActor* UInteractionComponent::TraceForInteractable() const
 	UWorld* World = GetWorld();
 	AActor* Owner = GetOwner();
 	if (!World || !Owner)
+	{
+		return nullptr;
+	}
+	// Down or dead, nothing offers itself: no prompt, and E does nothing (a chapter end examined from the
+	// ground ran its sequence with her down and its autosave refused).
+	if (const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(Owner);
+		Hawkeye && (Hawkeye->IsDowned() || (Hawkeye->GetHealthComponent() && !Hawkeye->GetHealthComponent()->IsAlive())))
 	{
 		return nullptr;
 	}

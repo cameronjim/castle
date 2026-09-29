@@ -3,6 +3,10 @@
 #include "World/ChapterEndInteractable.h"
 
 #include "Hawkeye.h"
+#include "Combat/HealthComponent.h"
+#include "EngineUtils.h"
+#include "Player/HawkeyeCharacter.h"
+#include "World/ThugCharacter.h"
 #include "HawkeyePlayerController.h"
 #include "Camera/CameraComponent.h"
 #include "Components/BoxComponent.h"
@@ -86,12 +90,27 @@ bool AChapterEndInteractable::CanInteract_Implementation(AActor* Interactor) con
 	{
 		return false;
 	}
+	// Down, she examines nothing: the sequence would run with her on the ground and its autosave refused.
+	if (const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(Pawn);
+		Hawkeye && (Hawkeye->IsDowned() || (Hawkeye->GetHealthComponent() && !Hawkeye->GetHealthComponent()->IsAlive())))
+	{
+		return false;
+	}
 	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
 	const UMissionTracker* Tracker = Missions ? Missions->GetTracker() : nullptr;
 	const UMissionObjective* Objective = Tracker ? Tracker->FindObjective(ObjectiveId) : nullptr;
 	if (!Objective || Objective->IsCompleted())
 	{
 		return false;
+	}
+	// Not with a thug alerted: the end sequence and the return from its scene would put her back in front of
+	// whoever is still shooting (the ArcherPair guards CH01's arrow). Clint's fight clock does not hold it.
+	for (TActorIterator<AThugCharacter> It(GetWorld()); It; ++It)
+	{
+		if (It->GetAlertState() == EThugAlertState::Alerted && It->GetHealthComponent() && It->GetHealthComponent()->IsAlive())
+		{
+			return false;
+		}
 	}
 	return !bRequireCurrentObjective || Tracker->GetCurrentObjective() == Objective;
 }
