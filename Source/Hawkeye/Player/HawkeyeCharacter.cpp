@@ -343,15 +343,60 @@ void AHawkeyeCharacter::EmitMovementNoise()
 
 void AHawkeyeCharacter::HandleDeath(UHealthComponent* /*Health*/, AActor* Killer)
 {
-	// Once a fight the partner gets her back up; the mission only restarts when he cannot.
+	// Once a fight the partner gets her back up. Either way she is down first, for DownedMaxSeconds at
+	// most: the revive has to land by then, and with none coming any key ends it sooner.
 	if (TryPartnerRevive(Killer))
 	{
 		return;
 	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s is down (killer: %s); no revive is coming, %.0f s or any key to the last save."),
+		*GetName(), *GetNameSafe(Killer), DownedMaxSeconds);
+	EnterDowned(/*bInReviveExpected=*/false, nullptr);
+}
 
-	UE_LOG(LogHawkeye, Log, TEXT("%s died (killer: %s); restarting the mission."),
-		*GetName(), *GetNameSafe(Killer));
+void AHawkeyeCharacter::EnterDowned(bool bInReviveExpected, APawn* InReviver)
+{
+	bDowned = true;
+	bReviveExpected = bInReviveExpected;
+	bDiedFromDown = false;
+	DownedSeconds = 0.f;
+	Reviver = InReviver;
+	StopAim();
+	Crouch();
+}
 
+float AHawkeyeCharacter::GetDownedFractionLeft() const
+{
+	return bDowned ? FMath::Clamp(1.f - DownedSeconds / FMath::Max(DownedMaxSeconds, 0.01f), 0.f, 1.f) : 0.f;
+}
+
+void AHawkeyeCharacter::AdvanceDowned(float DeltaSeconds)
+{
+	if (!bDowned || bDiedFromDown)
+	{
+		return;
+	}
+	DownedSeconds += FMath::Max(DeltaSeconds, 0.f);
+	if (DownedSeconds >= DownedMaxSeconds)
+	{
+		DieFromDown(bReviveExpected ? TEXT("the revive did not land in time") : TEXT("the down ran out"));
+	}
+}
+
+bool AHawkeyeCharacter::GiveUpFromDown()
+{
+	if (!bDowned || bDiedFromDown || bReviveExpected || DownedSeconds < DownedGiveUpGraceSeconds)
+	{
+		return false;
+	}
+	DieFromDown(TEXT("a key while no revive was coming"));
+	return true;
+}
+
+void AHawkeyeCharacter::DieFromDown(const TCHAR* Why)
+{
+	bDiedFromDown = true;
+	UE_LOG(LogHawkeye, Log, TEXT("%s died after %.1f s down (%s); loading the last save."), *GetName(), DownedSeconds, Why);
 	// Back to the last autosave behind a fade, not to the top of the chapter.
 	if (AHawkeyeGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AHawkeyeGameMode>() : nullptr)
 	{
@@ -370,9 +415,7 @@ bool AHawkeyeCharacter::TryPartnerRevive(AActor* Killer)
 	{
 		if (It->GetLeader() == this && It->RequestRevive(this))
 		{
-			bDowned = true;
-			StopAim();
-			Crouch();
+			EnterDowned(/*bInReviveExpected=*/true, It->GetPawn());
 			UE_LOG(LogHawkeye, Log, TEXT("%s is down (killer: %s); %s is coming to revive."), *GetName(),
 				*GetNameSafe(Killer), *GetNameSafe(It->GetPawn()));
 			return true;
@@ -383,11 +426,14 @@ bool AHawkeyeCharacter::TryPartnerRevive(AActor* Killer)
 
 void AHawkeyeCharacter::ReviveFromDown(float HealthFraction)
 {
-	if (!bDowned || !HealthComponent)
+	if (!bDowned || bDiedFromDown || !HealthComponent)
 	{
 		return;
 	}
 	bDowned = false;
+	bReviveExpected = false;
+	DownedSeconds = 0.f;
+	Reviver.Reset();
 	HealthComponent->Revive(HealthComponent->GetMaxHealth() * FMath::Clamp(HealthFraction, 0.01f, 1.f));
 	UnCrouch();
 	UpdateMaxWalkSpeed();
@@ -1555,6 +1601,7 @@ void AHawkeyeCharacter::Tick(float DeltaSeconds)
 	AdvanceMeleeFlow(DeltaSeconds);
 	UpdateDodge(DeltaSeconds);
 	UpdateHitReactions(DeltaSeconds);
+	AdvanceDowned(DeltaSeconds);
 	if (HealthComponent)
 	{
 		HealthComponent->AdvanceRegen(DeltaSeconds);

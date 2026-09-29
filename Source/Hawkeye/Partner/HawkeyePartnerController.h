@@ -126,9 +126,12 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Partner|Revive", meta = (ClampMin = "0.0"))
 	float ReviveReach = 200.f;
 
-	/** If he has not reached her in this long he is put beside her, seconds. */
+	/**
+	 * If he has not reached her in this long he is put beside her, seconds. With ReviveSeconds it has to
+	 * fit inside the lead's DownedMaxSeconds (8): 4.5 + 3 lands the revive at 7.5 s at the latest.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Partner|Revive", meta = (ClampMin = "0.0"))
-	float ReviveTimeoutSeconds = 12.f;
+	float ReviveTimeoutSeconds = 4.5f;
 
 	/** The lead this far from a held mark releases him back to following, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Partner|Command", meta = (ClampMin = "0.0"))

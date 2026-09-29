@@ -237,6 +237,24 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Thug|Melee")
 	bool IsBackingOff() const { return bBackingOff; }
 
+	/** A downed target is circled at this distance, cm: nothing new is started on her (a swing under way finishes). */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour", meta = (ClampMin = "0.0"))
+	float StandOffDistance = 450.f;
+
+	/** Degrees a second he walks round a downed target. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Thug|Behaviour")
+	float StandOffOrbitDegreesPerSecond = 18.f;
+
+	/** True while his target is a downed or dead player: he circles instead of attacking. */
+	UFUNCTION(BlueprintPure, Category = "Thug|Behaviour")
+	bool IsStandingOff() const { return bStandingOff; }
+
+	/** Swings started in this thug's life (tests). */
+	int32 GetSwingsStarted() const { return SwingsStarted; }
+
+	/** True for a Hawkeye character who is downed or dead: no one attacks her. */
+	static bool IsTargetDown(const AActor* Target);
+
 	/** Swings since the last back-off. */
 	UFUNCTION(BlueprintPure, Category = "Thug|Melee")
 	int32 GetSwingsSinceBackOff() const { return SwingsSinceBackOff; }
@@ -622,6 +640,9 @@ protected:
 	/** The Fists and Bat Alerted step: rush, wind up inside MeleeEngageRange, swing, back off. */
 	void TickMeleeRush(float DeltaSeconds, const FVector& ToTarget);
 
+	/** The Alerted step while the target is down: drop the burst and the draw, circle at StandOffDistance. */
+	void TickStandOff(float DeltaSeconds, const FVector& ToTarget);
+
 	/** Counts a finished swing, starts the cooldown, and steps back after enough of them. */
 	void FinishSwing(const FVector& ToTarget);
 
@@ -687,6 +708,11 @@ private:
 	int32 SwingsStarted = 0;
 	float MeleeCooldownRemaining = 0.f;
 	float BackOffElapsed = 0.f;
+
+	/** Stand-off state: circling a downed target, where round her, and when to pick the next spot. */
+	bool bStandingOff = false;
+	float StandOffAngle = 0.f;
+	float StandOffRepathRemaining = 0.f;
 
 	/** The pawn's own MaxWalkSpeed, read at possession; the rush speed is laid over it. */
 	float BaseWalkSpeed = 300.f;

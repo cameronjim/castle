@@ -372,7 +372,7 @@ bool AHawkeyePartnerController::HasNeed(EHawkeyePartnerMode Mode) const
 	switch (Mode)
 	{
 	case EHawkeyePartnerMode::Revive:
-		return ReviveTarget.IsValid() && ReviveTarget->IsDowned();
+		return ReviveTarget.IsValid() && ReviveTarget->IsReviveExpected();
 	case EHawkeyePartnerMode::GoToMark:
 		return bHasMark;
 	case EHawkeyePartnerMode::Cover:
@@ -646,7 +646,7 @@ void AHawkeyePartnerController::TickRevive(float DeltaSeconds)
 {
 	AHawkeyeCharacter* Partner = GetPartner();
 	AHawkeyeCharacter* Downed = ReviveTarget.Get();
-	if (!Partner || !Downed || !Downed->IsDowned())
+	if (!Partner || !Downed || !Downed->IsReviveExpected())
 	{
 		ReviveTarget.Reset();
 		return;

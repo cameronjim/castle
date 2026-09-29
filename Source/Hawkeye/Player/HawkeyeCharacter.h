@@ -627,13 +627,53 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
 	EHawkeyeGait GetAIGait() const { return AIGait; }
 
-	/** True between health reaching 0 and the partner's revive: on the ground, no input, no restart yet. */
+	/**
+	 * True from health reaching 0 until the partner's revive lands or she dies of it (then until the
+	 * reload): on the ground, no input. Lasts at most DownedMaxSeconds.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Health")
 	bool IsDowned() const { return bDowned; }
 
 	/** The partner's revive: back up with HealthFraction of max health. Does nothing unless downed. */
 	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Health")
 	void ReviveFromDown(float HealthFraction);
+
+	/** The longest she lies downed: no revive by then and she dies (the last save loads). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Health", meta = (ClampMin = "0.5"))
+	float DownedMaxSeconds = 8.f;
+
+	/** A key press this soon into a hopeless down is ignored, so a held attack cannot skip it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hawkeye|Health", meta = (ClampMin = "0.0"))
+	float DownedGiveUpGraceSeconds = 0.5f;
+
+	/** Downed and the partner took the revive on: the HUD shows the ring and "[<partner> is coming]". */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Health")
+	bool IsReviveExpected() const { return bDowned && bReviveExpected && !bDiedFromDown; }
+
+	/** The partner on his way (null when no revive is coming). */
+	APawn* GetReviver() const { return IsReviveExpected() ? Reviver.Get() : nullptr; }
+
+	/** Seconds since she went down (0 when up). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Health")
+	float GetDownedSeconds() const { return bDowned ? DownedSeconds : 0.f; }
+
+	/** The share of DownedMaxSeconds left, 1 to 0: the HUD's ring. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Health")
+	float GetDownedFractionLeft() const;
+
+	/** The down ran out (or she gave up): the fade to the last save is under way. */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Health")
+	bool HasDiedFromDown() const { return bDiedFromDown; }
+
+	/** Moves the down on by DeltaSeconds; at DownedMaxSeconds she dies. Tick runs it; public for tests. */
+	void AdvanceDowned(float DeltaSeconds);
+
+	/**
+	 * Any key while downed with no revive coming: she dies now instead of waiting the timer out. False,
+	 * and nothing happens, while a revive is coming, in the first DownedGiveUpGraceSeconds, or when up.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Hawkeye|Health")
+	bool GiveUpFromDown();
 
 	/**
 	 * Why control cannot leave this character right now, or empty when it can: "mid-traversal",
@@ -1589,6 +1629,12 @@ protected:
 	/** Asks this character's partner for the once-a-fight revive. True when he took it on (she is down). */
 	bool TryPartnerRevive(AActor* Killer);
 
+	/** Goes down: bReviveExpected says whether a partner is coming. Starts the DownedMaxSeconds clock. */
+	void EnterDowned(bool bInReviveExpected, APawn* InReviver);
+
+	/** The down is over without a revive: logged, then the game mode fades to the last save. */
+	void DieFromDown(const TCHAR* Why);
+
 	// Saved by SPUD with the actor (UPROPERTY SaveGame). Components are not saved by SPUD, so the
 	// health and quiver are mirrored here just before a store and applied just after a restore.
 
@@ -1613,6 +1659,12 @@ protected:
 	/** Set while waiting for the partner's revive. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Health")
 	bool bDowned = false;
+
+	/** The down's clock and whether anyone is coming; see IsReviveExpected. */
+	float DownedSeconds = 0.f;
+	bool bReviveExpected = false;
+	bool bDiedFromDown = false;
+	TWeakObjectPtr<APawn> Reviver;
 
 	/** See SetAIGait. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Movement")

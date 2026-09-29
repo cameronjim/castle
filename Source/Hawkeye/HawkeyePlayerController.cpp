@@ -185,6 +185,13 @@ bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
 		{
 			HandleDPadDownPressed(FPlatformTime::Seconds());
 		}
+		// Down with no revive coming: any key but the pause keys ends it (the character ignores it otherwise).
+		AHawkeyeCharacter* Downed = Cast<AHawkeyeCharacter>(GetPawn());
+		if (Downed && Downed->IsDowned() && !IsPaused() && Params.Key != EKeys::Escape
+			&& Params.Key != EKeys::Gamepad_Special_Right && !Params.Key.IsAxis1D() && !Params.Key.IsAxis2D())
+		{
+			Downed->GiveUpFromDown();
+		}
 	}
 	else if (Params.Event == IE_Released && Params.Key == EKeys::Gamepad_DPad_Down)
 	{

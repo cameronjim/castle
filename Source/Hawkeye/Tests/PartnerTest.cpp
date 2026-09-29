@@ -239,7 +239,9 @@ bool FHawkeyePartnerReviveOncePerFight::RunTest(const FString& Parameters)
 
 	Brain->SetTestTimeSeconds(5.0);
 	KateHealth->ApplyDamage(1000.f, Thug);
-	TestFalse(TEXT("Down again in the same fight: no second revive"), Pair.Kate->IsDowned());
+	// Down again in the same fight: no second revive. She is down on the 8 s clock with nobody coming.
+	TestTrue(TEXT("Down again in the same fight"), Pair.Kate->IsDowned());
+	TestFalse(TEXT("but no second revive"), Pair.Kate->IsReviveExpected());
 	TestFalse(TEXT("she is dead"), KateHealth->IsAlive());
 
 	// The clock itself: contact keeps a fight going for 10 s, the revive comes back with the next fight.

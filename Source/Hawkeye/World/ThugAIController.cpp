@@ -1021,6 +1021,14 @@ void AThugAIController::TickAlerted(float DeltaSeconds)
 
 	const FVector ToTarget = TargetActor->GetActorLocation() - Thug->GetActorLocation();
 
+	// She is down: nobody piles on (claude-docs/gameplay-semantics.md, "Health and damage").
+	if (IsTargetDown(TargetActor))
+	{
+		TickStandOff(DeltaSeconds, ToTarget);
+		return;
+	}
+	bStandingOff = false;
+
 	// The weapon traces along the control rotation, so the aim always points at him. The body
 	// does not follow it (see AThugCharacter's movement setup): it faces where it is walking, and
 	// only squares up once he has stopped.
@@ -1808,6 +1816,50 @@ void AThugAIController::TickMeleeRush(float DeltaSeconds, const FVector& ToTarge
 	}
 	StopMovement();
 	FaceTarget(Thug, ToTarget);
+}
+
+bool AThugAIController::IsTargetDown(const AActor* Target)
+{
+	const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(Target);
+	const UHealthComponent* Health = Hawkeye ? Hawkeye->GetHealthComponent() : nullptr;
+	return Hawkeye && (Hawkeye->IsDowned() || (Health && !Health->IsAlive()));
+}
+
+void AThugAIController::TickStandOff(float DeltaSeconds, const FVector& ToTarget)
+{
+	AThugCharacter* Thug = GetThug();
+	if (!Thug || !IsValid(TargetActor))
+	{
+		return;
+	}
+	if (!bStandingOff)
+	{
+		bStandingOff = true;
+		StandOffRepathRemaining = 0.f;
+		// Round her from the side he is already on, so he steps back rather than across her.
+		StandOffAngle = (-ToTarget).Rotation().Yaw;
+		CancelBurst(TEXT("target down"));
+		CancelArcherDraw(TEXT("target down"));
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %s is down; backing off to circle at %.0f cm."), *Thug->GetName(),
+			*GetNameSafe(TargetActor), StandOffDistance);
+	}
+	// A swing already under way plays out (it can no longer hurt her); nothing new starts.
+	const UMeleeComponent* Melee = Thug->GetMeleeComponent();
+	bWasSwinging = Melee && Melee->IsAttacking();
+	if (bWasSwinging)
+	{
+		return;
+	}
+	FaceTarget(Thug, ToTarget);
+	StandOffAngle = FMath::UnwindDegrees(StandOffAngle + StandOffOrbitDegreesPerSecond * DeltaSeconds);
+	StandOffRepathRemaining -= DeltaSeconds;
+	if (StandOffRepathRemaining > 0.f)
+	{
+		return;
+	}
+	StandOffRepathRemaining = 1.f;
+	const FVector Spot = TargetActor->GetActorLocation() + FRotator(0.f, StandOffAngle, 0.f).Vector() * StandOffDistance;
+	RequestMoveToLocation(Spot, 60.f);
 }
 
 void AThugAIController::FinishSwing(const FVector& ToTarget)
