@@ -268,4 +268,36 @@ bool FHawkeyeObjectiveToastsAndSizes::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeObjectiveToastsWaitForTheTitle, "Hawkeye.Objective.ToastsWaitForTheTitle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeObjectiveToastsWaitForTheTitle::RunTest(const FString& Parameters)
+{
+	UHawkeyeObjectiveWidget* Widget = NewObject<UHawkeyeObjectiveWidget>();
+	// The title card is up when the chapter's first objective is announced.
+	Widget->SetToastsHeld(true);
+	Widget->PushToast(FText::FromString(TEXT("New objective")), FText::FromString(TEXT("Get to a rooftop")));
+	TestTrue(TEXT("queued"), Widget->IsToastQueued());
+	TestFalse(TEXT("but not shown under the card"), Widget->IsToastVisible());
+	Widget->AdvanceToasts(5.f);
+	TestTrue(TEXT("and its clock does not run while held"), Widget->IsToastQueued());
+
+	Widget->SetToastsHeld(false);
+	TestTrue(TEXT("the card gone, it shows"), Widget->IsToastVisible());
+	TestEqual(TEXT("the same toast"), Widget->GetToastTitle().ToString(), FString(TEXT("Get to a rooftop")));
+	Widget->AdvanceToasts(1.9f);
+	TestTrue(TEXT("for its full 2 s"), Widget->IsToastVisible());
+	Widget->AdvanceToasts(0.2f);
+	TestFalse(TEXT("then gone"), Widget->IsToastVisible());
+
+	// Held partway through, one starts over when it comes back.
+	Widget->PushToast(FText::FromString(TEXT("[Safehouse nearby]")), FText::FromString(TEXT("Safehouse 1")));
+	Widget->AdvanceToasts(1.5f);
+	Widget->SetToastsHeld(true);
+	Widget->SetToastsHeld(false);
+	Widget->AdvanceToasts(1.5f);
+	TestTrue(TEXT("a toast cut off by a hold gets its 2 s again"), Widget->IsToastVisible());
+	return true;
+}
+
 #endif

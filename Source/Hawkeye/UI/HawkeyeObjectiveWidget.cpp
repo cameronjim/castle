@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "UI/HawkeyeObjectiveWidget.h"
+#include "Hawkeye.h"
 #include "UI/HawkeyeHudGlyphs.h"
 #include "Audio/HawkeyeAudioSubsystem.h"
 
@@ -23,6 +24,7 @@
 #include "Challenge/ChallengeDefinition.h"
 #include "Challenge/ChallengeStart.h"
 #include "Challenge/ChallengeSubsystem.h"
+#include "HawkeyePlayerController.h"
 #include "Player/HawkeyeCharacter.h"
 #include "World/Safehouse.h"
 #include "World/SafehouseSubsystem.h"
@@ -124,7 +126,7 @@ void UHawkeyeObjectiveWidget::PushToast(FText Heading, FText Title, EHawkeyeUISo
 		ToastElapsed = 0.f;
 	}
 	ToastQueue.Add({ Heading, Title, Sound });
-	if (bShowsNow)
+	if (bShowsNow && !bToastsHeld)
 	{
 		UHawkeyeAudioSubsystem::PlayUI(this, Sound);
 	}
@@ -136,9 +138,35 @@ void UHawkeyeObjectiveWidget::ClearToasts()
 	ToastElapsed = 0.f;
 }
 
+void UHawkeyeObjectiveWidget::SetToastsHeld(bool bHeld)
+{
+	if (bHeld == bToastsHeld)
+	{
+		return;
+	}
+	bToastsHeld = bHeld;
+	if (bHeld)
+	{
+		// One cut off by the hold starts over when it comes back, rather than resuming half faded.
+		ToastElapsed = 0.f;
+		if (ToastQueue.Num() > 0)
+		{
+			UE_LOG(LogHawkeye, Verbose, TEXT("%s: %d toast(s) held."), *GetName(), ToastQueue.Num());
+		}
+		return;
+	}
+	if (ToastQueue.Num() > 0)
+	{
+		ToastElapsed = 0.f;
+		UHawkeyeAudioSubsystem::PlayUI(this, ToastQueue[0].Sound);
+		UE_LOG(LogHawkeye, Log, TEXT("%s: %d held toast(s) released: \"%s\" first."), *GetName(), ToastQueue.Num(),
+			*ToastQueue[0].Heading.ToString());
+	}
+}
+
 void UHawkeyeObjectiveWidget::AdvanceToasts(float DeltaSeconds)
 {
-	if (ToastQueue.Num() == 0)
+	if (ToastQueue.Num() == 0 || bToastsHeld)
 	{
 		return;
 	}
@@ -172,6 +200,11 @@ void UHawkeyeObjectiveWidget::NativeTick(const FGeometry& MyGeometry, float Delt
 {
 	Super::NativeTick(MyGeometry, DeltaSeconds);
 
+	// Under the chapter title card a toast would play behind the title, unreadable: it waits for the card.
+	if (const AHawkeyePlayerController* Controller = Cast<AHawkeyePlayerController>(GetOwningPlayer()))
+	{
+		SetToastsHeld(Controller->IsChapterTitleShowing());
+	}
 	AdvanceToasts(DeltaSeconds);
 	UpdateMarker(MyGeometry);
 }
@@ -626,7 +659,7 @@ void UHawkeyeObjectiveWidget::PaintCompass(const FGeometry& Geometry, FSlateWind
 void UHawkeyeObjectiveWidget::PaintToast(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
 {
 	using namespace HawkeyeObjectiveHud;
-	if (ToastQueue.Num() == 0)
+	if (ToastQueue.Num() == 0 || bToastsHeld)
 	{
 		return;
 	}

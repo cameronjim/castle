@@ -2313,6 +2313,10 @@ bool FHawkeyeCampaignLapRunner::Update()
 		{
 			Shot(TEXT("campaign_title.png"));
 			CheckClean(TEXT("under the title card"), { UChapterTitleWidget::StaticClass() });
+			const UHawkeyeHudWidget* Hud = PC->GetHawkeyeHud();
+			const UHawkeyeObjectiveWidget* Toasts = Hud ? Hud->GetObjectiveMarker() : nullptr;
+			Expect(TEXT("the first objective's toast waits under the title card"),
+				Toasts && Toasts->AreToastsHeld() && Toasts->IsToastQueued() && !Toasts->IsToastVisible());
 			NextStep();
 			return false;
 		}
@@ -2325,7 +2329,29 @@ bool FHawkeyeCampaignLapRunner::Update()
 			}
 			return false;
 		}
-		Mark(FString::Printf(TEXT("title card gone after %.1f s"), InPhase()));
+		if (Step <= 1)
+		{
+			Mark(FString::Printf(TEXT("title card gone after %.1f s"), InPhase()));
+			NextStep();
+			return false;
+		}
+		// The HUD releases the held toast on its next tick; read it a moment later, while it is up.
+		if (InStep() < 0.4)
+		{
+			return false;
+		}
+		{
+			const UHawkeyeHudWidget* Hud = PC->GetHawkeyeHud();
+			const UHawkeyeObjectiveWidget* Toasts = Hud ? Hud->GetObjectiveMarker() : nullptr;
+			const bool bToastAfter = Toasts && Toasts->IsToastVisible();
+			Expect(TEXT("the held toast plays once the card is gone"), bToastAfter);
+			if (bToastAfter)
+			{
+				Mark(FString::Printf(TEXT("toast after the card: %s %s"), *Toasts->GetToastHeading().ToString(),
+					*Toasts->GetToastTitle().ToString()));
+				Shot(TEXT("campaign_title_toast.png"));
+			}
+		}
 		Enter(EPhase::PhoneWait);
 		return false;
 

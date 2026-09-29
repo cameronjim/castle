@@ -37,12 +37,28 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
 	void ClearToasts();
 
-	/** Counts the showing toast down and moves on to the next queued one. */
+	/** Counts the showing toast down and moves on to the next queued one. Held toasts do not count. */
 	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
 	void AdvanceToasts(float DeltaSeconds);
 
+	/**
+	 * Holds the queue: nothing shows, nothing counts down and no sound plays until released, when the
+	 * front toast comes up for its full ToastSeconds with its sound. The chapter title card holds it
+	 * (NativeTick asks the owning AHawkeyePlayerController), so "New objective" plays after the card.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "HUD|Objective")
+	void SetToastsHeld(bool bHeld);
+
 	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
-	bool IsToastVisible() const { return ToastQueue.Num() > 0; }
+	bool AreToastsHeld() const { return bToastsHeld; }
+
+	/** A toast is on screen: queued and not held. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	bool IsToastVisible() const { return ToastQueue.Num() > 0 && !bToastsHeld; }
+
+	/** A toast is waiting or showing. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	bool IsToastQueued() const { return ToastQueue.Num() > 0; }
 
 	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
 	FText GetToastHeading() const;
@@ -284,6 +300,9 @@ private:
 
 	/** Seconds the front toast has been up. */
 	float ToastElapsed = 0.f;
+
+	/** See SetToastsHeld. */
+	bool bToastsHeld = false;
 
 	/** Id of the objective that was current when last looked, so a change can be announced. */
 	FName LastCurrentObjectiveId;
