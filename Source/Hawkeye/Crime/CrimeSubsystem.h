@@ -176,6 +176,12 @@ public:
 	/** Tests: the pawn to schedule for in a world without a player controller. */
 	TWeakObjectPtr<APawn> PlayerOverride;
 
+	/**
+	 * Tests: forgets where the last crime was, so the 60 m rule does not keep the next one off its spot. The
+	 * laps run one after another on the same loaded district, which the map open does not reload.
+	 */
+	void ForgetLastCrime() { bHasLastSpot = false; }
+
 	/** Tests: when set, used as "a chapter beat is playing" instead of the player controller. */
 	TOptional<bool> ChapterBeatOverride;
 
