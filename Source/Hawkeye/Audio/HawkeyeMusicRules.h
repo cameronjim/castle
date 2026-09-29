@@ -167,6 +167,7 @@ struct HAWKEYE_API FHawkeyeMusicDirector
 		Previous = EHawkeyeMusicState::Roam;
 		Cooldown = 0.f;
 		WinRemaining = 0.f;
+		bWinSpent = false;
 	}
 
 private:
@@ -176,4 +177,7 @@ private:
 	EHawkeyeMusicState Previous = EHawkeyeMusicState::Roam;
 	float Cooldown = 0.f;
 	float WinRemaining = 0.f;
+
+	/** This fight's sting has played: not again until someone new is engaged or the fight is forgotten (nothing engaged). */
+	bool bWinSpent = false;
 };

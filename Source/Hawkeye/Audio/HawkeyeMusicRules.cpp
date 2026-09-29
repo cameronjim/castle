@@ -139,21 +139,32 @@ bool FHawkeyeMusicDirector::Step(const FHawkeyeMusicInputs& Inputs, float DeltaS
 	}
 
 	// The last one of the fight went down: the sting, whatever the level was.
-	const bool bFightWon = Inputs.EngagedDown > 0 && Inputs.EngagedStanding == 0;
+	// Once per fight: someone engaged and standing again (or the fight forgotten) makes a new one to win.
+	if (Inputs.EngagedStanding > 0 || Inputs.EngagedDown == 0)
+	{
+		bWinSpent = false;
+	}
+	const bool bFightWon = Inputs.EngagedDown > 0 && Inputs.EngagedStanding == 0 && !bWinSpent;
 	if (GetLevel(State) > 0 && bFightWon)
 	{
 		WinRemaining = WinSeconds;
+		bWinSpent = true;
 		return SetState(EHawkeyeMusicState::Win);
 	}
 	if (State == EHawkeyeMusicState::Win)
 	{
-		// A new fight cuts the sting short; otherwise it plays out and the music goes quiet.
-		if (GetLevel(Target) > 0)
+		// A thug alerted cuts the sting short; a crime starting nearby waits for it. Otherwise it plays out
+		// and the music goes quiet.
+		if (GetLevel(Target) > 0 && Inputs.AlertedStanding > 0)
 		{
 			return SetState(Target);
 		}
 		WinRemaining -= Dt;
-		return WinRemaining <= 0.f ? SetState(EHawkeyeMusicState::Roam) : false;
+		if (WinRemaining > 0.f)
+		{
+			return false;
+		}
+		return SetState(EHawkeyeMusicState::Roam);
 	}
 
 	const int32 Current = GetLevel(State);

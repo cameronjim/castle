@@ -343,6 +343,54 @@ bool FHawkeyeMusicGathers::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeMusicWinOnce, "Hawkeye.Music.WinOncePerFight", HawkeyeMusicTest::Flags)
+
+bool FHawkeyeMusicWinOnce::RunTest(const FString& Parameters)
+{
+	using namespace HawkeyeMusicTest;
+	// Found by the crime screenshot pass: a fight won, then a crime starting nearby, flipped Win and Alert every frame.
+	FHawkeyeMusicDirector Director;
+	Director.Step(Alerted(2, 300.f), 0.1f);
+	FHawkeyeMusicInputs Won;
+	Won.EngagedDown = 2;
+	Director.Step(Won, 0.1f);
+	TestEqual(TEXT("The fight won: Win"), Director.GetState(), EHawkeyeMusicState::Win);
+	FHawkeyeMusicInputs CrimeAfter = Won;
+	CrimeAfter.bCrimeNearby = true;
+	int32 Changes = 0;
+	for (int32 Frame = 0; Frame < 10; ++Frame)
+	{
+		Changes += Director.Step(CrimeAfter, 0.1f) ? 1 : 0;
+	}
+	TestEqual(TEXT("A crime nearby does not cut the sting, nor flip it"), Changes, 0);
+	TestEqual(TEXT("Still the sting"), Director.GetState(), EHawkeyeMusicState::Win);
+	Run(Director, CrimeAfter, 2.f);
+	TestEqual(TEXT("After it, the crime's pulse"), Director.GetState(), EHawkeyeMusicState::Alert);
+	Changes = 0;
+	for (int32 Frame = 0; Frame < 30; ++Frame)
+	{
+		Changes += Director.Step(CrimeAfter, 0.1f) ? 1 : 0;
+	}
+	TestEqual(TEXT("And the won fight does not sting again"), Changes, 0);
+
+	// Someone new seen and put down is a new fight: its own sting.
+	FHawkeyeMusicInputs New = Alerted(1, 300.f);
+	New.EngagedDown = 2;
+	Director.Step(New, 0.1f);
+	TestEqual(TEXT("A new thug: Fight"), Director.GetState(), EHawkeyeMusicState::Fight);
+	FHawkeyeMusicInputs NewWon;
+	NewWon.EngagedDown = 3;
+	Director.Step(NewWon, 0.1f);
+	TestEqual(TEXT("Down too: Win again"), Director.GetState(), EHawkeyeMusicState::Win);
+
+	// An alerted thug during the sting still cuts it.
+	FHawkeyeMusicInputs Cut = Alerted(1, 300.f);
+	Cut.EngagedDown = 3;
+	Director.Step(Cut, 0.1f);
+	TestEqual(TEXT("A thug alerted in the sting: back to the fight"), Director.GetState(), EHawkeyeMusicState::Fight);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeMusicPauses, "Hawkeye.Music.PausesWithPauseScreens", HawkeyeMusicTest::Flags)
 
 bool FHawkeyeMusicPauses::RunTest(const FString& Parameters)
