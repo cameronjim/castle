@@ -623,7 +623,7 @@ the last input came from a pad.
   draw briefly after losing sight.
 - Squad alert: 1.5 s after a thug goes Alerted, thugs within 1500 cm with a line to him
   turn Suspicious toward the player's last seen position.
-- Heavy (built 2026-09-27): `BP_Thug_Heavy`, 200 HP, a 60 x 110 cm riot shield on the left forearm blocking arrows and light strikes in the front 120 degrees (arrows stick in it); staggered only by a heavy strike, bola, or explosive; putty holds him; shield bash with a 0.8 s telegraph, 30 damage, 250 cm knockback, plus a slow bat swing; walks at 300. One on his own 20 m patrol by the park corner, tagged StreetGroup.
+- Heavy (built 2026-09-27): `BP_Thug_Heavy`, 200 HP, a 60 x 110 cm riot shield on the left forearm blocking arrows and light strikes in the front 120 degrees (arrows stick in it); staggered only by a heavy strike, bola, or explosive; putty holds him; shield bash with a 0.8 s telegraph, 30 damage, 250 cm knockback, plus a slow bat swing; walks at 300. One on his own 20 m patrol by the park corner, tagged StreetGroup. For the music he is a Fight, not a Duel, unless two or more others are alerted with him (see "Audio").
 - Archer holds (built 2026-09-27): on losing line of sight mid-draw he holds up to 2.5 s and fires within 0.2 s of the player reappearing in his cone; a 0.6 s loose window after a shot leaves him open. Scripted duel: won with 1 hit taken.
 - Readability: a cream "!" for 0.6 s over a thug going Alerted, "?" for Suspicious; a thin health bar over damaged thugs within 1500 cm, fading after 3 s (2026-09-29: a larger red-orange "!" while he winds up a strike, see "Combat readability"). Scripted street fight against bat, gunner, heavy: won, 0 hits, 0 untelegraphed hits, fairness metric 0% staggered time.
 
@@ -729,17 +729,27 @@ the last input came from a pad.
   - Roam: nothing, or the pad at half at night or while a challenge runs.
   - Alert: one thug alerted (or a crime on within 40 m of Kate): the pulse.
   - Fight: two or more alerted, or an alerted one within 8 m: pulse and percussion.
-  - Duel: an alerted archer, heavy, or anything with a boss phase component: pulse,
-    percussion and the motif.
+  - Duel: an alerted archer or anything with a boss phase component, or the heavy with two or
+    more other thugs alerted beside him (2026-09-29): pulse, percussion and the motif. The heavy
+    alone, or with one other, is an ordinary Alert or Fight (`HawkeyeMusic::HeavyDuelOthers`).
   - Win: every thug alerted in this fight is down (dead, limp or despawned) and at least one
     went down: all layers out in 1 s under `MS_Music_Win` (a 2 s D major resolve), then Roam.
-    A thug alerted during the sting goes straight back to the fight.
+    A thug alerted during the sting goes straight back to the fight; a crime starting nearby waits
+    for the sting to end. Once per fight (2026-09-29): the won fight does not sting again until
+    someone new is engaged or it is forgotten (the crime screenshot pass had a crime starting after a
+    won fight flip Win and Alert every frame, `Hawkeye.Music.WinOncePerFight`).
   - Downed: Kate is downed: every layer out in 1 s, the drone in. On the revive the music
     goes straight to what the fight is.
   Rising is immediate. Falling waits: the level must be lower for 4 s before it drops, one
   step at a time (Duel to Fight to Alert to Roam), and any rise resets the wait. Layers fade in
   over 1.5 s and out over 2 s (1 s into Win and Downed). A thug counts toward "this fight"
-  once he is alerted; the fight is forgotten when the music reaches Roam. Every transition
+  once he is alerted; the fight is forgotten when the music reaches Roam.
+  A pause screen (map, inventory, pause menu and settings, safehouse menu, phone, results card,
+  flashback: anything that pauses the world) holds the sound as well as the state machine
+  (2026-09-29): the subsystem ticks under a pause only to notice it and pauses the score and any
+  win sting (`UAudioComponent::SetPaused`); closing the screen resumes both where they were, in
+  the same state. Logs `Music: paused` / `Music: resumed` (`Hawkeye.Music.PausesWithPauseScreens`).
+  Every transition
   logs `Music: <from> -> <to>` at Log with the numbers behind it. The graph peaks near 0.35
   of full scale and `SCL_Music` defaults to 0.6 on the slider (0.36 gain), so the music sits
   well under the effects. Rules in `Source/Hawkeye/Audio/HawkeyeMusicRules.h`; tests
@@ -1072,9 +1082,24 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   purple until the 2026-09-28 fix in "Side challenges".
 
 ## Street crimes (built 2026-09-27; names are placeholders; rules also in Source/Hawkeye/Crime/CrimeRules.h)
-- 12 `City_CrimeSpot_` actors: 8 street corners (each with a robbery escape point 58 to
-  62 m along the sidewalk) and 4 rooftops with anchors; none within 40 m of a safehouse
-  or pedestal, all at least 35 m apart.
+- `City_CrimeSpot_` actors: 8 street corners (each with a robbery escape point 58 to
+  62 m along the sidewalk), 4 rooftops with anchors, and 2 to 4 alleys (2026-09-29); none
+  within 40 m of a safehouse, a pedestal or the interior entrance's doorstep, all at least
+  35 m apart.
+- Alleys (2026-09-29): `create_crimes.py` casts a ray off every wall of every footprint within
+  250 m of the PlayerStart to the next building; a 3 to 6 m gap whose middle is 8 m past every
+  carriageway's edge, 1.4 m from every wall, off the park and clear of street clutter is a
+  candidate, and it must join a sidewalk by a walk never nearer than 1.4 m to a wall, at most
+  50 m on a 50 cm grid. On the East Village block: 461 rays found gaps in 71 passages; 297 fell
+  in a keep-out or within 35 m of a spot; of 30 passages tried, 22 were dead ends (rear yards
+  with no way out but through a building) and 5 too deep; 3 were placed (`City_CrimeSpot_12` to
+  `_14`, 5.8, 4.5 and 5.4 m wide by footprint, 5.5, 4.0 and 5.0 m by the level's walls). Alley
+  spots face along the passage (`ACrimeSpot::bAlley`) and take the mugging and the ambush; an
+  ambush there lines its four up along the passage (pairs 5 and 3 m either side, 60 cm across,
+  `UCrimeRules::AlleyRosterOffset`) instead of on a 5 m ring in the walls. A block with fewer
+  than two alleys would get two spots on the park's interior paths instead. `verify_city.py`
+  checks the count, the crimes, the width by traces and a navmesh path to the nearest corner
+  spot.
 - A crime is due every 90 to 150 s of roaming (not in combat, a challenge, or a chapter
   beat), at a spot 25 to 40 m away and 60 m from the last, preferring spots out of sight.
   One at a time. `hawkeye.CrimeInterval` and `hawkeye.CrimeType` cvars control it;
@@ -1087,8 +1112,19 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
 - Stopping a crime gives +5 standard arrows (never grapple arrows, which have no count), a toast,
   and a per-type count in the save.
   Crime thugs despawn 60 s after success once the player is 40 m away, 20 s after failure.
-- Scripted mugging: rescued in 12.3 s with no hits. No alley spots yet; robbery, ambush,
-  and rooftop are covered by headless world tests only.
+- Scripted laps (standalone `-game`, `Hawkeye.Lap.Crime*`, 2026-09-29), each started by the
+  subsystem's own rules through `hawkeye.CrimeType`, each paying +5 arrows, the toast
+  ("[Crime stopped] / [Crime: <type>]   +5 arrows"), the count and the campaign save:
+  mugging at the corner `City_CrimeSpot_0`, 11.8 s, 0 hits, the victim unhurt; robbery at
+  `_0`, 6.4 s, 0 hits, the runner tripped by a bola 8 m from her 63 m short of his escape, the
+  loot walked over; ambush in the alley `_12`, 13.5 s, 0 hits, a bola on the gunner then
+  strikes, a parry and three finishers; rooftop on `_10` (13.7 m), grappled up from the street
+  27 m out in one press, 9.2 s, 0 hits, two arrows, six strikes and a finisher. A crime waits out
+  a fight: with a thug still alerted or Clint's fight clock running (10 s after the last blow) the
+  schedule does not run, so back-to-back laps start 5 to 10 s after set-up. The laps found: a thug
+  walking to where she landed a zip by a parapet asked for a goal off the roof's navmesh and failed
+  (fixed: `AThugAIController::RequestMoveToLocation` walks to the goal's nearest navmesh point within
+  2 m); and their own slot change on the release frame loosed a standard arrow instead of the bola.
 
 ## Safehouses and fast travel (built 2026-09-27; rules also in Source/Hawkeye/World/SafehouseSubsystem.h)
 - Two safehouses: "[Safehouse 1]" at 140 East 7th Street (OSM W248142338) and
