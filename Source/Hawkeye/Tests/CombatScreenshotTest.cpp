@@ -4,6 +4,7 @@
 
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
+#include "Combat/ArrowDefinition.h"
 #include "Combat/ArrowProjectile.h"
 #include "Combat/BowComponent.h"
 #include "Combat/BowDefinition.h"
@@ -25,6 +26,9 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/Paths.h"
 #include "Partner/HawkeyePartnerController.h"
+#include "PhysicsEngine/PhysicsAsset.h"
+#include "PhysicsEngine/SkeletalBodySetup.h"
+#include "Player/InventoryComponent.h"
 #include "Player/HawkeyeCharacter.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/PartnerScreenshots.h"
@@ -52,6 +56,9 @@
  *   aim_view_clear.png    Kate's own camera at full draw on the street, aiming along it: the raised
  *                         bow arm left of centre, the reticle area clear (the report gives where the
  *                         right hand and elbow project, from the screen centre)
+ *   arrow_in_kate.png     one of Trickshot's arrows flown into Kate's chest from 5 m, front-left and
+ *                         a little above: stuck in her body on a bone, not out on the capsule (the
+ *                         report gives the bone and how far the tip is from the body's shapes)
  *
  * Every thug but the one in the shot is frozen; Kate is invulnerable throughout.
  */
@@ -76,6 +83,8 @@ namespace HawkeyeCombatShots
 		GlyphTrigger,
 		AimSetup,
 		AimDone,
+		KateArrowSetup,
+		KateArrowView,
 		Cleanup,
 	};
 
@@ -90,7 +99,29 @@ namespace HawkeyeCombatShots
 	static TWeakObjectPtr<AThugCharacter> Archer;
 	static TWeakObjectPtr<ACameraActor> ShotCamera;
 	static TWeakObjectPtr<APointLight> FillLight;
+	static TWeakObjectPtr<AArrowProjectile> KateArrow;
 	static bool bKateWasInvulnerable = false;
+
+	/** How far Point is outside the nearest of Body's physics shapes (0 inside), or -1 with no physics asset. */
+	static float DistanceToBody(const USkeletalMeshComponent* Body, const FVector& Point)
+	{
+		const UPhysicsAsset* Physics = Body ? Body->GetPhysicsAsset() : nullptr;
+		if (!Physics)
+		{
+			return -1.f;
+		}
+		float Best = TNumericLimits<float>::Max();
+		for (const TObjectPtr<USkeletalBodySetup>& Setup : Physics->SkeletalBodySetups)
+		{
+			const int32 Bone = Setup ? Body->GetBoneIndex(Setup->BoneName) : INDEX_NONE;
+			if (Bone != INDEX_NONE)
+			{
+				const float Distance = Setup->GetShortestDistanceToPoint(Point, Body->GetBoneTransform(Bone));
+				Best = Distance >= 0.f ? FMath::Min(Best, Distance) : Best;
+			}
+		}
+		return Best;
+	}
 
 	static UWorld* FindWorld()
 	{
@@ -563,9 +594,62 @@ bool FHawkeyeCombatShot::Update()
 		Kate->StopAim();
 		break;
 
+	case EShot::KateArrowSetup:
+	{
+		// Trickshot's black and purple arrow if an archer carries one, else one of hers.
+		UArrowDefinition* Definition = nullptr;
+		for (AThugCharacter* A : Tagged(World, ArcherPairTag))
+		{
+			Definition = (!Definition && A->GetBowComponent()) ? A->GetBowComponent()->OwnArrow.Get() : Definition;
+		}
+		if (!Definition && Kate->GetInventoryComponent())
+		{
+			Definition = Kate->GetInventoryComponent()->GetArrowSlot(1).Arrow;
+		}
+		const FVector Chest = Kate->GetActorLocation() + FVector(0.f, 0.f, 30.f);
+		const FVector From = Chest + Kate->GetActorRotation().RotateVector(FVector(430.f, -250.f, 60.f));
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		AArrowProjectile* Arrow = World->SpawnActor<AArrowProjectile>(AArrowProjectile::StaticClass(), From,
+			(Chest - From).Rotation(), Params);
+		KateArrow = Arrow;
+		if (!Arrow || !Definition)
+		{
+			Test->AddWarning(TEXT("arrow_in_kate.png: no arrow to fly at her."));
+			break;
+		}
+		Arrow->InitArrow(Definition, nullptr, 0.f, nullptr, nullptr);
+		Arrow->LaunchWithVelocity((Chest - From).GetSafeNormal() * 5000.f);
+		break;
+	}
+
+	case EShot::KateArrowView:
+	{
+		AArrowProjectile* Arrow = KateArrow.Get();
+		if (!Arrow || !Arrow->IsStuck() || Arrow->GetStuckInActor() != Kate)
+		{
+			Test->AddWarning(TEXT("arrow_in_kate.png: the arrow is not stuck in Kate."));
+			break;
+		}
+		const USceneComponent* Parent = Arrow->GetRootComponent()->GetAttachParent();
+		const FName Bone = Arrow->GetRootComponent()->GetAttachSocketName();
+		const FVector Tip = Arrow->GetActorLocation();
+		Test->AddInfo(FString::Printf(TEXT("arrow_in_kate.png: stuck on %s of %s, tip %.1f cm outside her body's shapes, %.1f cm from the capsule axis (radius %.0f)."),
+			*Bone.ToString(), Parent == Kate->GetMesh() ? TEXT("her mesh") : *GetNameSafe(Parent), DistanceToBody(Kate->GetMesh(), Tip),
+			FVector::Dist2D(Tip, Kate->GetActorLocation()), Kate->GetCapsuleComponent()->GetScaledCapsuleRadius()));
+		// From her front-left, level with the arrow, close enough to see where it goes in.
+		const FVector Side = Kate->GetActorRotation().RotateVector(FVector(160.f, -150.f, 15.f));
+		Frame(World, PC, Tip + Side, Tip - Arrow->GetActorForwardVector() * 25.f, 45.f, 300.f);
+		break;
+	}
+
 	case EShot::Cleanup:
 		SetThinking(World, false);
 		Unframe(PC, Kate);
+		if (AArrowProjectile* Arrow = KateArrow.Get())
+		{
+			Arrow->Destroy();
+		}
 		if (ACameraActor* Camera = ShotCamera.Get())
 		{
 			Camera->Destroy();
@@ -770,6 +854,10 @@ void HawkeyeAddCombatShots(FAutomationTestBase* Test)
 	Wait(TEXT("aim_view_clear.png"), 0.f);
 	Take(TEXT("aim_view_clear.png"));
 	Shot(EShot::AimDone, 0.3f);
+
+	Shot(EShot::KateArrowSetup, 0.6f);
+	Shot(EShot::KateArrowView, 0.4f);
+	Take(TEXT("arrow_in_kate.png"));
 
 	Shot(EShot::Cleanup, 0.5f);
 }
