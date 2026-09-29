@@ -197,6 +197,29 @@ Facts that matter:
   `Hawkeye.Screenshot.EastVillage` into `Saved/Screenshots/City/`.
 - `overpass-api.de` rejects PowerShell's default user agent; the fetch script sends its
   own and falls back to `overpass.kumi.systems`.
+- Grapple anchors: `generate_city.anchor_spots` places the parapet anchors and then the facade anchors
+  (gameplay-semantics.md, "Anchor placement guarantees") by a reach model, `GrappleReach` in the same
+  script; `anchor_reach_report` is what verify_city checks. The script runs in plain Python too (a stub
+  `unreal` module is enough), which is how the model was tuned: about 20 s for the district.
+- The anchor audit, `Hawkeye.Grapple.Audit` (`Source/Hawkeye/Tests/GrappleAuditTest.cpp`), checks the
+  placement with the game's own traces. It needs the district as a game world but no rendering:
+
+  ```powershell
+  & "$UE\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "$Proj" /Game/Maps/L_District_EastVillage -game -nullrhi -unattended -nosplash -nop4 -log -abslog="$Proj\..\Saved\Logs\GrappleAudit.log" -ExecCmds="Automation RunTests Hawkeye.Grapple.Audit; Quit"
+  ```
+
+  About a minute with the load, 10 s of audit. From sidewalk spots every 10 m (and 2.5 m for a roof the
+  10 m ones miss) and every roof's centre and parapet middles it counts, per roof over 8 m, the anchors in
+  range, seen by the hip camera turned to them (`HawkeyeGrappleView::PredictLens`: the spring arm's sums,
+  the pitch clamp, the probe; then the cone, `IsOnScreen` and `HasLineOfSight`) and zip-clear, and asks
+  the picker from each view (dead on and 6.3 degrees off) against a full check of every anchor. It writes
+  `Saved/Automation/grapple_audit.json` (the summary, the chapter 1 chain, roofs with none from the street
+  and why, neighbour pairs missing, anchors reachable from nowhere) and fails only on the chapter 1 roofs.
+  2026-09-29, before the facade anchors and after: 1691 / 2457 anchors; roofs with no anchor reachable
+  from a 10 m sidewalk spot 265 / 92, from any 2.5 m spot 236 / 34 (of the 34, 20 have no sidewalk in
+  range and 5 are inside their blocks); roof pairs across a gap not reaching each other 991 / 519 of about
+  3,500 in range; anchors reachable from nowhere 31 / 54 (the tie rule and inner courtyards); the
+  reach_roof roof reachable from the street by 0 / 1 anchors, find_arrow 1 / 2.
 - World Partition is off for the single block. Stage 3 turns it on.
 - The world map's data, `/Game/City/EastVillage/DA_EastVillage_Map` (`UCityMapData`), is written by
   the same run (`ensure_city_map`): every footprint and the park cleaned to a few points (edges

@@ -314,8 +314,10 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   53 degrees Kate drops out of the bottom of the frame rather than filling it.
 - Grapple arrow (built 2026-09-26): valid anchors are within 2500 cm, farther than 300 cm
   (so the anchor just landed beside doesn't stay lit), within 30 degrees of the camera
-  forward, and in line of sight from the camera; the closest by angle wins and shows a
-  marker (a green diamond with the key under it, Q or RB, every time; see the next bullet). Fire spawns a straight, gravity-free
+  forward, on the screen 2 degrees inside every edge (`IsOnScreen`, the camera's field of view
+  and the viewport's shape; 30 degrees up is off a 16:9 screen), and in line of sight from the
+  camera; see "Grapple picker" for which one is marked (a green diamond with the key under it, Q
+  or RB, every time; see the next bullet). Fire spawns a straight, gravity-free
   arrow at 6000 cm/s; on arrival the character zips in Flying mode along a straight line
   to the anchor's landing point at 1800 cm/s, input locked except the camera, and lands
   in Walking with no fall damage. Chaining is allowed once past 70% of the line, when
@@ -330,7 +332,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   stayed green with an empty quiver, and anchors whose line was blocked were marked). The target
   also needs a clear zip line from where she is (`IsZipClear`, the same sweep and start and anchor
   allowances as the zip; mid-zip, the line she is on counts as her start), checked nearest the
-  middle first, at most 3 per 0.1 s refresh. `GetTargetState()` is what a press would do: Ready
+  middle first, at most 6 zip checks and 32 sight traces per 0.1 s refresh. `GetTargetState()` is what a press would do: Ready
   (green diamond, key hint), ArrowInFlight (grey, no hint), TooEarlyToChain (no marker), None
   (the NoArrows state and its "No grapple arrows" line went with the count, 2026-09-29). A press
   fires only when Ready. An anchor nearer the
@@ -345,6 +347,38 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   Landing points are 60 cm further inboard so the capsule clears the parapet. The
   generator places them; verify asserts every landing point is above a building roof.
   Anchor lookup uses a 25 m spatial grid.
+- Grapple picker (revised 2026-09-29 after "many street-side anchors are never targeted" and "the RB
+  traversal isn't really working well"; `Hawkeye.Grapple.PickRule.*`): of the anchors that pass range,
+  cone, the screen's edges, sight and a clear zip, the marked one is the one nearest the middle of the
+  screen; of those within 0.5 degrees of it (`PickTieDegrees`), the one nearest to her. Candidates are
+  tried nearest the middle first; a visible anchor behind any number of hidden ones nearer the middle is
+  still found (the old 8-trace limit missed it). A green diamond is drawn for the marked anchor and for
+  nothing else; since a marked anchor is always on the screen, its diamond is always drawn and a press
+  fires at what is drawn. The grey diamond is still the one nearer the middle whose zip line is blocked.
+  Level and downward lines are allowed (the launch hop), and the picker has no preference for them: it
+  does not weigh height at all. `Hawkeye.Grapple.Audit` checks the picker against a full check of every
+  anchor: 0 disagreements in 24,414 dead-on views and 97,656 views 6.3 degrees off (2026-09-29).
+- Anchor placement guarantees (2026-09-29, after the campaign lap found the find_arrow roof's one anchor
+  hidden from every street spot and the scripted lap never found a third roof): on top of the parapet
+  anchors, `generate_city.anchor_spots` bolts facade anchors to the outer face of the parapet (20 cm out
+  from the wall, the 40 cm fitting's top flush with the parapet top, landing point 120 cm inboard). Every
+  anchored roof gets one on the open wall facing its widest street, placed straight above a sidewalk spot
+  where it can be and clear of its fire escape (over the escape only where a spot across the street sees
+  past the landings); and one facing each roof across a street or gap (1 to 25 m, nearest points seeing
+  each other over no third building as high as the lower roof) whose roof spots reach none of its anchors
+  yet. Nothing is removed: the parapet anchors keep their indices. By the generator's reach model
+  (`GrappleReach`: the grapple's range, cone, hip camera, sight and clear zip over the building prisms,
+  fire escapes and lamps), verify_city checks that every anchored roof with an open wall on a street and a
+  sidewalk within range has an anchor reachable from the sidewalk, and that the chapter 1 roofs chain:
+  reach_roof reachable from the street, cross_block from reach_roof on the roofs, find_arrow from the street
+  and from cross_block (the street between them is 24.6 m facade to facade, so the model's chain goes down
+  a fire escape and up; the game's own traces in the audit also find a roof route). Geometry the guarantee
+  cannot cover is listed, not failed: 23 roofs too tall for 25 m from the pavement or with no sidewalk within
+  range, 5 inside their blocks, 1 whose 4 m street wall its fire escape fills. The game's traces (the audit)
+  find 5 more the model passes (views past neighbouring fire escapes and walls the model is kinder about).
+  Across streets and gaps, 88% of the roof pairs in range reach each other by the model, 85% by the audit
+  (the rest: a lower roof below her own parapet's line of sight, or a third building in the view); about
+  700 more pairs are farther apart than the grapple reaches.
 
 ## Bow and arrows (built 2026-09-26; the rules below hold, with these notes)
 - Data: `UBowDefinition` (DA_Bow_Kate 0.8 s draw, DA_Bow_Clint 1.0 s) and
