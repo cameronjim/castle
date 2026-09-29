@@ -32,6 +32,7 @@
 #include "Player/HawkeyeCharacter.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/PartnerScreenshots.h"
+#include "Tests/VfxScreenshots.h"
 #include "Vfx/HawkeyeVfxSubsystem.h"
 #include "World/ThugAIController.h"
 #include "World/ThugCharacter.h"
@@ -57,9 +58,9 @@
  *   heavy_strike_2.png the same, her next heavy, taken only while her set has a second heavy: the next
  *                     variant, never the same clip
  *   kick.png          side on, the Kick role (AM_Kick_*) at the moment its hit window opens
- *   telegraph_glyph.png her own camera, a fists thug 130 cm in front of her 0.3 s into his 0.6 s wind-up: the
- *                     red-orange telegraph "!" just over his head (his head bone plus 20 cm), grown and
- *                     pulsing, the parry line under it
+ *   telegraph_glyph.png her own camera, a hurt fists thug 130 cm in front of her 0.3 s into his 0.6 s wind-up:
+ *                     his health bar just over his head (his head bone plus 20 cm), the parry line 4 px over
+ *                     it and the red-orange telegraph "!" 4 px over that, grown and pulsing
  *   thug_punch_2.png  side on, his next fists swing (the second variant) 0.3 s into its wind-up
  *   thug_punch.png    side on, the one after (the first variant again) 0.3 s in: the two clips' wind-ups
  *   fight_camera.png  her own camera, two alerted fists thugs 3 to 4.5 m in front of her on the street: the
@@ -634,11 +635,16 @@ bool FHawkeyeMeleeShot::Update()
 	}
 
 	case EShot::TelegraphSetup:
-		// A fists thug square in front of her, inside the parry's 250 cm: the glyph and its parry line.
+		// A hurt fists thug square in front of her, inside the parry's 250 cm: his bar, the parry line and the
+		// glyph stacked over his head.
 		if (!FaceOff(World, Kate, 130.f, 0.f, EThugWeapon::Fists))
 		{
 			Test->AddWarning(TEXT("telegraph_glyph.png: could not stand a thug in front of her."));
 			break;
+		}
+		if (Foe.IsValid())
+		{
+			Foe->GetHealthComponent()->ApplyDamage(20.f, Kate);
 		}
 		OwnCamera(PC, Kate, 20.f);
 		break;
@@ -1067,12 +1073,17 @@ public:
 			}
 			if (Label == TEXT("telegraph_glyph.png") && Thug && His && His->GetBoneIndex(TEXT("head")) != INDEX_NONE)
 			{
-				// Screen px (y down) from the top of his head (the head bone plus 12 cm) up to where the glyphs sit.
+				// Screen px (y down) from the top of his head (the head bone plus 12 cm) up to where the stack sits.
 				const float HeadTop = ScreenY(PC, His->GetBoneLocation(TEXT("head")) + FVector(0.f, 0.f, 12.f));
-				Test->AddInfo(FString::Printf(TEXT("telegraph_glyph.png: the glyph's anchor is %.0f px over the top of his head ")
-					TEXT("(the capsule anchor it had, where his bar still sits, is %.0f px over it); bar showing %d."),
-					HeadTop - ScreenY(PC, Thug->GetGlyphLocation()), HeadTop - ScreenY(PC, Thug->GetOverheadLocation()),
-					Thug->GetHealthBarAlpha(FVector::Dist(Thug->GetActorLocation(), Kate->GetActorLocation())) > 0.f ? 1 : 0));
+				const bool bBar = Thug->GetHealthBarAlpha(FVector::Dist(Thug->GetActorLocation(), Kate->GetActorLocation())) > 0.f;
+				Test->AddInfo(FString::Printf(TEXT("telegraph_glyph.png: the stack's anchor (his bar's bottom) is %.0f px over the top ")
+					TEXT("of his head (the capsule anchor the bar had is %.0f px over it); bar showing %d, %.0f%% health."),
+					HeadTop - ScreenY(PC, Thug->GetGlyphLocation()), HeadTop - ScreenY(PC, Thug->GetOverheadLocation()), bBar ? 1 : 0,
+					Thug->GetHealthComponent()->GetHealthPercent() * 100.f));
+				if (!bBar)
+				{
+					Test->AddError(TEXT("telegraph_glyph.png: the hurt thug's bar should show under the glyph."));
+				}
 			}
 			if (Label == TEXT("telegraph_glyph.png") && !bParry)
 			{
@@ -1344,6 +1355,18 @@ bool FHawkeyeMeleeTakeShot::Update()
 		IFileManager::Get().Delete(*HawkeyeMeleeShots::ShotPath(FileName), false, false, true);
 		Test->AddInfo(TEXT("heavy_strike_2.png: not taken, her set has one heavy."));
 		return true;
+	}
+	if (FileName == TEXT("parry_flash.png"))
+	{
+		// 0.17 s of world time after the parry (then a crawl): the ring (0.22 to 0.3 s) still out, its 0.08 s
+		// flash gone.
+		int32 FlashLeft = 0;
+		const FString Live = HawkeyeDescribeLiveVfx(HawkeyeMeleeShots::FindWorld(), TEXT("NS_ParryRing"), TEXT("Flash"), FlashLeft);
+		Test->AddInfo(TEXT("parry_flash.png: ") + Live);
+		if (FlashLeft > 0)
+		{
+			Test->AddError(TEXT("parry_flash.png: the parry's 0.08 s flash is still alive 0.17 s after it."));
+		}
 	}
 	HawkeyeShots::Request(Test, HawkeyeMeleeShots::ShotPath(FileName), /*bShowUI=*/true);
 	return true;
