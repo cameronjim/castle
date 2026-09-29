@@ -13,6 +13,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Hawkeye.h"
+#include "HawkeyeGameMode.h"
+#include "Combat/HealthComponent.h"
 #include "HawkeyePlayerController.h"
 #include "HAL/PlatformTime.h"
 #include "Mission/MissionSubsystem.h"
@@ -197,9 +199,9 @@ FText USafehouseSubsystem::GetMarkerNameNow(const ASafehouse* Safehouse) const
 
 // --- Fast travel -----------------------------------------------------------------------------------
 
-FText USafehouseSubsystem::GetTravelRefusal(bool bCrimeActive, bool bChallengeRunning, bool bTravelling)
+FText USafehouseSubsystem::GetTravelRefusal(bool bCrimeActive, bool bChallengeRunning, bool bTravelling, bool bInFight)
 {
-	return bCrimeActive || bChallengeRunning || bTravelling
+	return bCrimeActive || bChallengeRunning || bTravelling || bInFight
 		? NSLOCTEXT("Hawkeye", "FastTravelRefused", "[Can't fast travel now]") : FText::GetEmpty();
 }
 
@@ -207,7 +209,12 @@ FText USafehouseSubsystem::GetTravelRefusalNow() const
 {
 	const UCrimeSubsystem* Crimes = UCrimeSubsystem::Get(this);
 	const UChallengeSubsystem* Challenges = UChallengeSubsystem::Get(this);
-	return GetTravelRefusal(Crimes && Crimes->IsCrimeActive(), Challenges && Challenges->IsRunning(), bTravelling);
+	const UWorld* World = GetWorld();
+	const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	const AHawkeyeCharacter* Player = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	const bool bDown = Player && (Player->IsDowned() || !Player->GetHealthComponent()->IsAlive());
+	return GetTravelRefusal(Crimes && Crimes->IsCrimeActive(), Challenges && Challenges->IsRunning(), bTravelling,
+		AHawkeyeGameMode::IsWorldInCombat(World) || bDown);
 }
 
 bool USafehouseSubsystem::PlaceAtArrival(ASafehouse* Destination, APawn* Player, APawn* Partner)
@@ -259,7 +266,7 @@ bool USafehouseSubsystem::BeginFastTravel(AHawkeyePlayerController* PC, ASafehou
 	const FText Refusal = GetTravelRefusalNow();
 	if (!Refusal.IsEmpty())
 	{
-		UE_LOG(LogHawkeye, Log, TEXT("%s: fast travel to %s refused (crime, challenge or a travel under way)."), *GetName(),
+		UE_LOG(LogHawkeye, Log, TEXT("%s: fast travel to %s refused (crime, challenge, fight, down or a travel under way)."), *GetName(),
 			*Destination->SafehouseId.ToString());
 		return false;
 	}

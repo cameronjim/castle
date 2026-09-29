@@ -18,6 +18,7 @@
 #include "Tests/HawkeyeTestUtils.h"
 #include "World/Safehouse.h"
 #include "World/SafehouseSubsystem.h"
+#include "World/ThugCharacter.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
@@ -136,6 +137,7 @@ bool FHawkeyeFastTravelRefusal::RunTest(const FString& Parameters)
 	TestEqual(TEXT("A crime refuses"), USafehouseSubsystem::GetTravelRefusal(true, false, false).ToString(), Refused);
 	TestEqual(TEXT("A challenge refuses"), USafehouseSubsystem::GetTravelRefusal(false, true, false).ToString(), Refused);
 	TestEqual(TEXT("A travel under way refuses"), USafehouseSubsystem::GetTravelRefusal(false, false, true).ToString(), Refused);
+	TestEqual(TEXT("A fight (or being down) refuses"), USafehouseSubsystem::GetTravelRefusal(false, false, false, true).ToString(), Refused);
 
 	// The same from a world's own crime and challenge.
 	FHawkeyeTestWorld TestWorld;
@@ -170,6 +172,16 @@ bool FHawkeyeFastTravelRefusal::RunTest(const FString& Parameters)
 	TestEqual(TEXT("A challenge running refuses travel"), Safehouses->GetTravelRefusalNow().ToString(), Refused);
 	Challenges->GetTracker()->AbortRun();
 	TestTrue(TEXT("Once it is over travel is back"), Safehouses->GetTravelRefusalNow().IsEmpty());
+
+	// A thug alerted is a fight: found by Hawkeye.Lap.Campaign, where the archers downed Kate during the fade.
+	AThugCharacter* Thug = Cast<AThugCharacter>(TestWorld.SpawnActor(AThugCharacter::StaticClass(), FVector(0.f, 0.f, 100.f), FRotator::ZeroRotator));
+	if (TestNotNull(TEXT("Thug spawned"), Thug))
+	{
+		Thug->SetAlertState(EThugAlertState::Alerted);
+		TestEqual(TEXT("A thug alerted refuses travel"), Safehouses->GetTravelRefusalNow().ToString(), Refused);
+		Thug->SetAlertState(EThugAlertState::Calm);
+		TestTrue(TEXT("Calm again, travel is back"), Safehouses->GetTravelRefusalNow().IsEmpty());
+	}
 	return true;
 }
 

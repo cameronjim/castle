@@ -133,10 +133,13 @@ public:
 
 	// --- Fast travel ---------------------------------------------------------------------------------
 
-	/** "[Can't fast travel now]" when any of these holds, else empty. */
-	static FText GetTravelRefusal(bool bCrimeActive, bool bChallengeRunning, bool bTravelling);
+	/**
+	 * "[Can't fast travel now]" when any of these holds, else empty. bInFight: a thug alerted or Clint's fight
+	 * clock running, or the player down; the fade would otherwise leave her standing in their fire.
+	 */
+	static FText GetTravelRefusal(bool bCrimeActive, bool bChallengeRunning, bool bTravelling, bool bInFight = false);
 
-	/** GetTravelRefusal from this world's crime and challenge subsystems. */
+	/** GetTravelRefusal from this world's crime and challenge subsystems, its fights and the player. */
 	UFUNCTION(BlueprintPure, Category = "Safehouse")
 	FText GetTravelRefusalNow() const;
 
