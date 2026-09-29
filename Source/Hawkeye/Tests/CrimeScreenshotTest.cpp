@@ -10,6 +10,8 @@
 #include "Components/PointLightComponent.h"
 #include "Crime/Civilian.h"
 #include "Crime/CrimeDefinition.h"
+#include "Crime/CrimeLoot.h"
+#include "Crime/CrimeRules.h"
 #include "Crime/CrimeSpot.h"
 #include "Crime/CrimeSubsystem.h"
 #include "Crime/CrimeTracker.h"
@@ -46,6 +48,12 @@
  *   crime_mugging.png  a camera 5 m from the victim: the two thugs over the cowering grey civilian
  *   crime_results.png  both thugs put down by script: the "[Crime stopped]" toast with the arrows, the
  *                      freed civilian's "[thank you]" over his head
+ *   crime_robbery.png  the robbery at the street corner nearest the PlayerStart with an escape point: the
+ *                      three thugs round the runner, the dark holdall in his hand, from 6 m off the corner
+ *   crime_ambush.png   the ambush at an alley spot (a corner when there is none): the four thugs lined up
+ *                      along the passage, from its mouth 9 m out along it
+ *   crime_rooftop.png  the rooftop crime at the roof spot nearest the PlayerStart: the two thugs and the
+ *                      archer on the roof, from 3.5 m over the roof 7 m off the spot
  *
  * The crime's thugs are frozen for the frames (they stand where they spawned); every other thug is
  * frozen and Kate is invulnerable. She goes back where she was afterwards and the crime is cleaned up.
@@ -60,6 +68,9 @@ namespace HawkeyeCrimeShots
 		Mugging,
 		Results,
 		ResultsReport,
+		Robbery,
+		Ambush,
+		Rooftop,
 		Cleanup,
 	};
 
@@ -196,6 +207,150 @@ namespace HawkeyeCrimeShots
 			{
 				Brain->SetThinkingEnabled(false);
 			}
+		}
+	}
+
+	/** The spot a type's shot is taken at: nearest the PlayerStart, the ambush in an alley when there is one. */
+	static ACrimeSpot* ShotSpot(UWorld* World, const UCrimeSubsystem* Crimes, ECrimeType Type)
+	{
+		FVector From = FVector::ZeroVector;
+		if (TActorIterator<APlayerStart> Start(World); Start)
+		{
+			From = Start->GetActorLocation();
+		}
+		ACrimeSpot* Best = nullptr;
+		auto Better = [&](const ACrimeSpot* A, const ACrimeSpot* B)
+		{
+			if (Type == ECrimeType::Ambush && A->bAlley != B->bAlley)
+			{
+				return A->bAlley;
+			}
+			return FVector::Dist2D(A->GetActorLocation(), From) < FVector::Dist2D(B->GetActorLocation(), From);
+		};
+		for (ACrimeSpot* Candidate : Crimes->GetSpots())
+		{
+			const bool bFits = Candidate->FindCrime(Type) && (Type == ECrimeType::Rooftop) == Candidate->bRooftop
+				&& (Type != ECrimeType::Robbery || Candidate->HasEscapeLocation());
+			if (bFits && (!Best || Better(Candidate, Best)))
+			{
+				Best = Candidate;
+			}
+		}
+		return Best;
+	}
+
+	/** Whether a Visibility trace down from over Point lands on a building's roof within 60 cm of RoofZ. */
+	static bool OverRoof(UWorld* World, const FVector& Point, float RoofZ, const AActor* Ignore)
+	{
+		FHitResult Hit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(CrimeShotRoof), false, Ignore);
+		return World->LineTraceSingleByChannel(Hit, FVector(Point.X, Point.Y, RoofZ + 500.f), FVector(Point.X, Point.Y, RoofZ - 300.f),
+				ECC_Visibility, Params)
+			&& FMath::Abs(Hit.ImpactPoint.Z - RoofZ) < 60.f;
+	}
+
+	/**
+	 * Starts Type at its shot spot with Kate as the player at KateFeet (her camera is not used), freezes the
+	 * thugs, and frames a camera at Eye on the spot. The report line names the roster and where each stands.
+	 */
+	static void TypeShot(FAutomationTestBase* Test, UWorld* World, AHawkeyePlayerController* PC, AHawkeyeCharacter* Kate,
+		UCrimeSubsystem* Crimes, ECrimeType Type, const TCHAR* File)
+	{
+		Crimes->AbortCrime();
+		Crimes->DespawnLeftoversNow();
+		// The last shot's "[Crime abandoned]" toast would sit over this one.
+		if (const UHawkeyeHudWidget* Hud = AHawkeyePlayerController::GetHawkeyeHudFor(Kate))
+		{
+			if (UHawkeyeObjectiveWidget* Toasts = Hud->GetObjectiveMarker())
+			{
+				Toasts->ClearToasts();
+			}
+		}
+		ACrimeSpot* Where = ShotSpot(World, Crimes, Type);
+		UCrimeDefinition* Crime = Where ? Where->FindCrime(Type) : nullptr;
+		if (!Crime)
+		{
+			Test->AddError(FString::Printf(TEXT("%s: no crime spot with that crime."), File));
+			return;
+		}
+		const FVector Centre = Where->GetActorLocation();
+		FVector Toward(1.f, 0.f, 0.f);
+		if (TActorIterator<APlayerStart> Start(World); Start)
+		{
+			Toward = (Start->GetActorLocation() - Centre).GetSafeNormal2D();
+		}
+		FVector Eye = Centre + Toward * 600.f + FVector(0.f, 0.f, 220.f);
+		FVector Look = Centre + FVector(0.f, 0.f, 60.f);
+		FVector KateAt = Centre + Toward * 900.f;
+		if (Type == ECrimeType::Robbery)
+		{
+			// Off the corner, out toward the street the spot faces away from, a little to one side.
+			const FVector Out = -Where->GetActorForwardVector().GetSafeNormal2D();
+			Eye = Centre + Out.RotateAngleAxis(60.f, FVector::UpVector) * 750.f + FVector(0.f, 0.f, 260.f);
+			KateAt = Centre + Out * 1200.f;
+		}
+		else if (Type == ECrimeType::Ambush)
+		{
+			// Down the passage from 9 m along it, the end nearer the PlayerStart.
+			FVector Along = Where->GetActorForwardVector().GetSafeNormal2D();
+			Along = FVector::DotProduct(Along, Toward) < 0.f ? -Along : Along;
+			Eye = Centre + Along * 900.f + FVector(0.f, 0.f, 230.f);
+			KateAt = Centre + Along * 1100.f;
+		}
+		else if (Type == ECrimeType::Rooftop)
+		{
+			// Over the roof 7 m off the spot (the first of eight ways round that is still over it), Kate under the lens.
+			for (int32 Step = 0; Step < 8; ++Step)
+			{
+				const FVector Out = Toward.RotateAngleAxis(45.f * Step, FVector::UpVector);
+				for (const float Reach : { 700.f, 550.f, 400.f })
+				{
+					if (OverRoof(World, Centre + Out * Reach, Centre.Z, Kate))
+					{
+						Eye = Centre + Out * Reach + FVector(0.f, 0.f, 350.f);
+						KateAt = Centre + Out * Reach;
+						Step = 8;
+						break;
+					}
+				}
+			}
+		}
+		const float HalfHeight = Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		FHitResult Ground;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(CrimeShotKate), false, Kate);
+		const FVector Probe(KateAt.X, KateAt.Y, Centre.Z + 400.f);
+		const FVector Feet = World->LineTraceSingleByChannel(Ground, Probe, Probe - FVector(0.f, 0.f, 1500.f), ECC_Visibility, Params)
+			? Ground.ImpactPoint : FVector(KateAt.X, KateAt.Y, Centre.Z);
+		Kate->TeleportTo(Feet + FVector(0.f, 0.f, HalfHeight + 2.f), (Centre - Feet).Rotation(), false, true);
+		if (!Crimes->StartCrimeAt(Where, Crime, Kate))
+		{
+			Test->AddError(FString::Printf(TEXT("%s: the %s did not start at %s."), File, *UCrimeRules::TypeText(Type).ToString(), *Where->GetName()));
+			return;
+		}
+		FreezeCrimeThugs(Crimes);
+		Frame(World, PC, Eye, Look, Type == ECrimeType::Robbery ? 70.f : 60.f, 320.f);
+		FString Roster;
+		for (const TWeakObjectPtr<AThugCharacter>& Thug : Crimes->GetThugs())
+		{
+			if (const AThugCharacter* T = Thug.Get())
+			{
+				const FVector Offset = T->GetActorLocation() - Centre;
+				Roster += FString::Printf(TEXT("%s %s (%.0f, %.0f, %.0f); "), *T->GetName(), *UEnum::GetValueAsString(T->Weapon),
+					Offset.X, Offset.Y, Offset.Z);
+			}
+		}
+		const ACrimeLoot* Bag = Crimes->GetLoot();
+		if (Bag)
+		{
+			Roster += FString::Printf(TEXT("bag at (%.0f, %.0f, %.0f) %s; "), Bag->GetActorLocation().X - Centre.X, Bag->GetActorLocation().Y - Centre.Y,
+				Bag->GetActorLocation().Z - Centre.Z, Bag->IsHidden() ? TEXT("hidden") : TEXT("shown"));
+		}
+		Test->AddInfo(FString::Printf(TEXT("%s: %s at %s (%s), %d thugs: %s%s"), File, *UCrimeRules::TypeText(Type).ToString(), *Where->GetName(),
+			Where->bRooftop ? TEXT("roof") : Where->bAlley ? TEXT("alley") : TEXT("corner"), Crimes->GetThugs().Num(), *Roster,
+			Crimes->GetLoot() ? *FString::Printf(TEXT("loot carried by %s"), *GetNameSafe(Crimes->GetRunner())) : TEXT("")));
+		if (Crimes->GetThugs().Num() != Crime->GetThugCount())
+		{
+			Test->AddError(FString::Printf(TEXT("%s: %d of %d thugs spawned."), File, Crimes->GetThugs().Num(), Crime->GetThugCount()));
 		}
 	}
 }
@@ -359,6 +514,18 @@ bool FHawkeyeCrimeShot::Update()
 		break;
 	}
 
+	case EShot::Robbery:
+		TypeShot(Test, World, PC, Kate, Crimes, ECrimeType::Robbery, TEXT("crime_robbery.png"));
+		break;
+
+	case EShot::Ambush:
+		TypeShot(Test, World, PC, Kate, Crimes, ECrimeType::Ambush, TEXT("crime_ambush.png"));
+		break;
+
+	case EShot::Rooftop:
+		TypeShot(Test, World, PC, Kate, Crimes, ECrimeType::Rooftop, TEXT("crime_rooftop.png"));
+		break;
+
 	case EShot::Cleanup:
 		Crimes->AbortCrime();
 		Crimes->DespawnLeftoversNow();
@@ -414,6 +581,14 @@ void HawkeyeAddCrimeShots(FAutomationTestBase* Test)
 	Shot(EShot::Results, 0.7f);
 	Shot(EShot::ResultsReport, 0.1f);
 	Take(TEXT("crime_results.png"), 0.5f);
+
+	// One shot per other type: long enough for the roster to settle where it spawned.
+	Shot(EShot::Robbery, 1.5f);
+	Take(TEXT("crime_robbery.png"), 0.5f);
+	Shot(EShot::Ambush, 1.5f);
+	Take(TEXT("crime_ambush.png"), 0.5f);
+	Shot(EShot::Rooftop, 1.5f);
+	Take(TEXT("crime_rooftop.png"), 0.5f);
 
 	Shot(EShot::Cleanup, 0.5f);
 }
