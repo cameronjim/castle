@@ -61,17 +61,22 @@ float FHawkeyeTargetMarker::GetAlpha() const
 
 namespace HawkeyeCombatReadability
 {
-	int32 CountEngaged(const FVector& Origin, const TArray<FVector>& Positions, float Radius, float MaxHeight)
+	int32 CountEngaged(const FVector& Origin, const TArray<FVector>& Positions, float Radius, float MaxHeight, float FarRadius)
 	{
-		int32 Count = 0;
+		int32 Near = 0;
+		int32 Far = 0;
 		for (const FVector& At : Positions)
 		{
-			if (FVector::Dist2D(At, Origin) <= Radius && FMath::Abs(At.Z - Origin.Z) <= MaxHeight)
+			if (FMath::Abs(At.Z - Origin.Z) > MaxHeight)
 			{
-				++Count;
+				continue;
 			}
+			const float Flat = FVector::Dist2D(At, Origin);
+			Near += Flat <= Radius ? 1 : 0;
+			Far += Flat <= FMath::Max(Radius, FarRadius) ? 1 : 0;
 		}
-		return Count;
+		// Someone has to be close for the far ones to count.
+		return Near > 0 ? Far : 0;
 	}
 
 	bool IsFight(int32 Engaged, const FHawkeyeFightCameraSettings& Settings)

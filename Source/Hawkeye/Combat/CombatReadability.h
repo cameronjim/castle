@@ -44,7 +44,7 @@ private:
 
 /**
  * The fight camera (gameplay-semantics.md, "Combat readability"): with MinThugs or more alerted thugs
- * within Radius of her, the hip boom lengthens by ExtraArmLength and the lens tips down PitchDrop,
+ * within Radius of her (and any others within FarRadius, once one is within Radius), the hip boom lengthens by ExtraArmLength and the lens tips down PitchDrop,
  * blended in over BlendInSeconds and back out over BlendOutSeconds.
  */
 USTRUCT(BlueprintType)
@@ -52,9 +52,13 @@ struct HAWKEYE_API FHawkeyeFightCameraSettings
 {
 	GENERATED_BODY()
 
-	/** Alerted thugs this close (flat), cm... */
+	/** An alerted thug this close (flat), cm, starts the count... */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera|Fight", meta = (ClampMin = "0.0"))
-	float Radius = 600.f;
+	float Radius = 900.f;
+
+	/** ...and once one is that close, alerted thugs up to this far (flat), cm, count too (a gunner hanging back). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera|Fight", meta = (ClampMin = "0.0"))
+	float FarRadius = 1500.f;
 
 	/** ...and at most this far above or below her, cm, count as the fight. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Camera|Fight", meta = (ClampMin = "0.0"))
@@ -92,7 +96,7 @@ struct HAWKEYE_API FHawkeyeTelegraphLook
 namespace HawkeyeCombatReadability
 {
 	/** Of Positions (alerted thugs), how many are within Radius of Origin (flat) and MaxHeight above or below. */
-	HAWKEYE_API int32 CountEngaged(const FVector& Origin, const TArray<FVector>& Positions, float Radius, float MaxHeight);
+	HAWKEYE_API int32 CountEngaged(const FVector& Origin, const TArray<FVector>& Positions, float Radius, float MaxHeight, float FarRadius = 0.f);
 
 	/** True when Engaged thugs make a fight under Settings. */
 	HAWKEYE_API bool IsFight(int32 Engaged, const FHawkeyeFightCameraSettings& Settings);

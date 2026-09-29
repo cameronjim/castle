@@ -113,18 +113,23 @@ bool FHawkeyeFightCameraRules::RunTest(const FString& Parameters)
 {
 	using namespace HawkeyeCombatReadability;
 	const FHawkeyeFightCameraSettings Settings;
-	TestEqual(TEXT("6 m"), Settings.Radius, 600.f);
+	TestEqual(TEXT("9 m"), Settings.Radius, 900.f);
+	TestEqual(TEXT("15 m for the far ones"), Settings.FarRadius, 1500.f);
 	TestEqual(TEXT("Two thugs make a fight"), Settings.MinThugs, 2);
 	TestTrue(TEXT("The boom lengthens 60 to 80 cm"), Settings.ExtraArmLength >= 60.f && Settings.ExtraArmLength <= 80.f);
 	TestTrue(TEXT("The lens tips a few degrees"), Settings.PitchDrop >= 2.f && Settings.PitchDrop <= 6.f);
 
 	const FVector Her = FVector::ZeroVector;
-	TestEqual(TEXT("At 500 and 590 both count"),
-		CountEngaged(Her, { FVector(500.f, 0.f, 0.f), FVector(0.f, -590.f, 50.f) }, Settings.Radius, Settings.MaxHeight), 2);
-	TestEqual(TEXT("At 610 he does not"),
-		CountEngaged(Her, { FVector(500.f, 0.f, 0.f), FVector(610.f, 0.f, 0.f) }, Settings.Radius, Settings.MaxHeight), 1);
+	TestEqual(TEXT("At 500 and 890 both count"),
+		CountEngaged(Her, { FVector(500.f, 0.f, 0.f), FVector(0.f, -890.f, 50.f) }, Settings.Radius, Settings.MaxHeight, Settings.FarRadius), 2);
+	TestEqual(TEXT("A gunner at 1400 counts with one at 800"),
+		CountEngaged(Her, { FVector(800.f, 0.f, 0.f), FVector(1400.f, 0.f, 0.f) }, Settings.Radius, Settings.MaxHeight, Settings.FarRadius), 2);
+	TestEqual(TEXT("At 1510 he does not"),
+		CountEngaged(Her, { FVector(800.f, 0.f, 0.f), FVector(1510.f, 0.f, 0.f) }, Settings.Radius, Settings.MaxHeight, Settings.FarRadius), 1);
+	TestEqual(TEXT("Two far ones with nobody within 9 m are not a fight"),
+		CountEngaged(Her, { FVector(950.f, 0.f, 0.f), FVector(1400.f, 0.f, 0.f) }, Settings.Radius, Settings.MaxHeight, Settings.FarRadius), 0);
 	TestEqual(TEXT("Nor one on the roof above"),
-		CountEngaged(Her, { FVector(100.f, 0.f, 0.f), FVector(100.f, 0.f, 400.f) }, Settings.Radius, Settings.MaxHeight), 1);
+		CountEngaged(Her, { FVector(100.f, 0.f, 0.f), FVector(100.f, 0.f, 400.f) }, Settings.Radius, Settings.MaxHeight, Settings.FarRadius), 1);
 	TestFalse(TEXT("One is not a fight"), IsFight(1, Settings));
 	TestTrue(TEXT("Two are"), IsFight(2, Settings));
 	TestTrue(TEXT("Three are"), IsFight(3, Settings));
@@ -185,7 +190,7 @@ bool FHawkeyeFightCameraOnKate::RunTest(const FString& Parameters)
 	{
 		Kate->TestTickAim(0.1f);
 	}
-	TestEqual(TEXT("Two alerted within 6 m"), Kate->GetEngagedThugCount(), 2);
+	TestEqual(TEXT("Two alerted within 9 m"), Kate->GetEngagedThugCount(), 2);
 	TestEqual(TEXT("All in by 0.5 s (and a recount)"), Kate->GetFightCameraAlpha(), 1.f, 0.001f);
 	TestEqual(TEXT("The boom is 70 cm longer"), Kate->GetCameraBoom()->TargetArmLength, Hip + Kate->GetFightCameraSettings().ExtraArmLength, 0.5f);
 

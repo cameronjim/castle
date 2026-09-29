@@ -17,7 +17,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 - The arm probes on the Camera channel with a 12 cm radius and pulls in against walls,
   never inside geometry. Closer than 100 cm the character is hidden from the camera so
   the view isn't inside her shoulder.
-- Fight camera (2026-09-29): with two or more alerted thugs within 6 m of her (flat, 3 m up or
+- Fight camera (2026-09-29): with two or more alerted thugs near her (one within 9 m, the rest within 15 m; flat, 3 m up or
   down), the hip boom lengthens 70 cm and the lens tips down 4 degrees, over 0.5 s; back over 1 s
   when the fight thins out. See "Combat readability".
 - Movement input rotates the character toward the input direction; while aiming she
@@ -941,13 +941,14 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   light lands (the gold spark on his chest beside her head, 425 cm from the lens), `knockdown_dust.png`
   0.2 s after a heavy's knockdown thud (the slush round his shoulders). `heavy_strike_2.png` is skipped
   while her set has one heavy.
-- Fight camera: two or more alerted, living thugs within 600 cm (flat) and 300 cm up or down (counted
-  every 0.1 s) make a fight. The hip arm lengthens by 70 cm and the lens tips down 4 degrees, blended
+- Fight camera: two or more alerted, living thugs make a fight when one is within 900 cm (flat) and the
+  others within 1500 cm (`FarRadius`, so a gunner hanging back counts), all within 300 cm up or down
+  (counted every 0.1 s). With nobody within 900 cm nothing counts. The hip arm lengthens by 70 cm and the lens tips down 4 degrees, blended
   at a constant rate over 0.5 s in and 1 s out, smoothstepped. It is multiplied out by the aim blend
   (the bow's camera is untouched) and by a finisher's push-in (the push reads from the plain hip arm,
   as before; there is no push-in on ordinary strikes, and the fight camera holds through them).
   Indoors the hip arm still never passes `IndoorArmLength`. The spring arm's probe still pulls the
-  longer arm in against walls. The log says "fight camera in (2 alerted thugs within 600 cm)" and "out".
+  longer arm in against walls. The log says "fight camera in (2 alerted thugs, one within 900 cm)" and "out".
 - Measured (standalone `Hawkeye.Screenshot.Melee`, 2026-09-29): in the open street with two thugs at
   3.2 and 4.4 m the arm is 420 cm (hip 350), the lens 430 cm from the pivot, pitch -4 degrees, Kate's
   head and feet at -0.07 and +0.23 of the screen from its centre, both thugs in frame. With her back

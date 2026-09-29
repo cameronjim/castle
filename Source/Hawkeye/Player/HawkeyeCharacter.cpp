@@ -1699,12 +1699,12 @@ void AHawkeyeCharacter::UpdateFightCamera(float DeltaSeconds)
 				Alerted.Add(It->GetActorLocation());
 			}
 		}
-		const int32 Count = HawkeyeCombatReadability::CountEngaged(GetActorLocation(), Alerted, FightCamera.Radius, FightCamera.MaxHeight);
+		const int32 Count = HawkeyeCombatReadability::CountEngaged(GetActorLocation(), Alerted, FightCamera.Radius, FightCamera.MaxHeight, FightCamera.FarRadius);
 		const bool bWasFight = HawkeyeCombatReadability::IsFight(EngagedThugCount, FightCamera);
 		const bool bFight = HawkeyeCombatReadability::IsFight(Count, FightCamera);
 		if (bFight != bWasFight)
 		{
-			UE_LOG(LogHawkeye, Log, TEXT("%s: fight camera %s (%d alerted thugs within %.0f cm)."), *GetNameSafe(this),
+			UE_LOG(LogHawkeye, Log, TEXT("%s: fight camera %s (%d alerted thugs, one within %.0f cm)."), *GetNameSafe(this),
 				bFight ? TEXT("in") : TEXT("out"), Count, FightCamera.Radius);
 		}
 		EngagedThugCount = Count;
