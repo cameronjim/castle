@@ -47,8 +47,11 @@ public class Hawkeye : ModuleRules
 		// component the Game Animation Sample's traversal uses.
 		PrivateDependencyModuleNames.Add("MotionWarping");
 
-		// The screenshot passes write their PNGs off the game thread (Tests/HawkeyeShots).
+		// Screenshots (the test passes and the playtest kit) write their PNGs off the game thread (World/HawkeyeCapture).
 		PrivateDependencyModuleNames.Add("ImageCore");
+
+		// The playtest kit writes notes.json and summary.json (Playtest/).
+		PrivateDependencyModuleNames.AddRange(new string[] { "Json", "JsonUtilities" });
 
 		// The game mode indexes the Game Animation Sample's motion-matching databases during the
 		// load in uncooked runs, instead of on the first frame.
