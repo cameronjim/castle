@@ -434,7 +434,7 @@ bool UCrimeSubsystem::StartCrimeAt(ACrimeSpot* Spot, UCrimeDefinition* Definitio
 	CrimePlayer = Player;
 	const FVector Centre = Spot->GetActorLocation();
 	SpawnProps(Definition, Spot);
-	SpawnRoster(Definition, Centre, Spot->GetActorRotation().Yaw, Player);
+	SpawnRoster(Definition, Centre, Spot->GetActorRotation().Yaw, Player, Spot->bAlley);
 	if (!Tracker->StartCrime(Definition, Centre, Thugs.Num()))
 	{
 		return false;
@@ -481,7 +481,7 @@ void UCrimeSubsystem::SpawnProps(const UCrimeDefinition* Definition, const ACrim
 	}
 }
 
-void UCrimeSubsystem::SpawnRoster(const UCrimeDefinition* Definition, const FVector& Centre, float Yaw, APawn* Player)
+void UCrimeSubsystem::SpawnRoster(const UCrimeDefinition* Definition, const FVector& Centre, float Yaw, APawn* Player, bool bAlley)
 {
 	const int32 Count = Definition->GetThugCount();
 	const bool bRound = Definition->Type == ECrimeType::Mugging || Definition->Type == ECrimeType::Robbery;
@@ -492,10 +492,17 @@ void UCrimeSubsystem::SpawnRoster(const UCrimeDefinition* Definition, const FVec
 	{
 		for (int32 N = 0; N < Entry.Count; ++N, ++Index)
 		{
-			// Round the victim or the loot, facing in; otherwise spread round the spot, facing the player.
+			// Round the victim or the loot, facing in; otherwise spread round the spot, facing the player. In an
+			// alley the spread is a line along the passage, so nobody stands in a wall.
 			const float Angle = Yaw + 180.f + 360.f * Index / FMath::Max(Count, 1) + (bRound ? 0.f : 30.f);
 			const FVector Out = FRotator(0.f, Angle, 0.f).Vector();
 			FVector Feet = Centre + Out * Ring;
+			if (bAlley && !bRound)
+			{
+				const FVector2D Offset = UCrimeRules::AlleyRosterOffset(Index, Count, Ring);
+				const FRotator Along(0.f, Yaw, 0.f);
+				Feet = Centre + Along.Vector() * Offset.X + FRotationMatrix(Along).GetUnitAxis(EAxis::Y) * Offset.Y;
+			}
 			FNavLocation OnNav;
 			if (Nav && Nav->ProjectPointToNavigation(Feet, OnNav, HawkeyeCrime::NavExtent))
 			{

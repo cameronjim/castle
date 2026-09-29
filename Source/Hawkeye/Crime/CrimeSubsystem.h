@@ -217,8 +217,8 @@ protected:
 	/** Mugging: the victim's new hits, dealt by the nearest thug over him. */
 	void DealVictimHits(int32 Before, int32 After);
 
-	/** Spawns Definition's roster round Centre, the ring turned to Yaw. */
-	void SpawnRoster(const UCrimeDefinition* Definition, const FVector& Centre, float Yaw, APawn* Player);
+	/** Spawns Definition's roster round Centre, the ring turned to Yaw (in an alley, along the passage at Yaw). */
+	void SpawnRoster(const UCrimeDefinition* Definition, const FVector& Centre, float Yaw, APawn* Player, bool bAlley = false);
 
 	/** One thug of Entry at Feet facing Yaw, with his own brain. */
 	AThugCharacter* SpawnThug(const FCrimeRosterEntry& Entry, const FVector& Feet, float Yaw);

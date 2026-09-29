@@ -67,6 +67,14 @@ public:
 	static bool ShouldDespawn(float SecondsSinceEnd, bool bCompleted, float DistanceToPlayer, float CompleteDelay,
 		float FailDelay, float FarDistance);
 
+	/**
+	 * Where roster thug Index of Count stands at an alley spot, in the spot's frame (X along the passage, Y across
+	 * it), for a crime that spreads its roster (the ambush): pairs at either end, the first pair Radius out, each
+	 * next pair 40% of Radius nearer, every other pair LateralCm to the other side. Never further across than
+	 * LateralCm, so a 3 m passage holds them.
+	 */
+	static FVector2D AlleyRosterOffset(int32 Index, int32 Count, float Radius, float LateralCm = 60.f);
+
 	/** "mugging", "robbery", "ambush", "rooftop". */
 	UFUNCTION(BlueprintPure, Category = "Crime|Rules")
 	static FText TypeText(ECrimeType Type);

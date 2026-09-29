@@ -139,3 +139,16 @@ bool UCrimeRules::ParseType(const FString& Text, ECrimeType& OutType)
 	const FString Trimmed = Text.TrimStartAndEnd();
 	return !Trimmed.IsEmpty() && TypeFromKey(FName(*Trimmed), OutType);
 }
+
+FVector2D UCrimeRules::AlleyRosterOffset(int32 Index, int32 Count, float Radius, float LateralCm)
+{
+	if (Count <= 0 || Index < 0)
+	{
+		return FVector2D::ZeroVector;
+	}
+	const int32 Pair = Index / 2;
+	const float Sign = Index % 2 == 0 ? 1.f : -1.f;
+	const float Along = Sign * FMath::Max(Radius, 0.f) * FMath::Max(1.f - 0.4f * Pair, 0.2f);
+	const float Across = (Pair % 2 == 0 ? 1.f : -1.f) * FMath::Abs(LateralCm) * Sign;
+	return FVector2D(Along, Across);
+}

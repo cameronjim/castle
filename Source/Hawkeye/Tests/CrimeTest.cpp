@@ -526,4 +526,48 @@ bool FHawkeyeCrimeWorldRobbery::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeCrimeAlleyRoster, "Hawkeye.Crime.AlleyRosterInALine",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ProductFilter)
+
+bool FHawkeyeCrimeAlleyRoster::RunTest(const FString& Parameters)
+{
+	// The rule: pairs at either end of the passage, the second pair nearer, never more than 60 cm across.
+	const FVector2D A = UCrimeRules::AlleyRosterOffset(0, 4, 500.f);
+	const FVector2D B = UCrimeRules::AlleyRosterOffset(1, 4, 500.f);
+	const FVector2D C = UCrimeRules::AlleyRosterOffset(2, 4, 500.f);
+	const FVector2D D = UCrimeRules::AlleyRosterOffset(3, 4, 500.f);
+	TestEqual(TEXT("The first 5 m up the passage"), A.X, 500.0);
+	TestEqual(TEXT("The second 5 m down it"), B.X, -500.0);
+	TestEqual(TEXT("The third 3 m up"), C.X, 300.0);
+	TestEqual(TEXT("The fourth 3 m down"), D.X, -300.0);
+	for (const FVector2D& Offset : { A, B, C, D })
+	{
+		TestTrue(TEXT("Within 60 cm of the passage's middle, so a 3 m alley holds him"), FMath::Abs(Offset.Y) <= 60.f + KINDA_SMALL_NUMBER);
+	}
+	TestTrue(TEXT("The two up the passage are not on one line"), !FMath::IsNearlyEqual(A.Y, C.Y));
+	TestEqual(TEXT("Nobody for an empty roster"), UCrimeRules::AlleyRosterOffset(0, 0, 500.f), FVector2D::ZeroVector);
+
+	// In the world: an ambush at an alley spot facing +X stands its four along X, not on a 5 m ring.
+	HawkeyeCrimeTest::FCrimeWorld W;
+	if (!W.IsValid())
+	{
+		AddError(TEXT("The test world has no crime or mission subsystem, or no player."));
+		return false;
+	}
+	UCrimeDefinition* Ambush = HawkeyeCrimeTest::Make(ECrimeType::Ambush, 4);
+	Ambush->Radius = 500.f;
+	ACrimeSpot* Alley = W.Spot(FVector(3000.f, 0.f, 0.f), Ambush);
+	Alley->bAlley = true;
+	TestTrue(TEXT("The ambush starts in the alley"), W.Crimes->StartCrimeAt(Alley, Ambush, W.Player));
+	TestEqual(TEXT("Four thugs"), W.Crimes->GetThugs().Num(), 4);
+	for (const TWeakObjectPtr<AThugCharacter>& Thug : W.Crimes->GetThugs())
+	{
+		const FVector Offset = Thug.IsValid() ? Thug->GetActorLocation() - Alley->GetActorLocation() : FVector(0.f, 1000.f, 0.f);
+		TestTrue(FString::Printf(TEXT("%s stands along the passage (%.0f cm across)"), *GetNameSafe(Thug.Get()), Offset.Y),
+			FMath::Abs(Offset.Y) <= 100.f && FMath::Abs(Offset.X) >= 250.f);
+	}
+	W.Crimes->AbortCrime();
+	return true;
+}
+
 #endif
