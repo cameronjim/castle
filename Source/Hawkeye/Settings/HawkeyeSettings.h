@@ -109,6 +109,10 @@ struct HAWKEYE_API FHawkeyeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Audio")
 	float AmbientVolume = 0.8f;
 
+	/** The combat music and its stings, 0..1, under the master. Low by default: it sits under the effects. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Audio")
+	float MusicVolume = 0.6f;
+
 	/** Story, Normal or Hard. Asked once at New Game, changeable in Settings at any time. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Difficulty")
 	EHawkeyeDifficulty Difficulty = EHawkeyeDifficulty::Normal;
@@ -164,15 +168,16 @@ struct HAWKEYE_API FHawkeyeSettings
 
 	/** Bumped whenever the meaning of a field changes. A mismatch on load yields defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-	int32 Version = 8;
+	int32 Version = 9;
 
 	/** The version this build writes and accepts. */
-	static constexpr int32 CurrentVersion = 8;
+	static constexpr int32 CurrentVersion = 9;
 
 	/**
-	 * The oldest save this build migrates rather than dropping: version 5 lacks TimeOfDay, AimAssist and
-	 * SprintMode, 6 lacks AimAssist and SprintMode, 7 lacks SprintMode; each loads as its default (Night,
-	 * Normal, Default), so everything else the player set is kept. Older yields defaults.
+	 * The oldest save this build migrates rather than dropping: version 5 lacks TimeOfDay, AimAssist,
+	 * SprintMode and MusicVolume, 6 lacks AimAssist onward, 7 lacks SprintMode and MusicVolume, 8 lacks
+	 * MusicVolume; each loads as its default (Night, Normal, Default, 0.6), so everything else the player set
+	 * is kept. Older yields defaults.
 	 */
 	static constexpr int32 OldestMigratedVersion = 5;
 };

@@ -120,6 +120,11 @@ void UHawkeyeSettingsSubsystem::SetAmbientVolume(float NewVolume)
 	SetVolume(Settings.AmbientVolume, NewVolume);
 }
 
+void UHawkeyeSettingsSubsystem::SetMusicVolume(float NewVolume)
+{
+	SetVolume(Settings.MusicVolume, NewVolume);
+}
+
 EHawkeyeDifficulty UHawkeyeSettingsSubsystem::GetDifficulty() const
 {
 	return UDifficultySubsystem::ResolveDifficulty(Settings.Difficulty);
@@ -246,6 +251,7 @@ FHawkeyeSettings UHawkeyeSettingsSubsystem::ClampSettings(const FHawkeyeSettings
 	Out.MasterVolume = ClampVolume(Out.MasterVolume);
 	Out.SfxVolume = ClampVolume(Out.SfxVolume);
 	Out.AmbientVolume = ClampVolume(Out.AmbientVolume);
+	Out.MusicVolume = ClampVolume(Out.MusicVolume);
 	Out.SubtitleBackgroundOpacity = ClampVolume(Out.SubtitleBackgroundOpacity);
 	Out.HudScale = ClampHudScale(Out.HudScale);
 	Out.Version = FHawkeyeSettings::CurrentVersion;
@@ -274,7 +280,8 @@ void UHawkeyeSettingsSubsystem::Load()
 	if (LoadedVersion >= FHawkeyeSettings::OldestMigratedVersion && LoadedVersion < FHawkeyeSettings::CurrentVersion)
 	{
 		// Every field an older version lacks deserialises as its default (6: TimeOfDay, Night; 7: AimAssist, Normal;
-		// 8: SprintMode, Default), so the rest of what the player set carries over. ClampSettings stamps the current version.
+		// 8: SprintMode, Default; 9: MusicVolume, 0.6), so the rest of what the player set carries over. ClampSettings
+		// stamps the current version.
 		UE_LOG(LogHawkeye, Log, TEXT("Settings slot %s is version %d; migrated to %d."), *Slot, LoadedVersion,
 			FHawkeyeSettings::CurrentVersion);
 		Settings = ClampSettings(Loaded->Settings);

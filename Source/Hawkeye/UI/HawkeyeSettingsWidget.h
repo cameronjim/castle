@@ -63,6 +63,9 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings|Audio")
 	FText AmbientVolumeLabel;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Settings|Audio")
+	FText MusicVolumeLabel;
+
 	/** Pulls every control and number back in line with the subsystem. Called on construct. */
 	UFUNCTION(BlueprintCallable, Category = "Settings")
 	void RefreshFromSettings();
@@ -116,6 +119,9 @@ protected:
 
 	UFUNCTION()
 	void HandleAmbientVolumeChanged(float Value);
+
+	UFUNCTION()
+	void HandleMusicVolumeChanged(float Value);
 
 	UFUNCTION()
 	void HandleToggleAimChanged(bool bIsChecked);
@@ -253,6 +259,15 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> AmbientVolumeLabelText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<USlider> MusicVolumeSlider = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> MusicVolumeValueText = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Audio", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> MusicVolumeLabelText = nullptr;
 
 	/** Difficulty: a button reading Story / Normal / Hard, and the line under it saying what that means. */
 	UPROPERTY(BlueprintReadOnly, Category = "Settings|Difficulty", meta = (BindWidgetOptional))

@@ -59,6 +59,10 @@ struct HAWKEYE_API FHawkeyeClassVolumes
 	/** Menus and toasts follow the SFX slider. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
 	float UI = 1.f;
+
+	/** The score and the win sting (SCL_Music). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	float Music = 1.f;
 };
 
 /**

@@ -35,6 +35,7 @@ FHawkeyeClassVolumes HawkeyeAudioMath::ComputeClassVolumes(const FHawkeyeSetting
 	Volumes.Sfx = Volumes.Master * SliderToGain(Settings.SfxVolume);
 	Volumes.Ambient = Volumes.Master * SliderToGain(Settings.AmbientVolume);
 	Volumes.UI = Volumes.Sfx;
+	Volumes.Music = Volumes.Master * SliderToGain(Settings.MusicVolume);
 	return Volumes;
 }
 
@@ -43,6 +44,13 @@ void HawkeyeAudioMath::ComputeAmbienceMix(float HeightCm, float& OutWind, float&
 	const float Alpha = FMath::SmoothStep(WindLowHeightCm, WindHighHeightCm, HeightCm);
 	OutWind = FMath::Lerp(0.15f, 1.f, Alpha);
 	OutStreet = FMath::Lerp(1.f, 0.35f, Alpha);
+}
+
+void HawkeyeAudioMath::ComputeStreetBeds(float StreetVolume, float DayBedWeight, float& OutNight, float& OutDay)
+{
+	const float Weight = FMath::Clamp(DayBedWeight, 0.f, 1.f);
+	OutNight = StreetVolume * (1.f - Weight);
+	OutDay = StreetVolume * Weight;
 }
 
 float HawkeyeAudioMath::ComputeLandingIntensity(float FallHeightCm)

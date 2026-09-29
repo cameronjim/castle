@@ -200,7 +200,7 @@ bool FHawkeyeSprintModeSaved::RunTest(const FString& Parameters)
 		Settings->SlotNameOverride = TestSlot;
 		return Settings;
 	};
-	TestEqual(TEXT("Settings version 8"), FHawkeyeSettings::CurrentVersion, 8);
+	TestTrue(TEXT("Settings version 8 or later (8 added the sprint row)"), FHawkeyeSettings::CurrentVersion >= 8);
 	ClearSlot();
 	UHawkeyeSettingsSubsystem* Writer = MakeSettings();
 	Writer->Load();
@@ -227,7 +227,7 @@ bool FHawkeyeSprintModeSaved::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Version 7 keeps the sensitivity"), Migrated->GetLookSensitivity(), 0.33f);
 	TestEqual(TEXT("And the aim assist"), Migrated->GetStoredSettings().AimAssist, EHawkeyeAimAssist::Strong);
 	TestEqual(TEXT("And gets the Default sprint"), Migrated->GetStoredSettings().SprintMode, EHawkeyeSprintMode::Default);
-	TestEqual(TEXT("Stamped version 8"), Migrated->GetStoredSettings().Version, 8);
+	TestEqual(TEXT("Stamped the current version"), Migrated->GetStoredSettings().Version, FHawkeyeSettings::CurrentVersion);
 	ClearSlot();
 
 	// The row's words.

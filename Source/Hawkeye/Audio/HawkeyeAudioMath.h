@@ -16,7 +16,7 @@ namespace HawkeyeAudioMath
 	/** A 0..1 slider to a linear gain: squared, so the middle of the slider sounds like half. */
 	HAWKEYE_API float SliderToGain(float Slider);
 
-	/** Per-class gains from the three sliders, each already multiplied by the master. */
+	/** Per-class gains from the four sliders, each already multiplied by the master. */
 	HAWKEYE_API FHawkeyeClassVolumes ComputeClassVolumes(const FHawkeyeSettings& Settings);
 
 	/** Below this height above the street the rooftop wind is at its floor. */
@@ -30,6 +30,15 @@ namespace HawkeyeAudioMath
 	 * eased between WindLowHeightCm and WindHighHeightCm.
 	 */
 	HAWKEYE_API void ComputeAmbienceMix(float HeightCm, float& OutWind, float& OutStreet);
+
+	/**
+	 * Splits the street level between the night bed (MS_Amb_Street) and the day bed (MS_Amb_StreetDay) by the
+	 * time of day's DayBedWeight (0 night, 1 day): night = street x (1 - w), day = street x w.
+	 */
+	HAWKEYE_API void ComputeStreetBeds(float StreetVolume, float DayBedWeight, float& OutNight, float& OutDay);
+
+	/** A change of the day bed weight fades over this, s, instead of the ambience's usual FadeSeconds. */
+	static constexpr float BedCrossfadeSeconds = 2.f;
 
 	/** Drops shorter than this make no landing sound (a kerb, a step). */
 	static constexpr float MinLandingSoundHeightCm = 40.f;

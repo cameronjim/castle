@@ -67,6 +67,7 @@ AHawkeyePlayerController::AHawkeyePlayerController()
 {
 	Banter = CreateDefaultSubobject<UBanterComponent>(TEXT("Banter"));
 	Snowfall = CreateDefaultSubobject<USnowfallComponent>(TEXT("Snowfall"));
+	MusicSoundClass = TSoftObjectPtr<USoundClass>(FSoftObjectPath(TEXT("/Game/Audio/Classes/SCL_Music.SCL_Music")));
 	MainMenuWidgetClass = UHawkeyeMainMenuWidget::StaticClass();
 	DifficultyPromptWidgetClass = UHawkeyeDifficultyPromptWidget::StaticClass();
 	FlashbackReplayWidgetClass = UFlashbackReplayWidget::StaticClass();
@@ -2269,6 +2270,7 @@ void AHawkeyePlayerController::ApplyVolumeSettings(const FHawkeyeSettings& Setti
 		{ &SfxSoundClass, AppliedVolumes.Sfx },
 		{ &AmbientSoundClass, AppliedVolumes.Ambient },
 		{ &UISoundClass, AppliedVolumes.UI },
+		{ &MusicSoundClass, AppliedVolumes.Music },
 	};
 	for (const TPair<const TSoftObjectPtr<USoundClass>*, float>& Entry : Classes)
 	{
@@ -2284,6 +2286,6 @@ void AHawkeyePlayerController::ApplyVolumeSettings(const FHawkeyeSettings& Setti
 		PushedMix = Mix;
 		UGameplayStatics::PushSoundMixModifier(this, Mix);
 	}
-	UE_LOG(LogHawkeye, Verbose, TEXT("%s: volumes master %.2f, sfx %.2f, ambient %.2f, ui %.2f."), *GetName(),
-		AppliedVolumes.Master, AppliedVolumes.Sfx, AppliedVolumes.Ambient, AppliedVolumes.UI);
+	UE_LOG(LogHawkeye, Verbose, TEXT("%s: volumes master %.2f, sfx %.2f, ambient %.2f, ui %.2f, music %.2f."), *GetName(),
+		AppliedVolumes.Master, AppliedVolumes.Sfx, AppliedVolumes.Ambient, AppliedVolumes.UI, AppliedVolumes.Music);
 }

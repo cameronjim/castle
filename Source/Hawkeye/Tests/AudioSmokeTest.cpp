@@ -17,7 +17,7 @@
 #if WITH_DEV_AUTOMATION_TESTS
 
 /**
- * Hawkeye.Audio.Smoke: plays every MetaSound under /Game/Audio/SFX and /Game/Audio/Ambient (the MS_
+ * Hawkeye.Audio.Smoke: plays every MetaSound under /Game/Audio/SFX, Ambient and Music (the MS_
  * sounds create_audio.py builds) one after another through UGameplayStatics::SpawnSound2D, and asserts
  * each one starts (IsPlaying), that a one-shot finishes on its own after more than 0.05 s and within
  * 6 s, and that a loop is still going after half a second. It needs a real audio device, so it only
@@ -31,8 +31,8 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeAudioSmoke, "Hawkeye.Audio.Smoke",
 
 namespace HawkeyeAudioSmoke
 {
-	/** create_audio.py builds 42; fewer means a recipe failed or the content step was skipped. */
-	static constexpr int32 ExpectedSounds = 42;
+	/** create_audio.py builds 45; fewer means a recipe failed or the content step was skipped. */
+	static constexpr int32 ExpectedSounds = 45;
 	static constexpr double StartCheckSeconds = 0.03;
 	static constexpr double MinOneShotSeconds = 0.05;
 	static constexpr double MaxOneShotSeconds = 6.0;
@@ -53,7 +53,7 @@ namespace HawkeyeAudioSmoke
 	static TArray<FSoftObjectPath> FindSounds()
 	{
 		IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
-		const TArray<FString> Paths = { TEXT("/Game/Audio/SFX"), TEXT("/Game/Audio/Ambient") };
+		const TArray<FString> Paths = { TEXT("/Game/Audio/SFX"), TEXT("/Game/Audio/Ambient"), TEXT("/Game/Audio/Music") };
 		Registry.ScanPathsSynchronous(Paths, /*bForceRescan=*/false);
 		TArray<FAssetData> Assets;
 		for (const FString& Path : Paths)

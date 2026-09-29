@@ -196,6 +196,10 @@ void UHawkeyeSettingsWidget::ApplyDefaultLabels()
 	{
 		AmbientVolumeLabel = NSLOCTEXT("Hawkeye", "SettingsAmbientVolume", "Ambience");
 	}
+	if (MusicVolumeLabel.IsEmpty())
+	{
+		MusicVolumeLabel = NSLOCTEXT("Hawkeye", "SettingsMusicVolume", "Music");
+	}
 }
 
 void UHawkeyeSettingsWidget::AddHeading(UVerticalBox* Column, const FText& Text, const TCHAR* Name)
@@ -396,6 +400,7 @@ TSharedRef<SWidget> UHawkeyeSettingsWidget::RebuildWidget()
 		AddSliderRow(Left, SfxVolumeLabel, SfxVolumeSlider, SfxVolumeValueText, SfxVolumeLabelText, TEXT("SfxVolume"));
 		AddSliderRow(Left, AmbientVolumeLabel, AmbientVolumeSlider, AmbientVolumeValueText, AmbientVolumeLabelText,
 			TEXT("AmbientVolume"));
+		AddSliderRow(Left, MusicVolumeLabel, MusicVolumeSlider, MusicVolumeValueText, MusicVolumeLabelText, TEXT("MusicVolume"));
 
 		// --- Right: difficulty and accessibility --------------------------------------------------------
 		AddHeading(Right, NSLOCTEXT("Hawkeye", "SettingsDifficultyHeading", "Difficulty"), TEXT("DifficultyHeading"));
@@ -464,7 +469,7 @@ void UHawkeyeSettingsWidget::NativeConstruct()
 		SliderStep);
 	SetRange(StickSensitivitySlider, UHawkeyeSettingsSubsystem::MinStickSensitivity,
 		UHawkeyeSettingsSubsystem::MaxStickSensitivity, SliderStep);
-	for (USlider* Volume : { MasterVolumeSlider.Get(), SfxVolumeSlider.Get(), AmbientVolumeSlider.Get() })
+	for (USlider* Volume : { MasterVolumeSlider.Get(), SfxVolumeSlider.Get(), AmbientVolumeSlider.Get(), MusicVolumeSlider.Get() })
 	{
 		SetRange(Volume, 0.f, 1.f, SliderStep);
 	}
@@ -516,6 +521,7 @@ void UHawkeyeSettingsWidget::BindControls(bool bBind)
 	HAWKEYE_BIND(MasterVolumeSlider, OnValueChanged, HandleMasterVolumeChanged)
 	HAWKEYE_BIND(SfxVolumeSlider, OnValueChanged, HandleSfxVolumeChanged)
 	HAWKEYE_BIND(AmbientVolumeSlider, OnValueChanged, HandleAmbientVolumeChanged)
+	HAWKEYE_BIND(MusicVolumeSlider, OnValueChanged, HandleMusicVolumeChanged)
 	HAWKEYE_BIND(DifficultyButton, OnClicked, HandleDifficultyClicked)
 	HAWKEYE_BIND(SubtitleSizeButton, OnClicked, HandleSubtitleSizeClicked)
 	HAWKEYE_BIND(SubtitleBackgroundSlider, OnValueChanged, HandleSubtitleBackgroundChanged)
@@ -558,6 +564,7 @@ void UHawkeyeSettingsWidget::RefreshFromSettings()
 		{ MasterVolumeSlider.Get(), MasterVolumeValueText.Get(), Current.MasterVolume },
 		{ SfxVolumeSlider.Get(), SfxVolumeValueText.Get(), Current.SfxVolume },
 		{ AmbientVolumeSlider.Get(), AmbientVolumeValueText.Get(), Current.AmbientVolume },
+		{ MusicVolumeSlider.Get(), MusicVolumeValueText.Get(), Current.MusicVolume },
 		{ SubtitleBackgroundSlider.Get(), SubtitleBackgroundValueText.Get(), Current.SubtitleBackgroundOpacity },
 	};
 	for (const TTuple<USlider*, UTextBlock*, float>& Row : Percentages)
@@ -639,6 +646,17 @@ void UHawkeyeSettingsWidget::HandleAmbientVolumeChanged(float Value)
 	}
 	UpdateVolumeText(AmbientVolumeValueText,
 		SettingsSubsystem ? SettingsSubsystem->GetAmbientVolume() : UHawkeyeSettingsSubsystem::ClampVolume(Value));
+}
+
+void UHawkeyeSettingsWidget::HandleMusicVolumeChanged(float Value)
+{
+	UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this);
+	if (SettingsSubsystem)
+	{
+		SettingsSubsystem->SetMusicVolume(Value);
+	}
+	UpdateVolumeText(MusicVolumeValueText,
+		SettingsSubsystem ? SettingsSubsystem->GetMusicVolume() : UHawkeyeSettingsSubsystem::ClampVolume(Value));
 }
 
 void UHawkeyeSettingsWidget::UpdateValueText(float Value)

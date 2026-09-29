@@ -98,6 +98,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Settings|Audio")
 	void SetAmbientVolume(float NewVolume);
 
+	UFUNCTION(BlueprintPure, Category = "Settings|Audio")
+	float GetMusicVolume() const { return Settings.MusicVolume; }
+
+	/** Clamps to 0..1, stores, saves and broadcasts. A value that changes nothing does nothing. */
+	UFUNCTION(BlueprintCallable, Category = "Settings|Audio")
+	void SetMusicVolume(float NewVolume);
+
 	// --- Difficulty and accessibility ----------------------------------------------------------
 
 	/** The difficulty in force: a -Difficulty= override (automation) wins over the stored choice. */

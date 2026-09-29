@@ -524,7 +524,8 @@ public:
 	AHawkeyePartnerController* FindPartnerController() const;
 
 	/**
-	 * T: traces from the camera up to MarkTraceDistance and sends the partner to the point it hits.
+	 * T or R3: traces down the camera's centre (the reticle) up to MarkTraceDistance and sends the partner
+	 * to the point it hits.
 	 * False when there is no partner or nothing under the view.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Partner")
@@ -609,6 +610,10 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|Volume")
 	TSoftObjectPtr<USoundClass> UISoundClass;
+
+	/** The score and its stings (SCL_Music); a C++ default, so no Blueprint has to carry it. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Audio|Volume")
+	TSoftObjectPtr<USoundClass> MusicSoundClass;
 
 protected:
 	virtual void BeginPlay() override;
