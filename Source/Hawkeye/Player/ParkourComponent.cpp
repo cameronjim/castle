@@ -134,6 +134,9 @@ float UParkourComponent::GetMoveSeconds(EHawkeyeParkourMove Move) const
 	case EHawkeyeParkourMove::LedgeGrab: return GrabSeconds;
 	case EHawkeyeParkourMove::Climb: return ClimbSeconds;
 	case EHawkeyeParkourMove::DropToHang: return DropToHangSeconds;
+	case EHawkeyeParkourMove::HangCorner: return CornerSeconds;
+	case EHawkeyeParkourMove::HangLeap: return HangLeapSeconds;
+	case EHawkeyeParkourMove::HangHop: return HangHopSeconds;
 	default: return 0.f;
 	}
 }
@@ -1160,7 +1163,8 @@ bool UParkourComponent::BeginMove(EHawkeyeParkourMove Move, const FVector& End, 
 void UParkourComponent::PlayEffortSound(EHawkeyeParkourMove Move) const
 {
 	const bool bEffort = Move == EHawkeyeParkourMove::Vault || Move == EHawkeyeParkourMove::Mantle
-		|| Move == EHawkeyeParkourMove::LedgeGrab || Move == EHawkeyeParkourMove::Climb;
+		|| Move == EHawkeyeParkourMove::LedgeGrab || Move == EHawkeyeParkourMove::Climb
+		|| Move == EHawkeyeParkourMove::HangLeap || Move == EHawkeyeParkourMove::HangHop;
 	if (const AActor* Owner = GetOwner(); bEffort && Owner)
 	{
 		UHawkeyeAudioSubsystem::PlayAt(this, EffortSound, Owner->GetActorLocation(), TEXT("parkour effort"));
@@ -1208,6 +1212,10 @@ void UParkourComponent::ComputeMoveShape(float Alpha, float& OutForward, float& 
 FVector UParkourComponent::ComputeMoveLocation(float Alpha) const
 {
 	const float A = FMath::Clamp(Alpha, 0.f, 1.f);
+	if (IsHangTransfer(ActiveMove))
+	{
+		return ComputeHangTransferLocation(A);
+	}
 	float Forward = 0.f;
 	float Up = 0.f;
 	ComputeMoveShape(A, Forward, Up);
@@ -1234,6 +1242,10 @@ void UParkourComponent::AdvanceMove(float DeltaSeconds)
 	MoveElapsed += DeltaSeconds;
 	const float Alpha = MoveSeconds > 0.f ? MoveElapsed / MoveSeconds : 1.f;
 	Character->SetActorLocation(ComputeMoveLocation(Alpha), false, nullptr, ETeleportType::None);
+	if (bMoveTurns)
+	{
+		ApplyMoveTurn(FMath::Min(Alpha, 1.f));
+	}
 	if (UCharacterMovementComponent* Movement = GetMovement())
 	{
 		Movement->Velocity = FVector::ZeroVector;
@@ -1250,6 +1262,7 @@ void UParkourComponent::FinishMove()
 	ActiveMove = EHawkeyeParkourMove::None;
 	const bool bOntoParapet = bGuardMantle && Move == EHawkeyeParkourMove::Mantle;
 	bGuardMantle = false;
+	bMoveTurns = false;
 	if (bGuardLeap)
 	{
 		// The leap's hop is over the top: she carries on out over the drop.
@@ -1266,7 +1279,7 @@ void UParkourComponent::FinishMove()
 		OnParkourFinished.Broadcast(Move);
 		return;
 	}
-	if (Move == EHawkeyeParkourMove::LedgeGrab || Move == EHawkeyeParkourMove::DropToHang)
+	if (Move == EHawkeyeParkourMove::LedgeGrab || Move == EHawkeyeParkourMove::DropToHang || IsHangTransfer(Move))
 	{
 		EnterHang();
 		return;
@@ -1303,16 +1316,27 @@ void UParkourComponent::EnterHang()
 	UE_LOG(LogHawkeye, Log, TEXT("%s: hanging at %s from a ledge %.0f cm up (climb %d)"), *GetNameSafe(GetOwner()),
 		GetOwner() ? *GetOwner()->GetActorLocation().ToCompactString() : TEXT("?"), HangObstacle.LedgePoint.Z,
 		HangObstacle.bStandingSurface ? 1 : 0);
+	BeginHangState();
 }
 
 bool UParkourComponent::ClimbFromHang()
 {
 	const ACharacter* Character = GetCharacter();
-	if (!bHanging || !Character || !HangObstacle.bStandingSurface)
+	if (!bHanging || !Character)
 	{
 		return false;
 	}
+	// Measured where she is now: a shimmy may have taken her past the roof she caught the edge of.
+	RefreshHangLedge();
+	if (!HangObstacle.bStandingSurface)
+	{
+		LastHangRefusal = TEXT("nowhere to stand on the top");
+		UE_LOG(LogHawkeye, Log, TEXT("%s: hang: no climb: nowhere to stand on the top here (%s)"), *GetNameSafe(Character),
+			HangObstacle.StandWhyNot.IsEmpty() ? *HangObstacle.BeyondWhyNot : *HangObstacle.StandWhyNot);
+		return false;
+	}
 	bHanging = false;
+	EndHangState();
 	const FVector Lift(0.f, 0.f, Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + HawkeyeParkour::FloorGap);
 	return BeginMove(EHawkeyeParkourMove::Climb, HangObstacle.StandPoint + Lift, -1.f, ClimbSeconds, ClimbClip);
 }
@@ -1325,6 +1349,7 @@ bool UParkourComponent::DropFromHang()
 		return false;
 	}
 	bHanging = false;
+	EndHangState();
 	StopClip(0.2f);
 	RestoreRootMotionMode();
 	Character->SetActorLocation(Character->GetActorLocation() + HangObstacle.WallNormal * 15.f);
@@ -1528,6 +1553,11 @@ void UParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	RegrabCooldown = FMath::Max(0.f, RegrabCooldown - DeltaTime);
 	TickJumpAssist(DeltaTime);
 	TickRoofEdgeGuard(DeltaTime);
+	if (!bHanging && HandsAlpha > 0.f)
+	{
+		// Out of the hang the hands go back to the body's clip.
+		HandsAlpha = FMath::Max(0.f, HandsAlpha - DeltaTime / 0.15f);
+	}
 	if (bIgnoreDroppedLedge && !bHanging && !IsPerformingMove())
 	{
 		const UCharacterMovementComponent* Movement = GetMovement();
@@ -1543,10 +1573,7 @@ void UParkourComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAct
 	}
 	if (bHanging)
 	{
-		if (UCharacterMovementComponent* Movement = GetMovement())
-		{
-			Movement->Velocity = FVector::ZeroVector;
-		}
+		AdvanceHang(DeltaTime);
 		return;
 	}
 	if (!TryCatchLedge())

@@ -9,6 +9,7 @@
 #include "ParkourComponent.generated.h"
 
 class ACharacter;
+struct FHawkeyeStrikePoseSample;
 class UAnimMontage;
 class UAnimSequenceBase;
 class UCharacterMovementComponent;
@@ -212,6 +213,71 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Parkour")
 	bool IsHanging() const { return bHanging; }
+
+	// --- The hang vocabulary (2026-09-29; ParkourHang.cpp) ---------------------------------------
+	// Shimmy along the ledge, turn its corners, leap sideways or hop back to another, and the auto
+	// climb. There is no hang timeout: she hangs until a press or the stick moves her.
+
+	/** This frame's stick while hanging, as a flat world direction (camera relative); its length is how far it is pushed. */
+	void SetHangInput(const FVector& WorldInput);
+
+	/** The hang for one tick: shimmy, a corner, the auto climb, the hands. TickComponent calls it; a test calls it directly. */
+	void AdvanceHang(float DeltaSeconds);
+
+	/** The jump key while hanging: the stick to one side leaps, the stick back hops round, otherwise she climbs. */
+	bool JumpFromHang();
+
+	/** The ledge line the hang is on (valid while hanging). */
+	const FHawkeyeLedgeLine& GetHangLine() const { return HangLine; }
+
+	/** Where the capsule is along the hang's ledge line, cm from its origin. */
+	float GetHangAlong() const;
+
+	/** Why the last hang input came to nothing more (a shimmy stopped, a leap refused); empty after one that worked. */
+	const FString& GetLastHangRefusal() const { return LastHangRefusal; }
+
+	/** Moving along the ledge this tick. */
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	bool IsShimmying() const { return bShimmying; }
+
+	/** The hang's top is a parapet with more than RoofEdgeGuardDrop below its far side: the stick does not climb it. */
+	UFUNCTION(BlueprintPure, Category = "Parkour")
+	bool IsHangTopGuarded() const { return bHangTopGuarded; }
+
+	/** How long the stick has been held up (toward the wall) in this hang, s. */
+	float GetHangUpHeldSeconds() const { return HangUpHeld; }
+
+	/**
+	 * The hands on the edge while hanging, hand over hand as she shimmies, into Pose (actor frame) when no strike
+	 * holds them, and the body's sway into the lean when it is stronger. False when the hang does not own them.
+	 */
+	bool GetHangArmPose(FHawkeyeStrikePoseSample& InOutPose, FVector& InOutLeanDirection, float& InOutLeanAlpha) const;
+
+	/** Where the hands are along the edge from the capsule, cm (left, right); for the log and the tests. */
+	FVector2D GetHangHandOffsets() const;
+
+	/** The hang camera: the shoulder offset goes to the open side of the wall. AHawkeyeCharacter::UpdateCamera calls it. */
+	void ApplyHangCamera(FHawkeyeCameraTargets& InOutTargets, float DeltaSeconds);
+
+	/** The control yaw that keeps the camera off the wall: within MaxDegrees of looking straight at it. Pure. */
+	static float ComputeHangCameraYaw(float ControlYaw, const FVector& WallNormal, float MaxDegrees);
+
+	/**
+	 * Which shoulder the lens sits over while hanging: +1 the right (the default), -1 the left when the camera's
+	 * right points into the wall. Between the two thresholds CurrentSide is kept. Pure.
+	 */
+	static float ComputeHangSocketSide(float ControlYaw, const FVector& WallNormal, float CurrentSide);
+
+	/**
+	 * The ledge line Ledge (a probed obstacle, its LedgePoint on the edge) lies on: the traversable ledge splines
+	 * near it (Ledge_1..4 on the spawned city ledges, fire-escape rails and the sample's blocks) joined end to end,
+	 * then carried on along the wall as far as a probe finds the same edge. False when there is no edge there.
+	 */
+	bool FindLedgeLine(const FHawkeyeParkourObstacle& Ledge, FHawkeyeLedgeLine& OutLine) const;
+
+	/** A top edge at EdgePoint facing Normal about TopZ high: top, face, open air in front of it and on it. */
+	bool IsHangLedgeAt(const FVector& EdgePoint, const FVector& Normal, float TopZ, float* OutTopZ = nullptr,
+		AActor** OutActor = nullptr, FString* OutWhyNot = nullptr) const;
 
 	/** A move this component is driving (not the sample's). */
 	UFUNCTION(BlueprintPure, Category = "Parkour")
@@ -426,6 +492,67 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang")
 	float HangBackFromEdge = 36.f;
 
+	/** Shimmy speed along the ledge with the stick fully to one side, cm/s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float ShimmySpeed = 120.f;
+
+	/** The capsule stops this far short of a ledge's end, so both hands stay on it, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float ShimmyEndMargin = 25.f;
+
+	/** A ledge round a corner counts when its end is within this of the one she is on, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float CornerReach = 60.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.05"))
+	float CornerSeconds = 0.4f;
+
+	/** A sideways leap reaches a hang this far along from the one she is on, cm (centre to centre). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float HangLeapReach = 250.f;
+
+	/** The ledge a leap goes to has its top within this of the one she is on, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float HangLeapHeightTolerance = 40.f;
+
+	/** A leap of HangLeapReach takes this long; a shorter one less (down to 0.3 s), s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.05"))
+	float HangLeapSeconds = 0.45f;
+
+	/** The hop back grabs a face behind her within this of the capsule, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float HangHopReach = 200.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.05"))
+	float HangHopSeconds = 0.5f;
+
+	/** With nothing behind, the hop back is a controlled drop away from the wall at this speed, cm/s out and up. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang")
+	FVector2D HangHopDropVelocity = FVector2D(250.f, 150.f);
+
+	/** The stick held up (toward the wall) this long climbs, when there is somewhere to stand and no roof-edge guard, s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float AutoClimbHoldSeconds = 0.5f;
+
+	/** Half the gap between the hands on the edge, cm (when the pose's own hands cannot be read). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float HangHandSpread = 22.f;
+
+	/** How far one hand reaches ahead of its rest place when it steps, and how long a step takes. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float HandStride = 16.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.05"))
+	float HandStepSeconds = 0.22f;
+
+	/** While hanging the camera stays within this of looking straight at the wall (never behind its plane), degrees. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0", ClampMax = "89.0"))
+	float HangCameraMaxYaw = 65.f;
+
+	/** How fast the camera eases back inside that limit, 1/s. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Hang", meta = (ClampMin = "0.0"))
+	float HangCameraYawSpeed = 6.f;
+
 	// --- Clips ----------------------------------------------------------------------------------
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parkour|Clips")
@@ -608,4 +735,92 @@ protected:
 	void EndPerch(const TCHAR* Why);
 	/** Moving toward Direction: by velocity, or by the stick. */
 	bool IsMovingToward(const FVector& Direction) const;
+
+	// The hang vocabulary (ParkourHang.cpp).
+	/** A move from one hang to another (corner, leap, hop): it ends in the hang, and its path is its own. */
+	static bool IsHangTransfer(EHawkeyeParkourMove Move);
+	/** The hang is set up on HangObstacle: its ledge line, the far side, the hands. EnterHang calls it. */
+	void BeginHangState();
+	/** Out of the hang (a climb, a drop, a transfer): the hands let go of the edge. */
+	void EndHangState();
+	/** The capsule's hang location at Distance along HangLine. */
+	FVector HangLocationAt(float Distance) const;
+	/** Along the hang line by up to Step toward Sign; the distance moved. Pushing into an end tries a corner. */
+	float Shimmy(float Sign, float Step);
+	/** At the end of the line toward Sign (or at a wall across it): onto the ledge round the corner. */
+	bool TryTurnCorner(float Sign, bool bBlockedAcross, const FVector& BlockPoint);
+	/** How far the edge through EdgePoint runs along Direction, up to MaxDistance, cm. */
+	float FindLedgeRun(const FVector& EdgePoint, const FVector& Direction, const FVector& Normal, float TopZ, float MaxDistance,
+		float Step = 20.f, FString* OutWhyEnds = nullptr) const;
+	/** The shrunk capsule swept between two hang locations; true when something is in the way. */
+	bool SweepHang(const FVector& From, const FVector& To, FHitResult& OutHit) const;
+	/** A probed ledge for a hang at EdgePoint: its far side and where to stand, measured from the hang's feet. */
+	FHawkeyeParkourObstacle ProbeHangLedge(const FVector& EdgePoint, const FVector& Normal, AActor* Actor) const;
+	/** HangObstacle's standing surface and far side where she is now (after a shimmy). */
+	void RefreshHangLedge();
+	/** The stick held up long enough: climbs, unless there is nowhere to stand or the roof-edge guard holds. */
+	void TryAutoClimb();
+	/** The sideways leap: a ledge at the same height along Sign, past where the shimmy would stop. */
+	bool FindLeapTarget(float Sign, FHawkeyeParkourObstacle& OutTarget, float& OutDistance, FString& OutWhyNot) const;
+	/** The hop back: a face behind her within HangHopReach with a top she can hang from. */
+	bool FindHopTarget(FHawkeyeParkourObstacle& OutTarget, FString& OutWhyNot) const;
+	/** Starts a transfer to Target's hang over Seconds, turning by TurnDegrees; bArc swings round Pivot. */
+	bool BeginHangTransfer(EHawkeyeParkourMove Move, const FHawkeyeParkourObstacle& Target, float Seconds, float Rise,
+		float TurnDegrees, bool bArc, const FVector& Pivot);
+	/** Where the capsule is Alpha through a hang transfer. */
+	FVector ComputeHangTransferLocation(float Alpha) const;
+	/** The yaw a turning move has at Alpha, and the camera carried round with her. */
+	void ApplyMoveTurn(float Alpha);
+	/** The hands' hand-over-hand state for one tick, after the capsule moved Moved cm along the line. */
+	void AdvanceHangHands(float DeltaSeconds, float Moved, float Sign);
+	/** Eases the control yaw back inside HangCameraMaxYaw of the wall. */
+	void KeepHangCameraOffTheWall(float DeltaSeconds);
+	/** The stick this frame (zero when no input came in this frame or the last). */
+	FVector GetFreshHangInput() const;
+
+	UPROPERTY(Transient)
+	FHawkeyeLedgeLine HangLine;
+	FVector HangInput = FVector::ZeroVector;
+	uint64 HangInputFrame = 0;
+	bool bHangInputSet = false;
+	float HangUpHeld = 0.f;
+	bool bShimmying = false;
+	bool bShimmyStopLogged = false;
+	bool bAutoClimbRefusalLogged = false;
+	FString LastHangRefusal;
+	/** The standing surface was measured at this distance along the line; a shimmy past it re-measures. */
+	float HangProbedAlong = 0.f;
+	bool bHangTopGuarded = false;
+	/** Below the top on its far side, cm (the roof-edge guard's measure from a hang). */
+	float HangFarSideDrop = 0.f;
+	/** Where the hang began, and its stand point, for a re-probe that finds nothing where the first one did. */
+	float HangStartAlong = 0.f;
+	FVector HangStartStand = FVector::ZeroVector;
+	bool bHangStartStand = false;
+
+	// The hands: where each is along the line (world, planted), the one stepping, the pose's own rest places.
+	float HandAlong[2] = { 0.f, 0.f };
+	int32 SteppingHand = INDEX_NONE;
+	float StepFrom = 0.f;
+	float StepTo = 0.f;
+	float StepElapsed = 0.f;
+	float HandsAlpha = 0.f;
+	FVector HandRest[2] = { FVector::ZeroVector, FVector::ZeroVector };
+	bool bHandRestKnown = false;
+	float SwayAlpha = 0.f;
+	FVector SwayDirection = FVector::ZeroVector;
+
+	// A turning move (a corner, the hop): the yaw it starts at and turns by, and the corner's swing.
+	bool bMoveTurns = false;
+	float MoveYawStart = 0.f;
+	float MoveYawDelta = 0.f;
+	float MoveYawApplied = 0.f;
+	bool bMoveArc = false;
+	FVector MovePivot = FVector::ZeroVector;
+	/** The hang transfer's target, which becomes HangObstacle when it ends. */
+	FHawkeyeParkourObstacle TransferTarget;
+
+	/** The lens's shoulder: +1 right, -1 left, eased between. */
+	float HangCameraSide = 1.f;
+	float HangCameraSideTarget = 1.f;
 };

@@ -40,6 +40,12 @@ enum class EHawkeyeParkourMove : uint8
 	Climb,
 	/** Standing at a roof or landing edge: over it and down to the hang on its outer face. */
 	DropToHang,
+	/** Hanging, shimmied into a ledge's end with another round an outside or inside corner: 0.4 s onto it. */
+	HangCorner,
+	/** Hanging, jump with the stick to one side: a sideways leap to another ledge at the same height. */
+	HangLeap,
+	/** Hanging, jump with the stick back: turn round and hop to a ledge behind her. */
+	HangHop,
 };
 
 /** What a landing turned into. See AHawkeyeCharacter::ApplyLanding. */
@@ -135,6 +141,57 @@ struct HAWKEYE_API FHawkeyeParkourObstacle
 
 	/** Why the top is no standing surface when it is flat there (something in the way), for the refusal log. */
 	FString StandWhyNot;
+};
+
+/**
+ * The ledge a hang is on, as a straight line along its top edge (claude-docs/gameplay-semantics.md, traversal,
+ * "Hang"): where along it the hands can go. Origin is on the edge at the top's height; Along is her right while
+ * she hangs facing the wall; MinAlong and MaxAlong are the edge's ends, cm along it from Origin.
+ */
+USTRUCT(BlueprintType)
+struct HAWKEYE_API FHawkeyeLedgeLine
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
+	bool bValid = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
+	FVector Origin = FVector::ZeroVector;
+
+	/** Horizontal unit vector along the edge: Up x (-Normal), her right as she faces the wall. */
+	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
+	FVector Along = FVector::RightVector;
+
+	/** Horizontal, out of the face (away from the wall). */
+	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
+	FVector Normal = -FVector::ForwardVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
+	float MinAlong = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
+	float MaxAlong = 0.f;
+
+	/** The ledge splines it came from and how many were joined end to end; 0 when it was probed along the wall. */
+	UPROPERTY(BlueprintReadOnly, Category = "Parkour")
+	int32 DataSegments = 0;
+
+	/** Where it came from, for the log: "Ledge_1 on City_Ledge_way/123_2 (+1 more)" or "probed along the wall". */
+	FString Source;
+
+	/** What ends it at MinAlong and at MaxAlong ("the top runs out", "Chimney_3 on the top"), for the log. */
+	FString MinEndWhy;
+	FString MaxEndWhy;
+
+	FVector PointAt(float Distance) const { return Origin + Along * Distance; }
+
+	float AlongOf(const FVector& Point) const
+	{
+		return static_cast<float>(FVector::DotProduct(FVector(Point.X - Origin.X, Point.Y - Origin.Y, 0.f), Along));
+	}
+
+	float Length() const { return MaxAlong - MinAlong; }
 };
 
 /** Where the spring arm and lens want to be for one aim state. The camera blends between two of these. */
