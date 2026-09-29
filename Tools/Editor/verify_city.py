@@ -19,7 +19,10 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
 * City_LedgeSpawner and its props asset (the ledges and anchors are data, spawned at load; this
   script calls SpawnAll() first, as BeginPlay does), and no ledge or anchor saved in the map
 * the grapple anchors match the generator, and every anchor's landing point is on a roof: a
-  trace from just above it down 50 cm hits a City_Bldg mesh
+  trace from just above it down 50 cm hits a City_Bldg mesh; by the generator's reach model, every anchored
+  roof with a wall on a street and a sidewalk in range has an anchor reachable from the sidewalk, and the
+  chapter 1 roofs chain (reach_roof from the street, cross_block from it on the roofs, find_arrow from the
+  street and from cross_block by the roofs or down a fire escape); the neighbour pairs are counted
 * one City_Ledge_ BP_TraversableBlock per roof edge the generator considers, hidden and
   blocking only the Traversable channel, its Ledge_1 spline ending on the parapet's outer
   corners within 5 cm; the parkour test blocks and park walls at their heights
@@ -189,6 +192,36 @@ def check_anchors(district, actors):
     if heights:
         unreal.log("[Hawkeye] info  anchors sit {0:.0f} to {1:.0f} cm above their landing points".format(
             min(heights), max(heights)))
+
+
+def check_anchor_reach(district):
+    """The anchor placement guarantees (gameplay-semantics.md, "Anchor placement"), by generate_city's reach
+    model (the grapple's range, cone, camera sight and clear zip in plain geometry; Hawkeye.Grapple.Audit
+    checks the same with the game's traces)."""
+    rep = gen.anchor_reach_report(district)
+    facade = sum(1 for s in gen.anchor_spots(district) if s[4] == gen.FACADE_ANCHOR_LANDING)
+    unreal.log("[Hawkeye] info  {0} facade anchors; {1} anchored roofs out of the grapple's reach from any sidewalk "
+               "(too tall, or no sidewalk within 25 m): {2}".format(
+                   facade, len(rep["street_out_of_reach"]), ", ".join(rep["street_out_of_reach"][:12])))
+    # A roof inside a block (no open wall on a road) may only be seen across other roofs; a street wall its fire
+    # escape fills has nowhere to hold an anchor the sidewalk sees past the landings.
+    check(not rep["no_street"], "every anchored roof with an open wall on a street, in range of the sidewalk, has an "
+          "anchor reachable from it", "{0} without: {1}; inside their blocks {2}: {3}; street wall filled by its fire "
+          "escape {4}: {5}".format(len(rep["no_street"]), ", ".join(rep["no_street"][:10]), len(rep["street_inside_block"]),
+                                   ", ".join(rep["street_inside_block"]), len(rep["street_wall_escape"]),
+                                   ", ".join(rep["street_wall_escape"])))
+    missing = len(rep["pairs_missing"])
+    unreal.log("[Hawkeye] info  roofs facing each other across a street or gap: {0} in range, {1} with no anchor the "
+               "neighbour's roof spots reach, {2} out of the grapple's range".format(
+                   rep["pairs"], missing, rep["pairs_out_of_range"]))
+    lines = []
+    ok = True
+    for oid, osm, street, how in rep["objectives"]:
+        lines.append("{0} {1}: street {2}, {3}".format(oid, osm, "yes" if street else "NO", how or "NOT REACHED"))
+        ok = ok and osm is not None and street and bool(how)
+    ok = ok and len(rep["objectives"]) == len(gen.OBJECTIVE_IDS) and rep["objectives"][1][3] == "roofs"
+    check(ok, "the chapter 1 roofs chain: each reachable from the street, cross_block from reach_roof on the roofs, "
+              "find_arrow from cross_block", "; ".join(lines))
 
 
 LEDGE_TOLERANCE_CM = 5.0
@@ -1269,6 +1302,7 @@ def run():
               len(lights), len(poles), len(heads), expected, shadowed))
 
     check_anchors(district, actors)
+    check_anchor_reach(district)
     check_ledges(district, actors)
     check_fire_escapes(district, actors, spawner)
     check_clutter(district, spawner)
