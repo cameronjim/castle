@@ -4397,9 +4397,10 @@ def ensure_challenge_starts(district, existing):
 # street crimes: the spots they can start at
 # --------------------------------------------------------------------------------------
 
-# ACrimeSpot (Source/Hawkeye/Crime/CrimeSpot.h) at each of the twelve places create_crimes.py plans:
-# eight at street corners (the mugging, robbery and ambush), four on roofs (the rooftop crime), none
-# within 40 m of the safehouse or a pedestal. UCrimeSubsystem starts crimes at them while she roams.
+# ACrimeSpot (Source/Hawkeye/Crime/CrimeSpot.h) at each of the places create_crimes.py plans: eight at
+# street corners (the mugging, robbery and ambush), four on roofs (the rooftop crime), two to four in
+# alleys (the mugging and ambush), none within 40 m of a safehouse, a pedestal or the interior door.
+# UCrimeSubsystem starts crimes at them while she roams.
 CRIME_SPOT_PREFIX = "City_CrimeSpot_"
 CRIME_SPOT_CLASS = "/Script/Hawkeye.CrimeSpot"
 
@@ -4421,9 +4422,11 @@ def ensure_crime_spots(district, existing):
         c.log("skipped", CRIME_SPOT_PREFIX + "*", "no crime definitions; run create_crimes.py")
         return 0
     spots = cr.plan_crime_spots(district)
-    if len(spots) != cr.STREET_SPOTS + cr.ROOF_SPOTS:
-        c.log("FAILED", CRIME_SPOT_PREFIX + "*", "planned {0} crime spots, want {1}".format(
-            len(spots), cr.STREET_SPOTS + cr.ROOF_SPOTS))
+    fixed = cr.STREET_SPOTS + cr.ROOF_SPOTS
+    if not fixed + cr.ALLEY_SPOTS[0] <= len(spots) <= fixed + cr.ALLEY_SPOTS[1]:
+        c.log("FAILED", CRIME_SPOT_PREFIX + "*", "planned {0} crime spots, want {1} to {2}".format(
+            len(spots), fixed + cr.ALLEY_SPOTS[0], fixed + cr.ALLEY_SPOTS[1]))
+    unreal.log("[Hawkeye] info     {0}*  (alley search: {1})".format(CRIME_SPOT_PREFIX, cr.alley_stats(district)))
     wanted = {CRIME_SPOT_PREFIX + str(s["index"]) for s in spots}
     changes = 0
     for label, actor in list(existing.items()):
@@ -4445,6 +4448,9 @@ def ensure_crime_spots(district, existing):
             changed += 1
         if bool(actor.get_editor_property("rooftop")) != spot["rooftop"]:
             actor.set_editor_property("rooftop", spot["rooftop"])
+            changed += 1
+        if bool(actor.get_editor_property("alley")) != (spot["kind"] == "alley"):
+            actor.set_editor_property("alley", spot["kind"] == "alley")
             changed += 1
         escape = unreal.Vector(0.0, 0.0, 0.0)
         if spot["escape"] is not None:

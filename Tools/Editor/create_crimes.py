@@ -5,7 +5,7 @@
     /Game/Characters/Civilian/M_Civilian      the victim's neutral grey (skeletal usage)
 
 and ``plan_crime_spots(district)``, which generate_city.py places as City_CrimeSpot_<n> (ACrimeSpot):
-twelve places a crime can start, planned from the same OpenStreetMap records the city is built from,
+fourteen to sixteen places a crime can start, planned from the same OpenStreetMap records the city is built from,
 so nothing is placed by hand:
 
 * eight on the street at block corners (create_challenges.street_corners: on the sidewalk 2.5 m out
@@ -13,10 +13,16 @@ so nothing is placed by hand:
   point on the sidewalk 60 m along one of its streets for the robbery;
 * four on roofs 8 to 25 m tall with a grapple anchor, a spot 4.5 m clear of every edge and prop, and
   no chapter or challenge business on them;
-* none within 40 m of a safehouse door or a challenge pedestal, none within 25 m of chapter 1's
-  thugs or archers, and every two at least 35 m apart.
+* two to four in alleys: the middle of a 3 to 6 m gap between two footprints (a ray off each wall to
+  the next building), 8 m past every carriageway's edge, 1.4 m from every wall, clear of the street
+  clutter, and joined to a sidewalk by a walk never nearer than 1.4 m to a wall (a 50 cm grid search,
+  at most 50 m; a rear yard with no way out but through a building is a dead end). A block with fewer
+  than two such alleys gets two spots on the park's interior paths instead;
+* none within 40 m of a safehouse door, a challenge pedestal or the interior entrance's doorstep, none
+  within 25 m of chapter 1's thugs or archers, and every two at least 35 m apart.
 
-Street spots take the mugging, robbery and ambush; rooftops the rooftop crime. The names are
+Street corners take the mugging, robbery and ambush; alleys the mugging and ambush; rooftops the
+rooftop crime. The names are
 bracketed placeholders ("[Crime: mugging]"); civilians have no lines, only "[thank you]".
 
 Idempotent: an asset is rewritten only when its planned values differ from what it holds.
@@ -65,6 +71,23 @@ ROOF_EDGE_CLEAR = 450.0         # cm from any roof edge to a rooftop spot (the r
 ESCAPE_DISTANCE = 6000.0        # cm from a street spot to the robbery's escape point
 ESCAPE_TOLERANCE = 600.0        # cm either way the escape point may land from ESCAPE_DISTANCE
 ESCAPE_STEP = 200.0             # cm between escape candidates along a street
+INTERIOR_CLEAR = 4000.0         # cm from the interior entrance's doorstep
+
+# Alleys: a passage 3 to 6 m wide between two footprints, off the street, that a 3 m wide walk joins to a
+# sidewalk. The mugging and the ambush may start there.
+ALLEY_SPOTS = (2, 4)            # at least, at most
+ALLEY_WIDTH = (300.0, 600.0)    # cm between the two walls, across the passage
+ALLEY_STEP = 100.0              # cm between the rays cast off each wall
+ALLEY_END_INSET = 100.0         # cm from a wall's ends the rays start
+ALLEY_CLEAR = 140.0             # cm the spot and every step of the walk out keep from any wall (half 3 m, less a margin)
+ALLEY_KERB = 800.0              # cm past every carriageway's edge: out of the street and its 4 m sidewalk
+ALLEY_SIDEWALK = 400.0          # cm from a carriageway's edge that counts as the sidewalk the walk reaches
+ALLEY_PROP_CLEAR = 150.0        # cm from a bin, a car or a scaffold
+ALLEY_CELL = 50.0               # cm; the walk out is searched on a grid this fine
+ALLEY_WALK_CELLS = 12000        # cells searched before a passage is called a dead end
+ALLEY_WALK_MAX = 5000.0         # cm of grid walk (4-way, so a little over the real one) out to the sidewalk, at most
+PARK_PATH_SPOTS = 2             # the fallback when the block has no usable alley
+PARK_PATH_INSET = 1500.0        # cm inside the park's edge a park-path spot stands
 
 # --- the crimes -------------------------------------------------------------------------------------
 # (id, type, roster [(weapon, count, blueprint)], radius, time to fail, alert on start)
@@ -75,6 +98,7 @@ CRIMES = [
     ("rooftop", "Rooftop", [("Fists", 1, "BP_Thug"), ("Bat", 1, "BP_Thug"), ("Bow", 1, "BP_Archer")], 350.0, 45.0, False),
 ]
 STREET_CRIMES = ("mugging", "robbery", "ambush")
+ALLEY_CRIMES = ("mugging", "ambush")
 ROOF_CRIMES = ("rooftop",)
 VICTIM_HITS = 3
 REWARD_ARROWS = 5
@@ -121,6 +145,9 @@ def _blockers(district, gen, cc):
         out.append((t[1], t[2], CHAPTER_THUG_CLEAR))
     for a in gen.archer_placements(district):
         out.append((a[1], a[2], CHAPTER_THUG_CLEAR))
+    door = gen.interior_keepout(district)
+    if door is not None:
+        out.append((door[0], door[1], INTERIOR_CLEAR))
     return out
 
 
@@ -193,11 +220,199 @@ def _roof_spots(world, gen, cc, blockers, taken):
     return chosen
 
 
+def _ray_hit(origin, direction, reach, tops):
+    """Distance along direction from origin to the first footprint edge of tops it crosses, from 1 cm to reach,
+    or None."""
+    ox, oy = origin
+    dx, dy = direction
+    best = None
+    for top in tops:
+        ring = top[1]
+        n = len(ring)
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            ex, ey = bx - ax, by - ay
+            den = dx * ey - dy * ex
+            if abs(den) < 1e-9:
+                continue
+            s = ((ax - ox) * ey - (ay - oy) * ex) / den
+            t = ((ax - ox) * dy - (ay - oy) * dx) / den
+            if 0.0 <= t <= 1.0 and 1.0 < s <= reach and (best is None or s < best):
+                best = s
+    return best
+
+
+def _segment_distance(pt, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / L2))
+    return math.hypot(a[0] + t * dx - pt[0], a[1] + t * dy - pt[1])
+
+
+def _carriageway_distance(world, pt):
+    """cm from pt to the nearest carriageway's edge (negative inside one)."""
+    return min((_segment_distance(pt, a, b) - half for a, b, half, _name in world.roads), default=1.0e9)
+
+
+def _wall_clearance(gen, pt, tops):
+    """cm from pt to the nearest footprint of tops (0 inside one)."""
+    return min((gen.ring_distance(pt, t[1]) for t in tops), default=1.0e9)
+
+
+def _in_park(district, pt):
+    return any(geo.point_in_polygon(pt, district.ring_cm(p["outer"])) for p in district.parks)
+
+
+def _walk_out(world, gen, spot):
+    """Cells walked on an ALLEY_CELL grid from spot to the nearest sidewalk, never nearer than ALLEY_CLEAR to a
+    wall, or None when the passage is a dead end (a rear yard with no way out but through a building)."""
+    tops = world.tops_near(spot[0], spot[1], ALLEY_CELL * 200.0)
+    walkable = {}
+
+    def ok(cell):
+        if cell not in walkable:
+            pt = (spot[0] + cell[0] * ALLEY_CELL, spot[1] + cell[1] * ALLEY_CELL)
+            near = [t for t in tops if not (t[2][0] > pt[0] + 300.0 or t[2][2] < pt[0] - 300.0
+                                            or t[2][1] > pt[1] + 300.0 or t[2][3] < pt[1] - 300.0)]
+            walkable[cell] = _wall_clearance(gen, pt, near) >= ALLEY_CLEAR
+        return walkable[cell]
+
+    frontier = [(0, 0)]
+    steps = {(0, 0): 0}
+    head = 0
+    while head < len(frontier) and len(steps) < ALLEY_WALK_CELLS:
+        cell = frontier[head]
+        head += 1
+        pt = (spot[0] + cell[0] * ALLEY_CELL, spot[1] + cell[1] * ALLEY_CELL)
+        if _carriageway_distance(world, pt) <= ALLEY_SIDEWALK:
+            return steps[cell]
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nxt = (cell[0] + dx, cell[1] + dy)
+            if nxt not in steps and ok(nxt):
+                steps[nxt] = steps[cell] + 1
+                frontier.append(nxt)
+    return None
+
+
+def alley_candidates(world, gen, district):
+    """[(start distance, (x, y), yaw along the passage, width, osm a, osm b)]: the middles of every 3 to 6 m gap
+    between two footprints within SEARCH_RADIUS, off the street and the park, clear of the walls and the street
+    clutter. Nearest the PlayerStart first. Whether it has a way out is checked later (the slow part)."""
+    out = []
+    reach = ALLEY_WIDTH[1] + 50.0
+    for top in world.tops:
+        rec, ring = top[0], top[1]
+        if gen.ring_distance(world.start, ring) > SEARCH_RADIUS:
+            continue
+        n = len(ring)
+        ccw = geo.is_ccw(ring)
+        for i in range(n):
+            ax, ay = ring[i]
+            bx, by = ring[(i + 1) % n]
+            length = math.hypot(bx - ax, by - ay)
+            if length < 2.0 * ALLEY_END_INSET + ALLEY_STEP:
+                continue
+            ux, uy = (bx - ax) / length, (by - ay) / length
+            nx, ny = (uy, -ux) if ccw else (-uy, ux)
+            t = ALLEY_END_INSET
+            while t <= length - ALLEY_END_INSET:
+                p = (ax + ux * t, ay + uy * t)
+                t += ALLEY_STEP
+                others = [o for o in world.tops_near(p[0], p[1], reach) if o[0]["id"] != rec["id"]]
+                if not others:
+                    continue
+                gap = _ray_hit(p, (nx, ny), reach, others)
+                if gap is None or not ALLEY_WIDTH[0] <= gap <= ALLEY_WIDTH[1]:
+                    continue
+                if _ray_hit(p, (nx, ny), gap - 1.0, [top]) is not None:
+                    continue    # its own outline turns back first: a notch in one building, not a passage
+                mid = (p[0] + nx * gap * 0.5, p[1] + ny * gap * 0.5)
+                if world.building_at(mid) is not None or _in_park(district, mid):
+                    continue
+                if _carriageway_distance(world, mid) < ALLEY_KERB:
+                    continue
+                if _wall_clearance(gen, mid, world.tops_near(mid[0], mid[1], 800.0)) < ALLEY_CLEAR:
+                    continue
+                if any(z0 < 400.0 and math.hypot(mid[0] - x, mid[1] - y) < r + ALLEY_PROP_CLEAR
+                       for x, y, z0, _z1, r, _k in world.props_near(mid[0], mid[1], 1000.0)):
+                    continue
+                other = world.building_at((p[0] + nx * (gap + 20.0), p[1] + ny * (gap + 20.0)))
+                yaw = math.degrees(math.atan2(uy, ux))
+                out.append((_dist2(world.start, mid), mid, yaw, gap, rec["id"], other[0]["id"] if other else "?"))
+    out.sort(key=lambda e: (e[0], e[1]))
+    return out
+
+
+def _alley_spots(world, gen, district, blockers, taken):
+    """Up to ALLEY_SPOTS[1] alley spots, nearest the PlayerStart first, each ALLEY_CLEAR from the walls all the way
+    out to a sidewalk, 35 m from every other spot and outside every keep-out; and the counts behind them."""
+    chosen = []
+    candidates = alley_candidates(world, gen, district)
+    stats = {"gaps": len(candidates), "kept_out": 0, "tried": 0, "dead_ends": 0, "too_deep": 0}
+    passages = []
+    for _d, mid, _yaw, _w, _a, _b in candidates:
+        if not any(_dist2(mid, q) < 500.0 for q in passages):
+            passages.append(mid)
+    stats["passages"] = len(passages)
+    tried = []
+    for _d, mid, yaw, width, osm_a, osm_b in candidates:
+        if len(chosen) >= ALLEY_SPOTS[1]:
+            break
+        if not _clear(mid, blockers, taken + chosen):
+            stats["kept_out"] += 1
+            continue
+        if any(_dist2(mid, t) < 500.0 for t in tried):
+            continue    # the same passage a metre along: its way out is already known
+        tried.append(mid)
+        stats["tried"] += 1
+        walk = _walk_out(world, gen, mid)
+        if walk is None or walk * ALLEY_CELL > ALLEY_WALK_MAX:
+            stats["dead_ends" if walk is None else "too_deep"] += 1
+            continue
+        chosen.append({"at": mid, "z": 0.0, "yaw": yaw, "rooftop": False, "osm": osm_a, "escape": None,
+                       "kind": "alley", "width": width, "between": (osm_a, osm_b), "walk": walk * ALLEY_CELL})
+    return chosen, stats
+
+
+def _park_path_spots(world, gen, cc, district, blockers, taken, count):
+    """count spots inside the park, PARK_PATH_INSET from its edge on a 5 m grid, nearest the PlayerStart first:
+    the fallback for a block with no alley."""
+    chosen = []
+    for park in district.parks:
+        ring = district.ring_cm(park["outer"])
+        x0, y0, x1, y1 = geo.bounds(ring)
+        points = []
+        gx = x0
+        while gx <= x1:
+            gy = y0
+            while gy <= y1:
+                pt = (gx, gy)
+                if geo.point_in_polygon(pt, ring) and gen.closest_point_on_polyline(pt, list(ring) + [ring[0]])[0] >= PARK_PATH_INSET:
+                    points.append((_dist2(world.start, pt), pt))
+                gy += 500.0
+            gx += 500.0
+        for _d, pt in sorted(points):
+            if len(chosen) >= count:
+                break
+            if _clear(pt, blockers, taken + chosen) and cc.street_clear(world, pt, 150.0):
+                chosen.append({"at": pt, "z": gen.PARK_TOP, "yaw": 0.0, "rooftop": False, "osm": park["id"],
+                               "escape": None, "kind": "park"})
+    return chosen
+
+
 _PLAN_CACHE = {}
+_ALLEY_STATS = {}
+
+
+def alley_stats(district):
+    """{'gaps', 'passages', 'kept_out', 'tried', 'dead_ends', 'too_deep', 'alleys'}: how the alley search went."""
+    plan_crime_spots(district)
+    return _ALLEY_STATS.get(id(district), {})
 
 
 def plan_crime_spots(district):
-    """The twelve spots, street ones first, each {'index', 'at', 'z', 'yaw', 'rooftop', 'osm', 'escape',
+    """The twelve street and roof spots, then two to four alley (or park path) spots, each {'index', 'at', 'z', 'yaw', 'rooftop', 'osm', 'escape',
     'kind', 'crimes'}. Cached per district object."""
     key = id(district)
     if key in _PLAN_CACHE:
@@ -213,16 +428,27 @@ def plan_crime_spots(district):
         taken |= set(plan.get("roofs", []))
     street = _street_spots(world, gen, cc, blockers)
     roofs = _roof_spots(world, gen, cc, blockers + [(s["at"][0], s["at"][1], SPOT_APART) for s in street], taken)
-    spots = street + roofs
+    alleys, stats = _alley_spots(world, gen, district, blockers, street + roofs)
+    stats["alleys"] = len(alleys)
+    if len(alleys) < ALLEY_SPOTS[0]:
+        # East Village tenements often abut: without enough alleys the park's paths stand in.
+        alleys += _park_path_spots(world, gen, cc, district, blockers, street + roofs + alleys, PARK_PATH_SPOTS)
+    _ALLEY_STATS[key] = stats
+    spots = street + roofs + alleys
     for index, spot in enumerate(spots):
         spot["index"] = index
-        spot["crimes"] = list(ROOF_CRIMES if spot["rooftop"] else STREET_CRIMES)
+        spot["crimes"] = list(ROOF_CRIMES if spot["rooftop"] else (STREET_CRIMES if spot["kind"] == "corner" else ALLEY_CRIMES))
     _PLAN_CACHE[key] = spots
     return spots
 
 
 def describe(spot):
     extra = ""
+    if spot["kind"] == "alley":
+        extra = ", {0:.1f} m wide between {1} and {2}, {3:.0f} m walk to the sidewalk".format(
+            spot["width"] / 100.0, spot["between"][0], spot["between"][1], spot["walk"] / 100.0)
+    elif spot["kind"] == "park":
+        extra = ", on the park's paths"
     if spot["escape"] is not None:
         extra = ", escape {0:.0f} m to ({1:.0f}, {2:.0f})".format(_dist2(spot["at"], spot["escape"]) / 100.0, spot["escape"][0], spot["escape"][1])
     return "spot {0} {1} on osm {2} at ({3:.0f}, {4:.0f}, {5:.0f}) yaw {6:.0f}: {7}{8}".format(

@@ -41,9 +41,10 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
 * the side challenges: three archery and three traversal definitions as create_challenges.py plans
   them, a City_Challenge_<id> pedestal on each start holding its definition, every archery target
   10 to 40 m out with a clear line, and every traversal ring reachable from the one before it
-* the street crimes: four DA_Crime_ definitions, twelve City_CrimeSpot_ (eight street, four roof) as
-  create_crimes.py plans them, none within 40 m of a safehouse or a pedestal, all on the navmesh, and
-  every robbery escape point 50 to 70 m out with a walkable path
+* the street crimes: four DA_Crime_ definitions, the City_CrimeSpot_ create_crimes.py plans (eight on
+  street corners, four on roofs, two to four in alleys), none within 40 m of a safehouse, a pedestal or
+  the interior door, all on the navmesh, every robbery escape point 50 to 70 m out with a walkable
+  path, every alley 3 to 6 m across by the level's walls and joined to the streets on the navmesh
 * the five tallest and five shortest buildings with their OSM ids and streets, to eyeball
 
     UnrealEditor-Cmd.exe Hawkeye.uproject -run=pythonscript ^
@@ -892,10 +893,17 @@ def check_crimes(district, actors):
 
     plan = cr.plan_crime_spots(district)
     spots = {l: a for l, a in actors.items() if l.startswith(gen.CRIME_SPOT_PREFIX)}
-    street = [s for s in plan if not s["rooftop"]]
-    check(len(plan) == 12 and len(street) == 8 and len(spots) == 12,
-          "twelve crime spots: eight on the street, four on roofs",
-          "{0} planned ({1} street), {2} placed".format(len(plan), len(street), len(spots)))
+    street = [s for s in plan if s["kind"] == "corner"]
+    roofs = [s for s in plan if s["rooftop"]]
+    alleys = [s for s in plan if s["kind"] in ("alley", "park")]
+    stats = cr.alley_stats(district)
+    check(len(street) == 8 and len(roofs) == 4 and cr.ALLEY_SPOTS[0] <= len(alleys) <= cr.ALLEY_SPOTS[1]
+          and len(spots) == len(plan),
+          "crime spots: eight on street corners, four on roofs, two to four in alleys (or on the park's paths)",
+          "{0} planned ({1} corner, {2} roof, {3} alley/park), {4} placed; alley search {5}".format(
+              len(plan), len(street), len(roofs), len(alleys), len(spots), stats))
+    check(all(s["kind"] == "alley" for s in alleys) or stats.get("alleys", 0) < cr.ALLEY_SPOTS[0],
+          "the park's paths stand in only when the block has fewer than two alleys", str(stats))
     bad = []
     for s in plan:
         actor = spots.get(gen.CRIME_SPOT_PREFIX + str(s["index"]))
@@ -905,10 +913,12 @@ def check_crimes(district, actors):
         loc = actor.get_actor_location()
         held = sorted(str(d.get_editor_property("id")) for d in actor.get_editor_property("crimes") if d)
         if math.hypot(loc.x - s["at"][0], loc.y - s["at"][1]) > 1.0 or held != sorted(s["crimes"]) \
-                or bool(actor.get_editor_property("rooftop")) != s["rooftop"]:
+                or bool(actor.get_editor_property("rooftop")) != s["rooftop"] \
+                or bool(actor.get_editor_property("alley")) != (s["kind"] == "alley"):
             bad.append("{0} off its plan or holding {1}".format(s["index"], held))
         unreal.log("[Hawkeye] info  crime " + cr.describe(s))
     check(not bad, "every crime spot on its plan, holding its crimes", "; ".join(bad))
+    check(all(sorted(s["crimes"]) == sorted(cr.ALLEY_CRIMES) for s in alleys), "alley spots take the mugging and the ambush")
 
     keep_off = []
     for house_label in (gen.SAFEHOUSE_LABEL, gen.SAFEHOUSE2_LABEL):
@@ -918,6 +928,9 @@ def check_crimes(district, actors):
     for label, actor in actors.items():
         if label.startswith(gen.CHALLENGE_PREFIX):
             keep_off.append((label, actor.get_actor_location()))
+    door = gen.interior_keepout(district)
+    if door is not None:
+        keep_off.append(("the interior door", unreal.Vector(door[0], door[1], 0.0)))
     near = []
     placed = sorted(spots.items())
     for label, actor in placed:
@@ -925,7 +938,7 @@ def check_crimes(district, actors):
         for what, at in keep_off:
             if math.hypot(loc.x - at.x, loc.y - at.y) < 4000.0:
                 near.append("{0} {1:.0f} m from {2}".format(label, math.hypot(loc.x - at.x, loc.y - at.y) / 100.0, what))
-    check(not near and len(keep_off) >= 3, "no crime spot within 40 m of a safehouse or a pedestal",
+    check(not near and len(keep_off) >= 3, "no crime spot within 40 m of a safehouse, a pedestal or the interior door",
           "; ".join(near) or "{0} kept clear of".format(len(keep_off)))
     close = []
     for i, (la, a) in enumerate(placed):
@@ -939,13 +952,25 @@ def check_crimes(district, actors):
     if not built:
         check(False, "navmesh for the crime spots")
         return
-    off, routes = [], []
+    off, routes, walks = [], [], []
+    corners = [a for l, a in placed if l in {gen.CRIME_SPOT_PREFIX + str(s["index"]) for s in street}]
     for label, actor in placed:
         ok, _point = _project(world, actor.get_actor_location())
         if not ok:
             off.append(label)
         escape = actor.get_editor_property("escape_location")
         if bool(actor.get_editor_property("rooftop")):
+            continue
+        if actor not in corners:
+            # An alley (or park) spot: no robbery, so no escape point; it must join the streets on the navmesh.
+            here = actor.get_actor_location()
+            nearest = min(corners, key=lambda a: math.hypot(a.get_actor_location().x - here.x, a.get_actor_location().y - here.y),
+                          default=None)
+            length = unreal.HawkeyeNavigationLibrary.find_path_length(world, here, nearest.get_actor_location()) if nearest else -1.0
+            if length < 0.0:
+                walks.append("{0} (no path to {1})".format(label, nearest.get_actor_label() if nearest else "any corner"))
+            else:
+                unreal.log("[Hawkeye] info  {0} walks {1:.0f} m to {2}".format(label, length / 100.0, nearest.get_actor_label()))
             continue
         length = unreal.HawkeyeNavigationLibrary.find_path_length(world, actor.get_actor_location(), escape)
         straight = math.hypot(escape.x - actor.get_actor_location().x, escape.y - actor.get_actor_location().y)
@@ -955,6 +980,46 @@ def check_crimes(district, actors):
             unreal.log("[Hawkeye] info  {0} escape {1:.0f} m away, {2:.0f} m on foot".format(label, straight / 100.0, length / 100.0))
     check(not off, "every crime spot on the navmesh", ", ".join(off))
     check(not routes, "every street spot's escape point 50 to 70 m out with a walkable path", "; ".join(routes))
+    check(not walks, "every alley spot joined to the streets on the navmesh", "; ".join(walks))
+    _check_alley_widths(world, plan, spots)
+
+
+ALLEY_TRACE_STEP = 25.0
+
+
+def _alley_reach(world, centre, across, sign):
+    """cm of open ground from centre along sign * across (a 2D unit), 1 m up, on the level's own collision."""
+    visibility = getattr(unreal.TraceTypeQuery, "ECC_VISIBILITY", None) or unreal.TraceTypeQuery.TRACE_TYPE_QUERY1
+    reach = 0.0
+    while reach < 800.0:
+        step = reach + ALLEY_TRACE_STEP
+        a = unreal.Vector(centre.x + across[0] * sign * reach, centre.y + across[1] * sign * reach, centre.z + 100.0)
+        b = unreal.Vector(centre.x + across[0] * sign * step, centre.y + across[1] * sign * step, centre.z + 100.0)
+        hit = unreal.SystemLibrary.line_trace_single(world, a, b, visibility, False, [], unreal.DrawDebugTrace.NONE, True)
+        blocked = bool(hit.to_tuple()[0]) if hasattr(hit, "to_tuple") else bool(hit)
+        if blocked:
+            break
+        reach = step
+    return reach
+
+
+def _check_alley_widths(world, plan, spots):
+    """Each alley spot stands in 3 to 6 m of open ground across its passage, measured on the level's walls (25 cm
+    steps either side, so the measure may read up to 50 cm under the true gap)."""
+    import create_crimes as cr  # noqa: E402 - imports generate_city, already loaded
+    bad, detail = [], []
+    for s in plan:
+        actor = spots.get(gen.CRIME_SPOT_PREFIX + str(s["index"]))
+        if s["kind"] != "alley" or actor is None:
+            continue
+        yaw = math.radians(s["yaw"])
+        across = (-math.sin(yaw), math.cos(yaw))
+        width = sum(_alley_reach(world, actor.get_actor_location(), across, sign) for sign in (1.0, -1.0))
+        detail.append("{0} {1:.1f} m".format(actor.get_actor_label(), width / 100.0))
+        if not cr.ALLEY_WIDTH[0] - 2.0 * ALLEY_TRACE_STEP <= width <= cr.ALLEY_WIDTH[1] + 1.0:
+            bad.append("{0} {1:.1f} m across".format(actor.get_actor_label(), width / 100.0))
+    unreal.log("[Hawkeye] info  alley widths: " + ", ".join(detail))
+    check(not bad, "every alley spot 3 to 6 m wide across its passage, by the level's walls", "; ".join(bad))
 
 
 def _check_archery(cc, world, cid, definition):
