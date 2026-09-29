@@ -287,7 +287,8 @@ namespace HawkeyeCrimeShots
 			// Off the corner, out toward the street the spot faces away from, a little to one side.
 			const FVector Out = -Where->GetActorForwardVector().GetSafeNormal2D();
 			Eye = Centre + Out.RotateAngleAxis(60.f, FVector::UpVector) * 750.f + FVector(0.f, 0.f, 260.f);
-			KateAt = Centre + Out * 1200.f;
+			// Past the 20 m at which the runner sets off, so he is still standing over the bag for the frame.
+			KateAt = Centre + Out * 2600.f;
 		}
 		else if (Type == ECrimeType::Ambush)
 		{
@@ -328,6 +329,46 @@ namespace HawkeyeCrimeShots
 			return;
 		}
 		FreezeCrimeThugs(Crimes);
+		if (Type == ECrimeType::Robbery)
+		{
+			// Of the ways round the street side with a clear line in, the one that spreads the three widest,
+			// so none stands behind another (or hides the bag).
+			const FVector Out = -Where->GetActorForwardVector().GetSafeNormal2D();
+			FCollisionQueryParams Clear(SCENE_QUERY_STAT(CrimeShotEye), false, Kate);
+			for (const TWeakObjectPtr<AThugCharacter>& Thug : Crimes->GetThugs())
+			{
+				Clear.AddIgnoredActor(Thug.Get());
+			}
+			float Best = -1.f;
+			for (float Turn = -60.f; Turn <= 60.f; Turn += 15.f)
+			{
+				const FVector Candidate = Centre + Out.RotateAngleAxis(Turn, FVector::UpVector) * 750.f + FVector(0.f, 0.f, 260.f);
+				if (World->LineTraceTestByChannel(Centre + FVector(0.f, 0.f, 260.f), Candidate, ECC_Visibility, Clear)
+					|| World->LineTraceTestByChannel(Candidate, Look, ECC_Visibility, Clear))
+				{
+					continue;
+				}
+				float Spread = 180.f;
+				const TArray<TWeakObjectPtr<AThugCharacter>>& Roster = Crimes->GetThugs();
+				for (int32 I = 0; I < Roster.Num(); ++I)
+				{
+					for (int32 J = I + 1; J < Roster.Num(); ++J)
+					{
+						if (Roster[I].IsValid() && Roster[J].IsValid())
+						{
+							const FVector A = (Roster[I]->GetActorLocation() - Candidate).GetSafeNormal2D();
+							const FVector B = (Roster[J]->GetActorLocation() - Candidate).GetSafeNormal2D();
+							Spread = FMath::Min(Spread, FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(A, B), -1.f, 1.f))));
+						}
+					}
+				}
+				if (Spread > Best)
+				{
+					Best = Spread;
+					Eye = Candidate;
+				}
+			}
+		}
 		Frame(World, PC, Eye, Look, Type == ECrimeType::Robbery ? 70.f : 60.f, 320.f);
 		FString Roster;
 		for (const TWeakObjectPtr<AThugCharacter>& Thug : Crimes->GetThugs())
