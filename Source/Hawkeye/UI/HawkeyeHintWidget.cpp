@@ -90,13 +90,8 @@ void UHawkeyeHintWidget::Rebuild(const TArray<FHawkeyeHintSegment>& Segments)
 	}
 }
 
-void UHawkeyeHintWidget::PlaceAboveHotbar()
+float UHawkeyeHintWidget::GetBottomPadding() const
 {
-	UOverlaySlot* OverlaySlot = Cast<UOverlaySlot>(Slot);
-	if (!OverlaySlot)
-	{
-		return;
-	}
 	float HotbarHeight = 64.f;
 	float HotbarScale = HudScale;
 	if (Hotbar)
@@ -106,7 +101,28 @@ void UHawkeyeHintWidget::PlaceAboveHotbar()
 		HotbarScale = Hotbar->GetRenderTransform().Scale.Y;
 	}
 	// The hotbar grows up from its bottom edge by its scale; the line sits GapAboveHotbar over its top.
-	const float BottomPadding = FMath::RoundToFloat(HotbarBottom + HotbarHeight * HotbarScale + GapAboveHotbar);
+	return FMath::RoundToFloat(HotbarBottom + HotbarHeight * HotbarScale + GapAboveHotbar);
+}
+
+float UHawkeyeHintWidget::GetStackTop() const
+{
+	// The line is scaled about its bottom centre, so it grows up from its padding by the HUD scale.
+	return GetBottomPadding() + FMath::Max(ReservedLineHeight, MeasuredLineHeight) * HudScale;
+}
+
+void UHawkeyeHintWidget::PlaceAboveHotbar()
+{
+	if (bBackingOpen)
+	{
+		// Last frame's layout of the line up now (two keycaps can make it taller than plain text).
+		MeasuredLineHeight = FMath::Max(MeasuredLineHeight, static_cast<float>(GetDesiredSize().Y));
+	}
+	UOverlaySlot* OverlaySlot = Cast<UOverlaySlot>(Slot);
+	if (!OverlaySlot)
+	{
+		return;
+	}
+	const float BottomPadding = GetBottomPadding();
 	if (!FMath::IsNearlyEqual(BottomPadding, LastPadding))
 	{
 		LastPadding = BottomPadding;

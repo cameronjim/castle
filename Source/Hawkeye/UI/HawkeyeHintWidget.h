@@ -41,6 +41,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Hints")
 	float GetLineOpacity() const { return Opacity; }
 
+	/** The line's bottom edge, px up from the HUD's bottom: the hotbar's scaled top plus GapAboveHotbar. */
+	float GetBottomPadding() const;
+
+	/**
+	 * The top of the band the line owns, px up from the HUD's bottom: its bottom plus its height (as last
+	 * measured with a line up, never less than ReservedLineHeight) times the HUD scale. Reserved whether or not
+	 * a hint is up, so the subtitle the HUD stacks over it never jumps when one comes or goes.
+	 */
+	float GetStackTop() const;
+
+	/** The band's height at scale 1 before a line has been measured: one line of FontSize with a keycap and its padding (45 px measured). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Hints")
+	float ReservedLineHeight = 45.f;
+
 	/** Gap between the hotbar's top and the line's bottom, px. */
 	UPROPERTY(EditDefaultsOnly, Category = "HUD|Hints")
 	float GapAboveHotbar = 12.f;
@@ -79,6 +93,7 @@ private:
 	FString ShownText;
 	float Opacity = 0.f;
 	float LastPadding = -1.f;
+	float MeasuredLineHeight = 0.f;
 	float HudScale = 1.f;
 	bool bBackingOpen = false;
 };

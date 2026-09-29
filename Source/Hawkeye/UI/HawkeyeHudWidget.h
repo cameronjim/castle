@@ -252,6 +252,28 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
 	FText GetSubtitleShown() const { return SubtitleShown; }
 
+	/**
+	 * The bottom of the screen is one stack: hotbar, the hint line's band over it, the subtitle over that.
+	 * Places the subtitle SubtitleGapAboveHint over the hint band's top (UHawkeyeHintWidget::GetStackTop),
+	 * never lower than SubtitleMinBottom, so the two never overlap at any HUD scale or subtitle size.
+	 * Run every tick and on a scale change.
+	 */
+	void LayOutBottomStack();
+
+	/** Where LayOutBottomStack put the subtitle's bottom edge, px up from the HUD's bottom. */
+	float GetSubtitleBottom() const { return SubtitleBottom; }
+
+	/** The subtitle's bottom edge: MinBottom, or Gap over HintTop when that is higher. */
+	static float ComputeSubtitleBottom(float HintTop, float MinBottom, float Gap);
+
+	/** The subtitle's lowest bottom edge, px (where it sits at HUD scale 1). */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Partner")
+	float SubtitleMinBottom = 150.f;
+
+	/** Clear space between the hint line's band and the subtitle, px. */
+	UPROPERTY(EditDefaultsOnly, Category = "HUD|Partner")
+	float SubtitleGapAboveHint = 8.f;
+
 	/** True while the partner's name tag is drawn over his head (beyond PartnerTagMinDistance, on screen). */
 	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
 	bool IsPartnerTagVisible() const { return bPartnerTagVisible; }
@@ -666,6 +688,9 @@ protected:
 
 	UPROPERTY(Transient)
 	int32 SubtitleFontSize = 26;
+
+	UPROPERTY(Transient)
+	float SubtitleBottom = -1.f;
 
 	UPROPERTY(Transient)
 	float SubtitleBackgroundOpacity = 0.f;

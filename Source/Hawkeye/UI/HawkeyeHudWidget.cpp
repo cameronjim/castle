@@ -999,7 +999,7 @@ void UHawkeyeHudWidget::BuildPartnerWidgets(UOverlay* Root)
 	{
 		BoxSlot->SetHorizontalAlignment(HAlign_Center);
 		BoxSlot->SetVerticalAlignment(VAlign_Bottom);
-		BoxSlot->SetPadding(FMargin(0.f, 0.f, 0.f, 150.f));
+		BoxSlot->SetPadding(FMargin(0.f, 0.f, 0.f, SubtitleMinBottom));
 	}
 	SubtitleText = WidgetTree->ConstructWidget<UTextBlock>(UTextBlock::StaticClass(), TEXT("Subtitle"));
 	FSlateFontInfo SubtitleFont = SubtitleText->GetFont();
@@ -1105,8 +1105,30 @@ void UHawkeyeHudWidget::RebindToPawn()
 	}
 }
 
+float UHawkeyeHudWidget::ComputeSubtitleBottom(float HintTop, float MinBottom, float Gap)
+{
+	return FMath::RoundToFloat(FMath::Max(MinBottom, HintTop + Gap));
+}
+
+void UHawkeyeHudWidget::LayOutBottomStack()
+{
+	UOverlaySlot* BoxSlot = SubtitleBox ? Cast<UOverlaySlot>(SubtitleBox->Slot) : nullptr;
+	if (!BoxSlot)
+	{
+		return;
+	}
+	const float Bottom = ComputeSubtitleBottom(HintLine ? HintLine->GetStackTop() : 0.f, SubtitleMinBottom, SubtitleGapAboveHint);
+	if (!FMath::IsNearlyEqual(Bottom, SubtitleBottom))
+	{
+		SubtitleBottom = Bottom;
+		BoxSlot->SetPadding(FMargin(0.f, 0.f, 0.f, Bottom));
+	}
+}
+
 void UHawkeyeHudWidget::UpdatePartnerWidgets(float DeltaSeconds)
 {
+	LayOutBottomStack();
+
 	if (SubtitleRemaining > 0.f)
 	{
 		SubtitleRemaining -= DeltaSeconds;
@@ -1282,6 +1304,7 @@ void UHawkeyeHudWidget::ApplyHudScale(float Scale)
 	if (HintLine)
 	{
 		HintLine->SetHudScale(Scale);
+		LayOutBottomStack();
 	}
 	ScaleAbout(GrappleMarker, FVector2D(0.5f, 0.5f));
 	ScaleAbout(GrappleBlockedMarker, FVector2D(0.5f, 0.5f));
