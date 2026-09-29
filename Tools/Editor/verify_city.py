@@ -5,7 +5,8 @@ Prints one line per check and a final ``[Hawkeye] verify_city PASS`` or ``FAIL``
 * one City_Bldg_<id> actor per building record, and no strays
 * every building actor has a static mesh with collision (complex as simple) and the MI_Facade_<style>
   instance generate_city.facade_style picks for its record
-* every building mesh's top is the record height within 1 cm (plus the parapet if it has one)
+* every building mesh's top is the record height within 1 cm (plus the parapet if it has one), and
+  nothing in it stands past the footprint's bounds by more than 1 cm (the parapet is flush at corners)
 * a PlayerStart, a NavMeshBoundsVolume, a directional light, a sky light, and no light with
   Static mobility
 * handedness: the streets come out in the real order (1st Ave west of Ave A west of Ave B
@@ -1140,7 +1141,7 @@ def run():
               ": " + ", ".join((missing + strays)[:5]) if missing or strays else ""))
 
     facades = {style: c.load_or_none(m.mi_facade_path(style)) for style in m.FACADE_STYLES}
-    no_mesh, no_collision, wrong_height, wrong_material = [], [], [], []
+    no_mesh, no_collision, wrong_height, wrong_material, overhang = [], [], [], [], []
     rows = []
     for rid, actor in sorted(buildings.items()):
         rec = records.get(rid)
@@ -1164,6 +1165,15 @@ def run():
         z0 = actor.get_actor_location().z
         if abs(top - expected) > HEIGHT_TOLERANCE_CM or abs(bottom) > HEIGHT_TOLERANCE_CM or abs(z0) > 0.01:
             wrong_height.append("{0} top {1:.1f} want {2:.1f} base {3:.1f}".format(rid, top, expected, bottom + z0))
+        # Nothing stands past the footprint: the parapet's outer faces are the facades (no box overhangs a corner).
+        ring = geo.clean_ring(district.ring_cm(rec["outer"]), min_edge=5.0, collinear_tol=2.0)
+        if len(ring) >= 3:
+            loc = actor.get_actor_location()
+            x0, y0, x1, y1 = geo.bounds(ring)
+            box = sm.get_bounding_box()
+            worst = max(x0 - (box.min.x + loc.x), (box.max.x + loc.x) - x1, y0 - (box.min.y + loc.y), (box.max.y + loc.y) - y1)
+            if worst > HEIGHT_TOLERANCE_CM:
+                overhang.append("{0} {1:.1f} cm".format(rid, worst))
         rows.append((rec["height_m"], rid, rec.get("tags", {}).get("addr:street") or "?",
                      rec.get("tags", {}).get("addr:housenumber") or ""))
 
@@ -1171,6 +1181,8 @@ def run():
     check(not no_collision, "every building mesh has complex-as-simple collision", ", ".join(no_collision[:5]))
     check(not wrong_height, "building heights match records within 1 cm", "; ".join(wrong_height[:5]))
     check(not wrong_material, "every building wears its MI_Facade_ style", ", ".join(wrong_material[:5]))
+    check(not overhang, "no building mesh (parapet included) stands past its footprint by more than 1 cm",
+          "{0}: {1}".format(len(overhang), ", ".join(overhang[:5])))
 
     # Streets and ground
     roads = [a for label, a in actors.items() if label.startswith(gen.ROAD_PREFIX)]

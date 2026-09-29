@@ -122,7 +122,10 @@ HASH_TAG = "CityHash"
 PARAPET_HEIGHT = 90.0      # cm
 PARAPET_THICK = 30.0       # cm
 PARAPET_MIN_HEIGHT_M = 6.0  # no parapets on sheds and garages
-PARAPET_MIN_EDGE = 50.0    # cm; shorter footprint edges get no parapet segment
+PARAPET_MITER_LIMIT = 4.0  # times the thickness; a sharper concave corner's inner edge is squared off
+# Bump when the building mesh recipe changes, so only the buildings rebuild (2: the parapet is one
+# mitred ring flush with the facades, not a box per edge running 15 cm past each corner).
+BUILDING_RECIPE = 2
 
 ROAD_TOP = 2.0             # cm above the ground
 SIDEWALK_TOP = 15.0
@@ -276,6 +279,26 @@ def slab_from_polygons(polys, top_z, thickness):
 # --------------------------------------------------------------------------------------
 
 
+def parapet_ring(ring_local, height_cm):
+    """The parapet as one closed ring: the footprint minus the footprint offset PARAPET_THICK inward
+    (mitred), extruded PARAPET_HEIGHT up from the roof. Its outer faces are the facades themselves, so
+    every corner, convex or concave, is closed flush with no box running past it (the old per-edge
+    boxes stood 15 cm proud of the next facade at every corner). A footprint too narrow to offset is
+    walled solid."""
+    outer = polygon_list_from_ring(ring_local)
+    options = unreal.GeometryScriptPolygonOffsetOptions()
+    options.set_editor_property("join_type", unreal.GeometryScriptPolyOffsetJoinType.MITER)
+    options.set_editor_property("miter_limit", PARAPET_MITER_LIMIT)
+    result = GS_POLY.polygons_offset(outer, options, -PARAPET_THICK, False)
+    inner = first(result)
+    if isinstance(result, tuple) and len(result) > 1 and not result[1]:
+        c.log("skipped", "parapet", "offset failed; walling the roof solid")
+    ring = GS_POLY.polygons_difference(outer, inner)
+    if GS_POLY.get_polygon_count(ring) == 0:
+        return None
+    return slab_from_polygons(ring, height_cm + PARAPET_HEIGHT, PARAPET_HEIGHT)
+
+
 def building_mesh(ring_local, height_cm, parapet):
     """Extruded footprint (local cm, origin at the base centroid) plus the parapet ring."""
     mesh = new_mesh()
@@ -287,29 +310,9 @@ def building_mesh(ring_local, height_cm, parapet):
     fix_orientation(mesh)
 
     if parapet:
-        # Interior is to the left of each edge for a counter-clockwise ring (numeric x/y).
-        inward = 1.0 if geo.is_ccw(ring_local) else -1.0
-        n = len(ring_local)
-        for i in range(n):
-            ax, ay = ring_local[i]
-            bx, by = ring_local[(i + 1) % n]
-            dx, dy = bx - ax, by - ay
-            length = math.hypot(dx, dy)
-            if length < PARAPET_MIN_EDGE:
-                continue
-            nx, ny = -dy / length * inward, dx / length * inward
-            half = PARAPET_THICK * 0.5
-            cx = (ax + bx) * 0.5 + nx * half
-            cy = (ay + by) * 0.5 + ny * half
-            yaw = math.degrees(math.atan2(dy, dx))
-            xf = unreal.Transform(
-                location=unreal.Vector(cx, cy, height_cm),
-                rotation=unreal.Rotator(0.0, 0.0, yaw))
-            # Long enough to close the corner with the next segment.
-            GS_PRIM.append_box(
-                mesh, unreal.GeometryScriptPrimitiveOptions(), xf,
-                length + PARAPET_THICK, PARAPET_THICK, PARAPET_HEIGHT, 0, 0, 0,
-                unreal.GeometryScriptPrimitiveOriginMode.BASE)
+        ring = parapet_ring(ring_local, height_cm)
+        if ring is not None:
+            unreal.GeometryScript_MeshEdits.append_mesh(mesh, ring, unreal.Transform())
 
     GS_NORMALS.set_per_face_normals(mesh)
     return mesh
@@ -428,7 +431,7 @@ def building_pieces(district, facades):
         local = [(x - cx, y - cy) for x, y in ring]
         height_cm = rec["height_m"] * 100.0
         parapet = rec["height_m"] >= PARAPET_MIN_HEIGHT_M
-        spec = geo.record_hash(GENERATOR_VERSION, "bldg", [list(p) for p in local], height_cm, parapet)
+        spec = geo.record_hash(GENERATOR_VERSION, "bldg", [list(p) for p in local], height_cm, parapet, BUILDING_RECIPE)
 
         def build(local=local, height_cm=height_cm, parapet=parapet):
             return building_mesh(local, height_cm, parapet)
