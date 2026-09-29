@@ -94,6 +94,7 @@
  *                    off the pavement (the report gives the lens height and Kate's screen box)
  *   vault_mid.png    sprinting at City_Test_Vault (90 cm): the auto vault, mid-move
  *   mantle_mid.png   the jump key 36 cm from City_Test_Mantle (150 cm): hands on the top
+ *   standing_vault.png  standing still, pressed against City_Test_Vault (90 cm), one press: mid-vault
  *   ledge_hang.png   dropped in against a tenement 230 cm under its parapet top: caught, hanging
  *   climb_top.png    the jump key from the hang: over the parapet onto the roof
  *
@@ -962,6 +963,7 @@ namespace HawkeyeKateShots
 		VaultRun,
 		MantleStand,
 		MantleJump,
+		VaultStand,
 		LedgeFall,
 		Climb,
 		EndInput,
@@ -1168,6 +1170,18 @@ bool FHawkeyeKateParkourShot::Update()
 		break;
 	case EParkourShot::MantleJump:
 		Kate->Jump();
+		break;
+	case EParkourShot::VaultStand:
+		// Pressed against the near face (capsule 2 cm off it), no stick, no speed: one press.
+		if (FaceTestBlock(World, Kate, PC, TEXT("CityTestVault"), Kate->GetCapsuleComponent()->GetScaledCapsuleRadius() + 2.f,
+				-60.f, Direction))
+		{
+			Kate->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+		}
+		else
+		{
+			Test->AddWarning(TEXT("No City_Test_Vault block."));
+		}
 		break;
 	case EParkourShot::LedgeFall:
 	{
@@ -2820,6 +2834,16 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.45f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateReportParkour(this, TEXT("mantle_mid.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("mantle_mid.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+
+	// From a standstill against the 90 cm block, one press (2026-09-29): a vault, not a hop into the wall.
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkourShot(this, static_cast<uint8>(EParkour::VaultStand)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkourShot(this, static_cast<uint8>(EParkour::MantleJump)));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateWaitTraversal(this, 1.f, false));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.25f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateReportParkour(this, TEXT("standing_vault.png")));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("standing_vault.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
 
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkourShot(this, static_cast<uint8>(EParkour::LedgeFall)));
