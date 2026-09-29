@@ -84,8 +84,12 @@ Play a specific map in a standalone window without the editor UI (fast iteration
 
 Day, to see the block: add `-TimeOfDay=Day` to that line or to any automation run (not saved), or
 type `hawkeye.TimeOfDay Day` in the console (`Night` to go back, `Saved` for the player's own
-setting; also unsaved). `Hawkeye.Screenshot.TimeOfDay` writes `night_street.png` and
-`day_street.png` to `Saved/Screenshots/Kate/` without the rest of the Kate pass.
+setting; also unsaved). `Hawkeye.Screenshot.TimeOfDay` writes `night_street.png`,
+`day_street.png`, `day_park.png` (from the park at the tenement row) and `day_pedestal.png`
+(challenge_pedestal's framing) to `Saved/Screenshots/Kate/` without the rest of the Kate pass,
+in about two minutes; tune the day against those, at the same cameras. Two cautions reading
+them: the pedestal's floating target icon spins, so it can show its plain cream back, and a
+flake near the lens is a big soft white disc.
 
 ## Headless editor
 

@@ -463,16 +463,31 @@ the last input came from a pad.
   World in Settings, saved with the rest (settings version 6; a version 5 save migrates and
   comes up Night, anything older still yields defaults). `UTimeOfDaySubsystem` relights the
   district live on the change and at map load. Night is the level exactly as generated and
-  is never touched on the default; Day is one row of its table (`GetPreset`): the Moon light
-  becomes a 7 lux warm-white sun 35 degrees up from the south-west, sky light 6.0 (from
-  3.0) and faintly blue, fog 0.002 starting 30 m out, PP_Global's exposure bias +2 to -0.5
-  (exposure stays pinned), the purple/cream grade neutral, vignette 0.2, stars hidden, street lamps and their heads
-  off, lit windows at a quarter. Snow falls in both. Going back to Night restores every
-  recorded value exactly. Interiors and flashback scenes (no outdoor weather) and anything
+  is never touched on the default; Day is one row of its table (`GetPreset`), a clear winter
+  afternoon (retuned 2026-09-29 from a first day that read blue and dim): the Moon light becomes
+  a 16 lux sun, warm white with a little gold (1.0, 0.86, 0.68), 30 degrees up from the
+  south-west; sky light 8.0 (from 3.0) tinted warm (1.0, 0.90, 0.80) against the blue sky it
+  captures, so shade is blue but not black; fog 0.0015, slightly warm (0.18, 0.16, 0.13),
+  starting 30 m out; PP_Global's exposure bias +2 to -0.3 (exposure stays pinned); the
+  purple/cream grade neutral, vignette 0.2, stars hidden. Sunlit snow does not clip in
+  day_street.png or day_park.png. Street lamps, their heads and the lamp buzz are off. Glows
+  get the row's `GlowScale`, 3 by day (2.3 EV under the night makes every emissive about 5x
+  dimmer): the level's M_Emissive materials (objective beacons, safehouse doors, the chapter-end
+  arrow) by a swapped copy, lit windows at a quarter times that, and every glow a class sets
+  through `UTimeOfDaySubsystem::SetGlow` (pedestal cap and icon, target faces, checkpoint rings),
+  rescaled on every change. City_Ambience's street bed is at 0.6 by day (one bed serves both,
+  there is no day bed yet). Snow falls in both, unchanged (the snowfall component has no density
+  setting). Going back to Night restores every recorded value exactly. Interiors and flashback scenes (no outdoor weather) and anything
   tagged Interior are left alone. `-TimeOfDay=Day|Night` overrides without saving, like
   `-Difficulty=`; the `hawkeye.TimeOfDay Day|Night` console command overrides both, also
   unsaved, until `hawkeye.TimeOfDay Saved` or the player changes the row. The engine's
   SunPosition plugin is the route to a real cycle later (more rows, blended by the clock).
+- Lamps and the EMP share the lamps without fighting: the time of day owns each lamp's
+  intensity, head glow and buzz; the EMP owns its lights' visibility. A lamp the EMP has dark
+  keeps its head unlit and its buzz off through any time of day change, and when the outage
+  ends it comes back as the time of day then in force says (off by day, lit at night). Before
+  the first change the EMP restores what it recorded, as it always did.
+  (`Hawkeye.TimeOfDay.EmpAndLampsDoNotFight`, `Hawkeye.TimeOfDay.GlowScalesByDay`.)
 - Aiming blends FOV from `HipFOV` 90 to `AimFOV` 70 over 0.15 s, multiplies walk speed by
   0.6, and shrinks the crosshair gap from 8 px to 4 px. Sprinting cancels aim and reload
   and fades the crosshair to 40%.
@@ -647,7 +662,9 @@ the last input came from a pad.
   trick arrow effect with the smoke hiss looping for the cloud's life; menu hover and
   click, objective chimes and toasts.
 - Ambience: `City_Ambience` crossfades street hum to rooftop wind above 10 m. The 20 lamps
-  nearest the park carry a 120 Hz buzz that the EMP silences with the light.
+  nearest the park carry a 120 Hz buzz that the EMP silences with the light and that is off
+  by day with the lamps; by day the street bed is also turned down to 0.6 (see Settings, Time
+  of day).
 - Sound classes `SCL_Master`, `SCL_SFX`, `SCL_Ambient`, `SCL_UI` and the mix `SMX_Settings`
   drive Master, Sound effects, and Ambience sliders in Settings (settings version 4).
   Attenuations: `ATT_World` 300 to 3000 cm, `ATT_Lamp` 50 to 400 cm. Naming: `MS_` for
@@ -852,8 +869,8 @@ the last input came from a pad.
   reaching it or starting any challenge); the first time the player comes within 40 m of a
   pedestal a "[Challenge nearby]" toast names it (once a campaign, ids kept in the save as
   `NoticedPlaces`). The cap and ring icon are a deep purple (0.5, 0.06, 1) at 0.35 / 0.6
-  night emissive, since 2.5 clipped to white under the night's +2 EV; by day the glows are
-  3.5 times that (checked in challenge_pedestal.png at night and by day).
+  night emissive, since 2.5 clipped to white under the night's +2 EV; by day the glows take
+  the time of day's GlowScale, 3 (checked in challenge_pedestal.png at night and day_pedestal.png).
 
 ## Difficulty and accessibility (built 2026-09-27)
 - One difficulty setting, Story / Normal / Hard (default Normal), asked once at New Game
