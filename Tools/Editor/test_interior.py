@@ -1,5 +1,5 @@
 """Unit tests for _interior.py: layout parsing, room adjacency, door and window placement, the owner grid's
-walls and slabs, and stair geometry. Plain unittest, no editor:
+walls and slabs, stair geometry, and the enemies and the keycards they carry. Plain unittest, no editor:
 
     Tools/test-interior.ps1
     (or) python Tools/Editor/test_interior.py
@@ -101,6 +101,94 @@ class ParseTest(unittest.TestCase):
         with self.assertRaises(it.LayoutError) as ctx:
             it.parse(raw)
         self.assertIn("40 cm inside", str(ctx.exception))
+
+
+class EnemyTest(unittest.TestCase):
+    def locked(self, **enemy):
+        raw = two_rooms(leaf="steel", locked=True, keycard="vault")
+        raw["enemies"] = [dict({"id": "g", "type": "BOW", "room": "a", "at": [100, 100]}, **enemy)]
+        return raw
+
+    def test_sample_has_four_enemies_and_the_archer_carries_the_vault_card(self):
+        layout = it.parse(sample_raw())
+        enemies = {e["id"]: e for e in layout.enemies()}
+        self.assertEqual(sorted(e["type"] for e in enemies.values()), ["BAT", "BOW", "FISTS", "PISTOL"])
+        self.assertEqual(enemies["vault"]["keycards"], ["vault"])
+        self.assertEqual(enemies["gallery"]["room"], "gallery")
+        self.assertEqual(enemies["lobby"]["alert_group"], "front")
+        self.assertEqual({e["alert_group"] for e in enemies.values() if e["id"] != "lobby"}, {"hall"})
+
+    def test_a_patroller_with_no_start_begins_on_his_first_point(self):
+        layout = it.parse(sample_raw())
+        hall = next(e for e in layout.enemies() if e["id"] == "hall")
+        (x, y, z), yaw = layout.enemy_start(hall)
+        self.assertEqual((x, y, z), (1500.0, 300.0, 0.0))
+        self.assertEqual([(p[0], p[1]) for p in layout.enemy_route(hall)], [(1500.0, 1100.0), (1500.0, 300.0)])
+        self.assertAlmostEqual(yaw, 90.0)
+
+    def test_a_start_is_walked_from_to_the_first_point(self):
+        layout = it.parse(sample_raw())
+        lobby = next(e for e in layout.enemies() if e["id"] == "lobby")
+        (x, y, _z), _yaw = layout.enemy_start(lobby)
+        self.assertEqual((x, y), (620.0, 300.0))
+        self.assertEqual([(p[0], p[1]) for p in layout.enemy_route(lobby)], [(250.0, 480.0), (250.0, 900.0)])
+
+    def test_points_on_an_upper_floor_and_their_facing(self):
+        layout = it.parse(sample_raw())
+        gunner = next(e for e in layout.enemies() if e["id"] == "gallery")
+        (_x, _y, z), yaw = layout.enemy_start(gunner)
+        self.assertEqual(z, it.FLOOR_HEIGHT)
+        self.assertEqual(yaw, 0.0)
+        self.assertEqual([p[3] for p in layout.enemy_route(gunner)], [0.0, 0.0])
+
+    def test_a_post_has_no_route(self):
+        layout = it.parse(self.locked())
+        guard = layout.enemies()[0]
+        self.assertEqual(layout.enemy_route(guard), [])
+
+    def test_old_patrols_read_as_enemies(self):
+        raw = two_rooms()
+        raw["patrols"] = [{"id": "p", "weapon": "BAT", "points": [["a", 100, 100], ["a", 300, 100]]}]
+        enemy = it.parse(raw).enemies()[0]
+        self.assertEqual((enemy["type"], enemy["room"], enemy["at"]), ("BAT", "a", (100.0, 100.0)))
+        self.assertEqual([(p[1], p[2]) for p in enemy["patrol"]], [(300.0, 100.0), (100.0, 100.0)])
+
+    def assertLayoutError(self, raw, words):
+        with self.assertRaises(it.LayoutError) as ctx:
+            it.parse(raw)
+        self.assertIn(words, str(ctx.exception))
+
+    def test_unknown_type(self):
+        self.assertLayoutError(self.locked(type="ROCKET"), "type ROCKET")
+
+    def test_start_inside_a_wall(self):
+        self.assertLayoutError(self.locked(at=[590, 100]), "40 cm inside")
+
+    def test_patrol_point_inside_a_wall(self):
+        self.assertLayoutError(self.locked(patrol=[["a", 100, 100], ["b", 5, 100]]), "40 cm inside")
+
+    def test_one_point_is_not_a_patrol(self):
+        self.assertLayoutError(self.locked(patrol=[["a", 300, 100]]), "two points or more")
+
+    def test_unknown_room(self):
+        self.assertLayoutError(self.locked(room="cellar"), "unknown room cellar")
+
+    def test_ids_are_unique(self):
+        raw = self.locked()
+        raw["enemies"].append(dict(raw["enemies"][0]))
+        self.assertLayoutError(raw, "id used twice")
+
+    def test_a_keycard_needs_a_real_carrier_and_a_lock(self):
+        raw = self.locked()
+        raw["keycards"] = [{"keycard": "vault", "carrier": "nobody"}]
+        self.assertLayoutError(raw, "carrier nobody is not an enemy")
+        raw["keycards"] = [{"keycard": "red", "carrier": "g"}]
+        self.assertLayoutError(raw, "opens no locked door")
+        raw["keycards"] = [{"keycard": "vault", "carrier": "g"}]
+        self.assertEqual(it.parse(raw).enemies()[0]["keycards"], ["vault"])
+
+    def test_alert_group_is_a_plain_name(self):
+        self.assertLayoutError(self.locked(alert_group="the hall"), "alert group")
 
 
 class AdjacencyTest(unittest.TestCase):

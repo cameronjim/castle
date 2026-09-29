@@ -21,11 +21,23 @@ so a room's N side is its y0 edge (the district's convention: East 11th Street h
       "windows": [{"room", "side", "floor", "at", "width": 120, "sill": 90, "height": 150}],
       "stairs":  [{"id", "room", "landing": 170, "flight": 130}],
       "props":   [{"room", "tag", "at": [dx, dy], "yaw": 0, "size": [x, y, z]}],     at is from the room's x0, y0
-      "patrols": [{"id", "weapon": "FISTS|BAT|PISTOL", "wait": 2.0, "points": [[room, dx, dy], ...]}],
+      "enemies": [{"id", "type": "FISTS|BAT|PISTOL|BOW|SHIELD", "room", "at": [dx, dy], "facing": 90,
+                   "patrol": [[room, dx, dy], [room, dx, dy, yaw], ...], "wait": 2.0, "alert_group": "<crew>"}],
+      "keycards": [{"keycard": "<id>", "carrier": "<enemy id>"}],   a keycard a thug carries and drops
+      "patrols": [{"id", "weapon": "FISTS|BAT|PISTOL", "wait": 2.0, "points": [[room, dx, dy], ...]}],   the old
+                   form of a patrolling enemy, read as one that starts on its first point
       "pickups": [{"id", "room", "kind": "keycard", "keycard": "<id>", "at": [dx, dy], "z": 76}],
       "anchors": [{"room", "side", "at"}],           grapple anchors on a room's rail edge
       "exit_signs": [{"room", "side", "floor", "at"}]  green signs over openings, besides the exits' own
     }
+
+An enemy stands at "at" in his room (room-relative, on its floor; the first patrol point when there is no
+"at"), turned "facing" degrees (0 east, 90 south; toward his first leg when left out). With a "patrol" of
+two points or more he walks round its points in order, waiting "wait" s at each: from "at" to the first,
+or, with no "at", from the first to the second. A point with a fourth number is one he turns to that yaw
+at while he waits (a gunner overlooking a hall). With no patrol he holds his post. "alert_group" names his crew: his squad alert reaches only thugs of the same group (and a thug with
+none only thugs with none). "type" picks the Blueprint: BP_Thug for FISTS, BAT and PISTOL, BP_Archer for
+BOW, BP_Thug_Heavy for SHIELD. A keycard's carrier drops it where he goes down (takedown or fight).
 
 A room may span several floors ("floors": 2 is a double-height hall or a stair well). A room with
 "overlooks" is a mezzanine inside that room's upper floor (a gallery over a hall); the edges listed in
@@ -56,6 +68,8 @@ SIDES = ("N", "S", "W", "E")
 SURFACES = ("wood", "carpet", "concrete")
 LEAVES = ("none", "wood", "steel")
 WEAPONS = ("FISTS", "BAT", "PISTOL")
+ENEMY_TYPES = ("FISTS", "BAT", "PISTOL", "BOW", "SHIELD")
+POINT_MARGIN = 40.0         # cm an enemy's start and patrol points stay inside their room's walls
 PROP_TAGS = ("desk", "table", "chair", "shelves", "crates", "pallet", "display_case", "pedestal", "sofa", "bed",
              "counter", "stage", "lectern", "bench", "rug", "painting", "plant")
 
@@ -150,11 +164,67 @@ class Layout(object):
         self.stairs = list(raw.get("stairs", []))
         self.props = list(raw.get("props", []))
         self.patrols = list(raw.get("patrols", []))
+        self.raw_enemies = list(raw.get("enemies", []))
+        self.keycards = list(raw.get("keycards", []))
         self.pickups = list(raw.get("pickups", []))
         self.anchors = list(raw.get("anchors", []))
         self.exit_signs = list(raw.get("exit_signs", []))
         self._grid = None
         self._bounds = {}
+
+    def enemies(self):
+        """Every enemy, normalised: {"id", "type", "room", "at": (dx, dy), "facing": yaw or None, "patrol":
+        [(room, dx, dy, yaw or None)] in the order he walks them, "wait", "alert_group", "keycards": [ids he
+        carries]}. The old "patrols" come after the "enemies", each starting on its first point."""
+        out = []
+        for raw in self.raw_enemies:
+            patrol = [(p[0], float(p[1]), float(p[2]), float(p[3]) if len(p) > 3 else None) for p in raw.get("patrol", [])]
+            at = raw.get("at")
+            if at is None and patrol:
+                # He starts on his first point, so his first walk is to the second.
+                at = (patrol[0][1], patrol[0][2])
+                patrol = patrol[1:] + patrol[:1]
+            out.append({"id": raw.get("id"), "type": raw.get("type", "FISTS"), "room": raw.get("room"),
+                        "at": (float(at[0]), float(at[1])) if at is not None else None,
+                        "facing": float(raw["facing"]) if raw.get("facing") is not None else None,
+                        "patrol": patrol, "wait": float(raw.get("wait", 2.0)),
+                        "alert_group": raw.get("alert_group") or "", "keycards": []})
+        for raw in self.patrols:
+            points = [(p[0], float(p[1]), float(p[2]), None) for p in raw.get("points", [])]
+            first = points[0] if points else (None, 0.0, 0.0, None)
+            # He starts on his first point: walking out and back is the second point first.
+            out.append({"id": raw.get("id"), "type": raw.get("weapon", "FISTS"), "room": first[0], "at": (first[1], first[2]),
+                        "facing": None, "patrol": points[1:] + points[:1] if len(points) > 1 else [],
+                        "wait": float(raw.get("wait", 2.0)), "alert_group": raw.get("alert_group") or "", "keycards": []})
+        by_id = {e["id"]: e for e in out}
+        for card in self.keycards:
+            if card.get("carrier") in by_id:
+                by_id[card["carrier"]]["keycards"].append(card.get("keycard"))
+        return out
+
+    def enemy_start(self, enemy):
+        """((x, y, floor z), yaw) where an enemy starts, in the map's frame."""
+        room = self.by_id[enemy["room"]]
+        x, y = room.point(*enemy["at"])
+        yaw = enemy["facing"]
+        if yaw is None:
+            nxt = None
+            for room_id, dx, dy, _yaw in enemy["patrol"]:
+                px, py = self.by_id[room_id].point(dx, dy)
+                if abs(px - x) > 1.0 or abs(py - y) > 1.0:
+                    nxt = (px, py)
+                    break
+            yaw = math.degrees(math.atan2(nxt[1] - y, nxt[0] - x)) if nxt is not None else 0.0
+        return (x, y, room.z0), yaw
+
+    def enemy_route(self, enemy):
+        """[(x, y, floor z, yaw or None)] of the points he walks, in order; empty for a post."""
+        route = []
+        for room_id, dx, dy, yaw in enemy["patrol"]:
+            room = self.by_id[room_id]
+            x, y = room.point(dx, dy)
+            route.append((x, y, room.z0, yaw))
+        return route
 
     @property
     def map_path(self):
@@ -478,6 +548,7 @@ class Layout(object):
                 room = self.by_id.get(point[0])
                 if room is None or not room.contains(*room.point(point[1], point[2]), margin=40.0):
                     errors.append("patrol {0}: point {1} is not 40 cm inside its room".format(patrol.get("id"), point))
+        errors.extend(self.enemy_errors())
         for anchor in self.anchors:
             room = self.by_id.get(anchor.get("room"))
             if room is None or anchor.get("side") not in room.rail:
@@ -485,6 +556,55 @@ class Layout(object):
         entrances = [e for e in self.exits if e.get("entrance")]
         if len(entrances) != 1:
             errors.append("exactly one exit must be the entrance (has {0})".format(len(entrances)))
+        return errors
+
+
+    def enemy_errors(self):
+        errors = []
+        seen = set()
+        for raw in self.raw_enemies:
+            what = "enemy {0}".format(raw.get("id", "?"))
+            if not raw.get("id"):
+                errors.append("enemy: every enemy needs an id")
+            elif raw["id"] in seen:
+                errors.append("{0}: id used twice".format(what))
+            seen.add(raw.get("id"))
+            if raw.get("type", "FISTS") not in ENEMY_TYPES:
+                errors.append("{0}: type {1} is not one of {2}".format(what, raw.get("type"), ", ".join(ENEMY_TYPES)))
+            room = self.by_id.get(raw.get("room"))
+            if room is None:
+                errors.append("{0}: unknown room {1}".format(what, raw.get("room")))
+                continue
+            patrol = raw.get("patrol", [])
+            at = raw.get("at") or (patrol[0][1:3] if patrol and len(patrol[0]) >= 3 else None)
+            if at is None or not room.contains(*room.point(at[0], at[1]), margin=POINT_MARGIN):
+                errors.append("{0}: start {1} is not {2:.0f} cm inside {3}".format(what, at, POINT_MARGIN, room.id))
+            if len(patrol) == 1:
+                errors.append("{0}: a patrol needs two points or more (an enemy with none holds his post)".format(what))
+            for point in patrol:
+                other = self.by_id.get(point[0]) if point else None
+                if other is None or len(point) < 3 or not other.contains(*other.point(point[1], point[2]), margin=POINT_MARGIN):
+                    errors.append("{0}: patrol point {1} is not {2:.0f} cm inside its room".format(what, point, POINT_MARGIN))
+            group = raw.get("alert_group", "")
+            if group and not all(ch.isalnum() or ch == "_" for ch in group):
+                errors.append("{0}: alert group {1} is letters, digits and _ only".format(what, group))
+        for patrol in self.patrols:
+            if patrol.get("id") in seen:
+                errors.append("patrol {0}: id used by an enemy too".format(patrol.get("id")))
+            seen.add(patrol.get("id"))
+        carried = set()
+        locks = {d.get("keycard") for d in self.doors if d.get("locked")}
+        for card in self.keycards:
+            what = "keycard {0}".format(card.get("keycard", "?"))
+            if not card.get("keycard"):
+                errors.append("keycard: needs a keycard id")
+            if card.get("carrier") not in seen:
+                errors.append("{0}: carrier {1} is not an enemy".format(what, card.get("carrier")))
+            if card.get("keycard") in carried:
+                errors.append("{0}: carried twice".format(what))
+            carried.add(card.get("keycard"))
+            if card.get("keycard") not in locks:
+                errors.append("{0}: opens no locked door".format(what))
         return errors
 
 
