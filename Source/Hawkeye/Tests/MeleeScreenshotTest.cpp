@@ -71,8 +71,9 @@
  *                     purple ring at his feet, his health bar drawn whiter (the marker not on him fails it)
  *   hit_spark.png     the same swing, time stopped in the tick the light lands: NS_MeleeSpark on his capsule
  *                     toward her at chest height, under his hit flash (no spark within 2 s fails it)
- *   knockdown_dust.png her own camera, 0.5 s (world time) after her heavy knocks a bat thug down: the thud's
- *                     NS_LandingSnow puff off the ground under his pelvis (no knockdown or no puff fails it)
+ *   knockdown_dust.png her own camera, 0.2 s (world time) after the thud of a bat thug her heavy knocked down
+ *                     (1.5 s after he goes over): NS_KnockdownDust off the ground under his pelvis (no knockdown
+ *                     or no puff fails it); the report then says when his pelvis really reached the ground
  *
  * The heavies and the kick fail the test when another montage plays (the second heavy: the first's clip
  * again), or when her pelvis at the capture is more than 15 cm below its height standing just before the press,
@@ -258,9 +259,14 @@ namespace HawkeyeMeleeShots
 		}
 		const FVector Facing = FRotator(0.f, Along.Rotation().Yaw + Yaw, 0.f).Vector();
 		Stand(Kate, StreetFeet, Facing.Rotation().Yaw);
-		if (AThugCharacter* Old = Foe.Get())
+		// The fight camera's pair too, so no thug from an earlier shot stands in this one's frame.
+		for (TWeakObjectPtr<AThugCharacter>* Old : { &Foe, &SecondFoe })
 		{
-			Old->Destroy();
+			if (AThugCharacter* Thug = Old->Get())
+			{
+				Thug->Destroy();
+			}
+			*Old = nullptr;
 		}
 		FVector FoeFeet;
 		if (!Ground(World, StreetFeet + Facing * Distance, StreetFeet.Z + 200.f, { Kate }, FoeFeet))
@@ -361,6 +367,12 @@ namespace HawkeyeMeleeShots
 	static FDelegateHandle SparkHook;
 	static bool bSparkFrozen = false;
 	static FVector SparkAt = FVector::ZeroVector;
+	/** knockdown_dust.png: the world time he went down, and his feet's height standing just before. */
+	static double KnockedAtWorld = -1.0;
+	static float KnockFeetZ = 0.f;
+	/** Where the thud's dust was asked for (zero until it is). */
+	static FVector DustAt = FVector::ZeroVector;
+	static FDelegateHandle DustHook;
 
 	static void UnhookSpark(UWorld* World)
 	{
@@ -731,6 +743,20 @@ bool FHawkeyeMeleeShot::Update()
 		break;
 
 	case EShot::KnockHeavy:
+		DustAt = FVector::ZeroVector;
+		if (UHawkeyeVfxSubsystem* Vfx = UHawkeyeVfxSubsystem::Find(World))
+		{
+			Vfx->OnRequested.Remove(DustHook);
+			DustHook = Vfx->OnRequested.AddLambda([](FName Event, const FVector& At)
+			{
+				if (Event == UHawkeyeVfxSubsystem::KnockdownDustEvent)
+				{
+					DustAt = At;
+				}
+			});
+		}
+		KnockedAtWorld = -1.0;
+		KnockFeetZ = Thug ? Thug->GetActorLocation().Z - Thug->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() : 0.f;
 		PC->SetControlRotation(FRotator(-10.f, Kate->GetActorRotation().Yaw + 45.f, 0.f));
 		if (!Kate->StartHeavyAttack())
 		{
@@ -748,6 +774,11 @@ bool FHawkeyeMeleeShot::Update()
 
 	case EShot::Cleanup:
 		UnhookSpark(World);
+		if (UHawkeyeVfxSubsystem* Vfx = UHawkeyeVfxSubsystem::Find(World))
+		{
+			Vfx->OnRequested.Remove(DustHook);
+		}
+		DustHook.Reset();
 		SetCrawl(World, false);
 		PC->SetViewTarget(Kate);
 		if (ACameraActor* Camera = ShotCamera.Get())
@@ -1188,6 +1219,7 @@ private:
 class FHawkeyeMeleeWaitForKnockdown : public IAutomationLatentCommand
 {
 public:
+	/** InDelay: seconds past his thud (the delay it was scheduled with) to catch the puff. */
 	FHawkeyeMeleeWaitForKnockdown(FAutomationTestBase* InTest, float InDelay, float InTimeout)
 		: Test(InTest), Delay(InDelay), Timeout(InTimeout) {}
 
@@ -1210,9 +1242,12 @@ public:
 		if (KnockedAt < 0.0 && Thug->IsKnockedDown())
 		{
 			KnockedAt = World->GetTimeSeconds();
+			KnockedAtWorld = KnockedAt;
 		}
+		// Just after his thud: Delay past the delay it was scheduled with (until he goes over, the ragdoll's).
+		const float After = (KnockedAt < 0.0 ? Thug->GroundThudDelay : Thug->GetScheduledThudDelay()) + Delay;
 		const bool bTimedOut = Now - Start >= Timeout;
-		if (!bTimedOut && (KnockedAt < 0.0 || World->GetTimeSeconds() - KnockedAt < Delay))
+		if (!bTimedOut && (KnockedAt < 0.0 || World->GetTimeSeconds() - KnockedAt < After))
 		{
 			return false;
 		}
@@ -1229,9 +1264,11 @@ public:
 			: Thug->GetActorLocation();
 		const FVector Camera = PC->PlayerCameraManager ? PC->PlayerCameraManager->GetCameraLocation() : FVector::ZeroVector;
 		Test->AddInfo(FString::Printf(TEXT("knockdown_dust.png: %.2f s (world) after he went down; thuds %d, dust puffs asked for %d; ")
-			TEXT("his pelvis at %s, %.0f cm from the lens, %s on screen; his health %.0f."),
+			TEXT("his pelvis at %s, %.0f cm from the lens, %s on screen; the dust at %s (%.0f cm over his standing feet), %s on screen; ")
+			TEXT("his health %.0f."),
 			World->GetTimeSeconds() - KnockedAt, Thug->GetGroundThudCount(), Dust, *Vec(Pelvis), FVector::Dist(Pelvis, Camera),
-			*ScreenOffset(PC, Pelvis), Thug->GetHealthComponent()->GetCurrentHealth()));
+			*ScreenOffset(PC, Pelvis), *Vec(DustAt), DustAt.Z - KnockFeetZ, *ScreenOffset(PC, DustAt),
+			Thug->GetHealthComponent()->GetCurrentHealth()));
 		if (Thug->GetGroundThudCount() < 1 || Dust < 1)
 		{
 			Test->AddError(TEXT("knockdown_dust.png: no thud or no dust 0.5 s after the knockdown."));
@@ -1245,6 +1282,56 @@ private:
 	float Timeout;
 	double Start = -1.0;
 	double KnockedAt = -1.0;
+};
+
+/**
+ * After knockdown_dust.png, for Seconds of world time: when his pelvis first came within 35 cm of the ground
+ * he stood on, against his thud's delay (the thud should land with the body, not before it).
+ */
+class FHawkeyeMeleeTrackFall : public IAutomationLatentCommand
+{
+public:
+	FHawkeyeMeleeTrackFall(FAutomationTestBase* InTest, float InSeconds) : Test(InTest), Seconds(InSeconds) {}
+
+	virtual bool Update() override
+	{
+		using namespace HawkeyeMeleeShots;
+		UWorld* World = FindWorld();
+		const AThugCharacter* Thug = Foe.Get();
+		const USkeletalMeshComponent* Body = Thug ? Thug->GetMesh() : nullptr;
+		if (!World || !Body || KnockedAtWorld < 0.0 || Body->GetBoneIndex(TEXT("pelvis")) == INDEX_NONE)
+		{
+			return true;
+		}
+		const float Since = static_cast<float>(World->GetTimeSeconds() - KnockedAtWorld);
+		const float Pelvis = Body->GetBoneLocation(TEXT("pelvis")).Z - KnockFeetZ;
+		Lowest = FMath::Min(Lowest, Pelvis);
+		if (First < 0.f)
+		{
+			First = Since;
+		}
+		if (Down < 0.f && Pelvis < 35.f)
+		{
+			Down = Since;
+		}
+		if (Since < Seconds)
+		{
+			return false;
+		}
+		const FString When = Down < 0.f ? FString(TEXT("never"))
+			: Down <= First ? FString::Printf(TEXT("by %.2f s (already, when watching began)"), Down)
+			: FString::Printf(TEXT("at %.2f s"), Down);
+		Test->AddInfo(FString::Printf(TEXT("knockdown_dust.png: his pelvis came within 35 cm of the ground %s after he went down ")
+			TEXT("(lowest %.0f cm by %.1f s); the thud is at %.2f s."), *When, Lowest, Seconds, Thug->GetScheduledThudDelay()));
+		return true;
+	}
+
+private:
+	FAutomationTestBase* Test;
+	float Seconds;
+	float Down = -1.f;
+	float First = -1.f;
+	float Lowest = BIG_NUMBER;
 };
 
 DEFINE_LATENT_AUTOMATION_COMMAND_TWO_PARAMETER(FHawkeyeMeleeTakeShot, FAutomationTestBase*, Test, FString, FileName);
@@ -1392,12 +1479,13 @@ void HawkeyeAddMeleeShots(FAutomationTestBase* Test)
 	Take(TEXT("hit_spark.png"));
 	Shot(EShot::Uncrawl, 1.5f);
 
-	// Her heavy knocks one down; 0.5 s later the thud's puff is off the ground.
+	// Her heavy knocks one down; 0.2 s after his thud (1.3 s after he goes over) the puff is spreading off the ground.
 	Shot(EShot::KnockSetup, 1.2f);
 	Shot(EShot::KnockHeavy, 0.f);
-	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeWaitForKnockdown(Test, 0.5f, 4.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeWaitForKnockdown(Test, 0.2f, 4.f));
 	Take(TEXT("knockdown_dust.png"));
-	Shot(EShot::Uncrawl, 1.f);
+	Shot(EShot::Uncrawl, 0.f);
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeMeleeTrackFall(Test, 2.f));
 
 	Shot(EShot::Cleanup, 0.5f);
 }
