@@ -12,6 +12,7 @@ class UBowComponent;
 class UBowDefinition;
 class UNiagaraComponent;
 class UProjectileMovementComponent;
+class USkeletalMeshComponent;
 class USphereComponent;
 class UStaticMeshComponent;
 
@@ -49,6 +50,22 @@ public:
 	/** How far the tip sinks past the surface it hit, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow", meta = (ClampMin = "0.0"))
 	float EmbedDepth = 12.f;
+
+	/** How far the tip sinks into a body (Kate, a thug) past the surface of the physics shape it entered, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow", meta = (ClampMin = "0.0"))
+	float BodyEmbedDepth = 5.f;
+
+	/**
+	 * Where an arrow flying from Start along Direction meets Body (gameplay-semantics.md, "Arrows in bodies"):
+	 * the first point on the line, up to Length on, inside one of its physics asset's shapes at the current
+	 * bone transforms (bEntered), else the point of the nearest shape to the line, else (no physics asset) the
+	 * line's closest approach to the nearest bone. False when Body has neither. Pure but for reading the pose.
+	 */
+	static bool FindBodyEntry(const USkeletalMeshComponent& Body, const FVector& Start, const FVector& Direction, float Length,
+		FVector& OutPoint, FName& OutBone, bool& bOutEntered);
+
+	/** The skeletal mesh an arrow sticks into on Actor: a character's own mesh, else the first one it has. */
+	static USkeletalMeshComponent* FindBodyMesh(const AActor* Actor);
 
 	/** Length of the shaft behind the tip, cm. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Arrow", meta = (ClampMin = "1.0"))
@@ -132,8 +149,12 @@ protected:
 	/** Spawns the arrow's trick effect (putty, bola, smoke, EMP, explosive) at the impact. */
 	void SpawnHitEffect(const FHitResult& Hit);
 
-	/** Stops, sinks EmbedDepth past the impact and attaches to the hit bone, or else the hit component. */
-	void Embed(const FHitResult& Hit, const FVector& Direction, FName Bone);
+	/**
+	 * Stops, sinks EmbedDepth past the impact and attaches to the hit bone, or else the hit component. With a
+	 * body entry (FindBodyEntry) it goes BodyEmbedDepth into that point instead and onto EntryBone.
+	 */
+	void Embed(const FHitResult& Hit, const FVector& Direction, FName Bone, const FVector* EntryPoint = nullptr,
+		FName EntryBone = NAME_None);
 
 	/** Turns the arrow to face along its velocity. */
 	void FaceVelocity();

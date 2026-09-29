@@ -14,6 +14,9 @@
 #include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Character.h"
+#include "PhysicsEngine/PhysicsAsset.h"
+#include "PhysicsEngine/SkeletalBodySetup.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -38,6 +41,125 @@ namespace HawkeyeArrow
 	/** How far back along the flight path the bone probe starts, and how far past the impact it reaches. */
 	static constexpr float BoneProbeBack = 100.f;
 	static constexpr float BoneProbeAhead = 150.f;
+
+	/** The body walk starts this far before the capsule impact and reaches BoneProbeAhead past it, cm. */
+	static constexpr float BodyWalkBack = 30.f;
+	/** A point this close to a shape counts as inside it, cm. */
+	static constexpr float BodyContact = 0.5f;
+	/** The walk's smallest step and most steps. */
+	static constexpr float BodyMinStep = 1.f;
+	static constexpr int32 BodyMaxSteps = 128;
+}
+
+USkeletalMeshComponent* AArrowProjectile::FindBodyMesh(const AActor* Actor)
+{
+	if (const ACharacter* Character = Cast<ACharacter>(Actor))
+	{
+		if (USkeletalMeshComponent* Mesh = Character->GetMesh(); Mesh && Mesh->GetSkeletalMeshAsset())
+		{
+			return Mesh;
+		}
+	}
+	return Actor ? Actor->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
+}
+
+bool AArrowProjectile::FindBodyEntry(const USkeletalMeshComponent& Body, const FVector& Start, const FVector& Direction,
+	float Length, FVector& OutPoint, FName& OutBone, bool& bOutEntered)
+{
+	bOutEntered = false;
+	const FVector Dir = Direction.GetSafeNormal();
+	if (Dir.IsNearlyZero() || !Body.GetSkeletalMeshAsset())
+	{
+		return false;
+	}
+
+	struct FShape
+	{
+		const USkeletalBodySetup* Setup;
+		FTransform BoneToWorld;
+		FName Bone;
+	};
+	TArray<FShape, TInlineAllocator<32>> Shapes;
+	if (const UPhysicsAsset* Physics = Body.GetPhysicsAsset())
+	{
+		for (const TObjectPtr<USkeletalBodySetup>& Setup : Physics->SkeletalBodySetups)
+		{
+			const int32 BoneIndex = Setup ? Body.GetBoneIndex(Setup->BoneName) : INDEX_NONE;
+			if (BoneIndex != INDEX_NONE && Setup->AggGeom.GetElementCount() > 0)
+			{
+				Shapes.Add({ Setup.Get(), Body.GetBoneTransform(BoneIndex), Setup->BoneName });
+			}
+		}
+	}
+
+	if (Shapes.Num() > 0)
+	{
+		// Sphere tracing: step along the line by the distance to the nearest shape, which never steps over one.
+		float Along = 0.f;
+		float NearestDistance = TNumericLimits<float>::Max();
+		FVector NearestOnLine = Start;
+		int32 NearestShape = INDEX_NONE;
+		for (int32 Step = 0; Step < HawkeyeArrow::BodyMaxSteps && Along <= Length; ++Step)
+		{
+			const FVector Point = Start + Dir * Along;
+			float StepDistance = TNumericLimits<float>::Max();
+			int32 StepShape = INDEX_NONE;
+			for (int32 Index = 0; Index < Shapes.Num(); ++Index)
+			{
+				const float Distance = Shapes[Index].Setup->GetShortestDistanceToPoint(Point, Shapes[Index].BoneToWorld);
+				if (Distance >= 0.f && Distance < StepDistance)
+				{
+					StepDistance = Distance;
+					StepShape = Index;
+				}
+			}
+			if (StepShape == INDEX_NONE)
+			{
+				break;
+			}
+			if (StepDistance <= HawkeyeArrow::BodyContact)
+			{
+				OutPoint = Point;
+				OutBone = Shapes[StepShape].Bone;
+				bOutEntered = true;
+				return true;
+			}
+			if (StepDistance < NearestDistance)
+			{
+				NearestDistance = StepDistance;
+				NearestOnLine = Point;
+				NearestShape = StepShape;
+			}
+			Along += FMath::Max(StepDistance, HawkeyeArrow::BodyMinStep);
+		}
+		if (NearestShape != INDEX_NONE)
+		{
+			// Through the capsule without touching the body: into the nearest shape, where it is nearest the line.
+			FVector Closest;
+			FVector Normal;
+			Shapes[NearestShape].Setup->GetClosestPointAndNormal(NearestOnLine, Shapes[NearestShape].BoneToWorld, Closest, Normal);
+			OutPoint = Closest;
+			OutBone = Shapes[NearestShape].Bone;
+			return true;
+		}
+	}
+
+	// No physics asset: the bone nearest the line, at the line's closest approach to it.
+	const int32 BoneCount = Body.GetNumBones();
+	float Best = TNumericLimits<float>::Max();
+	for (int32 BoneIndex = 1; BoneIndex < BoneCount; ++BoneIndex)
+	{
+		const FVector BoneLocation = Body.GetBoneLocation(Body.GetBoneName(BoneIndex));
+		const FVector OnLine = FMath::ClosestPointOnSegment(BoneLocation, Start, Start + Dir * Length);
+		const float Distance = FVector::Dist(BoneLocation, OnLine);
+		if (Distance < Best)
+		{
+			Best = Distance;
+			OutPoint = OnLine;
+			OutBone = Body.GetBoneName(BoneIndex);
+		}
+	}
+	return Best < TNumericLimits<float>::Max();
 }
 
 const TCHAR* const AArrowProjectile::DefaultNockMaterialPath = TEXT("/Game/Blueprints/Weapons/M_ArrowNock.M_ArrowNock");
@@ -336,7 +458,8 @@ void AArrowProjectile::DamageVictim(const FHitResult& Hit, const FVector& Direct
 	}
 }
 
-void AArrowProjectile::Embed(const FHitResult& Hit, const FVector& Direction, FName Bone)
+void AArrowProjectile::Embed(const FHitResult& Hit, const FVector& Direction, FName Bone, const FVector* EntryPoint,
+	FName EntryBone)
 {
 	if (Movement)
 	{
@@ -348,13 +471,26 @@ void AArrowProjectile::Embed(const FHitResult& Hit, const FVector& Direction, FN
 		Collision->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
+	const AActor* HitActor = Hit.GetActor();
+	USkeletalMeshComponent* Body = FindBodyMesh(HitActor);
+	if (EntryPoint && Body && !EntryBone.IsNone() && Body->GetBoneIndex(EntryBone) != INDEX_NONE)
+	{
+		// Into the body itself, not the capsule round it: the tip a few cm under the shape it entered, along
+		// its flight, on that bone, so it moves with her and falls with his ragdoll.
+		SetActorLocationAndRotation(*EntryPoint + Direction * BodyEmbedDepth, Direction.Rotation());
+		AttachToComponent(Body, FAttachmentTransformRules::KeepWorldTransform, EntryBone);
+		StuckIn = Hit.GetActor();
+		SetLifeSpan(StuckLifeSeconds);
+		UE_LOG(LogHawkeye, Log, TEXT("%s: stuck in %s on %s, %.0f cm in from the capsule's impact."), *GetNameSafe(Arrow),
+			*GetNameSafe(HitActor), *EntryBone.ToString(), FVector::Dist(*EntryPoint, FVector(Hit.ImpactPoint)));
+		return;
+	}
+
 	const FVector Tip = (Hit.bBlockingHit ? FVector(Hit.ImpactPoint) : GetActorLocation()) + Direction * EmbedDepth;
 	SetActorLocationAndRotation(Tip, Direction.Rotation());
 
 	// Onto the bone when the flight line found one, so an arrow in a thug goes down with the
 	// ragdoll instead of staying on the capsule he leaves standing.
-	const AActor* HitActor = Hit.GetActor();
-	USkeletalMeshComponent* Body = HitActor ? HitActor->FindComponentByClass<USkeletalMeshComponent>() : nullptr;
 	if (Body && !Bone.IsNone() && Body->GetBoneIndex(Bone) != INDEX_NONE)
 	{
 		AttachToComponent(Body, FAttachmentTransformRules::KeepWorldTransform, Bone);
@@ -408,7 +544,16 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 		return;
 	}
 
-	const FName Bone = ResolveHitBone(Hit, Direction);
+	// A body: walk the flight line into the mesh's own shapes (the capsule is 34 to 42 cm round her).
+	FVector EntryPoint = FVector(Hit.ImpactPoint);
+	FName EntryBone = NAME_None;
+	bool bEntered = false;
+	const USkeletalMeshComponent* BodyMesh = Hit.GetActor() && Hit.GetActor()->IsA<APawn>() ? FindBodyMesh(Hit.GetActor()) : nullptr;
+	const bool bBody = BodyMesh
+		&& FindBodyEntry(*BodyMesh, FVector(Hit.ImpactPoint) - Direction * HawkeyeArrow::BodyWalkBack, Direction,
+			HawkeyeArrow::BodyWalkBack + HawkeyeArrow::BoneProbeAhead, EntryPoint, EntryBone, bEntered);
+	// Only a real entry decides the bone that is hurt: a line that passed beside the head is no headshot.
+	const FName Bone = bEntered ? EntryBone : ResolveHitBone(Hit, Direction);
 	PlayImpactSound(Hit);
 	if (Effect != EArrowHitEffect::Explosive)
 	{
@@ -419,7 +564,7 @@ void AArrowProjectile::HandleImpact(const FHitResult& Hit)
 	{
 		Target->HandleArrowHit(Hit.ImpactPoint, Shooter.Get());
 	}
-	Embed(Hit, Direction, Bone);
+	Embed(Hit, Direction, Bone, bBody ? &EntryPoint : nullptr, EntryBone);
 	SpawnHitEffect(Hit);
 }
 
