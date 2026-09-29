@@ -41,30 +41,35 @@ namespace HawkeyeTimeOfDay
 	static const FName EmissiveMaterialName(TEXT("M_Emissive"));
 
 	/**
-	 * The day. The sun 35 degrees up in the south-west (Unreal X is east and Y south, so it shines
-	 * toward the north-east, yaw -45), a warm white 7 lux. Exposure stays pinned at 1.0 EV100 as at
-	 * night; the bias drops from the night's +2 to -0.5 so snow in full sun sits just under white, and the
-	 * sky light at 6 (twice the night's) fills the streets the low sun leaves in shade. Tuned on day_street.png.
+	 * The day: a clear winter afternoon. The sun 30 degrees up in the south-west (Unreal X is east and Y
+	 * south, so it shines toward the north-east, yaw -45), 16 lux of warm white with a little gold. Exposure
+	 * stays pinned at 1.0 EV100 as at night; the bias drops from the night's +2 to -0.3, bright enough that
+	 * snow reads white and not so bright that sunlit snow clips (none did in day_street.png or day_park.png).
+	 * The sky light at 8 (the night's is 3), tinted warm against the blue sky it captures, fills the streets
+	 * the low sun leaves in shade: blue there, not black. Thin warm fog. Picked from three rounds of variants
+	 * at the same cameras (2026-09-29); the first day (7 lux, sky 6 cool, bias -0.5) read blue and dim.
 	 */
 	static FTimeOfDayPreset MakeDay()
 	{
 		FTimeOfDayPreset Day;
-		Day.SunRotation = FRotator(-35.f, -45.f, 0.f);
-		Day.SunLux = 7.f;
-		Day.SunColor = FLinearColor(1.f, 0.95f, 0.88f);
+		Day.SunRotation = FRotator(-30.f, -45.f, 0.f);
+		Day.SunLux = 16.f;
+		Day.SunColor = FLinearColor(1.f, 0.86f, 0.68f);
 		Day.SunDiskColorScale = FLinearColor::White;
-		Day.SkyLightIntensity = 6.f;
-		Day.SkyLightColor = FLinearColor(0.95f, 0.97f, 1.f);
-		Day.FogDensity = 0.002f;
-		Day.FogInscattering = FLinearColor(0.10f, 0.13f, 0.17f);
+		Day.SkyLightIntensity = 8.f;
+		Day.SkyLightColor = FLinearColor(1.f, 0.90f, 0.80f);
+		Day.FogDensity = 0.0015f;
+		Day.FogInscattering = FLinearColor(0.18f, 0.16f, 0.13f);
 		Day.FogStartDistance = 3000.f;
-		Day.ExposureBias = -0.5f;
+		Day.ExposureBias = -0.3f;
 		Day.GainShadows = FVector4(1.f, 1.f, 1.f, 1.f);
 		Day.GainHighlights = FVector4(1.f, 1.f, 1.f, 1.f);
 		Day.Vignette = 0.2f;
 		Day.bStars = false;
 		Day.LampScale = 0.f;
 		Day.WindowGlowScale = 0.25f;
+		// 2.3 EV under the night makes every emissive about 5x dimmer; 3x brings the glows back to reading
+		// (the windows end at 0.25 x 3 of the night's, a faint warm light behind the glass).
 		Day.GlowScale = 3.f;
 		Day.StreetBedScale = 0.6f;
 		return Day;
