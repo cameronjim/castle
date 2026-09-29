@@ -7,6 +7,7 @@
 #include "Components/SplineComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/LocalPlayer.h"
+#include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "EnhancedInputSubsystems.h"
@@ -37,8 +38,8 @@
 namespace HawkeyeHangDistrict
 {
 	static const TCHAR* MoveActionPath = TEXT("/Game/Input/IA_Move.IA_Move");
-	/** Hang this far from the corner to start with, cm. */
-	static constexpr float StartBack = 200.f;
+	/** Hang this far from the corner to start with, cm (the pier stops her about 60 cm short of it). */
+	static constexpr float StartBack = 300.f;
 
 	static UWorld* FindWorld()
 	{
@@ -103,6 +104,23 @@ namespace HawkeyeHangDistrict
 		return false;
 	}
 
+	/** What stops a hang capsule at Centre, by class and component, for the report. */
+	static FString Blocker(UWorld* World, const AActor* Ignore, const FVector& Centre)
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(HangDistrictBlocker), false, Ignore);
+		TArray<FOverlapResult> Overlaps;
+		World->OverlapMultiByChannel(Overlaps, Centre, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeCapsule(34.f, 88.f), Params);
+		for (const FOverlapResult& Overlap : Overlaps)
+		{
+			if (Overlap.bBlockingHit)
+			{
+				return FString::Printf(TEXT("%s.%s"), Overlap.GetActor() ? *Overlap.GetActor()->GetClass()->GetName() : TEXT("?"),
+					*GetNameSafe(Overlap.GetComponent()));
+			}
+		}
+		return TEXT("nothing");
+	}
+
 	static bool CapsuleFree(UWorld* World, const AActor* Ignore, const FVector& Centre)
 	{
 		FCollisionQueryParams Params(SCENE_QUERY_STAT(HangDistrictFit), false, Ignore);
@@ -111,8 +129,8 @@ namespace HawkeyeHangDistrict
 	}
 
 	/**
-	 * The outside roof corner nearest Near where both faces are open: a hang fits on A from 250 cm out to the corner
-	 * and on B 25 cm round it, half way round the corner too, with air out in front for the camera and the street a
+	 * The outside roof corner nearest Near where both faces are open: a hang fits on A from 250 cm out to 70 cm from
+	 * the corner and on B 70 cm round it, half way round the corner too, with air out in front for the camera and the street a
 	 * floor or more below.
 	 */
 	static FCorner FindCorner(UWorld* World, const AHawkeyeCharacter* Kate, const FVector& Near, FString& OutReport)
@@ -139,6 +157,11 @@ namespace HawkeyeHangDistrict
 			Grid.Add(Cell(Edges[Index].B), Index);
 		}
 		int32 Candidates = 0;
+		// Why the others were passed over, for the report: [hang on A far, near, on B, the diagonal, the air start, camera, ground].
+		int32 Refused[7] = { 0, 0, 0, 0, 0, 0, 0 };
+		int32 Inward = 0;
+		TArray<FString> Open;
+		TMap<FString, int32> NearBlockers;
 		float BestDistance = TNumericLimits<float>::Max();
 		const float Half = 88.f;
 		for (int32 I = 0; I < Edges.Num(); ++I)
@@ -150,7 +173,7 @@ namespace HawkeyeHangDistrict
 				const FVector Other = End == 0 ? EdgeA.B : EdgeA.A;
 				const FVector Toward = (Corner - Other).GetSafeNormal2D();
 				const float LengthA = FVector::Dist2D(Corner, Other);
-				if (LengthA < 300.f)
+				if (LengthA < StartBack + 100.f)
 				{
 					continue;
 				}
@@ -184,18 +207,72 @@ namespace HawkeyeHangDistrict
 								continue;
 							}
 							++Candidates;
+							// The spline's up vector should point out of the facade: a trace back along it meets the wall.
+							{
+								FCollisionQueryParams Probe(SCENE_QUERY_STAT(HangDistrictFace), false, Kate);
+								FHitResult Wall;
+								const FVector Out = Corner - Toward * 100.f + EdgeA.Normal * 60.f - FVector(0.f, 0.f, 40.f);
+								if (!World->LineTraceSingleByChannel(Wall, Out, Out - EdgeA.Normal * 80.f, ECC_Visibility, Probe))
+								{
+									++Inward;
+								}
+							}
 							const float Z = Corner.Z + Half - 145.f;
-							const FVector HangA0 = Corner - Toward * 250.f + EdgeA.Normal * 38.f;
-							const FVector HangA1 = Corner - Toward * 30.f + EdgeA.Normal * 38.f;
-							const FVector HangB = Corner - TowardB * 30.f + EdgeB.Normal * 38.f;
-							const FVector Diagonal = Corner + (EdgeA.Normal + EdgeB.Normal).GetSafeNormal2D() * 50.f;
+							const FVector HangA0 = Corner - Toward * (StartBack + 50.f) + EdgeA.Normal * 38.f;
+							// Clear of the parapet's piers (its last 30 cm stands 15 cm proud of the facade at every corner).
+							const FVector HangA1 = Corner - Toward * 70.f + EdgeA.Normal * 38.f;
+							const FVector HangB = Corner - TowardB * 70.f + EdgeB.Normal * 38.f;
+							// The swing round the corner, as the hang's turn makes it: about the corner through the open side,
+							// from where the piers stop her on A to where she hangs on B.
+							const FVector Out = (EdgeA.Normal + EdgeB.Normal).GetSafeNormal2D();
+							auto Swing = [&](float Alpha)
+							{
+								const FVector2D From = FVector2D(HangA1 - Corner);
+								const FVector2D To = FVector2D(HangB - Corner);
+								const float FromAngle = FMath::Atan2(From.Y, From.X);
+								float Delta = FMath::Atan2(To.Y, To.X) - FromAngle;
+								Delta = FMath::UnwindRadians(Delta);
+								// The way through the open side: the middle of the swing must point out of the corner.
+								const float Middle = FromAngle + Delta * 0.5f;
+								if (FMath::Cos(Middle) * Out.X + FMath::Sin(Middle) * Out.Y < 0.f)
+								{
+									Delta += Delta > 0.f ? -2.f * PI : 2.f * PI;
+								}
+								const float Radius = FMath::Lerp(static_cast<float>(From.Size()), static_cast<float>(To.Size()), Alpha);
+								const float Angle = FromAngle + Delta * Alpha;
+								return FVector(Corner.X + Radius * FMath::Cos(Angle), Corner.Y + Radius * FMath::Sin(Angle), 0.f);
+							};
+							const FVector Diagonal = Swing(0.5f);
 							const FVector Air = Corner - Toward * StartBack + EdgeA.Normal * 45.f;
 							bool bFree = true;
+							int32 Which = 0;
 							for (const FVector& Point : { HangA0, HangA1, HangB, Diagonal })
 							{
-								bFree &= CapsuleFree(World, Kate, FVector(Point.X, Point.Y, Z));
+								if (bFree && !CapsuleFree(World, Kate, FVector(Point.X, Point.Y, Z)))
+								{
+									bFree = false;
+									++Refused[Which];
+									if (Which == 1)
+									{
+										NearBlockers.FindOrAdd(Blocker(World, Kate, FVector(Point.X, Point.Y, Z)))++;
+									}
+								}
+								++Which;
 							}
-							bFree &= CapsuleFree(World, Kate, FVector(Air.X, Air.Y, Corner.Z - 200.f + Half + 2.f));
+							for (const float Alpha : { 0.25f, 0.75f })
+							{
+								const FVector Point = Swing(Alpha);
+								if (bFree && !CapsuleFree(World, Kate, FVector(Point.X, Point.Y, Z)))
+								{
+									bFree = false;
+									++Refused[3];
+								}
+							}
+							if (bFree && !CapsuleFree(World, Kate, FVector(Air.X, Air.Y, Corner.Z - 200.f + Half + 2.f)))
+							{
+								bFree = false;
+								++Refused[4];
+							}
 							if (!bFree)
 							{
 								continue;
@@ -204,18 +281,26 @@ namespace HawkeyeHangDistrict
 							FCollisionQueryParams Params(SCENE_QUERY_STAT(HangDistrictAir), false, Kate);
 							FHitResult Hit;
 							const FVector Eye(HangA0.X, HangA0.Y, Z + 60.f);
-							if (World->LineTraceSingleByChannel(Hit, Eye, Eye + EdgeA.Normal * 450.f, ECC_Camera, Params))
+							const FVector EyeB(HangB.X, HangB.Y, Z + 60.f);
+							if (World->LineTraceSingleByChannel(Hit, Eye, Eye + EdgeA.Normal * 300.f, ECC_Camera, Params)
+								|| World->LineTraceSingleByChannel(Hit, EyeB, EyeB + EdgeB.Normal * 300.f, ECC_Camera, Params))
 							{
+								++Refused[5];
 								continue;
 							}
 							const FVector Mid = Corner - Toward * StartBack + EdgeA.Normal * 60.f;
 							if (!World->LineTraceSingleByChannel(Hit, FVector(Mid.X, Mid.Y, Z), FVector(Mid.X, Mid.Y, Z - 5000.f),
 									ECC_Visibility, Params)
-								|| Corner.Z - Hit.ImpactPoint.Z < 800.f)
+								|| Corner.Z - Hit.ImpactPoint.Z < 350.f)
 							{
+								++Refused[6];
 								continue;
 							}
-							const float Distance = FVector::Dist2D(Corner, Near);
+							// A tenement's (8 m or more) before a lower building's, then the nearest.
+							const float Height = Corner.Z - Hit.ImpactPoint.Z;
+							const float Distance = FVector::Dist2D(Corner, Near) + (Height >= 800.f ? 0.f : 1000000.f);
+							Open.Add(FString::Printf(TEXT("%s/%s %.0f m up, %.0f m off"), *EdgeA.Actor->GetActorNameOrLabel(),
+								*EdgeB.Actor->GetActorNameOrLabel(), Height / 100.f, FVector::Dist2D(Corner, Near) / 100.f));
 							if (Distance < BestDistance)
 							{
 								BestDistance = Distance;
@@ -236,9 +321,18 @@ namespace HawkeyeHangDistrict
 				}
 			}
 		}
-		OutReport = FString::Printf(TEXT("%d ledges, %d outside corners between two of them; %s"), Edges.Num(), Candidates,
+		NearBlockers.ValueSort([](int32 A, int32 B) { return A > B; });
+		FString Blockers;
+		for (const TPair<FString, int32>& Pair : NearBlockers)
+		{
+			Blockers += FString::Printf(TEXT("%s%s x%d"), Blockers.IsEmpty() ? TEXT("") : TEXT(", "), *Pair.Key, Pair.Value);
+		}
+		OutReport = TEXT("near-corner blockers: ") + Blockers + TEXT("; ");
+		OutReport += FString::Printf(TEXT("%d ledges, %d outside corners between two of them (%d with the spline's up vector not out of a wall; passed over: %d no room on A 350 cm out, %d near the corner, %d on B, %d half way round, %d for the drop onto A, %d no camera room, %d under 3.5 m); %d open (%s); %s"),
+			Edges.Num(), Candidates, Inward, Refused[0], Refused[1], Refused[2], Refused[3], Refused[4], Refused[5], Refused[6], Open.Num(),
+			*FString::Join(TArray<FString>(Open.GetData(), FMath::Min(Open.Num(), 6)), TEXT("; ")),
 			Best.bFound ? *FString::Printf(TEXT("the nearest open one at %s (%.0f m off), %s (%.0f cm) meets %s (%.0f cm), top %.0f cm above the street"),
-				*Best.Corner.ToCompactString(), BestDistance / 100.f, *Best.LedgeA, Best.LengthA, *Best.LedgeB, Best.LengthB,
+				*Best.Corner.ToCompactString(), FVector::Dist2D(Best.Corner, Near) / 100.f, *Best.LedgeA, Best.LengthA, *Best.LedgeB, Best.LengthB,
 				Best.TopZ - Best.Ground) : TEXT("none open"));
 		return Best;
 	}
@@ -298,10 +392,12 @@ namespace HawkeyeHangDistrict
 		float MaxLength = 0.f;
 		float MaxJump = 0.f;
 		float Last = -1.f;
+		/** The first few jumps over 30 cm, with what she was doing. */
+		TArray<FString> Jumps;
 
 		void Reset() { *this = FArmWatch(); }
 
-		void Sample(const AHawkeyeCharacter* Kate)
+		void Sample(const AHawkeyeCharacter* Kate, const TCHAR* Moment = TEXT(""))
 		{
 			const USpringArmComponent* Boom = Kate ? Kate->GetCameraBoom() : nullptr;
 			const UCameraComponent* Lens = Kate ? Kate->GetFollowCamera() : nullptr;
@@ -313,6 +409,14 @@ namespace HawkeyeHangDistrict
 			if (Last >= 0.f)
 			{
 				MaxJump = FMath::Max(MaxJump, FMath::Abs(Length - Last));
+				if (FMath::Abs(Length - Last) > 30.f && Jumps.Num() < 4)
+				{
+					const APlayerController* PC = Cast<APlayerController>(Kate->GetController());
+					Jumps.Add(FString::Printf(TEXT("frame %d (%s): %.0f to %.0f cm, %s, control yaw %.0f, pitch %.0f, arm target %.0f, collision %d"),
+						Frames, Moment, Last, Length, *UEnum::GetValueAsString(Kate->GetParkourComponent()->GetActiveMove()),
+						PC ? PC->GetControlRotation().Yaw : 0.f, PC ? FRotator::NormalizeAxis(PC->GetControlRotation().Pitch) : 0.f,
+						Boom->TargetArmLength, Boom->IsCollisionFixApplied() ? 1 : 0));
+				}
 			}
 			Last = Length;
 			MinLength = FMath::Min(MinLength, Length);
@@ -323,8 +427,8 @@ namespace HawkeyeHangDistrict
 
 		FString Describe() const
 		{
-			return FString::Printf(TEXT("%d frames: the lens %.0f to %.0f cm from the pivot, the largest jump between frames %.1f cm, the arm pulled in by collision on %d"),
-				Frames, MinLength, MaxLength, MaxJump, CollisionFrames);
+			return FString::Printf(TEXT("%d frames: the lens %.0f to %.0f cm from the pivot, the largest jump between frames %.1f cm, the arm pulled in by collision on %d%s%s"),
+				Frames, MinLength, MaxLength, MaxJump, CollisionFrames, Jumps.Num() ? TEXT("; jumps: ") : TEXT(""), *FString::Join(Jumps, TEXT("; ")));
 		}
 	};
 	static FArmWatch Arm;
@@ -393,10 +497,21 @@ public:
 		{
 			FCollisionQueryParams Params(SCENE_QUERY_STAT(HangDistrictClip), false, Kate);
 			const UCapsuleComponent* Capsule = Kate->GetCapsuleComponent();
-			if (World->OverlapBlockingTestByChannel(Kate->GetActorLocation(), FQuat::Identity, ECC_Pawn,
-					FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius() - 4.f, Capsule->GetScaledCapsuleHalfHeight() - 4.f), Params))
+			TArray<FOverlapResult> Overlaps;
+			World->OverlapMultiByChannel(Overlaps, Kate->GetActorLocation(), FQuat::Identity, ECC_Pawn,
+				FCollisionShape::MakeCapsule(Capsule->GetScaledCapsuleRadius() - 4.f, Capsule->GetScaledCapsuleHalfHeight() - 4.f), Params);
+			for (const FOverlapResult& Overlap : Overlaps)
 			{
-				++ClippingFrames;
+				if (!Overlap.bBlockingHit)
+				{
+					continue;
+				}
+				if (++ClippingFrames <= 3)
+				{
+					Test->AddInfo(FString::Printf(TEXT("Capsule in %s.%s at %s (phase %d, %s)"), *GetNameSafe(Overlap.GetActor()),
+						*GetNameSafe(Overlap.GetComponent()), *Kate->GetActorLocation().ToCompactString(), Phase, *DescribeHang(Kate)));
+				}
+				break;
 			}
 		}
 		switch (Phase)
@@ -432,8 +547,9 @@ public:
 				Test->AddInfo(FString::Printf(TEXT("Hanging on %s: line %s (%d data segments), %.0f to %.0f cm, at %.0f"), *Found.LedgeA,
 					*Line.Source, Line.DataSegments, Line.MinAlong, Line.MaxAlong, Parkour->GetHangAlong()));
 				Test->TestTrue(TEXT("The hang's line comes from the ledge data"), Line.DataSegments >= 1 && Line.Source.Contains(TEXT("Ledge_")));
+				// Its parapet box runs 15 cm on past the corner (the pier), and the line with it.
 				Test->TestTrue(TEXT("It runs to the corner"),
-					FVector::Dist2D(Line.PointAt(CornerSide(Found) > 0.f ? Line.MaxAlong : Line.MinAlong), Found.Corner) < 10.f);
+					FVector::Dist2D(Line.PointAt(CornerSide(Found) > 0.f ? Line.MaxAlong : Line.MinAlong), Found.Corner) < 20.f);
 				StartAlong = Parkour->GetHangAlong();
 				Next(2);
 			}
@@ -444,13 +560,18 @@ public:
 			}
 			return false;
 		case 2:
-			// Toward the corner: 175 cm of shimmy at 120 cm/s, then the turn.
+			// Toward the corner, then the turn. The speed is timed from her first move (the stick reaches her a frame on).
 			Parkour->SetHangInput(Found.TowardCorner);
-			if (!bSpeedTaken && InPhase >= 1.0)
+			if (MoveStart < 0.0 && FMath::Abs(Parkour->GetHangAlong() - StartAlong) > 0.5f)
+			{
+				MoveStart = Now;
+				StartAlong = Parkour->GetHangAlong();
+			}
+			if (!bSpeedTaken && MoveStart >= 0.0 && Now - MoveStart >= 0.8)
 			{
 				bSpeedTaken = true;
-				const float Speed = FMath::Abs(Parkour->GetHangAlong() - StartAlong) / static_cast<float>(InPhase);
-				Test->AddInfo(FString::Printf(TEXT("Shimmy speed over the first second: %.0f cm/s"), Speed));
+				const float Speed = FMath::Abs(Parkour->GetHangAlong() - StartAlong) / static_cast<float>(Now - MoveStart);
+				Test->AddInfo(FString::Printf(TEXT("Shimmy speed over 0.8 s: %.0f cm/s"), Speed));
 				Test->TestEqual(TEXT("The shimmy runs at about 120 cm/s"), Speed, 120.f, 12.f);
 			}
 			if (Parkour->GetActiveMove() == EHawkeyeParkourMove::HangCorner)
@@ -521,6 +642,7 @@ private:
 	int32 Phase = 0;
 	double PhaseStart = -1.0;
 	float StartAlong = 0.f;
+	double MoveStart = -1.0;
 	bool bSpeedTaken = false;
 	int32 ClippingFrames = 0;
 };
@@ -618,12 +740,20 @@ void HawkeyeAddHangShots(FAutomationTestBase* Test)
 		{
 			return true;
 		}
-		Arm.Sample(Kate);
+		Arm.Sample(Kate, TEXT("shimmy"));
 		if (Clock() - Mark < 0.9)
 		{
 			return false;
 		}
-		Test->AddInfo(TEXT("hang_shimmy.png: ") + DescribeHang(Kate));
+		// Then the moment the hands are well apart from their even spacing (one planted behind, one reaching).
+		// (The hands step in turn, so their spread swings wider and narrower than the pose's 43 cm: the shot waits
+		// for the wide moment, the leading hand reaching out along the edge.)
+		const FVector2D Hands = Kate->GetParkourComponent()->GetHangHandOffsets();
+		if ((Hands.Y - Hands.X) - 43.f < 12.f && Clock() - Mark < 1.6)
+		{
+			return false;
+		}
+		Test->AddInfo(FString::Printf(TEXT("hang_shimmy.png: %.2f s into the shimmy: %s"), Clock() - Mark, *DescribeHang(Kate)));
 		if (!Kate->GetParkourComponent()->IsShimmying())
 		{
 			Test->AddWarning(TEXT("hang_shimmy.png: Kate is not shimmying."));
@@ -641,7 +771,7 @@ void HawkeyeAddHangShots(FAutomationTestBase* Test)
 		{
 			return true;
 		}
-		Arm.Sample(Kate);
+		Arm.Sample(Kate, TEXT("to the corner"));
 		if (Kate->GetParkourComponent()->GetActiveMove() == EHawkeyeParkourMove::HangCorner)
 		{
 			Mark = Clock();
@@ -664,7 +794,7 @@ void HawkeyeAddHangShots(FAutomationTestBase* Test)
 		{
 			return true;
 		}
-		Arm.Sample(Kate);
+		Arm.Sample(Kate, TEXT("the turn"));
 		if (Clock() - Mark < 0.18)
 		{
 			return false;
@@ -683,7 +813,7 @@ void HawkeyeAddHangShots(FAutomationTestBase* Test)
 		{
 			return true;
 		}
-		Arm.Sample(Kate);
+		Arm.Sample(Kate, TEXT("after the turn"));
 		if (Clock() - Mark < 0.8)
 		{
 			return false;
