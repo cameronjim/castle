@@ -68,19 +68,29 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   40 cm (the sprint trigger still starts at 60) up to 260 cm, choosing vault, mantle, climb-over or
   ledge grab by height and depth exactly as above; an angled press turns her to the wall before
   the move (and before the sample's traversal, so it finds the same wall). Standing still against
-  a wall, the press mantles or grabs it when the height fits. When nothing fits and a plain jump
+  a wall, the press vaults, mantles or grabs it when the height fits, at any speed and at any angle
+  in the fan (revised 2026-09-29 after "if you try to jump moving forward with no momentum, it still
+  takes a hundred tries to hurdle over"). A vault lands 25 cm past the back edge or, when the capsule
+  does not fit there (the neighbour's lower parapet right behind a party wall), up to 75 cm further
+  out, and never on something level with the top; heights are compared 3 cm short of their limits
+  because a walking capsule floats that far over the floor. The sample refusing (no montage at a
+  standstill) hands the same move to our own vault or mantle. When nothing fits and a plain jump
   starts, the late catch re-probes every tick while airborne, rising or falling, for 0.8 s, 100 cm
   ahead, probing from 5 cm above the feet: a top up to 200 cm above the feet with room to stand is
   mantled (one less than 40 cm above them only when it is 40 cm above where she took off, so a
-  running jump at a waist-high wall pops onto it instead of sliding down its face) (a thin one vaulted only
+  running jump at a waist-high wall pops onto it instead of sliding down its face; a second press in
+  the air keeps the take-off where she left the ground) (a thin one vaulted only
   within the sprint trigger's 150 cm drop), a ledge 150 cm or more above the feet is grabbed (up to
   260 while rising, 330 while falling; a rising grab takes the 0.35 s jump-to-hang, a falling one the
-  0.15 s catch). Landing, a hang, a move, a zip or a slide ends the window. A press during a move
+  0.15 s catch). Landing, a hang, a move, a zip or a slide ends the window. A press in the air probes
+  the late catch's way, 180 cm ahead. A press during a move
   is held 0.3 s and fires when the move ends (a press into a hang climbs), so mashing chains
   obstacles. Never a mantle onto a top the capsule does not fit on. Every press that does not
   become a move logs why at Log (`jump: no parkour move: too tall (280 cm, up to 260) at +0
-  degrees, 66 cm away`, `no obstacle in the 35 degree fan within 180 cm`, `no room to stand`), and
-  a late catch that found nothing says so when its window closes.
+  degrees, 66 cm away, on <actor>`, `no obstacle in the 35 degree fan within 180 cm`, `no room to
+  stand on the 88 cm top and no vault over it (no floor within 800 cm below the feet beyond it: a roof
+  edge)`), and a late catch that found nothing says so when its window closes. A roof-edge parapet
+  and a parapet backed by a taller neighbour are refused on purpose.
 - Traversable ledges: the sample detects `LevelBlock_Traversable` actors on the
   `GameTraceChannel1` sweep (our Weapon channel) with four `Ledge_1..4` splines whose up
   vector is the ledge's outward normal. The generator places `BP_TraversableBlock`
