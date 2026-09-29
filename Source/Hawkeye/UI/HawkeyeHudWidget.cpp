@@ -1058,6 +1058,13 @@ FText UHawkeyeHudWidget::FormatPartnerStatus(FText PartnerName, FText Status)
 	return FText::Format(NSLOCTEXT("Hawkeye", "PartnerStatusFormat", "{0}: {1}"), PartnerName, Status);
 }
 
+FText UHawkeyeHudWidget::FormatPartnerMarkHint(bool bGamepad)
+{
+	// IA_PartnerMark: T on keys, R3 (the right stick pressed) on a pad.
+	return bGamepad ? NSLOCTEXT("Hawkeye", "PartnerMarkHintPad", "[R3] send")
+		: NSLOCTEXT("Hawkeye", "PartnerMarkHintKeys", "[T] send");
+}
+
 void UHawkeyeHudWidget::ShowSubtitle(FText Speaker, FText Line, float Seconds)
 {
 	SubtitleShown = FText::Format(NSLOCTEXT("Hawkeye", "SubtitleFormat", "{0}: {1}"), Speaker, Line);
@@ -1120,7 +1127,12 @@ void UHawkeyeHudWidget::UpdatePartnerWidgets(float DeltaSeconds)
 		}
 	}
 	const AHawkeyeCharacter* Partner = PartnerBrain ? PartnerBrain->GetPartner() : nullptr;
-	SetPartnerStatus(Partner ? FormatPartnerStatus(Partner->GetCharacterName(), PartnerBrain->GetStatusText()) : FText::GetEmpty());
+	const AHawkeyePlayerController* HawkeyePC = Cast<AHawkeyePlayerController>(PC);
+	SetPartnerStatus(Partner
+		? FText::Format(NSLOCTEXT("Hawkeye", "PartnerStatusWithHint", "{0}   {1}"),
+			FormatPartnerStatus(Partner->GetCharacterName(), PartnerBrain->GetStatusText()),
+			FormatPartnerMarkHint(HawkeyePC && HawkeyePC->IsUsingGamepad()))
+		: FText::GetEmpty());
 
 	FVector2D TagPosition = FVector2D::ZeroVector;
 	const float Distance = (Partner && Lead) ? FVector::Dist(Partner->GetActorLocation(), Lead->GetActorLocation()) : 0.f;

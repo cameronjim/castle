@@ -60,6 +60,7 @@ GAMEPAD_MAPPINGS = [
     ("IA_SlotScroll", "Gamepad_DPad_Left"),
     ("IA_SlotScroll", "Gamepad_DPad_Right"),
     ("IA_SwitchCharacter", "Gamepad_LeftShoulder"),
+    ("IA_PartnerMark", "Gamepad_RightThumbstick"),
 ]
 
 # Pause is bound on the controller so it survives the pawn being locked out or dead.

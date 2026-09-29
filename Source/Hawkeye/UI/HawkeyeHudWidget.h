@@ -233,6 +233,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
 	static FText FormatPartnerStatus(FText PartnerName, FText Status);
 
+	/** The mark's key at the end of the partner line: "[T] send", or "[R3] send" when the last input was a pad. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Partner")
+	static FText FormatPartnerMarkHint(bool bGamepad);
+
 	/** A banter line, bottom centre, "Kate: ..." for Seconds. */
 	UFUNCTION(BlueprintCallable, Category = "HUD|Partner")
 	void ShowSubtitle(FText Speaker, FText Line, float Seconds);

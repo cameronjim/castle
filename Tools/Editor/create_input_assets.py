@@ -9,7 +9,7 @@
     IA_Grapple                      (Digital / bool, Q: the grapple arrow)
     IA_Melee                        (Digital / bool, V: bow strike, tap light / hold heavy)
     IA_SwitchCharacter              (Digital / bool, X / LB: swap between Kate and Clint)
-    IA_PartnerMark                  (Digital / bool, T: send the partner to the point under the view)
+    IA_PartnerMark                  (Digital / bool, T / R3: send the partner to the point under the view)
     IA_Phone                        (Digital / bool, P: the phone)
     IA_Map                          (Digital / bool, M: the world map)
     IA_SlotScroll                   (Axis1D, the mouse wheel and the D-pad left/right)
@@ -154,8 +154,10 @@ MAPPINGS = [
     # (standard) or slot 2 (grapple) on release, so starting a hold never also changes the arrow.
     ("IA_SlotScroll", "Gamepad_DPad_Left", [NEGATE_X]),
     ("IA_SlotScroll", "Gamepad_DPad_Right", []),
-    # LB swaps Kate and Clint. The mark has no pad button yet: the D-pad belongs to the quiver.
+    # LB swaps Kate and Clint. R3 (press the right stick) sends him to the point under the reticle: the
+    # D-pad belongs to the quiver and the phone, and nothing else presses the look stick.
     ("IA_SwitchCharacter", "Gamepad_LeftShoulder", []),
+    ("IA_PartnerMark", "Gamepad_RightThumbstick", []),          # R3
 ]
 
 
