@@ -1,19 +1,22 @@
 # Runs Hawkeye automation tests headless and exits non-zero on any failure.
 # Usage: .\Tools\run-tests.ps1 [-Filter Hawkeye.Health] [-Engine "C:\Program Files\Epic Games\UE_5.8"]
+#        [-LogFile <path>] [-Report <dir>]   (so two runs on this machine don't write over each other's)
 param(
     [string]$Filter = "Hawkeye",
-    [string]$Engine = "C:\Program Files\Epic Games\UE_5.8"
+    [string]$Engine = "C:\Program Files\Epic Games\UE_5.8",
+    [string]$LogFile = "",
+    [string]$Report = ""
 )
 
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Proj = Join-Path $Root "Hawkeye.uproject"
-$Report = Join-Path $Root "Saved\Automation"
+if (-not $Report) { $Report = Join-Path $Root "Saved\Automation" }
 $Cmd = Join-Path $Engine "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 
 if (-not (Test-Path $Cmd)) { Write-Error "UnrealEditor-Cmd.exe not found at $Cmd"; exit 2 }
 if (Test-Path $Report) { Remove-Item -Recurse -Force $Report }
 
-$LogFile = Join-Path $Root "Saved\Logs\HawkeyeTests.log"
+if (-not $LogFile) { $LogFile = Join-Path $Root "Saved\Logs\HawkeyeTests.log" }
 & $Cmd $Proj -ExecCmds="Automation RunTests $Filter; Quit" -unattended -nullrhi -nosplash -nop4 -stdout -FullStdOutLogOutput -NoLogTimes -ReportExportPath="$Report" -abslog="$LogFile" | Out-Null
 
 if (-not (Test-Path $LogFile)) { Write-Error "No log produced at $LogFile"; exit 2 }
