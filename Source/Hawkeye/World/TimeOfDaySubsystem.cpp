@@ -71,7 +71,7 @@ namespace HawkeyeTimeOfDay
 		// 2.3 EV under the night makes every emissive about 5x dimmer; 3x brings the glows back to reading
 		// (the windows end at 0.25 x 3 of the night's, a faint warm light behind the glass).
 		Day.GlowScale = 3.f;
-		Day.StreetBedScale = 0.6f;
+		Day.DayBedWeight = 1.f;
 		return Day;
 	}
 

@@ -108,11 +108,12 @@ struct HAWKEYE_API FTimeOfDayPreset
 	float GlowScale = 1.f;
 
 	/**
-	 * City_Ambience's street bed (MS_Amb_Street: the mains drone, a traffic rumble, far horns), times this.
-	 * There is one bed for both states, so the day just turns the night's hum down.
+	 * How much of City_Ambience's street level goes to the day bed (MS_Amb_StreetDay) rather than the night's
+	 * (MS_Amb_Street: the mains drone, a traffic rumble, far horns): 0 at night, 1 by day. The beds crossfade
+	 * over HawkeyeAudioMath::BedCrossfadeSeconds when it changes.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TimeOfDay")
-	float StreetBedScale = 1.f;
+	float DayBedWeight = 0.f;
 };
 
 /**
