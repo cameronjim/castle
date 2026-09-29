@@ -8,6 +8,7 @@
 #include "Misc/AutomationTest.h"
 #include "Mission/MissionSubsystem.h"
 #include "Tests/HawkeyeTestUtils.h"
+#include "UI/HawkeyeInventoryWidget.h"
 #include "UI/HawkeyeMapMath.h"
 #include "UI/HawkeyeMapWidget.h"
 #include "World/CityMapData.h"
@@ -287,6 +288,7 @@ bool FHawkeyeWorldMapOpens::RunTest(const FString& Parameters)
 	{
 		return false;
 	}
+	PC->InventoryWidgetClass = UHawkeyeInventoryWidget::StaticClass();
 	PC->ToggleMap();
 	TestTrue(TEXT("M opens the map"), PC->IsMapOpen());
 	TestTrue(TEXT("and pauses the game under it"), PC->IsPaused());
