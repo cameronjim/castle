@@ -5,10 +5,12 @@
 #include "CoreMinimal.h"
 #include "Settings/HawkeyeSettings.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "UObject/ObjectKey.h"
 #include "TimeOfDaySubsystem.generated.h"
 
 class AActor;
 class APostProcessVolume;
+class UAudioComponent;
 class UDirectionalLightComponent;
 class UExponentialHeightFogComponent;
 class ULightComponent;
@@ -91,9 +93,26 @@ struct HAWKEYE_API FTimeOfDayPreset
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TimeOfDay")
 	float LampScale = 1.f;
 
-	/** The facades' lit windows (M_Facade's WindowGlow), times this. */
+	/** The facades' lit windows (M_Facade's WindowGlow), times this, and times GlowScale on top. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TimeOfDay")
 	float WindowGlowScale = 1.f;
+
+	/**
+	 * Every glow the player reads the city by, times this: the level's M_Emissive materials (objective
+	 * beacons, safehouse doors, the chapter-end arrow), the lit windows, and every glow a class sets through
+	 * UTimeOfDaySubsystem::SetGlow (challenge pedestals, target faces, checkpoint rings). The exposure is
+	 * pinned, so a lower exposure bias dims emissives exactly as much as it dims the lights; this is what
+	 * keeps them reading.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TimeOfDay")
+	float GlowScale = 1.f;
+
+	/**
+	 * City_Ambience's street bed (MS_Amb_Street: the mains drone, a traffic rumble, far horns), times this.
+	 * There is one bed for both states, so the day just turns the night's hum down.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "TimeOfDay")
+	float StreetBedScale = 1.f;
 };
 
 /**
@@ -108,6 +127,11 @@ struct HAWKEYE_API FTimeOfDayPreset
  * flashback's playable scene) is left alone at begin play; only Apply called directly lights those.
  *
  * Before the first change it records what the level had, so going back to Night restores it exactly.
+ *
+ * Lamps and the EMP (UArrowEffectsSubsystem) share the lamps without fighting: the time of day owns each
+ * lamp's light intensity, head glow and buzz; the EMP owns its lights' visibility. A lamp the EMP has dark
+ * keeps its head unlit and its buzz silent whatever the time of day asks, and when the outage ends the EMP
+ * hands the lamp back through RefreshLamp, which lights it for the time of day then in force.
  */
 UCLASS()
 class HAWKEYE_API UTimeOfDaySubsystem : public UWorldSubsystem
@@ -135,10 +159,42 @@ public:
 	UFUNCTION(BlueprintPure, Category = "TimeOfDay")
 	EHawkeyeTimeOfDay GetApplied() const { return Applied; }
 
-	/** How many lamp lights, lamp heads and facade materials the last Apply changed (tests, the log). */
-	int32 GetLampLightCount() const { return LampLights.Num(); }
-	int32 GetLampGlowCount() const { return LampGlows.Num(); }
+	/** The row Apply last put in place (Night's before the first call). */
+	const FTimeOfDayPreset& GetAppliedPreset() const { return AppliedPreset; }
+
+	/** WorldContext's world's applied row, or Night's when there is no time of day there (the editor, no world). */
+	static FTimeOfDayPreset GetPresetInForce(const UObject* WorldContext);
+
+	/** GetPresetInForce(WorldContext).GlowScale. */
+	static float GetGlowScale(const UObject* WorldContext);
+
+	/**
+	 * Sets Parameter on Material to NightValue times the glow scale in force, and keeps it there: every later
+	 * Apply rescales it. Calling it again for the same material and parameter replaces the night value. Without
+	 * a time of day subsystem (the editor, a test with no world) it just sets NightValue.
+	 */
+	static void SetGlow(const UObject* WorldContext, UMaterialInstanceDynamic* Material, float NightValue,
+		FName Parameter = FName(TEXT("Intensity")));
+
+	/**
+	 * Lights Lamp (an actor tagged CityLamp) for the time of day in force, unless the EMP still has it dark.
+	 * False when this subsystem has not recorded the lamp (no Apply yet, or not a lamp), and the caller keeps
+	 * its own record. UArrowEffectsSubsystem calls it when an outage ends.
+	 */
+	bool RefreshLamp(AActor* Lamp);
+
+	/** Whether the time of day has Lamp's head glowing and its buzz playing (false for an unrecorded lamp). */
+	bool IsLampLit(const AActor* Lamp) const;
+
+	/** How many lamp lights, lamp heads, lamp buzzes and facade materials the last Apply changed (tests, the log). */
+	int32 GetLampLightCount() const;
+	int32 GetLampGlowCount() const;
+	int32 GetLampSoundCount() const;
 	int32 GetWindowMaterialCount() const { return WindowMaterials.Num(); }
+
+	/** How many of the level's M_Emissive materials, and how many SetGlow instances, it scales. */
+	int32 GetEmissiveMaterialCount() const { return EmissiveMaterials.Num(); }
+	int32 GetRegisteredGlowCount() const { return RegisteredGlows.Num(); }
 
 	/** The table: what State asks for. Night's row says "the level's own values". */
 	UFUNCTION(BlueprintPure, Category = "TimeOfDay")
@@ -199,23 +255,58 @@ private:
 		float Intensity = 0.f;
 	};
 
-	/** One facade material: the MID that dims it, and every component slot it was swapped into. */
-	struct FWindowMaterial
+	/** One lamp actor: its lights, its glowing head and its buzz, as authored. */
+	struct FLamp
+	{
+		TWeakObjectPtr<AActor> Actor;
+		TArray<TPair<TWeakObjectPtr<ULightComponent>, float>> Lights;
+		TArray<FLampGlow> Glows;
+		TArray<TWeakObjectPtr<UAudioComponent>> Sounds;
+		bool bLit = true;
+	};
+
+	/**
+	 * One authored material the day rescales (a facade's WindowGlow, an M_Emissive's Intensity): its value
+	 * as authored, and every component slot that wears it.
+	 */
+	struct FSwappedMaterial
 	{
 		TWeakObjectPtr<UMaterialInterface> Authored;
 		float Glow = 0.f;
 		TArray<TPair<TWeakObjectPtr<UMeshComponent>, int32>> Slots;
 	};
 
+	/** A glow a class set through SetGlow. */
+	struct FRegisteredGlow
+	{
+		TWeakObjectPtr<UMaterialInstanceDynamic> Material;
+		FName Parameter;
+		float NightValue = 0.f;
+	};
+
 	/** Finds the pieces and records them as authored. Once per world. */
 	void Capture();
 	void CaptureLamps();
-	void CaptureWindows();
+	void CaptureMaterials();
 
 	/** Writes the night back exactly. */
 	void RestoreAuthored();
 
 	void ApplyPreset(const FTimeOfDayPreset& Preset);
+
+	/** Every lamp at Scale (0 off, 1 as authored), except that an EMP-dark lamp's head and buzz stay off. */
+	void ApplyLamps(float Scale);
+	void ApplyLamp(FLamp& Lamp, float Scale);
+
+	/** Every registered glow at its night value times Scale. */
+	void ApplyRegisteredGlows(float Scale);
+
+	/** Swaps a copy of each of Materials into its slots, with Parameter at the authored value times Scale. */
+	void ApplySwapped(const TArray<FSwappedMaterial>& Materials, TArray<TObjectPtr<UMaterialInstanceDynamic>>& Copies,
+		FName Parameter, float Scale);
+
+	/** Puts each of Materials back in its slots. */
+	static void RestoreSwapped(const TArray<FSwappedMaterial>& Materials);
 
 	UFUNCTION()
 	void HandleSettingsChanged(FHawkeyeSettings NewSettings);
@@ -233,13 +324,19 @@ private:
 	TWeakObjectPtr<APostProcessVolume> PostProcess;
 	TWeakObjectPtr<AActor> Stars;
 
-	TArray<TPair<TWeakObjectPtr<ULightComponent>, float>> LampLights;
-	TArray<FLampGlow> LampGlows;
-	TArray<FWindowMaterial> WindowMaterials;
+	FTimeOfDayPreset AppliedPreset;
 
-	/** The dimmed facade materials, one per authored one; kept so they are not collected while in use. */
+	TArray<FLamp> Lamps;
+	TArray<FSwappedMaterial> WindowMaterials;
+	TArray<FSwappedMaterial> EmissiveMaterials;
+	TMap<TPair<TObjectKey<UMaterialInstanceDynamic>, FName>, FRegisteredGlow> RegisteredGlows;
+
+	/** The day's facade and emissive copies, one per authored material; kept so they are not collected while in use. */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UMaterialInstanceDynamic>> WindowDimmers;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UMaterialInstanceDynamic>> EmissiveCopies;
 
 	bool bListening = false;
 };

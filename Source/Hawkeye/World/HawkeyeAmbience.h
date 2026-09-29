@@ -13,7 +13,8 @@ class USoundBase;
  * The district's sound bed (claude-docs/gameplay-semantics.md, "Audio"): rooftop wind and the street's
  * hum, two non-spatial loops crossfaded by how high the listener's pawn stands above this actor (placed
  * at street level by generate_city.py as City_Ambience). Wind is at its floor under 3 m and full from
- * 10 m up; the street falls to a third up there. The fade is HawkeyeAudioMath::ComputeAmbienceMix.
+ * 10 m up; the street falls to a third up there. The fade is HawkeyeAudioMath::ComputeAmbienceMix. By day the
+ * street is also times the time of day's StreetBedScale: one bed serves both states, there is no day bed yet.
  */
 UCLASS(Blueprintable, BlueprintType)
 class HAWKEYE_API AHawkeyeAmbience : public AActor

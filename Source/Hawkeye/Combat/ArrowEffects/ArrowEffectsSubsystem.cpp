@@ -10,6 +10,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "World/TimeOfDaySubsystem.h"
 
 const FName UArrowEffectsSubsystem::LampTag(TEXT("CityLamp"));
 
@@ -138,6 +139,12 @@ void UArrowEffectsSubsystem::SwitchOn(FLampOutage& Outage) const
 			Live->SetVisibility(true);
 		}
 	}
+	// Once the time of day has recorded the lamp, it owns the head and the buzz: by day they stay off.
+	UTimeOfDaySubsystem* TimeOfDay = UTimeOfDaySubsystem::Get(this);
+	if (TimeOfDay && TimeOfDay->RefreshLamp(Outage.Lamp.Get()))
+	{
+		return;
+	}
 	for (int32 Index = 0; Index < Outage.Glows.Num(); ++Index)
 	{
 		if (UMaterialInstanceDynamic* Glow = Outage.Glows[Index].Get())
@@ -200,12 +207,13 @@ void UArrowEffectsSubsystem::Tick(float DeltaTime)
 	Clock += DeltaTime;
 	for (int32 Index = Lamps.Num() - 1; Index >= 0; --Index)
 	{
-		FLampOutage& Outage = Lamps[Index];
-		if (!Outage.Lamp.IsValid() || Clock >= Outage.OnAgainAt)
+		if (!Lamps[Index].Lamp.IsValid() || Clock >= Lamps[Index].OnAgainAt)
 		{
+			// Off the list first, so the time of day sees the lamp as no longer dark when it relights it.
+			FLampOutage Outage = MoveTemp(Lamps[Index]);
+			Lamps.RemoveAtSwap(Index);
 			SwitchOn(Outage);
 			UE_LOG(LogHawkeye, Verbose, TEXT("%s: %s back on."), *GetName(), *GetNameSafe(Outage.Lamp.Get()));
-			Lamps.RemoveAtSwap(Index);
 		}
 	}
 	Clouds.RemoveAll([](const TWeakObjectPtr<ASmokeCloud>& Entry) { return !Entry.IsValid(); });

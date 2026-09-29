@@ -9,6 +9,7 @@
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "World/TimeOfDaySubsystem.h"
 
 AHawkeyeAmbience::AHawkeyeAmbience()
 {
@@ -63,6 +64,8 @@ void AHawkeyeAmbience::UpdateMix()
 	float WindVolume = 1.f;
 	float StreetVolume = 1.f;
 	HawkeyeAudioMath::ComputeAmbienceMix(ListenerHeight, WindVolume, StreetVolume);
+	// The street bed carries the night's hum: turned down by day (FTimeOfDayPreset::StreetBedScale), faded like the rest.
+	StreetVolume *= UTimeOfDaySubsystem::GetPresetInForce(this).StreetBedScale;
 	if (Wind)
 	{
 		Wind->AdjustVolume(FadeSeconds, WindVolume);

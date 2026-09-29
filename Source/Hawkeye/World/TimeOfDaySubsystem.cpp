@@ -3,6 +3,8 @@
 #include "World/TimeOfDaySubsystem.h"
 
 #include "Hawkeye.h"
+#include "Combat/ArrowEffects/ArrowEffectsSubsystem.h"
+#include "Components/AudioComponent.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/LightComponent.h"
@@ -16,6 +18,7 @@
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "HAL/IConsoleManager.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/CommandLine.h"
@@ -32,6 +35,10 @@ namespace HawkeyeTimeOfDay
 	static const FName WindowGlowParameter(TEXT("WindowGlow"));
 	/** A lamp head's glow (M_LampHead's EMISSIVE_INTENSITY_PARAM), the one the EMP also dims. */
 	static const FName LampGlowParameter(TEXT("Intensity"));
+	/** M_Emissive's strength (EMISSIVE_INTENSITY_PARAM): beacons, safehouse doors, pedestals, targets, rings. */
+	static const FName GlowParameter(TEXT("Intensity"));
+	/** The base material every glow the city is read by derives from (Tools/Editor/_materials.py, M_EMISSIVE). */
+	static const FName EmissiveMaterialName(TEXT("M_Emissive"));
 
 	/**
 	 * The day. The sun 35 degrees up in the south-west (Unreal X is east and Y south, so it shines
@@ -58,6 +65,8 @@ namespace HawkeyeTimeOfDay
 		Day.bStars = false;
 		Day.LampScale = 0.f;
 		Day.WindowGlowScale = 0.25f;
+		Day.GlowScale = 3.f;
+		Day.StreetBedScale = 0.6f;
 		return Day;
 	}
 
@@ -222,12 +231,159 @@ void UTimeOfDaySubsystem::Apply(EHawkeyeTimeOfDay State)
 		ApplyPreset(Preset);
 	}
 	Applied = State;
+	AppliedPreset = Preset;
+	// Night's row carries 1 for every scale: these put back what the level had, bar what the EMP has dark.
+	ApplyLamps(Preset.LampScale);
+	ApplyRegisteredGlows(Preset.GlowScale);
 
 	UE_LOG(LogHawkeye, Log,
-		TEXT("%s: %s (sun %d, sky light %d, fog %d, post process %d, stars %d, %d lamp lights, %d lamp heads, %d facade materials)."),
+		TEXT("%s: %s (sun %d, sky light %d, fog %d, post process %d, stars %d, %d lamp lights, %d lamp heads, %d lamp buzzes, ")
+		TEXT("%d facade materials, %d emissive materials, %d registered glows at x%.2f)."),
 		*GetNameSafe(GetWorld()), *GetTimeOfDayName(State).ToString(), Sun.IsValid() ? 1 : 0, SkyLight.IsValid() ? 1 : 0,
-		Fog.IsValid() ? 1 : 0, PostProcess.IsValid() ? 1 : 0, Stars.IsValid() ? 1 : 0, LampLights.Num(), LampGlows.Num(),
-		WindowMaterials.Num());
+		Fog.IsValid() ? 1 : 0, PostProcess.IsValid() ? 1 : 0, Stars.IsValid() ? 1 : 0, GetLampLightCount(), GetLampGlowCount(),
+		GetLampSoundCount(), WindowMaterials.Num(), EmissiveMaterials.Num(), RegisteredGlows.Num(), Preset.GlowScale);
+}
+
+FTimeOfDayPreset UTimeOfDaySubsystem::GetPresetInForce(const UObject* WorldContextObject)
+{
+	const UTimeOfDaySubsystem* Subsystem = Get(WorldContextObject);
+	return Subsystem ? Subsystem->AppliedPreset : GetPreset(EHawkeyeTimeOfDay::Night);
+}
+
+float UTimeOfDaySubsystem::GetGlowScale(const UObject* WorldContextObject)
+{
+	const UTimeOfDaySubsystem* Subsystem = Get(WorldContextObject);
+	return Subsystem ? Subsystem->AppliedPreset.GlowScale : 1.f;
+}
+
+void UTimeOfDaySubsystem::SetGlow(const UObject* WorldContextObject, UMaterialInstanceDynamic* Material, float NightValue,
+	FName Parameter)
+{
+	if (!Material)
+	{
+		return;
+	}
+	UTimeOfDaySubsystem* Subsystem = Get(WorldContextObject);
+	Material->SetScalarParameterValue(Parameter, NightValue * (Subsystem ? Subsystem->AppliedPreset.GlowScale : 1.f));
+	if (Subsystem)
+	{
+		FRegisteredGlow& Entry = Subsystem->RegisteredGlows.FindOrAdd(MakeTuple(TObjectKey<UMaterialInstanceDynamic>(Material), Parameter));
+		Entry.Material = Material;
+		Entry.Parameter = Parameter;
+		Entry.NightValue = NightValue;
+	}
+}
+
+void UTimeOfDaySubsystem::ApplyRegisteredGlows(float Scale)
+{
+	for (auto It = RegisteredGlows.CreateIterator(); It; ++It)
+	{
+		UMaterialInstanceDynamic* Material = It.Value().Material.Get();
+		if (!Material)
+		{
+			It.RemoveCurrent();
+			continue;
+		}
+		Material->SetScalarParameterValue(It.Value().Parameter, It.Value().NightValue * Scale);
+	}
+}
+
+int32 UTimeOfDaySubsystem::GetLampLightCount() const
+{
+	int32 Count = 0;
+	for (const FLamp& Lamp : Lamps)
+	{
+		Count += Lamp.Lights.Num();
+	}
+	return Count;
+}
+
+int32 UTimeOfDaySubsystem::GetLampGlowCount() const
+{
+	int32 Count = 0;
+	for (const FLamp& Lamp : Lamps)
+	{
+		Count += Lamp.Glows.Num();
+	}
+	return Count;
+}
+
+int32 UTimeOfDaySubsystem::GetLampSoundCount() const
+{
+	int32 Count = 0;
+	for (const FLamp& Lamp : Lamps)
+	{
+		Count += Lamp.Sounds.Num();
+	}
+	return Count;
+}
+
+bool UTimeOfDaySubsystem::RefreshLamp(AActor* Lamp)
+{
+	if (!Lamp || !bCaptured)
+	{
+		return false;
+	}
+	FLamp* Entry = Lamps.FindByPredicate([Lamp](const FLamp& Candidate) { return Candidate.Actor.Get() == Lamp; });
+	if (!Entry)
+	{
+		return false;
+	}
+	ApplyLamp(*Entry, AppliedPreset.LampScale);
+	return true;
+}
+
+bool UTimeOfDaySubsystem::IsLampLit(const AActor* Lamp) const
+{
+	const FLamp* Entry = Lamp ? Lamps.FindByPredicate([Lamp](const FLamp& Candidate) { return Candidate.Actor.Get() == Lamp; }) : nullptr;
+	return Entry && Entry->bLit;
+}
+
+void UTimeOfDaySubsystem::ApplyLamps(float Scale)
+{
+	for (FLamp& Lamp : Lamps)
+	{
+		ApplyLamp(Lamp, Scale);
+	}
+}
+
+void UTimeOfDaySubsystem::ApplyLamp(FLamp& Lamp, float Scale)
+{
+	// The EMP's outage wins over the time of day: its lights stay hidden (the EMP's own switch), and the
+	// head and the buzz stay off until it hands the lamp back.
+	const UArrowEffectsSubsystem* Effects = UArrowEffectsSubsystem::Get(this);
+	const bool bEmpDark = Effects && Effects->IsLampDisabled(Lamp.Actor.Get());
+	Lamp.bLit = !bEmpDark && Scale > 0.f;
+	for (const TPair<TWeakObjectPtr<ULightComponent>, float>& Light : Lamp.Lights)
+	{
+		if (ULightComponent* Live = Light.Key.Get())
+		{
+			Live->SetIntensity(Light.Value * Scale);
+		}
+	}
+	for (const FLampGlow& Glow : Lamp.Glows)
+	{
+		if (UMaterialInstanceDynamic* Material = Glow.Material.Get())
+		{
+			Material->SetScalarParameterValue(HawkeyeTimeOfDay::LampGlowParameter, bEmpDark ? 0.f : Glow.Intensity * Scale);
+		}
+	}
+	for (const TWeakObjectPtr<UAudioComponent>& Sound : Lamp.Sounds)
+	{
+		UAudioComponent* Live = Sound.Get();
+		if (!Live)
+		{
+			continue;
+		}
+		if (Lamp.bLit && !Live->IsPlaying())
+		{
+			Live->Play();
+		}
+		else if (!Lamp.bLit && Live->IsPlaying())
+		{
+			Live->Stop();
+		}
+	}
 }
 
 AActor* UTimeOfDaySubsystem::FindScenePiece(const TCHAR* Label, UClass* Class) const
@@ -352,7 +508,7 @@ void UTimeOfDaySubsystem::Capture()
 	}
 
 	CaptureLamps();
-	CaptureWindows();
+	CaptureMaterials();
 }
 
 void UTimeOfDaySubsystem::CaptureLamps()
@@ -368,21 +524,28 @@ void UTimeOfDaySubsystem::CaptureLamps()
 		{
 			continue;
 		}
+		FLamp Lamp;
+		Lamp.Actor = *It;
 		TArray<ULightComponent*> Lights;
 		It->GetComponents<ULightComponent>(Lights);
 		for (ULightComponent* Light : Lights)
 		{
 			if (Light)
 			{
-				LampLights.Emplace(Light, Light->Intensity);
+				Lamp.Lights.Emplace(Light, Light->Intensity);
 			}
 		}
 		TArray<UMeshComponent*> Meshes;
 		It->GetComponents<UMeshComponent>(Meshes);
 		for (UMeshComponent* Mesh : Meshes)
 		{
-			float Glow = 0.f;
+			// The glow as authored: an EMP may already have this head dark, through its own instance of it.
 			UMaterialInterface* Material = Mesh ? Mesh->GetMaterial(0) : nullptr;
+			if (const UMaterialInstanceDynamic* Existing = Cast<UMaterialInstanceDynamic>(Material))
+			{
+				Material = Existing->Parent;
+			}
+			float Glow = 0.f;
 			if (!Material || !Material->GetScalarParameterValue(FHashedMaterialParameterInfo(HawkeyeTimeOfDay::LampGlowParameter), Glow)
 				|| Glow <= 0.f)
 			{
@@ -394,22 +557,37 @@ void UTimeOfDaySubsystem::CaptureLamps()
 				FLampGlow Entry;
 				Entry.Material = Dynamic;
 				Entry.Intensity = Glow;
-				LampGlows.Add(Entry);
+				Lamp.Glows.Add(Entry);
 			}
+		}
+		// The buzz on the lamps round the park (City_LampBuzz_<n>, AAmbientSound, tag CityLamp).
+		TArray<UAudioComponent*> Sounds;
+		It->GetComponents<UAudioComponent>(Sounds);
+		for (UAudioComponent* Sound : Sounds)
+		{
+			if (Sound)
+			{
+				Lamp.Sounds.Add(Sound);
+			}
+		}
+		if (Lamp.Lights.Num() + Lamp.Glows.Num() + Lamp.Sounds.Num() > 0)
+		{
+			Lamps.Add(MoveTemp(Lamp));
 		}
 	}
 }
 
-void UTimeOfDaySubsystem::CaptureWindows()
+void UTimeOfDaySubsystem::CaptureMaterials()
 {
 	UWorld* World = GetWorld();
 	if (!World)
 	{
 		return;
 	}
-	// One entry per facade material, however many buildings wear it.
-	TMap<UMaterialInterface*, int32> ByMaterial;
-	TSet<UMaterialInterface*> NotFacades;
+	// One entry per authored material, however many meshes wear it: facades by their WindowGlow parameter,
+	// glows by their base material, M_Emissive. Dynamic instances belong to the classes that made them (they
+	// go through SetGlow), and lamps are CaptureLamps'.
+	TMap<UMaterialInterface*, TPair<bool, int32>> Seen;
 	for (TActorIterator<AActor> It(World); It; ++It)
 	{
 		if (It->Tags.Contains(HawkeyeTimeOfDay::InteriorTag) || It->Tags.Contains(HawkeyeTimeOfDay::LampTag))
@@ -424,25 +602,40 @@ void UTimeOfDaySubsystem::CaptureWindows()
 			for (int32 Slot = 0; Slot < Count; ++Slot)
 			{
 				UMaterialInterface* Material = Mesh->GetMaterial(Slot);
-				if (!Material || NotFacades.Contains(Material))
+				if (!Material || Material->IsA<UMaterialInstanceDynamic>())
 				{
 					continue;
 				}
-				int32* Index = ByMaterial.Find(Material);
-				if (!Index)
+				TPair<bool, int32>* Known = Seen.Find(Material);
+				if (!Known)
 				{
+					TArray<FSwappedMaterial>* List = nullptr;
 					float Glow = 0.f;
-					if (!Material->GetScalarParameterValue(FHashedMaterialParameterInfo(HawkeyeTimeOfDay::WindowGlowParameter), Glow))
+					if (Material->GetScalarParameterValue(FHashedMaterialParameterInfo(HawkeyeTimeOfDay::WindowGlowParameter), Glow))
 					{
-						NotFacades.Add(Material);
+						List = &WindowMaterials;
+					}
+					else if (const UMaterial* Base = Material->GetBaseMaterial(); Base && Base->GetFName() == HawkeyeTimeOfDay::EmissiveMaterialName
+						&& Material->GetScalarParameterValue(FHashedMaterialParameterInfo(HawkeyeTimeOfDay::GlowParameter), Glow))
+					{
+						List = &EmissiveMaterials;
+					}
+					if (!List)
+					{
+						Seen.Add(Material, MakeTuple(false, INDEX_NONE));
 						continue;
 					}
-					FWindowMaterial Entry;
+					FSwappedMaterial Entry;
 					Entry.Authored = Material;
 					Entry.Glow = Glow;
-					Index = &ByMaterial.Add(Material, WindowMaterials.Add(Entry));
+					Known = &Seen.Add(Material, MakeTuple(List == &WindowMaterials, List->Add(Entry)));
 				}
-				WindowMaterials[*Index].Slots.Emplace(Mesh, Slot);
+				if (Known->Value == INDEX_NONE)
+				{
+					continue;
+				}
+				TArray<FSwappedMaterial>& List = Known->Key ? WindowMaterials : EmissiveMaterials;
+				List[Known->Value].Slots.Emplace(Mesh, Slot);
 			}
 		}
 	}
@@ -493,30 +686,53 @@ void UTimeOfDaySubsystem::RestoreAuthored()
 	{
 		Sphere->SetActorHiddenInGame(Authored.bStarsHidden);
 	}
-	for (const TPair<TWeakObjectPtr<ULightComponent>, float>& Lamp : LampLights)
+	// The facades and glows get their own materials back, not a copy at the night's value. The lamps are
+	// Apply's (ApplyLamps at 1).
+	RestoreSwapped(WindowMaterials);
+	RestoreSwapped(EmissiveMaterials);
+}
+
+void UTimeOfDaySubsystem::RestoreSwapped(const TArray<FSwappedMaterial>& Materials)
+{
+	for (const FSwappedMaterial& Swapped : Materials)
 	{
-		if (ULightComponent* Light = Lamp.Key.Get())
-		{
-			Light->SetIntensity(Lamp.Value);
-		}
-	}
-	for (const FLampGlow& Glow : LampGlows)
-	{
-		if (UMaterialInstanceDynamic* Material = Glow.Material.Get())
-		{
-			Material->SetScalarParameterValue(HawkeyeTimeOfDay::LampGlowParameter, Glow.Intensity);
-		}
-	}
-	// The facades get their own materials back, not a copy at full glow.
-	for (const FWindowMaterial& Window : WindowMaterials)
-	{
-		UMaterialInterface* Material = Window.Authored.Get();
-		for (const TPair<TWeakObjectPtr<UMeshComponent>, int32>& Slot : Window.Slots)
+		UMaterialInterface* Material = Swapped.Authored.Get();
+		for (const TPair<TWeakObjectPtr<UMeshComponent>, int32>& Slot : Swapped.Slots)
 		{
 			UMeshComponent* Mesh = Slot.Key.Get();
 			if (Mesh && Material && Mesh->GetMaterial(Slot.Value) != Material)
 			{
 				Mesh->SetMaterial(Slot.Value, Material);
+			}
+		}
+	}
+}
+
+void UTimeOfDaySubsystem::ApplySwapped(const TArray<FSwappedMaterial>& Materials,
+	TArray<TObjectPtr<UMaterialInstanceDynamic>>& Copies, FName Parameter, float Scale)
+{
+	// One copy per authored material, swapped into every slot that wore the original.
+	Copies.SetNum(Materials.Num());
+	for (int32 Index = 0; Index < Materials.Num(); ++Index)
+	{
+		const FSwappedMaterial& Swapped = Materials[Index];
+		UMaterialInterface* Material = Swapped.Authored.Get();
+		if (!Material)
+		{
+			continue;
+		}
+		if (!Copies[Index])
+		{
+			Copies[Index] = UMaterialInstanceDynamic::Create(Material, this);
+		}
+		UMaterialInstanceDynamic* Copy = Copies[Index];
+		Copy->SetScalarParameterValue(Parameter, Swapped.Glow * Scale);
+		for (const TPair<TWeakObjectPtr<UMeshComponent>, int32>& Slot : Swapped.Slots)
+		{
+			UMeshComponent* Mesh = Slot.Key.Get();
+			if (Mesh && Mesh->GetMaterial(Slot.Value) != Copy)
+			{
+				Mesh->SetMaterial(Slot.Value, Copy);
 			}
 		}
 	}
@@ -566,46 +782,8 @@ void UTimeOfDaySubsystem::ApplyPreset(const FTimeOfDayPreset& Preset)
 	{
 		Sphere->SetActorHiddenInGame(!Preset.bStars);
 	}
-	for (const TPair<TWeakObjectPtr<ULightComponent>, float>& Lamp : LampLights)
-	{
-		if (ULightComponent* Light = Lamp.Key.Get())
-		{
-			Light->SetIntensity(Lamp.Value * Preset.LampScale);
-		}
-	}
-	for (const FLampGlow& Glow : LampGlows)
-	{
-		if (UMaterialInstanceDynamic* Material = Glow.Material.Get())
-		{
-			Material->SetScalarParameterValue(HawkeyeTimeOfDay::LampGlowParameter, Glow.Intensity * Preset.LampScale);
-		}
-	}
-
-	// One dimmed copy per facade material, swapped into every slot that wore the original.
-	WindowDimmers.SetNum(WindowMaterials.Num());
-	for (int32 Index = 0; Index < WindowMaterials.Num(); ++Index)
-	{
-		const FWindowMaterial& Window = WindowMaterials[Index];
-		UMaterialInterface* Material = Window.Authored.Get();
-		if (!Material)
-		{
-			continue;
-		}
-		if (!WindowDimmers[Index])
-		{
-			WindowDimmers[Index] = UMaterialInstanceDynamic::Create(Material, this);
-		}
-		UMaterialInstanceDynamic* Dimmer = WindowDimmers[Index];
-		Dimmer->SetScalarParameterValue(HawkeyeTimeOfDay::WindowGlowParameter, Window.Glow * Preset.WindowGlowScale);
-		for (const TPair<TWeakObjectPtr<UMeshComponent>, int32>& Slot : Window.Slots)
-		{
-			UMeshComponent* Mesh = Slot.Key.Get();
-			if (Mesh && Mesh->GetMaterial(Slot.Value) != Dimmer)
-			{
-				Mesh->SetMaterial(Slot.Value, Dimmer);
-			}
-		}
-	}
+	ApplySwapped(WindowMaterials, WindowDimmers, HawkeyeTimeOfDay::WindowGlowParameter, Preset.WindowGlowScale * Preset.GlowScale);
+	ApplySwapped(EmissiveMaterials, EmissiveCopies, HawkeyeTimeOfDay::GlowParameter, Preset.GlowScale);
 }
 
 FTimeOfDayPreset UTimeOfDaySubsystem::GetPreset(EHawkeyeTimeOfDay State)
