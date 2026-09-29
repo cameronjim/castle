@@ -145,7 +145,7 @@ FReply UChallengeResultsWidget::NativeOnKeyDown(const FGeometry& InGeometry, con
 	const FKey Key = InKeyEvent.GetKey();
 
 	// Enter (or the pad's A) repeats the default button: Retry.
-	if (Key == EKeys::Enter || Key == EKeys::Virtual_Accept || Key == EKeys::Gamepad_FaceButton_Bottom)
+	if (Key == EKeys::Enter || Key == EKeys::Virtual_Gamepad_Accept.GetVirtualKey() || Key == EKeys::Gamepad_FaceButton_Bottom)
 	{
 		HandleRetryClicked();
 		return FReply::Handled();
