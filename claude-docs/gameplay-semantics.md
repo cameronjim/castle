@@ -682,8 +682,88 @@ the last input came from a pad.
 - Hit lean: 5 degrees for 0.2 s away from the hit direction, on thugs and Kate, through
   the IK post-process graph. Strike poses: light punches the right hand out over 0.1 s
   and back over 0.2 s; heavy both hands over 0.25 s; bow finisher sweeps the bow hand.
-- Soft lock: strikes and dodges turn toward the nearest thug within 400 cm in front over
-  0.1 s. A dodge during a telegraph within 300 cm gives 0.1 s of slow motion.
+- Soft lock: dodges turn toward the nearest thug within 400 cm in front over 0.1 s (strikes use
+  the melee assist below since 2026-09-28). A dodge during a telegraph within 300 cm gives 0.1 s
+  of slow motion.
+
+## Melee assist (built 2026-09-28, from playtest note "punching in their general direction")
+- Where she means: the move stick's direction if it was pushed in the last 0.15 s, else the
+  camera's forward. A strike (every light of the chain and the heavy) picks the best living thug
+  within 350 cm (flat, 200 cm up or down) and 60 degrees of it: the lowest distance / 350 plus
+  angle / 60, so one straight down the stick beats a nearer one off to the side. The log names the
+  pick ("light assist picks BP_Thug_C_2 at 240 cm, 18 deg off where she meant") or says nobody.
+- She turns to him over 0.1 s as before, then keeps facing him (up to 720 degrees per second)
+  for the rest of the wind-up if he moves. The blow goes at him at the press.
+- Closing the gap: a root-motion strike clip is warped to 90 cm short of him (the warp target
+  follows him through the wind-up; inside 90 cm it only turns her). Without one (procedural, or an
+  in-place clip) the lunge grows to end 90 cm short of him, never less than the attack's own lunge,
+  never more than 260 cm, and takes the longer of its own time and 0.8 of the time to the hit.
+- Kate's strikes sweep a 60 cm sphere (35 before) 120 cm ahead.
+- Forgiveness: if the sweep finds nobody, the thug picked at the press is still hit when he is
+  alive, within 1.3 times the attack's reach (Range + Radius, 234 cm for her strikes, measured to
+  his capsule's edge) and within 30 degrees of the swing's direction when the hit lands (with a
+  clip, at any tick of its hit window). So a thug stepping back mid-swing is still hit; one who
+  was never a valid pick is not.
+- Unchanged: the parry is tried first with its own rules (250 cm, 70 degrees); dodges keep the
+  stick's direction and the 400 cm soft lock for facing; thugs' swings get no assist.
+
+## Arrows in bodies (fixed 2026-09-28, from playtest note "they're like a foot away from her")
+- The cause: an arrow meets the capsule (34 to 42 cm radius), not the body, and was embedded at
+  the capsule's surface plus 12 cm, then attached there; with the downward angle from a roof the
+  capsule's top met it further out still. A mesh without physics bodies left it on the capsule.
+- Now an arrow that hits anyone with a skeletal mesh walks its flight line (from 30 cm before the
+  capsule impact to 150 cm past it) against the mesh's physics asset shapes at the current bone
+  transforms, whatever the mesh's collision, until it enters one. The tip goes 5 cm into that
+  surface, the arrow points along its flight, and it attaches to that bone, so it moves with the
+  body and falls with a ragdoll. If the line passes through the capsule without touching a body
+  (between the legs, beside the waist), it goes into the nearest body to the line at its closest
+  point. A mesh with no physics asset takes the nearest bone to the line.
+- Damage and headshots use only a real entry: a line that never entered the head is never a
+  headshot, even when the nearest body was the head. Shields and walls are unchanged (12 cm).
+- Pickups are unchanged: a stuck arrow in a thug or on the ground is recovered within 150 cm; one
+  in Kate is not.
+
+## Bow aim assist (built 2026-09-28, from playtest note "aim assist for the bows")
+- One setting, Aim assist: Off / Normal / Strong (default Normal), a choice row under Controls in
+  Settings, saved with the rest (settings version 7; versions 5 and 6 migrate and come up Normal).
+- Three parts, all only for the player, only against living, standing thugs she has a clear line
+  to, at up to 6000 cm, aimed at their chest (30 cm over the capsule centre):
+  - Magnetism: while aiming or drawing, a thug whose chest is within the cone (4 degrees at
+    Normal, 7 at Strong) of the view slows the look input toward the centre (to 0.6 of the rate
+    at the chest on a pad, 0.85 with a mouse, easing back to 1 at the cone's edge), and pulls the
+    view toward his chest at up to 6 degrees per second on a pad (10 at Strong), a third of that
+    with a mouse, weaker toward the edge. No pull while the reticle is already over his body
+    (within his capsule radius of the line from his feet to his head), so aiming at a head is
+    never dragged to the chest.
+  - Snap: pressing aim (LT, right click) with a bow turns the view over 0.1 s onto the chest of
+    the thug nearest the reticle within 12 degrees. A draw with left click alone does not snap.
+  - Bend: on release, if the arrow's line would miss every thug, its launch direction turns up to
+    2 degrees (4 at Strong) toward the lead-and-drop aim point on the nearest thug's chest within
+    the magnetism cone of the release. A line that already hits someone is left alone.
+- Difficulty scales all three: Story 1.25, Normal 1.0, Hard 0.5 of every cone, pull and bend.
+  Off turns everything off. AI archers and Clint get none of it.
+- Headshots still need real aim: the pull and the bend go to the chest and never act on a line
+  already on the body.
+
+## Ranged thug accuracy (built 2026-09-28, from playtest note "they rapid fire arrows and don't miss")
+- Tracking lag: an archer or a gunner sees Kate as she was a lag ago (0.4 s Story, 0.32 Normal,
+  0.25 Hard): her position then and her velocity then (from 0.15 s of samples before it), taken
+  every 0.05 s. He leads from that: her position then plus that velocity over the lag and the
+  arrow's flight (with the drop). A steady runner is led right; a turn inside the lag is not seen.
+- Accuracy cone: every shot is scattered in a cone of a base (archer 0.75 degrees, gunner 5,
+  was a flat 4) plus the angle her sideways speed sweeps across his view in 0.2 s (her velocity
+  across his line over the distance, times 0.2, in degrees), plus 3 degrees while she is in the
+  air, all times the difficulty's cone scale (1.4 Story, 1.0 Normal, 0.7 Hard). At 8 m, sprinting
+  sideways (700 cm/s) is about a 10.8 degree cone at Normal; standing still is the base.
+- Erratic movement: a change of more than 90 degrees in her flat velocity (both above 150 cm/s)
+  in the last 0.5 s, or a dodge started in the last 0.5 s, makes the shot miss unless she is
+  within 600 cm: it goes her capsule radius plus 50 cm wide of her, on the side she came from.
+  Each shot of a gunner's burst checks it for itself.
+- Archer cadence: his next draw starts no sooner than a random 1.5 to 2.5 s after his last
+  release at Normal (3.0 to 4.0 Story, 1.2 to 1.8 Hard), so shot to shot is that plus the draw.
+- Every shot is still telegraphed: the archer's draw and glint, the gunner's raised pistol.
+- Measured by `Hawkeye.Thug.StrafingKateHitRate` (the thugs' own aim functions against a Kate
+  sprinting sideways past at 8 m, 20 shots per difficulty): see the difficulty table for results.
 
 ## Side challenges (built 2026-09-27; names are placeholders)
 - `AChallengeStart` pedestals (purple-lit, E to start) and one `UChallengeDefinition` per
@@ -712,7 +792,10 @@ the last input came from a pad.
   1.5 / 1.2 / 1.0 s; parry window +0.15 / 0 / -0.1 s (Story holds an early tap up to
   0.15 s; Hard ignores the first 0.1 s of a telegraph); regen delay 3 / 5 / 8 s at
   10 HP/s (regen didn't exist before and applies to Kate only); fall damage 0.5 / 1.0 /
-  1.0; Story adds 2 to each trick arrow cap. `-Difficulty=Story|Normal|Hard` on the
+  1.0; Story adds 2 to each trick arrow cap. Added 2026-09-28 ("Ranged thug accuracy", "Bow aim
+  assist"): ranged tracking lag 0.4 / 0.32 / 0.25 s; ranged cone scale 1.4 / 1.0 / 0.7; archer
+  gap before the next draw 3.0-4.0 / 1.5-2.5 / 1.2-1.8 s; aim assist scale 1.25 / 1.0 / 0.5.
+  `-Difficulty=Story|Normal|Hard` on the
   command line overrides without saving. Every scripted fight is won on all three.
 - Accessibility, all persisted (settings version 5; 6 adds the time of day): subtitle size
   20 / 26 / 34 px with a
