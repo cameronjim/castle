@@ -134,6 +134,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Settings|Controls")
 	void SetAimAssist(EHawkeyeAimAssist NewAimAssist);
 
+	/** The sprint button: Default (hold on keys, toggle on a pad), Hold or Toggle. Stores, saves and broadcasts. */
+	UFUNCTION(BlueprintCallable, Category = "Settings|Controls")
+	void SetSprintMode(EHawkeyeSprintMode NewSprintMode);
+
 	/** Clamps to [MinHudScale, MaxHudScale], stores, saves and broadcasts. */
 	UFUNCTION(BlueprintCallable, Category = "Settings|Accessibility")
 	void SetHudScale(float NewScale);

@@ -75,6 +75,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	FText GetTimeOfDayShown() const;
 
+	/** What the sprint row shows now ("Hold on keys, toggle on pad", "Hold", "Toggle"). */
+	UFUNCTION(BlueprintPure, Category = "Settings")
+	FText GetSprintModeShown() const;
+
 	/** Rows the screen built, both columns together. */
 	UFUNCTION(BlueprintPure, Category = "Settings")
 	int32 GetRowCount() const { return RowCount; }
@@ -146,6 +150,9 @@ protected:
 
 	UFUNCTION()
 	void HandleAimAssistClicked();
+
+	UFUNCTION()
+	void HandleSprintModeClicked();
 
 	/** Writes Value (0..1) into Text as a whole percentage. */
 	static void UpdateVolumeText(UTextBlock* Text, float Value);
@@ -312,6 +319,13 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings|Controls", meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> AimAssistValueText = nullptr;
+
+	/** Controls: a button reading "Hold on keys, toggle on pad" / Hold / Toggle (the sprint button). */
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Controls", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> SprintModeButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Settings|Controls", meta = (BindWidgetOptional))
+	TObjectPtr<UTextBlock> SprintModeValueText = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Settings", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> BackButton = nullptr;

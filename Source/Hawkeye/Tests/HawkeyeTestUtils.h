@@ -281,6 +281,16 @@ public:
 	/** Stands in for Input_Move having reported a stick of this size, held this long. */
 	void TestSetMoveInput(float Magnitude, float HeldSeconds);
 
+	/** Stands in for one Tick of the sprint toggle, the stick pushed or centred this frame. */
+	void TestTickSprintToggle(float DeltaSeconds, bool bStickPushed)
+	{
+		bStickPushedThisFrame = bStickPushed;
+		UpdateSprintToggle(DeltaSeconds);
+	}
+
+	/** Stands in for a settings change of the sprint button alone. */
+	void TestSetSprintMode(EHawkeyeSprintMode Mode) { SprintMode = Mode; }
+
 	/** Stands in for one Tick of the slide. */
 	void TestTickSlide(float DeltaSeconds) { UpdateSlide(DeltaSeconds); }
 

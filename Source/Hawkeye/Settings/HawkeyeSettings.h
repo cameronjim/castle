@@ -56,6 +56,18 @@ enum class EHawkeyeAimAssist : uint8
 };
 
 /**
+ * How the sprint button works. Default holds on a keyboard (Shift) and toggles on a pad (L3); Hold or Toggle set
+ * explicitly apply to both. New values go on the end so saved values keep their meaning.
+ */
+UENUM(BlueprintType)
+enum class EHawkeyeSprintMode : uint8
+{
+	Default,
+	Hold,
+	Toggle
+};
+
+/**
  * Every player-facing option, in one struct, so the save file is one blob and the Settings
  * screen has one thing to read. Adding an option means a new field here and a Version bump;
  * an old save then fails the version check and the player gets defaults rather than garbage.
@@ -146,17 +158,21 @@ struct HAWKEYE_API FHawkeyeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Controls")
 	EHawkeyeAimAssist AimAssist = EHawkeyeAimAssist::Normal;
 
+	/** The sprint button: hold on keys and toggle on a pad (Default), or Hold or Toggle on both. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings|Controls")
+	EHawkeyeSprintMode SprintMode = EHawkeyeSprintMode::Default;
+
 	/** Bumped whenever the meaning of a field changes. A mismatch on load yields defaults. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
-	int32 Version = 7;
+	int32 Version = 8;
 
 	/** The version this build writes and accepts. */
-	static constexpr int32 CurrentVersion = 7;
+	static constexpr int32 CurrentVersion = 8;
 
 	/**
-	 * The oldest save this build migrates rather than dropping: version 5 lacks TimeOfDay and AimAssist,
-	 * 6 lacks AimAssist; each loads as its default (Night, Normal), so everything else the player set is
-	 * kept. Older yields defaults.
+	 * The oldest save this build migrates rather than dropping: version 5 lacks TimeOfDay, AimAssist and
+	 * SprintMode, 6 lacks AimAssist and SprintMode, 7 lacks SprintMode; each loads as its default (Night,
+	 * Normal, Default), so everything else the player set is kept. Older yields defaults.
 	 */
 	static constexpr int32 OldestMigratedVersion = 5;
 };

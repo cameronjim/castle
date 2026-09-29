@@ -13,6 +13,7 @@
 #include "ISpudObject.h"
 #include "Player/HawkeyeMovementTypes.h"
 #include "Settings/HawkeyeSettings.h"
+#include "Player/HawkeyeSprintToggle.h"
 #include "HawkeyeCharacter.generated.h"
 
 class UAnimSequence;
@@ -265,6 +266,26 @@ public:
 	bool IsSprinting() const { return bIsSprinting; }
 
 	/** Current camera field of view. Exposed so a test or a Blueprint can read the blend. */
+	/**
+	 * The sprint button went down (Shift, or L3 on a pad). Held (the keyboard's default) it sprints until the release;
+	 * toggled (the pad's default, or the setting) the first press turns it on and a second turns it off
+	 * (FHawkeyeSprintToggle). Input_SprintStarted calls it with the controller's last device; public for tests.
+	 */
+	void PressSprint(bool bFromGamepad);
+
+	/** The sprint button came up: ends a held sprint; a toggled one keeps going. */
+	void ReleaseSprint();
+
+	/** True while a toggled sprint is on (it may be sliding, or in the air, and still on). */
+	UFUNCTION(BlueprintPure, Category = "Hawkeye|Movement")
+	bool IsSprintToggled() const { return SprintToggle.IsOn(); }
+
+	/** Ends a toggled sprint for Why (logged at Log); a held one is left to its button. Returns whether one was on. */
+	bool StopSprintToggle(EHawkeyeSprintStop Why);
+
+	/** The sprint setting ApplySettings last took. */
+	EHawkeyeSprintMode GetSprintMode() const { return SprintMode; }
+
 	UFUNCTION(BlueprintPure, Category = "Hawkeye|Aim")
 	float GetCurrentFOV() const;
 
@@ -1671,6 +1692,16 @@ protected:
 
 	/** Timer body: emits one movement noise event if the player is making any. */
 	void EmitMovementNoise();
+
+	/** The sprint button's setting, and the toggle's state while a press toggled it. */
+	EHawkeyeSprintMode SprintMode = EHawkeyeSprintMode::Default;
+	FHawkeyeSprintToggle SprintToggle;
+
+	/** Moves the toggle a frame: the stick centred past its 0.6 s turns it off. */
+	void UpdateSprintToggle(float DeltaSeconds);
+
+	/** The move stick was off centre this frame, whether or not the move was locked out (a zip, a vault). */
+	bool bStickPushedThisFrame = false;
 
 	UFUNCTION()
 	void HandleDeath(UHealthComponent* Health, AActor* Killer);

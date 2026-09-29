@@ -692,6 +692,14 @@ TSharedPtr<SWidget> AHawkeyePlayerController::GetFocusedMenuWidget() const
 
 void AHawkeyePlayerController::ApplyPauseInputMode(bool bPaused)
 {
+	// Every menu comes through here: a toggled sprint does not carry on under it (or after it).
+	if (bPaused)
+	{
+		if (AHawkeyeCharacter* Kate = Cast<AHawkeyeCharacter>(GetPawn()))
+		{
+			Kate->StopSprintToggle(EHawkeyeSprintStop::Menu);
+		}
+	}
 	if (!IsLocalController())
 	{
 		return;

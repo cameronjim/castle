@@ -40,6 +40,7 @@
 #include "Player/InventoryComponent.h"
 #include "Player/LocomotionAnim.h"
 #include "Player/ParkourComponent.h"
+#include "Misc/ScopeExit.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Settings/HawkeyeSettingsSubsystem.h"
 #include "Components/PawnNoiseEmitterComponent.h"
@@ -550,6 +551,7 @@ void AHawkeyeCharacter::ReleaseHeldInputs()
 	bIsSprinting = false;
 	bAimInputHeld = false;
 	bMeleeHeld = false;
+	StopSprintToggle(EHawkeyeSprintStop::Released);
 	bLightBuffered = false;
 	bCrouchTapPending = false;
 	bInventoryKeyHeld = false;
@@ -1061,6 +1063,8 @@ void AHawkeyeCharacter::Input_Move(const FInputActionValue& Value)
 	const bool bParkourLock = ParkourComponent && ParkourComponent->IsLockingInput();
 	const bool bDead = HealthComponent && !HealthComponent->IsAlive();
 	if (MoveInput.IsNearlyZero() || !Controller || IsLockedOutByTakedown() || IsZipping() || bParkourLock || bDead)
+	// The sprint toggle only cares whether the thumb is on the stick, locked out or not (a zip, a vault).
+	bStickPushedThisFrame |= !MoveInput.IsNearlyZero();
 	{
 		return;
 	}
@@ -1144,6 +1148,7 @@ void AHawkeyeCharacter::ApplySettings(const FHawkeyeSettings& NewSettings)
 	CameraShakeScale = UHawkeyeAccessibility::GetCameraShakeScale(NewSettings.bReduceCameraShake);
 	FlashScale = UHawkeyeAccessibility::GetFlashScale(NewSettings.bReduceFlashing);
 
+	SprintMode = NewSettings.SprintMode;
 	const EHawkeyeDifficulty Difficulty = NewSettings.Difficulty;
 	FallDamageScale = UDifficultySubsystem::GetTableValue(Difficulty, EDifficultyStat::FallDamage);
 	ParryWindowDelta = UDifficultySubsystem::GetTableValue(Difficulty, EDifficultyStat::ParryWindowSeconds);
@@ -1248,6 +1253,34 @@ void AHawkeyeCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 	UE_LOG(LogHawkeye, Verbose, TEXT("%s: sprint start at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
 	bIsSprinting = true;
 
+	// The controller sees every key before the action fires, so its last device is the one that pressed sprint.
+	const AHawkeyePlayerController* PC = Cast<AHawkeyePlayerController>(GetController());
+	PressSprint(PC && PC->IsUsingGamepad());
+}
+
+void AHawkeyeCharacter::Input_SprintCompleted(const FInputActionValue& /*Value*/)
+{
+	ReleaseSprint();
+}
+
+void AHawkeyeCharacter::PressSprint(bool bFromGamepad)
+{
+	if (FHawkeyeSprintToggle::UsesToggle(SprintMode, bFromGamepad))
+	{
+		if (!SprintToggle.Press())
+		{
+			UE_LOG(LogHawkeye, Log, TEXT("%s: sprint toggle off (second press)"), *GetNameSafe(this));
+			bIsSprinting = false;
+			UpdateMaxWalkSpeed();
+			return;
+		}
+		UE_LOG(LogHawkeye, Log, TEXT("%s: sprint toggle on (%s)"), *GetNameSafe(this), bFromGamepad ? TEXT("pad") : TEXT("keys"));
+	}
+	else
+	{
+		// A held press takes over from a toggle left on by the other device.
+		SprintToggle.Stop();
+	}
 	// You cannot sprint down the sights; the aim (and any draw) drops before the speed goes up.
 	StopAim();
 	UpdateMaxWalkSpeed();
@@ -1259,16 +1292,46 @@ void AHawkeyeCharacter::Input_SprintStarted(const FInputActionValue& /*Value*/)
 	}
 }
 
-void AHawkeyeCharacter::Input_SprintCompleted(const FInputActionValue& /*Value*/)
+void AHawkeyeCharacter::ReleaseSprint()
 {
 	UE_LOG(LogHawkeye, Verbose, TEXT("%s: sprint stop at %.0f cm/s"), *GetNameSafe(this), GetVelocity().Size2D());
 	bIsSprinting = false;
 	UpdateMaxWalkSpeed();
+	if (SprintToggle.IsOn())
+	{
+		// Toggled: the release means nothing; the next press, the stick or an aim ends it.
+		return;
+	}
 }
 
 void AHawkeyeCharacter::Input_AimStarted(const FInputActionValue& /*Value*/)
 {
 	PressAim();
+bool AHawkeyeCharacter::StopSprintToggle(EHawkeyeSprintStop Why)
+{
+	if (!SprintToggle.Stop())
+	{
+		return false;
+	}
+	UE_LOG(LogHawkeye, Log, TEXT("%s: sprint toggle off (%s)"), *GetNameSafe(this), FHawkeyeSprintToggle::StopName(Why));
+	bIsSprinting = false;
+	UpdateMaxWalkSpeed();
+	return true;
+}
+
+void AHawkeyeCharacter::UpdateSprintToggle(float DeltaSeconds)
+{
+	const bool bCentred = !bStickPushedThisFrame;
+	bStickPushedThisFrame = false;
+	if (SprintToggle.IsOn() && SprintToggle.Tick(DeltaSeconds, bCentred) == EHawkeyeSprintStop::StickCentred)
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: sprint toggle off (stick centred for %.1f s)"), *GetNameSafe(this),
+			SprintToggle.CentreSeconds);
+		bIsSprinting = false;
+		UpdateMaxWalkSpeed();
+	}
+}
+
 }
 
 void AHawkeyeCharacter::PressAim()
@@ -1276,6 +1339,8 @@ void AHawkeyeCharacter::PressAim()
 	// Toggled, the press flips what she is doing now (a sprint may have dropped the aim since).
 	bAimInputHeld = UHawkeyeAccessibility::ResolvePress(bToggleAim, bToggleAim ? bIsAiming : bAimInputHeld);
 	if (bAimInputHeld)
+	// A toggled sprint gives way to the aim (a held one still refuses it, as before).
+	StopSprintToggle(EHawkeyeSprintStop::Aim);
 	{
 		const bool bWasAiming = bIsAiming;
 		StartAim();
@@ -1315,6 +1380,7 @@ void AHawkeyeCharacter::NotifyBowDrawStarted()
 	if (bIsSprinting)
 	{
 		bIsSprinting = false;
+	StopSprintToggle(EHawkeyeSprintStop::Aim);
 	}
 	StartAim();
 	UpdateMaxWalkSpeed();
@@ -1689,6 +1755,7 @@ void AHawkeyeCharacter::PressCrouch()
 	{
 		return;
 	}
+	UpdateSprintToggle(DeltaSeconds);
 	// Crouch lets go of a ledge.
 	if (ParkourComponent && ParkourComponent->IsHanging())
 	{
@@ -1725,7 +1792,8 @@ void AHawkeyeCharacter::PressCrouch()
 	}
 	else if (bIsSprinting)
 	{
-		if (!StartSlide())
+		bKeepSprint = StartSlide();
+		if (!bKeepSprint)
 		{
 			Crouch();
 		}
@@ -1766,6 +1834,15 @@ void AHawkeyeCharacter::ReleaseCrouch()
 }
 
 bool AHawkeyeCharacter::IsCrouchWanted() const
+	// A crouch press ends a toggled sprint, unless it becomes (or lands in) a slide, which ends it as it stands up.
+	bool bKeepSprint = bIsSliding;
+	ON_SCOPE_EXIT
+	{
+		if (!bKeepSprint)
+		{
+			StopSprintToggle(EHawkeyeSprintStop::Crouch);
+		}
+	};
 {
 	// The movement component takes a crouch on its next update; until then only the wish is set.
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
@@ -2900,6 +2977,8 @@ void AHawkeyeCharacter::Landed(const FHitResult& Hit)
 	Super::Landed(Hit);
 
 	const float Z = GetActorLocation().Z;
+	// A toggled sprint that slid is done: she comes up out of the slide at a run.
+	StopSprintToggle(EHawkeyeSprintStop::SlideEnded);
 	ApplyLanding(FMath::Max(0.f, FMath::Max(FallApexZ, Z) - Z));
 }
 

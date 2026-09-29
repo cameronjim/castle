@@ -140,7 +140,7 @@ bool FHawkeyeAimAssistSetting::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Version 6 keeps the sensitivity"), Migrated->GetLookSensitivity(), 0.37f);
 	TestEqual(TEXT("And the time of day"), Migrated->GetStoredSettings().TimeOfDay, EHawkeyeTimeOfDay::Day);
 	TestEqual(TEXT("And gets Normal aim assist"), Migrated->GetStoredSettings().AimAssist, EHawkeyeAimAssist::Normal);
-	TestEqual(TEXT("Stamped version 7"), Migrated->GetStoredSettings().Version, 7);
+	TestEqual(TEXT("Stamped the current version"), Migrated->GetStoredSettings().Version, FHawkeyeSettings::CurrentVersion);
 	ClearSlot();
 	return true;
 }
