@@ -284,3 +284,63 @@ Get-Content "C:\Users\camer\code\hawkeye\Saved\Logs\Hawkeye.log" -Tail 50 | Sele
   which Kate doesn't use). Harmless so far. The NNEDenoiser plugin adds 98 MB and could be
   disabled.
 - Desktop shortcut: "Play Hawkeye (Packaged)".
+
+## Performance, 2026-09-29
+- `Tools\measure-perf.ps1` runs scripted tests in the standalone game (`-game`, editor binaries, uncooked)
+  with `-HawkeyePerfLog=2` (the game mode logs a `Perf [<test>/<phase>]` line every 2 s: frames, average,
+  p95 and worst frame, the stat unit split of game thread, render thread ("draw") and GPU, frames over
+  50 ms, working set and peak) and `-HawkeyeHitchMs=50` (every frame of 50 ms or more after a playable mark
+  is logged with its thread split). It samples its own process's working set and private bytes once a
+  second (`Saved\Perf\<tag>.memory.csv`), never another editor's, and prints one row per phase.
+  `-StatDump 12` adds `stat dumpave` every 12 s and `stat dumphitches` (it has to be switched on by the game
+  mode: `-ExecCmds` only starts an automation run when `Automation` leads the line). `-Extra` passes
+  switches such as `-dpcvars=` for a diagnostic run. Screenshot capture frames are counted apart.
+- `Hawkeye.Perf.Tour` covers what the laps don't: 8 s standing on the block, 8 s with the map open, 8 s
+  with the inventory open, and a death reload with no save (`RestartMission(0)`, the level reopened).
+  Fast travel is `Hawkeye.Lap.FastTravel`, the interior enter and exit `Hawkeye.Lap.InteriorWalk`.
+- `Tools\run-tests.ps1 -LogFile <path> -Report <dir>` keeps a run's log and report apart from another
+  agent's.
+
+Measured on this machine (RTX 4070, i7-13700K, 16 GB), before and after the fixes below. Frame numbers
+are ms, average / p95 (game, draw, GPU averages for the fight). "Hitches" counts frames of 50 ms or more
+after a playable mark, captures left out. Laps, fight and duel came out the same both times: lap 36.6 s
+completed; street fight (bat, gunner, heavy; music on; the fight camera did not engage, no two alerted
+thugs came within its 6 m) won in 15.6 s, 1 hit taken, 6 arrows; archer duel won in 8.9 s, 0 hits, 4 arrows.
+
+| Run | Lap | Street fight (game/draw/GPU) | Duel | Idle | Map open | Inventory open | Worst after a level change | Peak working set | Hitches |
+|-----|-----|------------------------------|------|------|----------|----------------|----------------------------|------------------|---------|
+| Night 1280x720, before | 7.0 / 8.7 | 6.7 / 11.3 (6.1, 5.4, 4.3) | 6.0 / 9.3 | 6.0 / 6.7 | 5.6 / 6.4 | 5.5 / 6.4 | 662 (reload), 628 (interior) | 8.54 GB (private 10.0) | 12 |
+| Night 1280x720, after | 5.9 / 7.0 | 6.3 / 11.5 (5.7, 4.9, 4.0) | 5.3 / 7.3 | 5.4 / 6.1 | 5.0 / 5.8 | 4.9 / 5.7 | 71 (reload), 55 (interior) | 8.13 GB (private 9.3) | 6 |
+| Day 1280x720, before | 7.0 / 8.7 | 6.7 / 10.8 (6.0, 5.4, 4.2) | 6.0 / 8.5 | 6.0 / 6.7 | 5.6 / 6.5 | 5.5 / 6.3 | 653, 622 | 8.47 GB | 7 |
+| Day 1280x720, after | 5.9 / 7.8 | 6.4 / 10.8 (5.8, 4.9, 4.0) | 5.4 / 7.8 | 5.4 / 6.1 | 5.0 / 5.7 | 4.9 / 5.7 | 67, 60 | 8.19 GB | 7 |
+| Night 1920x1080, before | 7.3 / 8.5 | 7.0 / 10.7 (5.8, 5.7, 4.8) | 6.4 / 9.4 | 6.4 / 6.8 | 6.0 / 6.6 | 5.9 / 6.5 | 642, 621 | 8.63 GB | 8 |
+| Night 1920x1080, after | 6.3 / 7.1 | 6.6 / 10.9 (5.5, 5.2, 4.5) | 5.8 / 7.2 | 5.8 / 6.2 | 5.4 / 5.7 | 5.3 / 5.6 | 74, 62 | 8.25 GB | 4 |
+
+- Load (`measure-load.ps1`, 3 runs, reload at 10 s): playable after 22.5 to 23.0 s warm before, 21.9 s
+  after, so the 21 s editor-build figure above still holds (the packaged 5 s figure was not re-measured); LoadMap 13.4
+  to 14.4 s either way; the scripted death reload 1.6 s either way. Level changes late in a session got
+  quicker once the block has streamed in: interior in 1.02 to 0.79 s, out 1.17 to 1.10 s, reload 2.13 to
+  1.77 s. The first run after another process has used the machine is slower (27 to 47 s); don't read it.
+- Hitches left: the first one or two frames after every playable mark (55 to 110 ms; the frame the load
+  finished in, then streaming completions), one frame at 10.2 s that is the automation run starting (game,
+  draw and GPU all small), one at 65 s in the lap that is the lap test's own 34,000-ray roof survey, and
+  0.5 s screenshot captures. None is the game's steady state.
+- Where the time goes (`stat dumpave`, street fight): game thread about 4 ms of world tick, spread thin
+  (tick groups 0.6 to 1.2 ms each, animation, movement); every Hawkeye tickable together (music, crime,
+  challenges, time of day) is 0.25 ms. The overhead widget, grapple targeting (grid, 0.1 s), fight camera
+  (0.25 s recount), and music (pushes a gain only when it changes) are below the dump's 0.1 ms cut. Render
+  thread about 5 ms (UpdatePrimitive 1.9 incl. 1.45 waiting on the occlusion fence, InitViews 1.5). GPU 4
+  to 5 ms at both resolutions, night and day alike, so the 285 lamp lights are not worth culling.
+- The one real cost was the ledges: each streamed-in `BP_TraversableBlock` (Game Animation Sample) carries
+  visible spline components, and a spline in a game world is still a scene primitive. With the block
+  streamed in that was thousands of primitives the visibility pass walked every frame, 13 ms of AddPrimitive
+  in some streaming frames, and 0.6 s of render thread removing them on every level change (the old world's
+  purge, three frames after the playable mark). `ACityLedgeSpawner::MakeTraceOnly` now hides them in game
+  worlds (the editor still draws them); the traversal's queries read the geometry, not the render state.
+- Memory: the peak working set never passed 9 GB (8.5 before, 8.1 to 8.3 after); private bytes peaked at
+  10.0 GB before and 9.3 after. Most of it is uncooked editor data behind the animation sample; a cooked
+  build is the way to cut it further. A run where the working set drops to 3 to 4 GB with private bytes
+  still at 9 GB was trimmed by Windows under another process's memory pressure, and its frame times (draw
+  50 ms) are not the game's.
+- `UTimeOfDaySubsystem::SetGlow` drops entries whose material has gone when a new one registers, not
+  only at the next Apply.
