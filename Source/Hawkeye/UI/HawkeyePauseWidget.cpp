@@ -36,6 +36,10 @@ void UHawkeyePauseWidget::ApplyDefaultLabels()
 	{
 		MarkSafehouseLabel = NSLOCTEXT("Hawkeye", "PauseMarkSafehouse", "Mark nearest safehouse");
 	}
+	if (MarkChallengeLabel.IsEmpty())
+	{
+		MarkChallengeLabel = NSLOCTEXT("Hawkeye", "PauseMarkChallenge", "Mark nearest challenge");
+	}
 	if (RestartMissionLabel.IsEmpty())
 	{
 		RestartMissionLabel = NSLOCTEXT("Hawkeye", "PauseRestart", "Restart mission");
@@ -117,6 +121,7 @@ TSharedRef<SWidget> UHawkeyePauseWidget::RebuildWidget()
 		AddButton(SettingsButton, TEXT("SettingsButton"), SettingsLabel);
 		AddButton(ReplayFlashbacksButton, TEXT("ReplayFlashbacksButton"), ReplayFlashbacksLabel);
 		AddButton(MarkSafehouseButton, TEXT("MarkSafehouseButton"), MarkSafehouseLabel);
+		AddButton(MarkChallengeButton, TEXT("MarkChallengeButton"), MarkChallengeLabel);
 		AddButton(RestartMissionButton, TEXT("RestartMissionButton"), RestartMissionLabel);
 		AddButton(QuitToMenuButton, TEXT("QuitToMenuButton"), QuitToMenuLabel);
 		AddButton(QuitToDesktopButton, TEXT("QuitToDesktopButton"), QuitToDesktopLabel);
@@ -152,6 +157,10 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		MarkSafehouseButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleMarkSafehouseClicked);
 	}
+	if (MarkChallengeButton)
+	{
+		MarkChallengeButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleMarkChallengeClicked);
+	}
 	if (RestartMissionButton)
 	{
 		RestartMissionButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleRestartMissionClicked);
@@ -164,8 +173,8 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		QuitToDesktopButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleQuitToDesktopClicked);
 	}
-	for (UButton* Button : { ResumeButton.Get(), SettingsButton.Get(), ReplayFlashbacksButton.Get(), MarkSafehouseButton.Get(), RestartMissionButton.Get(),
-			 QuitToMenuButton.Get(), QuitToDesktopButton.Get() })
+	for (UButton* Button : { ResumeButton.Get(), SettingsButton.Get(), ReplayFlashbacksButton.Get(), MarkSafehouseButton.Get(),
+			 MarkChallengeButton.Get(), RestartMissionButton.Get(), QuitToMenuButton.Get(), QuitToDesktopButton.Get() })
 	{
 		if (Button)
 		{
@@ -196,6 +205,10 @@ void UHawkeyePauseWidget::NativeDestruct()
 		if (MarkSafehouseButton)
 		{
 			MarkSafehouseButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleMarkSafehouseClicked);
+		}
+		if (MarkChallengeButton)
+		{
+			MarkChallengeButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleMarkChallengeClicked);
 		}
 		if (RestartMissionButton)
 		{
@@ -243,6 +256,11 @@ void UHawkeyePauseWidget::HandleReplayFlashbacksClicked()
 void UHawkeyePauseWidget::HandleMarkSafehouseClicked()
 {
 	OnMarkSafehouseClicked.Broadcast();
+}
+
+void UHawkeyePauseWidget::HandleMarkChallengeClicked()
+{
+	OnMarkChallengeClicked.Broadcast();
 }
 
 void UHawkeyePauseWidget::HandleRestartMissionClicked()

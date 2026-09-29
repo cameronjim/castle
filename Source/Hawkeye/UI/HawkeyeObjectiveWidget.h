@@ -105,9 +105,52 @@ public:
 		return Secondary.IsValidIndex(Index) ? Secondary[Index].Placement : FObjectiveMarkerPlacement();
 	}
 
-	/** Discovered safehouses drawn on the compass this frame (a small house each). */
+	/** Safehouses drawn on the compass this frame (a small house each: filled once found, hollow before). */
 	UFUNCTION(BlueprintPure, Category = "HUD|Compass")
 	int32 GetCompassSafehouseCount() const { return SafehouseIcons.Num(); }
+
+	/** Whether compass house Index is a found safehouse (filled) rather than an unfound one (hollow). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Compass")
+	bool IsCompassSafehouseDiscovered(int32 Index) const
+	{
+		return SafehouseIcons.IsValidIndex(Index) && SafehouseIcons[Index].bDiscovered;
+	}
+
+	/** Challenge pedestals within ChallengeCompassRange, drawn on the compass this frame (a small medal each). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Compass")
+	int32 GetCompassChallengeCount() const { return ChallengeIcons.Num(); }
+
+	/** Pedestals with a world marker (medal and distance) this frame. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	int32 GetChallengeMarkerCount() const { return ChallengeMarks.Num(); }
+
+	/** The name under the marked safehouse's marker ("[Unknown safehouse]" before it is found); empty when none is marked. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Objective")
+	FText GetMarkedSafehouseLabel() const { return MarkedSafehouseLabel; }
+
+	/** The downed ring is up this frame (the player is down and the fade has not started). */
+	UFUNCTION(BlueprintPure, Category = "HUD|Downed")
+	bool IsDownedRingVisible() const { return bDownedRing; }
+
+	/** The line under the ring: "[Clint is coming]", "[Hold on]", or the key hint when nobody is. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Downed")
+	FText GetDownedText() const { return DownedText; }
+
+	/** "[You're down]" over the fade to the last save; empty otherwise. */
+	UFUNCTION(BlueprintPure, Category = "HUD|Downed")
+	FText GetDeathLine() const { return DeathLine; }
+
+	/** Pedestals this close show on the compass, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Compass", meta = (ClampMin = "0.0"))
+	float ChallengeCompassRange = 15000.f;
+
+	/** Pedestals this close get a world marker when no objective is nearer, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Objective", meta = (ClampMin = "0.0"))
+	float ChallengeMarkerRange = 8000.f;
+
+	/** The partner this close to a downed player is reviving her ("[Hold on]"), not on his way, cm. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "HUD|Downed", meta = (ClampMin = "0.0"))
+	float ReviverBesideDistance = 250.f;
 
 	/** Offset from the strip's centre of safehouse icon Index, px. */
 	UFUNCTION(BlueprintPure, Category = "HUD|Compass")
@@ -138,8 +181,21 @@ protected:
 
 	void PaintSecondary(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
 
-	/** Puts every discovered safehouse on the compass strip. */
+	/** Puts every safehouse on the compass strip, found or not. */
 	void UpdateSafehouseIcons(const FVector& PawnLocation, const FVector& CameraLocation);
+
+	/**
+	 * Pedestals on the compass (within ChallengeCompassRange) and in the world (within ChallengeMarkerRange
+	 * and nearer than ObjectiveDistance). None while a challenge runs.
+	 */
+	void UpdateChallengeIcons(APlayerController* PC, const FVector& PawnLocation, const FVector& CameraLocation,
+		float ObjectiveDistance);
+
+	/** The ring and its line while the pawn is down; the death line once the fade has started. */
+	void UpdateDowned(const APawn* Pawn);
+
+	void PaintChallengeIcons(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
+	void PaintDowned(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
 
 	void PaintSafehouseIcons(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const;
 
@@ -232,22 +288,48 @@ private:
 	/** Id of the objective that was current when last looked, so a change can be announced. */
 	FName LastCurrentObjectiveId;
 
+	/** What a secondary marker marks, which picks its glyph. */
+	enum class ESecondaryKind : uint8 { Plain, Safehouse, Challenge };
+
 	struct FSecondaryMark
 	{
 		FObjectiveMarkerPlacement Placement;
 		float CompassOffset = 0.f;
 		bool bCompassClamped = false;
 		float Distance = 0.f;
+		ESecondaryKind Kind = ESecondaryKind::Plain;
+		/** A safehouse marker on one not found yet: a "?" in the house. */
+		bool bUnknown = false;
 	};
 
 	struct FSafehouseIcon
 	{
 		float Offset = 0.f;
 		bool bClamped = false;
+		bool bDiscovered = false;
 	};
 
 	/** This frame's safehouse houses on the compass. */
 	TArray<FSafehouseIcon> SafehouseIcons;
+
+	/** This frame's pedestal medals on the compass (Offset and bClamped as for the houses). */
+	TArray<FSafehouseIcon> ChallengeIcons;
+
+	struct FChallengeMark
+	{
+		FObjectiveMarkerPlacement Placement;
+		FText DistanceText;
+	};
+
+	/** This frame's pedestal world markers. */
+	TArray<FChallengeMark> ChallengeMarks;
+
+	FText MarkedSafehouseLabel;
+
+	bool bDownedRing = false;
+	float DownedFraction = 0.f;
+	FText DownedText;
+	FText DeathLine;
 
 	/** This frame's secondary markers; the nearest one carries the distance. */
 	TArray<FSecondaryMark> Secondary;

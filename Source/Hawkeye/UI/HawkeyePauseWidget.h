@@ -13,8 +13,8 @@ class UVerticalBox;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnPauseMenuChoiceSignature);
 
 /**
- * The Escape menu: Resume, Settings, Replay flashbacks, Mark nearest safehouse, Restart mission (the last save), Quit to menu,
- * Quit to desktop.
+ * The Escape menu: Resume, Settings, Replay flashbacks, Mark nearest safehouse, Mark nearest challenge, Restart mission
+ * (the last save), Quit to menu, Quit to desktop.
  *
  * Reparent a UMG widget to this class and name the buttons ResumeButton, SettingsButton,
  * RestartMissionButton, QuitToMenuButton and QuitToDesktopButton to have them driven automatically. A subclass
@@ -39,9 +39,13 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnReplayFlashbacksClicked;
 
-	/** "Mark nearest safehouse": a marker on the nearest discovered safehouse. */
+	/** "Mark nearest safehouse": a marker on the nearest safehouse, found or not. */
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnMarkSafehouseClicked;
+
+	/** "Mark nearest challenge": a marker on the nearest challenge pedestal. */
+	UPROPERTY(BlueprintAssignable, Category = "Pause")
+	FOnPauseMenuChoiceSignature OnMarkChallengeClicked;
 
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnRestartMissionClicked;
@@ -67,6 +71,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText MarkSafehouseLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
+	FText MarkChallengeLabel;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText RestartMissionLabel;
@@ -95,6 +102,9 @@ protected:
 
 	UFUNCTION()
 	void HandleMarkSafehouseClicked();
+
+	UFUNCTION()
+	void HandleMarkChallengeClicked();
 
 	UFUNCTION()
 	void HandleRestartMissionClicked();
@@ -127,6 +137,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> MarkSafehouseButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> MarkChallengeButton = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> RestartMissionButton = nullptr;

@@ -123,6 +123,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Save|Safehouse")
 	FName GetLastSafehouse() const;
 
+	/** Records that the "nearby" toast announced PlaceId (a safehouse or pedestal). True the first time. */
+	bool NotePlace(FName PlaceId);
+
+	/** The ids NotePlace has recorded. */
+	TArray<FName> GetNoticedPlaces() const;
+
 	// --- Autosave ---------------------------------------------------------------------------------
 
 	/**

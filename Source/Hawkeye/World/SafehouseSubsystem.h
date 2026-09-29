@@ -47,7 +47,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnFastTravelFinishedSignature, FNa
  *   beside her, record it as the last-used safehouse, autosave ("fast travel"), hold (HoldSeconds),
  *   fade back in (FadeInSeconds). No map load: the district is one map. Under 3 s from fade to fade.
  * - The pause menu's "Mark nearest safehouse" puts a secondary objective marker on the nearest
- *   discovered safehouse; walking into any safehouse clears it.
+ *   safehouse, found or not (an unfound one is "[Unknown safehouse]" with a "?"); walking into any
+ *   safehouse clears it. Every safehouse is on the compass: found ones as a house, unfound hollow.
+ * - The first time the player comes within NoticeRadius of an unfound safehouse, a "[Safehouse
+ *   nearby]" toast and the marker on it (AHawkeyePlayerController asks FindUnnoticed; the save keeps
+ *   the noticed ids).
  */
 UCLASS()
 class HAWKEYE_API USafehouseSubsystem : public UWorldSubsystem
@@ -106,6 +110,27 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Safehouse")
 	ASafehouse* FindNearestDiscovered(const FVector& From) const;
 
+	/** The safehouse nearest From, discovered or not; null only when the district has none. */
+	UFUNCTION(BlueprintPure, Category = "Safehouse")
+	ASafehouse* FindNearestAny(const FVector& From) const;
+
+	/** How close an unfound safehouse has to be for the "[Safehouse nearby]" toast, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Safehouse|Marker", meta = (ClampMin = "0.0"))
+	float NoticeRadius = 6000.f;
+
+	/** The nearest safehouse within Radius of From that is in neither Discovered nor Noticed, or null. */
+	ASafehouse* FindUnnoticed(const FVector& From, float Radius, const TArray<FName>& Discovered,
+		const TArray<FName>& Noticed) const;
+
+	/** What the marker and the toast call a safehouse: its name once found, "[Unknown safehouse]" before. */
+	static FText GetMarkerName(const ASafehouse* Safehouse, bool bDiscovered);
+
+	/** GetMarkerName with the save's discovered set. */
+	FText GetMarkerNameNow(const ASafehouse* Safehouse) const;
+
+	/** True when the save has Safehouse as found. */
+	bool IsDiscoveredNow(const ASafehouse* Safehouse) const;
+
 	// --- Fast travel ---------------------------------------------------------------------------------
 
 	/** "[Can't fast travel now]" when any of these holds, else empty. */
@@ -139,9 +164,12 @@ public:
 
 	// --- The safehouse marker ------------------------------------------------------------------------
 
-	/** Marks the discovered safehouse nearest From. Returns it, or null when none is discovered. */
+	/** Marks the safehouse nearest From, found or not. Returns it, or null when the district has none. */
 	UFUNCTION(BlueprintCallable, Category = "Safehouse")
 	ASafehouse* MarkNearestSafehouse(const FVector& From);
+
+	/** Marks Safehouse (the nearby toast uses it). False for null. */
+	bool MarkSafehouse(ASafehouse* Safehouse);
 
 	UFUNCTION(BlueprintCallable, Category = "Safehouse")
 	void ClearSafehouseMarker();

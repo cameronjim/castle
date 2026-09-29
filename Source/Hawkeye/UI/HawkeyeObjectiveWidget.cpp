@@ -19,6 +19,11 @@
 #include "Rendering/SlateRenderer.h"
 #include "SceneView.h"
 #include "Styling/CoreStyle.h"
+#include "Challenge/ChallengeDefinition.h"
+#include "Challenge/ChallengeStart.h"
+#include "Challenge/ChallengeSubsystem.h"
+#include "Player/HawkeyeCharacter.h"
+#include "World/Safehouse.h"
 #include "World/SafehouseSubsystem.h"
 
 namespace HawkeyeObjectiveHud
@@ -66,6 +71,79 @@ namespace HawkeyeObjectiveHud
 			ESlateDrawEffect::None, ShadowColor, true, Thickness);
 		FSlateDrawElement::MakeLines(Out, LayerId + 1, Geometry.ToPaintGeometry(), Points(Centre),
 			ESlateDrawEffect::None, Color, true, Thickness);
+	}
+
+	/** Points round a circle of Radius about Centre, from straight up clockwise, Fraction of the way. */
+	static TArray<FVector2D> ArcPoints(const FVector2D& Centre, float Radius, float Fraction, int32 Segments = 32)
+	{
+		TArray<FVector2D> Points;
+		const int32 Count = FMath::Max(1, FMath::CeilToInt(Segments * FMath::Clamp(Fraction, 0.f, 1.f)));
+		for (int32 Index = 0; Index <= Count; ++Index)
+		{
+			const float Angle = 2.f * PI * Fraction * Index / Count - 0.5f * PI;
+			Points.Add(Centre + FVector2D(FMath::Cos(Angle), FMath::Sin(Angle)) * Radius);
+		}
+		return Points;
+	}
+
+	/** Lines with the one-pixel drop shadow everything else has. */
+	static void DrawShadowedLines(FSlateWindowElementList& Out, int32 LayerId, const FGeometry& Geometry,
+		const TArray<FVector2D>& Points, const FLinearColor& Color, float Thickness)
+	{
+		FLinearColor ShadowColor = Shadow;
+		ShadowColor.A *= Color.A;
+		TArray<FVector2D> ShadowPoints;
+		for (const FVector2D& Point : Points)
+		{
+			ShadowPoints.Add(Point + FVector2D(1.f, 1.f));
+		}
+		FSlateDrawElement::MakeLines(Out, LayerId, Geometry.ToPaintGeometry(), ShadowPoints, ESlateDrawEffect::None, ShadowColor, true, Thickness);
+		FSlateDrawElement::MakeLines(Out, LayerId + 1, Geometry.ToPaintGeometry(), Points, ESlateDrawEffect::None, Color, true, Thickness);
+	}
+
+	/**
+	 * A house Scale times 12 px wide: a body under a pitched roof. Filled for a safehouse that has been
+	 * found, only outlined before; bQuestion puts a "?" in it (a marked one not found yet).
+	 */
+	static void DrawHouse(FSlateWindowElementList& Out, int32 LayerId, const FGeometry& Geometry, const FVector2D& C,
+		float Scale, const FLinearColor& Color, bool bFilled, bool bQuestion)
+	{
+		const float S = Scale;
+		const TArray<FVector2D> House{ C + FVector2D(-5.f, 6.f) * S, C + FVector2D(-5.f, -1.f) * S, C + FVector2D(-7.f, -1.f) * S,
+			C + FVector2D(0.f, -7.f) * S, C + FVector2D(7.f, -1.f) * S, C + FVector2D(5.f, -1.f) * S, C + FVector2D(5.f, 6.f) * S,
+			C + FVector2D(-5.f, 6.f) * S };
+		if (bFilled)
+		{
+			FSlateDrawElement::MakeBox(Out, LayerId + 1,
+				Geometry.ToPaintGeometry(FVector2f(10.f * S, 7.f * S), FSlateLayoutTransform(FVector2f(C + FVector2D(-5.f, -1.f) * S))),
+				FCoreStyle::Get().GetBrush(TEXT("WhiteBrush")), ESlateDrawEffect::None, Color);
+			for (float Row = 0.f; Row < 6.f; Row += 1.f)
+			{
+				const float Half = Row;
+				FSlateDrawElement::MakeLines(Out, LayerId + 1, Geometry.ToPaintGeometry(),
+					TArray<FVector2D>{ C + FVector2D(-Half, -6.f + Row) * S, C + FVector2D(Half, -6.f + Row) * S },
+					ESlateDrawEffect::None, Color, true, 1.5f * S);
+			}
+		}
+		DrawShadowedLines(Out, LayerId, Geometry, House, Color, 2.f);
+		if (bQuestion)
+		{
+			const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), FMath::RoundToInt(7.f * S));
+			DrawText(Out, LayerId + 2, Geometry, FText::FromString(TEXT("?")), Font, C + FVector2D(0.f, -2.f * S), Color);
+		}
+	}
+
+	/** A medal Radius across the disc: a ring on a V of ribbon, the challenge pedestals' glyph. */
+	static void DrawMedal(FSlateWindowElementList& Out, int32 LayerId, const FGeometry& Geometry, const FVector2D& C,
+		float Radius, const FLinearColor& Color)
+	{
+		const FVector2D Disc = C + FVector2D(0.f, Radius * 0.45f);
+		DrawShadowedLines(Out, LayerId, Geometry, TArray<FVector2D>{ C + FVector2D(-Radius * 0.7f, -Radius * 1.2f),
+			Disc + FVector2D(0.f, -Radius * 0.9f), C + FVector2D(Radius * 0.7f, -Radius * 1.2f) }, Color, 2.f);
+		DrawShadowedLines(Out, LayerId, Geometry, ArcPoints(Disc, Radius * 0.75f, 1.f, 16), Color, 2.f);
+		FSlateDrawElement::MakeBox(Out, LayerId + 1,
+			Geometry.ToPaintGeometry(FVector2f(Radius * 0.6f, Radius * 0.6f), FSlateLayoutTransform(FVector2f(Disc - FVector2D(Radius * 0.3f)))),
+			FCoreStyle::Get().GetBrush(TEXT("WhiteBrush")), ESlateDrawEffect::None, Color);
 	}
 }
 
@@ -228,9 +306,19 @@ void UHawkeyeObjectiveWidget::UpdateMarker(const FGeometry& /*MyGeometry*/)
 	Secondary.Reset();
 	NearestSecondary = INDEX_NONE;
 	SafehouseIcons.Reset();
+	ChallengeIcons.Reset();
+	ChallengeMarks.Reset();
+	MarkedSafehouseLabel = FText::GetEmpty();
+	UpdateDowned(Pawn);
+
+	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
+	FVector Target;
+	const bool bHasTarget = Pawn && Missions && Missions->GetCurrentObjectiveLocation(Target);
+	const float Distance = bHasTarget ? FVector::Dist(Pawn->GetActorLocation(), Target) : BIG_NUMBER;
 	if (Pawn)
 	{
 		UpdateSafehouseIcons(Pawn->GetActorLocation(), CameraLocation);
+		UpdateChallengeIcons(PC, Pawn->GetActorLocation(), CameraLocation, Distance);
 	}
 	if (Pawn && UpdateSecondaryMarkers(PC, Pawn->GetActorLocation(), CameraLocation))
 	{
@@ -238,14 +326,7 @@ void UHawkeyeObjectiveWidget::UpdateMarker(const FGeometry& /*MyGeometry*/)
 		return;
 	}
 
-	const UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
-	FVector Target;
-	if (!Pawn || !Missions || !Missions->GetCurrentObjectiveLocation(Target))
-	{
-		return;
-	}
-	const float Distance = FVector::Dist(Pawn->GetActorLocation(), Target);
-	if (Distance < HideWithinDistance)
+	if (!bHasTarget || Distance < HideWithinDistance)
 	{
 		return;
 	}
@@ -287,11 +368,26 @@ bool UHawkeyeObjectiveWidget::UpdateSecondaryMarkers(APlayerController* PC, cons
 	const FIntRect ViewRect = bProjects ? Projection.GetConstrainedViewRect() : FIntRect();
 	ViewportScale = FMath::Max(UWidgetLayoutLibrary::GetViewportScale(this), UE_KINDA_SMALL_NUMBER);
 	ViewRectMin = FVector2D(ViewRect.Min);
+	// A marked safehouse draws as a house (with a "?" until found) and a marked pedestal as a medal.
+	const USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this);
+	const ASafehouse* MarkedHouse = Safehouses ? Safehouses->GetMarkedSafehouse() : nullptr;
+	const UChallengeSubsystem* Challenges = UChallengeSubsystem::Get(this);
+	const AChallengeStart* MarkedStart = Challenges ? Challenges->GetMarkedStart() : nullptr;
 	float Nearest = BIG_NUMBER;
 	for (const FVector& Point : Points)
 	{
 		FSecondaryMark Mark;
 		Mark.Distance = FVector::Dist(PawnLocation, Point);
+		if (MarkedHouse && Point.Equals(MarkedHouse->GetActorLocation() + FVector(0.f, 0.f, USafehouseSubsystem::MarkerUp), 1.f))
+		{
+			Mark.Kind = ESecondaryKind::Safehouse;
+			Mark.bUnknown = !Safehouses->IsDiscoveredNow(MarkedHouse);
+			MarkedSafehouseLabel = USafehouseSubsystem::GetMarkerName(MarkedHouse, !Mark.bUnknown);
+		}
+		else if (MarkedStart && Point.Equals(MarkedStart->GetActorLocation() + FVector(0.f, 0.f, UChallengeSubsystem::StartMarkerUp), 1.f))
+		{
+			Mark.Kind = ESecondaryKind::Challenge;
+		}
 		Mark.CompassOffset = UObjectiveMarkerMath::CompassOffset(UObjectiveMarkerMath::BearingBetween(CameraLocation, Point,
 			NorthYawDegrees), ViewBearing, CompassWidth, CompassSpanDegrees, Mark.bCompassClamped);
 		if (bProjects)
@@ -319,39 +415,155 @@ void UHawkeyeObjectiveWidget::UpdateSafehouseIcons(const FVector& PawnLocation, 
 	}
 	for (const FHawkeyeSafehouseEntry& Entry : Safehouses->GetEntries())
 	{
-		if (!Entry.bDiscovered || FVector::Dist(PawnLocation, Entry.Location) < HideWithinDistance)
+		if (FVector::Dist(PawnLocation, Entry.Location) < HideWithinDistance)
 		{
 			continue;
 		}
 		FSafehouseIcon& Icon = SafehouseIcons.AddDefaulted_GetRef();
+		Icon.bDiscovered = Entry.bDiscovered;
 		Icon.Offset = UObjectiveMarkerMath::CompassOffset(UObjectiveMarkerMath::BearingBetween(CameraLocation, Entry.Location,
 			NorthYawDegrees), ViewBearing, CompassWidth, CompassSpanDegrees, Icon.bClamped);
 	}
 }
 
+void UHawkeyeObjectiveWidget::UpdateChallengeIcons(APlayerController* PC, const FVector& PawnLocation,
+	const FVector& CameraLocation, float ObjectiveDistance)
+{
+	const UChallengeSubsystem* Challenges = UChallengeSubsystem::Get(this);
+	if (!Challenges || Challenges->IsRunning())
+	{
+		return;
+	}
+	ULocalPlayer* LocalPlayer = PC ? PC->GetLocalPlayer() : nullptr;
+	FSceneViewProjectionData Projection;
+	const bool bProjects = LocalPlayer && LocalPlayer->ViewportClient
+		&& LocalPlayer->GetProjectionData(LocalPlayer->ViewportClient->Viewport, Projection);
+	const FIntRect ViewRect = bProjects ? Projection.GetConstrainedViewRect() : FIntRect();
+	for (const AChallengeStart* Start : Challenges->GetStarts())
+	{
+		// The icon floating over the cap, a little higher so the marker sits clear of it.
+		const FVector Point = Start->GetActorLocation() + FVector(0.f, 0.f, UChallengeSubsystem::StartMarkerUp + 60.f);
+		const float Distance = FVector::Dist(PawnLocation, Point);
+		if (Distance < HideWithinDistance || Distance > ChallengeCompassRange)
+		{
+			continue;
+		}
+		FSafehouseIcon& Icon = ChallengeIcons.AddDefaulted_GetRef();
+		Icon.Offset = UObjectiveMarkerMath::CompassOffset(UObjectiveMarkerMath::BearingBetween(CameraLocation, Point,
+			NorthYawDegrees), ViewBearing, CompassWidth, CompassSpanDegrees, Icon.bClamped);
+		// The world marker: near enough, nothing to do nearer, and not already the marked one.
+		if (!bProjects || Distance > ChallengeMarkerRange || Distance >= ObjectiveDistance || Start == Challenges->GetMarkedStart())
+		{
+			continue;
+		}
+		ViewportScale = FMath::Max(UWidgetLayoutLibrary::GetViewportScale(this), UE_KINDA_SMALL_NUMBER);
+		ViewRectMin = FVector2D(ViewRect.Min);
+		FChallengeMark& Mark = ChallengeMarks.AddDefaulted_GetRef();
+		Mark.Placement = UObjectiveMarkerMath::PlaceMarker(Point, Projection.ComputeViewProjectionMatrix(),
+			FVector2D(ViewRect.Width(), ViewRect.Height()), EdgeMargin * ViewportScale);
+		Mark.DistanceText = UObjectiveMarkerMath::FormatDistance(Distance);
+	}
+}
+
+void UHawkeyeObjectiveWidget::UpdateDowned(const APawn* Pawn)
+{
+	bDownedRing = false;
+	DownedText = FText::GetEmpty();
+	DeathLine = FText::GetEmpty();
+	const AHawkeyeCharacter* Hawkeye = Cast<AHawkeyeCharacter>(Pawn);
+	if (!Hawkeye || !Hawkeye->IsDowned())
+	{
+		return;
+	}
+	if (Hawkeye->HasDiedFromDown())
+	{
+		DeathLine = NSLOCTEXT("Hawkeye", "DownedDeathLine", "[You're down]");
+		return;
+	}
+	bDownedRing = true;
+	DownedFraction = Hawkeye->GetDownedFractionLeft();
+	const AHawkeyeCharacter* Reviver = Cast<AHawkeyeCharacter>(Hawkeye->GetReviver());
+	if (!Hawkeye->IsReviveExpected())
+	{
+		// Nobody is coming: only the way out (placeholder).
+		DownedText = NSLOCTEXT("Hawkeye", "DownedNoRevive", "[Any key]");
+	}
+	else if (Reviver && FVector::Dist(Reviver->GetActorLocation(), Hawkeye->GetActorLocation()) <= ReviverBesideDistance)
+	{
+		DownedText = NSLOCTEXT("Hawkeye", "DownedHoldOn", "[Hold on]");
+	}
+	else
+	{
+		DownedText = FText::Format(NSLOCTEXT("Hawkeye", "DownedComing", "[{0} is coming]"),
+			Reviver ? Reviver->GetCharacterName() : NSLOCTEXT("Hawkeye", "DownedPartner", "Help"));
+	}
+}
+
 void UHawkeyeObjectiveWidget::PaintSafehouseIcons(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
 {
-	// A house 12 px wide: a square body under a pitched roof, in the marker's cream.
+	// A house 12 px wide in the marker's cream: filled once found, hollow (and dimmer) before.
 	const float CentreX = Geometry.GetLocalSize().X * 0.5f;
 	const float Mid = CompassTop + HawkeyeObjectiveHud::CompassHeight * 0.5f;
 	for (const FSafehouseIcon& Icon : SafehouseIcons)
 	{
-		const float X = CentreX + Icon.Offset;
 		FLinearColor Color = MarkerColor;
-		Color.A = Icon.bClamped ? 0.45f : 0.95f;
-		const TArray<FVector2D> House{ FVector2D(X - 5.f, Mid + 6.f), FVector2D(X - 5.f, Mid - 1.f), FVector2D(X - 7.f, Mid - 1.f),
-			FVector2D(X, Mid - 7.f), FVector2D(X + 7.f, Mid - 1.f), FVector2D(X + 5.f, Mid - 1.f), FVector2D(X + 5.f, Mid + 6.f),
-			FVector2D(X - 5.f, Mid + 6.f) };
-		FLinearColor ShadowColor = HawkeyeObjectiveHud::Shadow;
-		ShadowColor.A *= Color.A;
-		TArray<FVector2D> ShadowPoints;
-		for (const FVector2D& Point : House)
-		{
-			ShadowPoints.Add(Point + FVector2D(1.f, 1.f));
-		}
-		FSlateDrawElement::MakeLines(Out, LayerId, Geometry.ToPaintGeometry(), ShadowPoints, ESlateDrawEffect::None, ShadowColor, true, 2.f);
-		FSlateDrawElement::MakeLines(Out, LayerId + 1, Geometry.ToPaintGeometry(), House, ESlateDrawEffect::None, Color, true, 2.f);
+		Color.A = (Icon.bClamped ? 0.45f : 0.95f) * (Icon.bDiscovered ? 1.f : 0.8f);
+		HawkeyeObjectiveHud::DrawHouse(Out, LayerId, Geometry, FVector2D(CentreX + Icon.Offset, Mid), 1.f, Color,
+			Icon.bDiscovered, /*bQuestion=*/false);
 	}
+}
+
+void UHawkeyeObjectiveWidget::PaintChallengeIcons(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
+{
+	using namespace HawkeyeObjectiveHud;
+	// On the strip: a small purple medal per pedestal in range.
+	const float CentreX = Geometry.GetLocalSize().X * 0.5f;
+	const float Mid = CompassTop + CompassHeight * 0.5f;
+	for (const FSafehouseIcon& Icon : ChallengeIcons)
+	{
+		FLinearColor Color = SecondaryColor;
+		Color.A = Icon.bClamped ? 0.45f : 0.95f;
+		DrawMedal(Out, LayerId, Geometry, FVector2D(CentreX + Icon.Offset, Mid), 6.f, Color);
+	}
+	// In the world: the medal over the pedestal with its distance under it.
+	const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 12);
+	for (const FChallengeMark& Mark : ChallengeMarks)
+	{
+		const FVector2D Centre = (ViewRectMin + Mark.Placement.Position) / ViewportScale / FMath::Max(HudScale, 0.1f);
+		FLinearColor Color = SecondaryColor;
+		Color.A = Mark.Placement.bOnScreen ? 1.f : 0.6f;
+		DrawMedal(Out, LayerId, Geometry, Centre, 8.f, Color);
+		DrawText(Out, LayerId, Geometry, Mark.DistanceText, Font, Centre + FVector2D(0.f, 13.f), Color);
+	}
+}
+
+void UHawkeyeObjectiveWidget::PaintDowned(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
+{
+	using namespace HawkeyeObjectiveHud;
+	const FVector2D Centre = Geometry.GetLocalSize() * 0.5f;
+	if (!DeathLine.IsEmpty())
+	{
+		// Over the fade to black.
+		const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Regular"), 30);
+		DrawText(Out, LayerId + 4, Geometry, DeathLine, Font, Centre - FVector2D(0.f, 20.f), FLinearColor::White);
+		return;
+	}
+	if (!bDownedRing)
+	{
+		return;
+	}
+	// The time left as a ring that empties clockwise from the top, over a dim full one.
+	const float Radius = 34.f;
+	FLinearColor Track = FLinearColor::White;
+	Track.A = 0.25f;
+	FSlateDrawElement::MakeLines(Out, LayerId, Geometry.ToPaintGeometry(), ArcPoints(Centre, Radius, 1.f, 48),
+		ESlateDrawEffect::None, Track, true, 5.f);
+	if (DownedFraction > 0.f)
+	{
+		DrawShadowedLines(Out, LayerId + 1, Geometry, ArcPoints(Centre, Radius, DownedFraction, 48), SecondaryColor, 5.f);
+	}
+	const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 16);
+	DrawText(Out, LayerId + 2, Geometry, DownedText, Font, Centre + FVector2D(0.f, Radius + 10.f), FLinearColor::White);
 }
 
 void UHawkeyeObjectiveWidget::PaintSecondary(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const
@@ -363,18 +575,34 @@ void UHawkeyeObjectiveWidget::PaintSecondary(const FGeometry& Geometry, FSlateWi
 	{
 		const FSecondaryMark& Mark = Secondary[Index];
 		const FVector2D Centre = (ViewRectMin + Mark.Placement.Position) / ViewportScale / FMath::Max(HudScale, 0.1f);
-		FLinearColor Color = SecondaryColor;
+		FLinearColor Color = Mark.Kind == ESecondaryKind::Safehouse ? MarkerColor : SecondaryColor;
 		Color.A = Mark.Placement.bOnScreen ? 1.f : 0.6f;
+		const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 12);
+		const FVector2D CompassPoint(CentreX + Mark.CompassOffset, CompassTop + HawkeyeObjectiveHud::CompassHeight * 0.5f);
+		FLinearColor IconColor = Color;
+		IconColor.A = Mark.bCompassClamped ? 0.5f : 1.f;
+		if (Mark.Kind == ESecondaryKind::Safehouse)
+		{
+			// A house (a "?" in it until found) with the distance and the name under it.
+			DrawHouse(Out, LayerId, Geometry, Centre, 1.6f, Color, !Mark.bUnknown, Mark.bUnknown);
+			DrawText(Out, LayerId, Geometry, UObjectiveMarkerMath::FormatDistance(Mark.Distance), Font, Centre + FVector2D(0.f, 13.f), Color);
+			DrawText(Out, LayerId, Geometry, MarkedSafehouseLabel, Font, Centre + FVector2D(0.f, 28.f), Color);
+			DrawHouse(Out, LayerId + 2, Geometry, CompassPoint, 1.2f, IconColor, !Mark.bUnknown, /*bQuestion=*/false);
+			continue;
+		}
+		if (Mark.Kind == ESecondaryKind::Challenge)
+		{
+			DrawMedal(Out, LayerId, Geometry, Centre, 8.f, Color);
+			DrawText(Out, LayerId, Geometry, UObjectiveMarkerMath::FormatDistance(Mark.Distance), Font, Centre + FVector2D(0.f, 13.f), Color);
+			DrawMedal(Out, LayerId + 2, Geometry, CompassPoint, 7.f, IconColor);
+			continue;
+		}
 		DrawDiamond(Out, LayerId, Geometry, Centre, Half, MarkerLineWidth, Color);
 		if (Index == NearestSecondary)
 		{
-			const FSlateFontInfo Font = FCoreStyle::GetDefaultFontStyle(TEXT("Bold"), 12);
 			DrawText(Out, LayerId, Geometry, SecondaryDistanceText, Font, Centre + FVector2D(0.f, Half + 3.f), SecondaryColor);
 		}
-		FLinearColor IconColor = SecondaryColor;
-		IconColor.A = Mark.bCompassClamped ? 0.5f : 1.f;
-		DrawDiamond(Out, LayerId + 2, Geometry, FVector2D(CentreX + Mark.CompassOffset, CompassTop + HawkeyeObjectiveHud::CompassHeight * 0.5f),
-			6.f, 2.f, IconColor);
+		DrawDiamond(Out, LayerId + 2, Geometry, CompassPoint, 6.f, 2.f, IconColor);
 	}
 }
 
@@ -408,10 +636,12 @@ int32 UHawkeyeObjectiveWidget::NativePaint(const FPaintArgs& Args, const FGeomet
 	const FGeometry Scaled = AllottedGeometry.MakeChild(AllottedGeometry.GetLocalSize() / Scale, FSlateLayoutTransform(Scale));
 	PaintCompass(Scaled, OutDrawElements, Layer + 1);
 	PaintSafehouseIcons(Scaled, OutDrawElements, Layer + 3);
+	PaintChallengeIcons(Scaled, OutDrawElements, Layer + 3);
 	PaintMarker(Scaled, OutDrawElements, Layer + 1);
 	PaintSecondary(Scaled, OutDrawElements, Layer + 1);
 	PaintToast(Scaled, OutDrawElements, Layer + 1);
-	return Layer + 5;
+	PaintDowned(Scaled, OutDrawElements, Layer + 1);
+	return Layer + 7;
 }
 
 void UHawkeyeObjectiveWidget::PaintMarker(const FGeometry& Geometry, FSlateWindowElementList& Out, int32 LayerId) const

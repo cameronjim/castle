@@ -148,6 +148,53 @@ ASafehouse* USafehouseSubsystem::FindNearestDiscovered(const FVector& From) cons
 	return FindNearest(From, Save ? Save->GetDiscoveredSafehouses() : TArray<FName>());
 }
 
+ASafehouse* USafehouseSubsystem::FindNearestAny(const FVector& From) const
+{
+	TArray<FName> All;
+	for (const ASafehouse* Safehouse : GetSafehouses())
+	{
+		All.Add(Safehouse->SafehouseId);
+	}
+	return FindNearest(From, All);
+}
+
+ASafehouse* USafehouseSubsystem::FindUnnoticed(const FVector& From, float Radius, const TArray<FName>& Discovered,
+	const TArray<FName>& Noticed) const
+{
+	ASafehouse* Nearest = nullptr;
+	float Best = FMath::Square(Radius);
+	for (ASafehouse* Safehouse : GetSafehouses())
+	{
+		const float Distance = FVector::DistSquared(Safehouse->GetActorLocation(), From);
+		if (Distance <= Best && !Discovered.Contains(Safehouse->SafehouseId) && !Noticed.Contains(Safehouse->SafehouseId))
+		{
+			Best = Distance;
+			Nearest = Safehouse;
+		}
+	}
+	return Nearest;
+}
+
+FText USafehouseSubsystem::GetMarkerName(const ASafehouse* Safehouse, bool bDiscovered)
+{
+	if (!Safehouse)
+	{
+		return FText::GetEmpty();
+	}
+	return bDiscovered ? Safehouse->GetDisplayName() : NSLOCTEXT("Hawkeye", "SafehouseUnknown", "[Unknown safehouse]");
+}
+
+bool USafehouseSubsystem::IsDiscoveredNow(const ASafehouse* Safehouse) const
+{
+	const UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+	return Safehouse && Save && Save->IsSafehouseDiscovered(Safehouse->SafehouseId);
+}
+
+FText USafehouseSubsystem::GetMarkerNameNow(const ASafehouse* Safehouse) const
+{
+	return GetMarkerName(Safehouse, IsDiscoveredNow(Safehouse));
+}
+
 // --- Fast travel -----------------------------------------------------------------------------------
 
 FText USafehouseSubsystem::GetTravelRefusal(bool bCrimeActive, bool bChallengeRunning, bool bTravelling)
@@ -306,16 +353,23 @@ void USafehouseSubsystem::ReleasePlayer(AHawkeyePlayerController* PC)
 
 ASafehouse* USafehouseSubsystem::MarkNearestSafehouse(const FVector& From)
 {
-	ASafehouse* Nearest = FindNearestDiscovered(From);
+	// Found or not: the marker is how you find one in the first place.
+	ASafehouse* Nearest = FindNearestAny(From);
+	return MarkSafehouse(Nearest) ? Nearest : nullptr;
+}
+
+bool USafehouseSubsystem::MarkSafehouse(ASafehouse* Safehouse)
+{
 	UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
-	if (!Nearest || !Missions)
+	if (!Safehouse || !Missions)
 	{
-		return nullptr;
+		return false;
 	}
-	Marked = Nearest;
-	Missions->SetSecondaryMarkers(MarkerSource, { Nearest->GetActorLocation() + FVector(0.f, 0.f, MarkerUp) });
-	UE_LOG(LogHawkeye, Log, TEXT("%s: marked safehouse %s."), *GetName(), *Nearest->SafehouseId.ToString());
-	return Nearest;
+	Marked = Safehouse;
+	Missions->SetSecondaryMarkers(MarkerSource, { Safehouse->GetActorLocation() + FVector(0.f, 0.f, MarkerUp) });
+	UE_LOG(LogHawkeye, Log, TEXT("%s: marked safehouse %s (%s)."), *GetName(), *Safehouse->SafehouseId.ToString(),
+		IsDiscoveredNow(Safehouse) ? TEXT("found") : TEXT("not found yet"));
+	return true;
 }
 
 void USafehouseSubsystem::ClearSafehouseMarker()

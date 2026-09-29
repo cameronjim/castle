@@ -50,6 +50,8 @@
 #include "UI/HawkeyeSafehouseWidget.h"
 #include "World/Safehouse.h"
 #include "World/SafehouseSubsystem.h"
+#include "Challenge/ChallengeDefinition.h"
+#include "Challenge/ChallengeStart.h"
 #include "Challenge/ChallengeSubsystem.h"
 #include "World/ChapterEndInteractable.h"
 #include "Dialogue/DialogueSubsystem.h"
@@ -207,6 +209,53 @@ void AHawkeyePlayerController::PlayerTick(float DeltaTime)
 
 	// Real time, like the quiver wheel: the hold is the thumb, not game time.
 	TickDPadDown(FPlatformTime::Seconds());
+
+	const double Now = FPlatformTime::Seconds();
+	// Automation drives its own notices (UpdatePlaceNotices directly), so no toast or marker lands in a shot.
+	if (Now >= NextPlaceNoticeSeconds && !IsPaused() && !GIsAutomationTesting)
+	{
+		NextPlaceNoticeSeconds = Now + 0.5;
+		UpdatePlaceNotices();
+	}
+}
+
+int32 AHawkeyePlayerController::UpdatePlaceNotices()
+{
+	const APawn* ControlledPawn = GetPawn();
+	UHawkeyeSaveSubsystem* Save = UHawkeyeSaveSubsystem::Get(this);
+	if (!ControlledPawn || !Save)
+	{
+		return 0;
+	}
+	const FVector At = ControlledPawn->GetActorLocation();
+	int32 Pushed = 0;
+	if (USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this))
+	{
+		ASafehouse* Near = Safehouses->FindUnnoticed(At, Safehouses->NoticeRadius, Save->GetDiscoveredSafehouses(),
+			Save->GetNoticedPlaces());
+		if (Near && Save->NotePlace(Near->SafehouseId))
+		{
+			Safehouses->MarkSafehouse(Near);
+			PushHudToast(NSLOCTEXT("Hawkeye", "SafehouseNearby", "[Safehouse nearby]"), Safehouses->GetMarkerNameNow(Near));
+			++Pushed;
+		}
+	}
+	if (UChallengeSubsystem* Challenges = UChallengeSubsystem::Get(this))
+	{
+		AChallengeStart* Near = Challenges->FindUnnoticedStart(At, Challenges->NoticeRadius, Save->GetNoticedPlaces());
+		if (Near && !Challenges->IsRunning() && Save->NotePlace(Near->Definition->Id))
+		{
+			PushHudToast(NSLOCTEXT("Hawkeye", "ChallengeNearby", "[Challenge nearby]"), Near->Definition->GetDisplayName());
+			++Pushed;
+		}
+		// Marked and reached: the pedestal is right there, the marker has done its job.
+		const AChallengeStart* Marked = Challenges->GetMarkedStart();
+		if (Marked && FVector::Dist2D(Marked->GetActorLocation(), At) < 300.f)
+		{
+			Challenges->ClearChallengeMarker();
+		}
+	}
+	return Pushed;
 }
 
 void AHawkeyePlayerController::HandleDPadDownPressed(double NowSeconds)
@@ -537,6 +586,7 @@ UHawkeyePauseWidget* AHawkeyePlayerController::ShowPauseWidget()
 		PauseWidget->OnSettingsClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseSettingsClicked);
 		PauseWidget->OnReplayFlashbacksClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseReplayFlashbacksClicked);
 		PauseWidget->OnMarkSafehouseClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseMarkSafehouseClicked);
+		PauseWidget->OnMarkChallengeClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseMarkChallengeClicked);
 		PauseWidget->OnRestartMissionClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseRestartClicked);
 		PauseWidget->OnQuitToDesktopClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitClicked);
 		PauseWidget->OnQuitToMenuClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitToMenuClicked);
@@ -1205,14 +1255,30 @@ bool AHawkeyePlayerController::MarkNearestSafehouse()
 	USafehouseSubsystem* Safehouses = USafehouseSubsystem::Get(this);
 	const ASafehouse* Marked = Safehouses && GetPawn() ? Safehouses->MarkNearestSafehouse(GetPawn()->GetActorLocation()) : nullptr;
 	PushHudToast(Marked ? NSLOCTEXT("Hawkeye", "SafehouseMarked", "[Safehouse marked]")
-		: NSLOCTEXT("Hawkeye", "SafehouseNoneToMark", "[No safehouse found yet]"),
-		Marked ? Marked->GetDisplayName() : FText::GetEmpty());
+		: NSLOCTEXT("Hawkeye", "SafehouseNoneToMark", "[No safehouse in the district]"),
+		Marked ? Safehouses->GetMarkerNameNow(Marked) : FText::GetEmpty());
 	return Marked != nullptr;
 }
 
 void AHawkeyePlayerController::HandlePauseMarkSafehouseClicked()
 {
 	MarkNearestSafehouse();
+}
+
+bool AHawkeyePlayerController::MarkNearestChallenge()
+{
+	SetPauseMenuOpen(false);
+	UChallengeSubsystem* Challenges = UChallengeSubsystem::Get(this);
+	const AChallengeStart* Marked = Challenges && GetPawn() ? Challenges->MarkNearestChallenge(GetPawn()->GetActorLocation()) : nullptr;
+	PushHudToast(Marked ? NSLOCTEXT("Hawkeye", "ChallengeMarked", "[Challenge marked]")
+		: NSLOCTEXT("Hawkeye", "ChallengeNoneToMark", "[No challenge in the district]"),
+		Marked ? Marked->Definition->GetDisplayName() : FText::GetEmpty());
+	return Marked != nullptr;
+}
+
+void AHawkeyePlayerController::HandlePauseMarkChallengeClicked()
+{
+	MarkNearestChallenge();
 }
 
 void AHawkeyePlayerController::QuitToDesktop()

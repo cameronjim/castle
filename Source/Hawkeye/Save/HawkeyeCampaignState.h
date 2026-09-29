@@ -59,6 +59,10 @@ public:
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save")
 	FName LastSafehouse;
 
+	/** Unfound safehouses and challenge pedestals the "nearby" toast has already announced, by id. */
+	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save")
+	TArray<FName> NoticedPlaces;
+
 	/** Seconds of play in this campaign, across sessions. */
 	UPROPERTY(SaveGame, BlueprintReadOnly, Category = "Save")
 	float PlayTimeSeconds = 0.f;

@@ -41,6 +41,39 @@ public:
 	/** The secondary marker source the challenges set. */
 	static const FName MarkerSource;
 
+	/** The secondary marker source "Mark nearest challenge" sets on a pedestal. */
+	static const FName StartMarkerSource;
+
+	/** How high over a pedestal's foot its markers point, cm (the floating icon). */
+	static constexpr float StartMarkerUp = 175.f;
+
+	/** Every pedestal in the world. */
+	TArray<AChallengeStart*> GetStarts() const;
+
+	/** The pedestal nearest From, or null. */
+	AChallengeStart* FindNearestStart(const FVector& From) const;
+
+	/**
+	 * The nearest pedestal within Radius of From whose challenge id is not in Noticed, or null: the
+	 * "[Challenge nearby]" toast's first-time check (AHawkeyePlayerController).
+	 */
+	AChallengeStart* FindUnnoticedStart(const FVector& From, float Radius, const TArray<FName>& Noticed) const;
+
+	/** How close a pedestal has to be for its "[Challenge nearby]" toast, cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Challenge|Marker", meta = (ClampMin = "0.0"))
+	float NoticeRadius = 4000.f;
+
+	/** The pause menu's "Mark nearest challenge": a secondary marker on the nearest pedestal. Null when there is none. */
+	UFUNCTION(BlueprintCallable, Category = "Challenge")
+	AChallengeStart* MarkNearestChallenge(const FVector& From);
+
+	/** Takes the pedestal marker down (starting any challenge does too). */
+	UFUNCTION(BlueprintCallable, Category = "Challenge")
+	void ClearChallengeMarker();
+
+	UFUNCTION(BlueprintPure, Category = "Challenge")
+	AChallengeStart* GetMarkedStart() const { return MarkedStart.Get(); }
+
 	/**
 	 * Starts Start's challenge for Player. Refused while one runs, without a definition, or for a player
 	 * who is down or dead. True when the run began.
@@ -143,6 +176,7 @@ protected:
 	TObjectPtr<UChallengeTracker> Tracker = nullptr;
 
 	TWeakObjectPtr<AChallengeStart> LastStart;
+	TWeakObjectPtr<AChallengeStart> MarkedStart;
 	TWeakObjectPtr<APawn> Challenger;
 	TArray<TWeakObjectPtr<AChallengeTarget>> Targets;
 	TArray<TWeakObjectPtr<AChallengeCheckpoint>> Checkpoints;

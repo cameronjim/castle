@@ -658,6 +658,21 @@ FName UHawkeyeSaveSubsystem::GetLastSafehouse() const
 	return Campaign ? Campaign->LastSafehouse : NAME_None;
 }
 
+bool UHawkeyeSaveSubsystem::NotePlace(FName PlaceId)
+{
+	if (!Campaign || PlaceId.IsNone() || Campaign->NoticedPlaces.Contains(PlaceId))
+	{
+		return false;
+	}
+	Campaign->NoticedPlaces.Add(PlaceId);
+	return true;
+}
+
+TArray<FName> UHawkeyeSaveSubsystem::GetNoticedPlaces() const
+{
+	return Campaign ? Campaign->NoticedPlaces : TArray<FName>();
+}
+
 // --- Main menu --------------------------------------------------------------------------------------
 
 bool UHawkeyeSaveSubsystem::ConsumeBootMenu()

@@ -12,6 +12,7 @@ void UHawkeyeCampaignState::ResetCampaign()
 	CompletedObjectives.Reset();
 	DiscoveredSafehouses.Reset();
 	LastSafehouse = NAME_None;
+	NoticedPlaces.Reset();
 	PlayTimeSeconds = 0.f;
 	ControlledCharacter.Reset();
 	ReceivedMessages.Reset();

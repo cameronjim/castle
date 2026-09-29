@@ -25,6 +25,7 @@
 #include "World/ThugCharacter.h"
 
 const FName UChallengeSubsystem::MarkerSource(TEXT("challenge"));
+const FName UChallengeSubsystem::StartMarkerSource(TEXT("challenge_start"));
 
 namespace HawkeyeChallenges
 {
@@ -130,6 +131,7 @@ bool UChallengeSubsystem::StartChallenge(AChallengeStart* Start, APawn* Player)
 		return false;
 	}
 	LastStart = Start;
+	ClearChallengeMarker();
 	SpawnCourse(Definition);
 	CalmThugs(Definition);
 	ShownProgress = INDEX_NONE;
@@ -138,6 +140,81 @@ bool UChallengeSubsystem::StartChallenge(AChallengeStart* Start, APawn* Player)
 		*Player->GetName(), *Definition->Id.ToString(), *Start->GetName(), Targets.Num(), Checkpoints.Num(), CalmedThugs.Num());
 	OnChallengeStarted.Broadcast(Definition);
 	return true;
+}
+
+TArray<AChallengeStart*> UChallengeSubsystem::GetStarts() const
+{
+	TArray<AChallengeStart*> Out;
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AChallengeStart> It(World); It; ++It)
+		{
+			if (IsValid(*It) && It->Definition)
+			{
+				Out.Add(*It);
+			}
+		}
+	}
+	return Out;
+}
+
+AChallengeStart* UChallengeSubsystem::FindNearestStart(const FVector& From) const
+{
+	AChallengeStart* Nearest = nullptr;
+	float Best = TNumericLimits<float>::Max();
+	for (AChallengeStart* Start : GetStarts())
+	{
+		const float Distance = FVector::DistSquared(Start->GetActorLocation(), From);
+		if (Distance < Best)
+		{
+			Best = Distance;
+			Nearest = Start;
+		}
+	}
+	return Nearest;
+}
+
+AChallengeStart* UChallengeSubsystem::FindUnnoticedStart(const FVector& From, float Radius, const TArray<FName>& Noticed) const
+{
+	AChallengeStart* Nearest = nullptr;
+	float Best = FMath::Square(Radius);
+	for (AChallengeStart* Start : GetStarts())
+	{
+		const float Distance = FVector::DistSquared(Start->GetActorLocation(), From);
+		if (Distance <= Best && !Noticed.Contains(Start->Definition->Id))
+		{
+			Best = Distance;
+			Nearest = Start;
+		}
+	}
+	return Nearest;
+}
+
+AChallengeStart* UChallengeSubsystem::MarkNearestChallenge(const FVector& From)
+{
+	AChallengeStart* Nearest = FindNearestStart(From);
+	UMissionSubsystem* Missions = UMissionSubsystem::Get(this);
+	if (!Nearest || !Missions)
+	{
+		return nullptr;
+	}
+	MarkedStart = Nearest;
+	Missions->SetSecondaryMarkers(StartMarkerSource, { Nearest->GetActorLocation() + FVector(0.f, 0.f, StartMarkerUp) });
+	UE_LOG(LogHawkeye, Log, TEXT("%s: marked challenge %s at %s."), *GetName(), *Nearest->Definition->Id.ToString(), *Nearest->GetName());
+	return Nearest;
+}
+
+void UChallengeSubsystem::ClearChallengeMarker()
+{
+	if (!MarkedStart.IsValid())
+	{
+		return;
+	}
+	MarkedStart.Reset();
+	if (UMissionSubsystem* Missions = UMissionSubsystem::Get(this))
+	{
+		Missions->ClearSecondaryMarkers(StartMarkerSource);
+	}
 }
 
 void UChallengeSubsystem::AbortChallenge()

@@ -406,9 +406,20 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Safehouse")
 	bool FastTravelTo(FName SafehouseId);
 
-	/** Pause menu "Mark nearest safehouse": closes the menu and marks it, or says none is found yet. */
+	/** Pause menu "Mark nearest safehouse": closes the menu and marks the nearest one, found or not. */
 	UFUNCTION(BlueprintCallable, Category = "Safehouse")
 	bool MarkNearestSafehouse();
+
+	/** Pause menu "Mark nearest challenge": closes the menu and marks the nearest pedestal. */
+	UFUNCTION(BlueprintCallable, Category = "Challenge")
+	bool MarkNearestChallenge();
+
+	/**
+	 * The first-time "nearby" toasts: an unfound safehouse within its NoticeRadius (60 m) toasts and gets
+	 * the marker, a pedestal within 40 m toasts; each id once a campaign. A marked pedestal's marker goes
+	 * when she reaches it. PlayerTick runs it twice a second; public for tests. Returns the toasts pushed.
+	 */
+	int32 UpdatePlaceNotices();
 
 	/** Chapter select's rows: "[CH01]" then this many less one "[Locked]". */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Safehouse", meta = (ClampMin = "1"))
@@ -663,6 +674,12 @@ protected:
 
 	UFUNCTION()
 	void HandlePauseMarkSafehouseClicked();
+
+	UFUNCTION()
+	void HandlePauseMarkChallengeClicked();
+
+	/** Real seconds until UpdatePlaceNotices runs again. */
+	double NextPlaceNoticeSeconds = 0.0;
 
 	/** Creates PauseWidget (if needed) and adds it to the viewport. Returns the widget or null. */
 	UHawkeyePauseWidget* ShowPauseWidget();
