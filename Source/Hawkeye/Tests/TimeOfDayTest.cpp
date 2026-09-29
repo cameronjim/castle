@@ -471,6 +471,16 @@ bool FHawkeyeTimeOfDayGlow::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Night: the facade's own material is back"), Building->GetStaticMeshComponent()->GetMaterial(0) == Facade);
 	TestEqual(TEXT("Night: the set glow at its latest night value"), Scalar(CapGlow, TEXT("Intensity")), 0.5f);
 	TestEqual(TEXT("GetGlowScale says 1"), UTimeOfDaySubsystem::GetGlowScale(Cap), 1.f);
+
+	// A glow whose material has gone (its ring destroyed) is dropped when the next one registers.
+	{
+		UMaterialInstanceDynamic* Gone = UMaterialInstanceDynamic::Create(Emissive, GetTransientPackage());
+		UTimeOfDaySubsystem::SetGlow(Cap, Gone, 0.2f);
+		TestEqual(TEXT("Two registered glows"), TimeOfDay->GetRegisteredGlowCount(), 2);
+		Gone->MarkAsGarbage();
+		UTimeOfDaySubsystem::SetGlow(Cap, CapGlow, 0.5f);
+		TestEqual(TEXT("The gone one is dropped on the next register"), TimeOfDay->GetRegisteredGlowCount(), 1);
+	}
 	return true;
 }
 

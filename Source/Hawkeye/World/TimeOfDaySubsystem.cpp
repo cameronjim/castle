@@ -272,6 +272,15 @@ void UTimeOfDaySubsystem::SetGlow(const UObject* WorldContextObject, UMaterialIn
 	Material->SetScalarParameterValue(Parameter, NightValue * (Subsystem ? Subsystem->AppliedPreset.GlowScale : 1.f));
 	if (Subsystem)
 	{
+		// A ring or target that has gone (a challenge ended) leaves its entry behind; drop those here rather than
+		// only at the next Apply, so the list stays the size of what is alive.
+		for (auto It = Subsystem->RegisteredGlows.CreateIterator(); It; ++It)
+		{
+			if (!It.Value().Material.IsValid())
+			{
+				It.RemoveCurrent();
+			}
+		}
 		FRegisteredGlow& Entry = Subsystem->RegisteredGlows.FindOrAdd(MakeTuple(TObjectKey<UMaterialInstanceDynamic>(Material), Parameter));
 		Entry.Material = Material;
 		Entry.Parameter = Parameter;
