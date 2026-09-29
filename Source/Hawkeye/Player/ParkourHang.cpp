@@ -88,6 +88,31 @@ namespace HawkeyeHang
 			static_cast<float>(FVector::DotProduct(A2, B2))));
 	}
 
+	/**
+	 * A point Alpha (0..1, already eased) round an outside corner: the angle about Pivot swings the way she turns
+	 * (TurnDegrees' sign) from Start's to End's, through the open side, and the distance from the corner blends.
+	 * Blending two rotated offsets instead cut the corner as a chord when she starts well short of it.
+	 */
+	static FVector ArcPoint(const FVector& Start, const FVector& End, const FVector& Pivot, float TurnDegrees, float Alpha)
+	{
+		const FVector2D From(Start.X - Pivot.X, Start.Y - Pivot.Y);
+		const FVector2D To(End.X - Pivot.X, End.Y - Pivot.Y);
+		const float FromAngle = FMath::RadiansToDegrees(FMath::Atan2(From.Y, From.X));
+		const float ToAngle = FMath::RadiansToDegrees(FMath::Atan2(To.Y, To.X));
+		float Swing = FRotator::NormalizeAxis(ToAngle - FromAngle);
+		if (TurnDegrees < 0.f && Swing > 0.f)
+		{
+			Swing -= 360.f;
+		}
+		else if (TurnDegrees > 0.f && Swing < 0.f)
+		{
+			Swing += 360.f;
+		}
+		const float Angle = FMath::DegreesToRadians(FromAngle + Swing * Alpha);
+		const float Radius = FMath::Lerp(static_cast<float>(From.Size()), static_cast<float>(To.Size()), Alpha);
+		return FVector(Pivot.X + Radius * FMath::Cos(Angle), Pivot.Y + Radius * FMath::Sin(Angle), FMath::Lerp(Start.Z, End.Z, Alpha));
+	}
+
 	static const TCHAR* SideName(float Sign)
 	{
 		return Sign > 0.f ? TEXT("right") : TEXT("left");
@@ -441,6 +466,12 @@ void UParkourComponent::BeginHangState()
 	}
 	HangStartAlong = GetHangAlong();
 	HangProbedAlong = HangStartAlong;
+	// The hands start at their places on the new line (their rest is read again once the IK has let go).
+	for (int32 Hand = 0; Hand < 2; ++Hand)
+	{
+		const float Rest = HandRest[Hand].IsNearlyZero() ? (Hand == 0 ? -HangHandSpread : HangHandSpread) : HandRest[Hand].Y;
+		HandAlong[Hand] = HangStartAlong + Rest;
+	}
 	HangStartStand = HangObstacle.StandPoint;
 	bHangStartStand = HangObstacle.bStandingSurface;
 
@@ -725,60 +756,82 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 	const float TopZ = HangLine.Origin.Z;
 	const float Here = GetHangAlong();
 	const float Radius = Character->GetCapsuleComponent()->GetScaledCapsuleRadius();
-	// Where the edge ends this way: the line's end, or the wall across it.
-	float EndAlong = Sign > 0.f ? HangLine.MaxAlong : HangLine.MinAlong;
+	const float Reach = FMath::Max(ShimmyEndMargin, Radius) + 10.f;
+	// The line's end this way, and where a wall across the ledge stands if one stopped her before it.
+	const float LineEnd = Sign > 0.f ? HangLine.MaxAlong : HangLine.MinAlong;
+	float AcrossAlong = LineEnd;
 	if (bBlockedAcross)
 	{
 		const float BlockAlong = HangLine.AlongOf(BlockPoint);
-		if (Sign * (BlockAlong - EndAlong) < 0.f)
+		if (Sign * (BlockAlong - AcrossAlong) < 0.f)
 		{
-			EndAlong = BlockAlong;
+			AcrossAlong = BlockAlong;
 		}
 	}
-	// A chimney or a rail short of the end is not a corner: only an end right by her hands.
-	if (Sign * (EndAlong - Here) > FMath::Max(ShimmyEndMargin, Radius) + 10.f)
+	// An outside corner is tried at the line's end even when something short of it stopped her, as long as it is
+	// within reach: the district's parapets stand 15 cm proud of the facade for their last 30 cm at every corner
+	// (each box runs on past the corner to close it), which stops the capsule about 60 cm short.
+	const bool bNearEnd = Sign * (LineEnd - Here) <= Reach + CornerReach;
+	// An inside corner only right at the wall across (a chimney or a rail short of the end is not a corner).
+	const bool bNearAcross = Sign * (AcrossAlong - Here) <= Reach;
+	if (!bNearEnd && !bNearAcross)
 	{
 		return false;
 	}
-	const FVector End = HangLine.PointAt(EndAlong);
 	FString WhyNot;
+	const float HandReach = FMath::Max(ShimmyEndMargin - 3.f, 0.f);
 
-	auto Turn = [&](const FVector& EdgePoint, const FVector& NewNormal, float NewTopZ, AActor* Actor, bool bOutside, const FVector& Pivot)
+	auto Turn = [&](const FVector& CornerEnd, const FVector& AwayFromCorner, float FirstOffset, const FVector& NewNormal, float NewTopZ,
+		AActor* Actor, bool bOutside, const FVector& Pivot, const FVector& End)
 	{
-		FHawkeyeParkourObstacle Target = ProbeHangLedge(EdgePoint, NewNormal, Actor);
-		// Measured from where she will hang, not from here.
-		Target.Height = HangBelowLedge;
-		Target.LedgePoint.Z = NewTopZ;
-		const FVector Hang = HangLocationFor(Target);
-		if (!CapsuleFits(Hang))
+		// The hang on the new ledge: FirstOffset in from its corner end, or further along it until the capsule clears
+		// whatever stands at the corner (the parapet's own pier).
+		for (float Extra = 0.f; Extra <= CornerReach; Extra += 5.f)
 		{
-			WhyNot = FString::Printf(TEXT("no room to hang round the %s corner (%s)"), bOutside ? TEXT("outside") : TEXT("inside"),
-				*DescribeBlocker(Hang));
-			return false;
-		}
-		if (bOutside)
-		{
-			// Half way round, on the diagonal off the corner.
-			const FVector Start = Character->GetActorLocation();
-			const float Swing = FVector::Dist2D(Start, Pivot);
-			const FVector Middle = Pivot + (N + NewNormal).GetSafeNormal2D() * Swing + FVector(0.f, 0.f, Start.Z - Pivot.Z);
-			if (!CapsuleFits(Middle))
+			const FVector Edge = CornerEnd + AwayFromCorner * (FirstOffset + Extra);
+			if (!IsHangLedgeAt(Edge + AwayFromCorner * HandReach, NewNormal, NewTopZ, nullptr, nullptr, &WhyNot))
 			{
-				WhyNot = FString::Printf(TEXT("no room to swing round the outside corner (%s)"), *DescribeBlocker(Middle));
+				WhyNot = FString::Printf(TEXT("the ledge round the %s corner is too short for her hands: %s"),
+					bOutside ? TEXT("outside") : TEXT("inside"), *WhyNot);
 				return false;
 			}
+			FHawkeyeParkourObstacle Target = ProbeHangLedge(FVector(Edge.X, Edge.Y, NewTopZ), NewNormal, Actor);
+			// Measured from where she will hang, not from here.
+			Target.Height = HangBelowLedge;
+			const FVector Hang = HangLocationFor(Target);
+			if (!CapsuleFits(Hang))
+			{
+				WhyNot = FString::Printf(TEXT("no room to hang round the %s corner (%s)"), bOutside ? TEXT("outside") : TEXT("inside"),
+					*DescribeBlocker(Hang));
+				continue;
+			}
+			const float Degrees = SignedYaw(N, NewNormal);
+			if (bOutside)
+			{
+				// The swing itself, a quarter, a half and three quarters round.
+				for (const float Alpha : { 0.25f, 0.5f, 0.75f })
+				{
+					const FVector Point = ArcPoint(Character->GetActorLocation(), Hang, Pivot, Degrees, Alpha);
+					if (!CapsuleFits(Point))
+					{
+						WhyNot = FString::Printf(TEXT("no room to swing round the outside corner (%s)"), *DescribeBlocker(Point));
+						return false;
+					}
+				}
+			}
+			UE_LOG(LogHawkeye, Log, TEXT("%s: hang: round the %s corner at %s onto %s: %.1f s, turning %+.0f degrees, to %.0f cm along it"),
+				*GetNameSafe(Character), bOutside ? TEXT("outside") : TEXT("inside"), *End.ToCompactString(), *GetNameSafe(Actor),
+				CornerSeconds, Degrees, FirstOffset + Extra);
+			return BeginHangTransfer(EHawkeyeParkourMove::HangCorner, Target, CornerSeconds, 0.f, Degrees, bOutside, Pivot);
 		}
-		const float Degrees = SignedYaw(N, NewNormal);
-		UE_LOG(LogHawkeye, Log, TEXT("%s: hang: round the %s corner at %s onto %s: %.1f s, turning %+.0f degrees"),
-			*GetNameSafe(Character), bOutside ? TEXT("outside") : TEXT("inside"), *End.ToCompactString(), *GetNameSafe(Actor),
-			CornerSeconds, Degrees);
-		return BeginHangTransfer(EHawkeyeParkourMove::HangCorner, Target, CornerSeconds, 0.f, Degrees, bOutside, Pivot);
+		return false;
 	};
 
-	if (!bBlockedAcross)
+	if (bNearEnd)
 	{
 		// Outside: the next face turns away from her wall at the end, facing along her way.
-		for (const float In : { 15.f, 35.f, 55.f })
+		const FVector End = HangLine.PointAt(LineEnd);
+		for (const float In : { 15.f, 35.f, 55.f, 75.f })
 		{
 			const FVector From = End - N * In + D * (CornerReach + 30.f) - FVector(0.f, 0.f, 8.f);
 			FHitResult Face;
@@ -805,57 +858,50 @@ bool UParkourComponent::TryTurnCorner(float Sign, bool bBlockedAcross, const FVe
 				WhyNot = FString::Printf(TEXT("the ledge round the corner starts %.0f cm off"), FVector::Dist2D(End, CornerEnd));
 				continue;
 			}
-			const FVector Edge = CornerEnd - N * ShimmyEndMargin;
-			if (!IsHangLedgeAt(Edge - N * FMath::Max(ShimmyEndMargin - 3.f, 0.f), NewNormal, NewTopZ, nullptr, nullptr, &WhyNot))
-			{
-				WhyNot = TEXT("the ledge round the corner is too short for her hands: ") + WhyNot;
-				continue;
-			}
-			if (Turn(FVector(Edge.X, Edge.Y, NewTopZ), NewNormal, NewTopZ, Actor, true, End))
+			// It swings round where the two faces meet (past a pier, not where her edge gave out).
+			const FVector Pivot = HangLine.PointAt(HangLine.AlongOf(CornerEnd));
+			if (Turn(CornerEnd, -N, ShimmyEndMargin, NewNormal, NewTopZ, Actor, true, Pivot, End))
 			{
 				return true;
 			}
 		}
 	}
-	// Inside: a wall across the ledge at its end, facing back at her, with the same top.
-	for (const float Out : { 20.f, 45.f })
+	if (bNearAcross)
 	{
-		const FVector From = End + N * Out - D * 30.f - FVector(0.f, 0.f, 8.f);
-		FHitResult Face;
-		if (!TraceLine(From, From + D * (CornerReach + 40.f), Face))
+		// Inside: a wall across the ledge at its end, facing back at her, with the same top.
+		const FVector End = HangLine.PointAt(AcrossAlong);
+		for (const float Out : { 20.f, 45.f })
 		{
-			continue;
-		}
-		const FVector NewNormal = Face.ImpactNormal.GetSafeNormal2D();
-		if (FVector::DotProduct(NewNormal, -D) < 0.8f || FVector::DotProduct(Face.ImpactPoint - End, D) > CornerReach)
-		{
-			continue;
-		}
-		const FVector Found(Face.ImpactPoint.X, Face.ImpactPoint.Y, TopZ);
-		float NewTopZ = TopZ;
-		AActor* Actor = nullptr;
-		if (!IsHangLedgeAt(Found, NewNormal, TopZ, &NewTopZ, &Actor, &WhyNot))
-		{
-			continue;
-		}
-		// Its end in the corner, toward her wall.
-		const FVector CornerEnd = Found - N * FindLedgeRun(Found, -N, NewNormal, NewTopZ, Out + CornerReach, 5.f);
-		if (FVector::Dist2D(End, CornerEnd) > CornerReach)
-		{
-			WhyNot = FString::Printf(TEXT("the ledge across starts %.0f cm off"), FVector::Dist2D(End, CornerEnd));
-			continue;
-		}
-		// Out along it far enough that the capsule clears her old wall.
-		const float Clear = FMath::Max(ShimmyEndMargin, HangBackFromEdge + 2.f);
-		const FVector Edge = CornerEnd + N * Clear;
-		if (!IsHangLedgeAt(Edge + N * FMath::Max(ShimmyEndMargin - 3.f, 0.f), NewNormal, NewTopZ, nullptr, nullptr, &WhyNot))
-		{
-			WhyNot = TEXT("the ledge across is too short for her hands: ") + WhyNot;
-			continue;
-		}
-		if (Turn(FVector(Edge.X, Edge.Y, NewTopZ), NewNormal, NewTopZ, Actor, false, CornerEnd))
-		{
-			return true;
+			const FVector From = End + N * Out - D * 30.f - FVector(0.f, 0.f, 8.f);
+			FHitResult Face;
+			if (!TraceLine(From, From + D * (CornerReach + 40.f), Face))
+			{
+				continue;
+			}
+			const FVector NewNormal = Face.ImpactNormal.GetSafeNormal2D();
+			if (FVector::DotProduct(NewNormal, -D) < 0.8f || FVector::DotProduct(Face.ImpactPoint - End, D) > CornerReach)
+			{
+				continue;
+			}
+			const FVector Found(Face.ImpactPoint.X, Face.ImpactPoint.Y, TopZ);
+			float NewTopZ = TopZ;
+			AActor* Actor = nullptr;
+			if (!IsHangLedgeAt(Found, NewNormal, TopZ, &NewTopZ, &Actor, &WhyNot))
+			{
+				continue;
+			}
+			// Its end in the corner, toward her wall.
+			const FVector CornerEnd = Found - N * FindLedgeRun(Found, -N, NewNormal, NewTopZ, Out + CornerReach, 5.f);
+			if (FVector::Dist2D(End, CornerEnd) > CornerReach)
+			{
+				WhyNot = FString::Printf(TEXT("the ledge across starts %.0f cm off"), FVector::Dist2D(End, CornerEnd));
+				continue;
+			}
+			// Out along it far enough that the capsule clears her old wall.
+			if (Turn(CornerEnd, N, FMath::Max(ShimmyEndMargin, HangBackFromEdge + 2.f), NewNormal, NewTopZ, Actor, false, CornerEnd, End))
+			{
+				return true;
+			}
 		}
 	}
 	if (!WhyNot.IsEmpty() && !bShimmyStopLogged)
@@ -1155,12 +1201,8 @@ FVector UParkourComponent::ComputeHangTransferLocation(float Alpha) const
 	const float Smooth = FMath::SmoothStep(0.f, 1.f, A);
 	if (bMoveArc)
 	{
-		// Round the corner on an arc about it: the start swings forward, the end swings back, met half way.
-		const FVector StartOffset(MoveStart.X - MovePivot.X, MoveStart.Y - MovePivot.Y, 0.f);
-		const FVector EndOffset(MoveEnd.X - MovePivot.X, MoveEnd.Y - MovePivot.Y, 0.f);
-		const FVector Offset = FMath::Lerp(StartOffset.RotateAngleAxis(MoveYawDelta * Smooth, FVector::UpVector),
-			EndOffset.RotateAngleAxis(-MoveYawDelta * (1.f - Smooth), FVector::UpVector), Smooth);
-		return FVector(MovePivot.X + Offset.X, MovePivot.Y + Offset.Y, FMath::Lerp(MoveStart.Z, MoveEnd.Z, Smooth));
+		// Round the corner about it, through the open side.
+		return HawkeyeHang::ArcPoint(MoveStart, MoveEnd, MovePivot, MoveYawDelta, Smooth);
 	}
 	FVector Location = FMath::Lerp(MoveStart, MoveEnd, Smooth);
 	Location.Z += MoveRise * FMath::Sin(PI * A);
