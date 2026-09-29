@@ -15,4 +15,7 @@ class FAutomationTestBase;
  */
 void HawkeyeAddChallengeShots(FAutomationTestBase* Test);
 
+/** Just challenge_pedestal's framing, written as FileName (the time of day pass's day_pedestal.png). */
+void HawkeyeAddChallengePedestalShot(FAutomationTestBase* Test, const FString& FileName);
+
 #endif

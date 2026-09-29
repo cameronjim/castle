@@ -443,6 +443,19 @@ void HawkeyeAddChallengeShots(FAutomationTestBase* Test)
 	Shot(EShot::Cleanup, 0.5f);
 }
 
+void HawkeyeAddChallengePedestalShot(FAutomationTestBase* Test, const FString& FileName)
+{
+	using EShot = HawkeyeChallengeShots::EShot;
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeChallengeShot(Test, static_cast<uint8>(EShot::Setup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeChallengeShot(Test, static_cast<uint8>(EShot::Pedestal)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeChallengeTakeShot(Test, FileName));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeChallengeShot(Test, static_cast<uint8>(EShot::Cleanup)));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+}
+
 /** The challenge shots on their own, for tuning without the whole Kate pass. */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeScreenshotChallenge, "Hawkeye.Screenshot.Challenge",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)

@@ -81,7 +81,9 @@
  *                    of her (she turns to face her own camera, so it cannot be swung round): the black
  *                    suit's purple arm panels and chest chevron in lamp light
  *   night_street.png, day_street.png  kate_street's camera under hawkeye.TimeOfDay Night, then Day (the
- *                    setting is put back after; also on their own as Hawkeye.Screenshot.TimeOfDay)
+ *                    setting is put back after; also on their own as Hawkeye.Screenshot.TimeOfDay, which
+ *                    adds day_park.png, 15 m into the park facing the tenement row, and day_pedestal.png,
+ *                    challenge_pedestal's framing by day)
  *
  *   grapple_marker.png  back on the street, looking up at a tenement anchor with its marker showing
  *   grapple_mid.png     part way along the zip, the camera following
@@ -2594,13 +2596,42 @@ bool FHawkeyeKateReportObjective::Update()
 	return true;
 }
 
+/** Kate 15 m inside the park, facing the tenement row across East 7th Street, her camera tipped up to the roofs. */
+DEFINE_LATENT_AUTOMATION_COMMAND_ONE_PARAMETER(FHawkeyeKateParkShot, FAutomationTestBase*, Test);
+
+bool FHawkeyeKateParkShot::Update()
+{
+	using namespace HawkeyeKateShots;
+	UWorld* World = FindWorld();
+	APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;
+	AHawkeyeCharacter* Kate = PC ? Cast<AHawkeyeCharacter>(PC->GetPawn()) : nullptr;
+	FVector Spot, Away, Ground;
+	if (!Kate || !FindStreetSpot(World, Spot, Away))
+	{
+		Test->AddError(TEXT("day_park.png: no Kate, PlayerStart or CityPark."));
+		return true;
+	}
+	const FVector InPark = Spot - Away * (StreetOffsetFromPark + 1500.f);
+	if (FindGround(World, InPark, 3000.f, Kate, Ground))
+	{
+		PlaceKate(Kate, PC, Ground, Away.Rotation().Yaw, 6.f);
+		Test->AddInfo(FString::Printf(TEXT("day_park.png: Kate at %s facing yaw %.0f."), *Ground.ToCompactString(), Away.Rotation().Yaw));
+	}
+	else
+	{
+		Test->AddWarning(TEXT("day_park.png: no ground in the park."));
+	}
+	return true;
+}
+
 namespace HawkeyeKateShots
 {
 	/**
-	 * night_street.png and day_street.png from kate_street's camera. hawkeye.TimeOfDay does not save, and
-	 * "Saved" hands the district back to whatever the player's setting is.
+	 * night_street.png and day_street.png from kate_street's camera; with bDayRound, also day_park.png (from the
+	 * park at the tenement row) and day_pedestal.png (challenge_pedestal's framing) while it is Day.
+	 * hawkeye.TimeOfDay does not save, and "Saved" hands the district back to whatever the player's setting is.
 	 */
-	static void AddTimeOfDayShots(FAutomationTestBase* Test)
+	static void AddTimeOfDayShots(FAutomationTestBase* Test, bool bDayRound = false)
 	{
 		ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.TimeOfDay Night")));
 		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFrameShot(Test, static_cast<uint8>(EShot::Street)));
@@ -2612,6 +2643,14 @@ namespace HawkeyeKateShots
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(3.f));
 		ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(Test, TEXT("day_street.png")));
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+		if (bDayRound)
+		{
+			ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateParkShot(Test));
+			ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+			ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(Test, TEXT("day_park.png")));
+			ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+			HawkeyeAddChallengePedestalShot(Test, TEXT("day_pedestal.png"));
+		}
 		ADD_LATENT_AUTOMATION_COMMAND(FExecStringLatentCommand(TEXT("hawkeye.TimeOfDay Saved")));
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
 	}
@@ -2621,7 +2660,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeScreenshotTimeOfDay, "Hawkeye.Screensho
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext
 	| EAutomationTestFlags::ProductFilter)
 
-/** Just the time-of-day pair from the Kate pass, for tuning the day without the whole pass. */
+/**
+ * The time-of-day pair from the Kate pass plus the day round (day_park.png, day_pedestal.png), for tuning the
+ * day without the whole pass.
+ */
 bool FHawkeyeScreenshotTimeOfDay::RunTest(const FString& Parameters)
 {
 	using namespace HawkeyeKateShots;
@@ -2633,7 +2675,7 @@ bool FHawkeyeScreenshotTimeOfDay::RunTest(const FString& Parameters)
 	AutomationOpenMap(TEXT("/Game/Maps/L_District_EastVillage"));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(6.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateFightShot(this, static_cast<uint8>(HawkeyeKateFight::EFightShot::FreezeAll)));
-	AddTimeOfDayShots(this);
+	AddTimeOfDayShots(this, /*bDayRound=*/true);
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
