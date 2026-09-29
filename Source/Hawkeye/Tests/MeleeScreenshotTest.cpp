@@ -50,8 +50,8 @@
  *   strike_pose.png   side on, a light at the moment it strikes (its hit window opening, or 0.1 s in without
  *                     a clip): her right hand out at chest height
  *   heavy_strike.png  side on, her heavy (held V) at the moment its hit window opens: an AM_Heavy_ clip (the
- *                     first heavy of a run is AM_Heavy_SurpriseUppercut)
- *   heavy_strike_2.png the same, her next heavy: the next variant (AM_Heavy_Roundhouse), never the same clip
+ *                     first heavy of a run is AM_Heavy_Roundhouse since 2026-09-29)
+ *   heavy_strike_2.png the same, her next heavy: the next variant (AM_Heavy_SurpriseUppercut), never the same clip
  *   kick.png          side on, the Kick role (AM_Kick_*) at the moment its hit window opens
  *   telegraph_glyph.png her own camera, a fists thug 130 cm in front of her 0.3 s into his 0.6 s wind-up: the
  *                     red-orange telegraph "!" over him, grown and pulsing, the parry line under it
@@ -941,7 +941,10 @@ public:
 			bool bHeadOn = false;
 			bool bFeetOn = false;
 			const FVector Feet = Kate->GetActorLocation() - FVector(0.f, 0.f, Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
-			const FString Head = ScreenOffset(PC, Feet + FVector(0.f, 0.f, 175.f), &bHeadOn);
+			// The top of her head (the head bone plus a little) and her feet.
+			const bool bHasHead = Body && Body->GetBoneIndex(TEXT("head")) != INDEX_NONE;
+			const FVector HeadTop = bHasHead ? Body->GetBoneLocation(TEXT("head")) + FVector(0.f, 0.f, 12.f) : Feet + FVector(0.f, 0.f, 170.f);
+			const FString Head = ScreenOffset(PC, HeadTop, &bHeadOn);
 			const FString Toes = ScreenOffset(PC, Feet, &bFeetOn);
 			const AThugCharacter* Second = SecondFoe.Get();
 			const bool bHidden = Body && (Body->bOwnerNoSee || !Body->IsVisible());
