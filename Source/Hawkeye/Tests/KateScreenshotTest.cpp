@@ -53,6 +53,7 @@
 #include "Tests/EnemyScreenshots.h"
 #include "Tests/FastTravelScreenshots.h"
 #include "Tests/InteriorScreenshots.h"
+#include "Tests/MapScreenshots.h"
 #include "Tests/MeleeScreenshots.h"
 #include "Tests/NarrativeScreenshots.h"
 #include "Tests/PartnerScreenshots.h"
@@ -146,6 +147,7 @@
  *   pedestal_dimmer.png: the difficulty and accessibility pass (AccessibilityScreenshotTest.cpp)
  *   safehouse2_door.png, fasttravel_list.png, compass_safehouses.png: the fast-travel pass (FastTravelLapTest.cpp)
  *   interior_entrance.png: the interior door on its district building (InteriorMapTest.cpp)
+ *   map_open.png: the world map at the PlayerStart, icons, legend and a hovered safehouse (MapScreenshotTest.cpp)
  *   safehouse_door.png, safehouse_menu.png, main_menu.png, death_fade.png: the save pass
  *                           (SaveRoundTripTest.cpp)
  *   phone_open.png, chapter_title.png, dialogue_subtitle.png, chapter_end_closeup.png,
@@ -2820,6 +2822,9 @@ bool FHawkeyeScreenshotKate::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeKateTakeShot(this, TEXT("kate_costume.png")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+
+	// The world map open at the PlayerStart: the district, its icons and the legend (MapScreenshotTest.cpp).
+	HawkeyeAddMapShots(this);
 
 	// The same street by night and by day (hawkeye.TimeOfDay), then back to the setting.
 	AddTimeOfDayShots(this);
