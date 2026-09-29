@@ -444,7 +444,7 @@ void AHawkeyeCharacter::ReviveFromDown(float HealthFraction)
 	DownedSeconds = 0.f;
 	Reviver.Reset();
 	HealthComponent->Revive(HealthComponent->GetMaxHealth() * FMath::Clamp(HealthFraction, 0.01f, 1.f));
-	UnCrouch();
+	EndCrouch(TEXT("revived from the down"));
 	UpdateMaxWalkSpeed();
 	UE_LOG(LogHawkeye, Log, TEXT("%s: revived at %.0f health."), *GetName(), HealthComponent->GetCurrentHealth());
 }
@@ -1931,7 +1931,7 @@ void AHawkeyeCharacter::PressCrouch()
 		// Held crouch stands on the release, not on a second press.
 		if (bToggleCrouch)
 		{
-			UnCrouch();
+			EndCrouch(TEXT("crouch input (toggle press)"));
 		}
 	}
 	else if (bIsSprinting)
@@ -1972,7 +1972,7 @@ void AHawkeyeCharacter::ReleaseCrouch()
 	const bool bWanted = IsCrouchWanted();
 	if (bWanted && !UHawkeyeAccessibility::ResolveRelease(bToggleCrouch, bWanted) && !bIsSliding && !IsRolling())
 	{
-		UnCrouch();
+		EndCrouch(TEXT("crouch input (hold released)"));
 		UpdateMaxWalkSpeed();
 	}
 }
@@ -1982,6 +1982,70 @@ bool AHawkeyeCharacter::IsCrouchWanted() const
 	// The movement component takes a crouch on its next update; until then only the wish is set.
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
 	return bIsCrouched || (Movement && Movement->bWantsToCrouch);
+}
+
+void AHawkeyeCharacter::EndCrouch(const TCHAR* Why)
+{
+	if (IsCrouchWanted())
+	{
+		PendingCrouchEndReason = Why;
+		bPendingCrouchEndUnasked = false;
+	}
+	Super::UnCrouch();
+}
+
+void AHawkeyeCharacter::UnCrouch(bool bClientSimulation)
+{
+	// Our own stand-ups come through EndCrouch (Super::UnCrouch); anything landing here is a Blueprint (the
+	// sample's graph) or engine code, named by its script stack so the log says who stood her up.
+	if (IsCrouchWanted())
+	{
+		const FString Script = FFrame::GetScriptCallstack(/*bReturnEmpty=*/true, /*bTopOfStackOnly=*/true).TrimStartAndEnd();
+		PendingCrouchEndReason = Script.IsEmpty() ? FString(TEXT("UnCrouch from C++ outside EndCrouch"))
+			: FString::Printf(TEXT("UnCrouch from Blueprint %s"), *Script);
+		bPendingCrouchEndUnasked = true;
+	}
+	Super::UnCrouch(bClientSimulation);
+}
+
+void AHawkeyeCharacter::OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnStartCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+	PendingCrouchEndReason.Reset();
+	bPendingCrouchEndUnasked = false;
+}
+
+void AHawkeyeCharacter::OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust)
+{
+	Super::OnEndCrouch(HalfHeightAdjust, ScaledHalfHeightAdjust);
+
+	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	const int32 Mode = Movement ? static_cast<int32>(Movement->MovementMode.GetValue()) : -1;
+	const bool bStillWanted = Movement && Movement->bWantsToCrouch;
+	bool bUnasked = bPendingCrouchEndUnasked;
+	FString Why = PendingCrouchEndReason;
+	if (Why.IsEmpty())
+	{
+		// The movement component stood her up on its own: a mode it cannot crouch in (it crouches her again
+		// when she is back on the ground, the wish is kept), or somebody cleared the wish behind our back.
+		Why = bStillWanted ? FString::Printf(TEXT("movement mode %d cannot crouch (the wish is kept)"), Mode)
+			: FString(TEXT("the movement component's crouch wish was cleared outside EndCrouch"));
+		bUnasked = !bStillWanted;
+	}
+	PendingCrouchEndReason.Reset();
+	bPendingCrouchEndUnasked = false;
+	LastCrouchEndReason = Why;
+	++CrouchEndCount;
+	if (bUnasked)
+	{
+		++UnaskedCrouchEndCount;
+		UE_LOG(LogHawkeye, Warning, TEXT("%s: crouch ended, unasked: %s (mode %d, feet %s)"), *GetNameSafe(this), *Why, Mode,
+			*(GetActorLocation() - FVector(0.f, 0.f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight())).ToCompactString());
+	}
+	else
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("%s: crouch ended: %s (mode %d)"), *GetNameSafe(this), *Why, Mode);
+	}
 }
 
 void AHawkeyeCharacter::UpdateCrouchTap(float DeltaSeconds)
@@ -2746,9 +2810,9 @@ bool AHawkeyeCharacter::TryDodge(FVector WorldDirection)
 		MeleeComponent->CancelAttack();
 	}
 	StopAim();
-	if (bIsCrouched)
+	if (IsCrouchWanted())
 	{
-		UnCrouch();
+		EndCrouch(TEXT("dodge"));
 	}
 
 	DodgeRemaining = DodgeSeconds;
@@ -3044,6 +3108,8 @@ void AHawkeyeCharacter::EndSlide()
 	{
 		Movement->GroundFriction = PreSlideGroundFriction;
 		// UnCrouch checks for headroom; under a low ceiling the character stays crouched.
+		PendingCrouchEndReason = TEXT("slide end");
+		bPendingCrouchEndUnasked = false;
 		Movement->bWantsToCrouch = false;
 		Movement->UnCrouch();
 	}
@@ -3106,10 +3172,21 @@ void AHawkeyeCharacter::OnMovementModeChanged(EMovementMode PrevMovementMode, ui
 	Super::OnMovementModeChanged(PrevMovementMode, PreviousCustomMode);
 
 	const UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (Movement && (Movement->MovementMode == MOVE_Flying || Movement->MovementMode == MOVE_Custom))
+	{
+		// A parkour move, a hang or a zip ends the crouch; she comes out of it standing. (The movement
+		// component would stand her up for the move and crouch her again after it.)
+		EndSlide();
+		if (IsCrouchWanted() && !bDowned && !IsRolling())
+		{
+			EndCrouch(Movement->MovementMode == MOVE_Flying ? TEXT("a parkour move, hang or zip") : TEXT("a custom movement mode"));
+		}
+	}
 	if (Movement && Movement->IsFalling())
 	{
 		// Measured from the top of the arc, so a jump off a roof counts its rise as well.
 		FallApexZ = GetActorLocation().Z;
+		FallSeconds = 0.f;
 		EndSlide();
 		// Not rising: stepped off an edge, let go of a hang, or let go of a zip.
 		bControlledDrop = Movement->Velocity.Z <= 0.f
@@ -3129,6 +3206,14 @@ void AHawkeyeCharacter::UpdateFalling(float DeltaSeconds)
 	if (Movement && Movement->IsFalling())
 	{
 		FallApexZ = FMath::Max(FallApexZ, GetActorLocation().Z);
+		FallSeconds += FMath::Max(DeltaSeconds, 0.f);
+		// A real fall stands her up; a lip or a one-frame flick to falling keeps the crouch.
+		const float Drop = FallApexZ - GetActorLocation().Z;
+		if (IsCrouchWanted() && !bIsSliding && !IsRolling() && !bDowned && FallSeconds >= CrouchKeepFallSeconds
+			&& Drop >= CrouchKeepFallHeight)
+		{
+			EndCrouch(TEXT("a fall"));
+		}
 	}
 }
 
@@ -3413,6 +3498,8 @@ void AHawkeyeCharacter::EndRoll()
 		if (bRollOwnsCrouch)
 		{
 			// UnCrouch checks for headroom; under a low ceiling she stays crouched.
+			PendingCrouchEndReason = TEXT("roll end");
+			bPendingCrouchEndUnasked = false;
 			Movement->bWantsToCrouch = false;
 			Movement->UnCrouch();
 		}

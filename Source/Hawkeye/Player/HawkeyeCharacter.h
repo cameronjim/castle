@@ -220,6 +220,25 @@ public:
 	bool IsCrouchWanted() const;
 
 	/**
+	 * Stands her up for Why, which the log names when the capsule comes up. Every C++ un-crouch goes through
+	 * here (or names itself before touching the movement component), so a stand-up nobody asked for shows as
+	 * "unasked" with the Blueprint or C++ caller behind it.
+	 */
+	void EndCrouch(const TCHAR* Why);
+
+	/** Why her last crouch ended ("crouch input", "slide start", "dodge", ...); empty before the first. */
+	const FString& GetLastCrouchEndReason() const { return LastCrouchEndReason; }
+
+	/** Crouches that have ended since play began. */
+	int32 GetCrouchEndCount() const { return CrouchEndCount; }
+
+	/** Stand-ups nobody in C++ asked for (a Blueprint or an unnamed caller): a bug, logged with a warning. */
+	int32 GetUnaskedCrouchEndCount() const { return UnaskedCrouchEndCount; }
+
+	/** Routes a Blueprint or engine UnCrouch through the reason log. */
+	virtual void UnCrouch(bool bClientSimulation = false) override;
+
+	/**
 	 * Takes every setting the character uses: sensitivities, inverts, hold or toggle for aim and crouch,
 	 * the shake and flash scales, and the difficulty's regen delay, fall damage, parry window and trick
 	 * arrow caps. The settings subsystem's broadcast lands here; tests call it directly.
@@ -870,6 +889,8 @@ protected:
 	//~ Begin ACharacter interface
 	virtual void Landed(const FHitResult& Hit) override;
 	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
+	virtual void OnStartCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
+	virtual void OnEndCrouch(float HalfHeightAdjust, float ScaledHalfHeightAdjust) override;
 	//~ End ACharacter interface
 
 	/** Adds DefaultMappingContext to the local player's Enhanced Input subsystem. */
@@ -1464,6 +1485,16 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Slide", meta = (ClampMin = "10.0"))
 	float CrouchedCapsuleHalfHeight = 50.f;
 
+	/**
+	 * A fall ends a crouch once it has lasted this long and dropped CrouchKeepFallHeight below its top: a
+	 * shorter or shallower one (a stair's lip, a one-frame flick to falling on a landing) keeps it.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float CrouchKeepFallSeconds = 0.3f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Hawkeye|Movement", meta = (ClampMin = "0.0"))
+	float CrouchKeepFallHeight = 30.f;
+
 	// --- Falling --------------------------------------------------------------------------------
 
 	/** A landing from above this height rolls: a short speed and camera dip. */
@@ -1866,6 +1897,9 @@ protected:
 	UPROPERTY(Transient)
 	float FallApexZ = 0.f;
 
+	/** Seconds in the air since she last left the ground (the crouch's real-fall test). */
+	float FallSeconds = 0.f;
+
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Hawkeye|Falling")
 	float LastFallHeight = 0.f;
 
@@ -2001,6 +2035,13 @@ private:
 	/** A Ctrl press while moving, waiting to find out whether it is a tap (dodge) or a hold (crouch). */
 	bool bCrouchTapPending = false;
 	float CrouchTapHeldSeconds = 0.f;
+
+	/** Why the crouch is being ended, set before the movement component stands her up; logged by OnEndCrouch. */
+	FString PendingCrouchEndReason;
+	bool bPendingCrouchEndUnasked = false;
+	FString LastCrouchEndReason;
+	int32 CrouchEndCount = 0;
+	int32 UnaskedCrouchEndCount = 0;
 
 	/** The dodge turned invulnerability on, so the dodge is what turns it off. */
 	bool bDodgeOwnsInvulnerability = false;
