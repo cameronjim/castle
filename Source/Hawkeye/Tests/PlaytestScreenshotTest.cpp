@@ -51,7 +51,8 @@ namespace HawkeyePlaytestShots
 /**
  * The playtest kit from the keys in: F12 once (a note, its screenshot with the HUD, notes.json), F11 into
  * photo mode, the camera flown forward and turned, the view narrowed a notch, F12 for a clean photo, Esc
- * back to the game exactly where it was. Then the files are checked on disk and summary.json written.
+ * back to the game exactly where it was; then a pad's Menu tapped (the pause menu, on release) and held
+ * (a second note). Then the files are checked on disk and summary.json written.
  */
 class FHawkeyePlaytestRun : public IAutomationLatentCommand
 {
@@ -159,6 +160,45 @@ public:
 			Test->TestTrue(TEXT("Kate did not move"), !PC->GetPawn() || PC->GetPawn()->GetActorLocation().Equals(KateLocation, 1.0));
 			Next();
 			return false;
+		case 4: // A pad's Menu tapped: the pause menu, on the release.
+			if (InStage < 0.3)
+			{
+				return false;
+			}
+			Key(PC, EKeys::Gamepad_Special_Right, IE_Pressed);
+			Test->TestFalse(TEXT("Menu's press alone does not pause (a hold may be a note)"), PC->IsPauseMenuOpen());
+			Key(PC, EKeys::Gamepad_Special_Right, IE_Released);
+			Test->TestTrue(TEXT("Menu tapped: the pause menu"), PC->IsPauseMenuOpen());
+			PC->SetPauseMenuOpen(false);
+			Next();
+			return false;
+		case 5: // Menu held: a note, and no pause menu.
+			if (InStage < 0.3)
+			{
+				return false;
+			}
+			if (!bMenuDown)
+			{
+				Key(PC, EKeys::Gamepad_Special_Right, IE_Pressed);
+				bMenuDown = true;
+				return false;
+			}
+			if (InStage < 0.3 + PC->NoteHoldSeconds + 0.2)
+			{
+				return false;
+			}
+			Key(PC, EKeys::Gamepad_Special_Right, IE_Released);
+			Test->TestEqual(TEXT("Menu held 0.6 s took a note"), Playtest->GetNotes().Num(), NoteIndex + 1);
+			Test->TestFalse(TEXT("and did not pause"), PC->IsPauseMenuOpen());
+			Next();
+			return false;
+		case 6:
+			if (HawkeyeCapture::GetOutstanding(Playtest) > 0)
+			{
+				return false;
+			}
+			Next();
+			return false;
 		default:
 		{
 			const FString Folder = Playtest->GetSessionFolder();
@@ -199,6 +239,7 @@ private:
 	int32 PhotoIndex = 0;
 	FVector KateLocation = FVector::ZeroVector;
 	FVector StartCamera = FVector::ZeroVector;
+	bool bMenuDown = false;
 };
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeScreenshotPlaytest, "Hawkeye.Screenshot.Playtest",
