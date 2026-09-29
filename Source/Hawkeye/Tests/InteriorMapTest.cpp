@@ -515,7 +515,7 @@ namespace HawkeyeInteriorMap
  *   interior_gallery.png  at the gallery's balustrade, looking down into the hall
  *   int_patrol.png        from the lobby side of the hall's archway, the bat thug walking his beat in the hall
  *   int_takedown.png      a quarter second into her takedown of the lobby thug from behind
- *   int_gallery_gunner.png from the hall floor, the gunner at the gallery rail aiming down at her, the indoor arm
+ *   int_gallery_gunner.png on the gallery, the gunner at its rail turned to her with his pistol up, the indoor arm
  *   int_vault_open.png    the vault door slid open, from the hall, looking in
  *
  * Thugs are frozen for the pass (the bat thug walks, calm, for his shot). Run from the standalone game:
@@ -638,12 +638,13 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 	{
 		UWorld* World = FindWorld();
 		AThugCharacter* Gunner = Enemy(World, TEXT("gallery"));
-		// Kate on a line no hall pendant crosses (the one at (1267, 700) hangs at his head height); a spot in the rows of
-		// chairs refuses the teleport; the bat thug put out of the frame.
-		PlaceThug(Enemy(World, TEXT("hall")), FVector(1700.f, 250.f, 0.f), 90.f);
-		PlaceThug(Gunner, FVector(1155.f, 450.f, FloorHeight), -7.f);
-		// From the stage at the hall's far end (40 cm up, 9 m off): flat enough that his pistol shows over the rail.
-		Place(World, FVector(2080.f, 330.f, 40.f), 173.f, 5.f);
+		// The bat thug put out of the frame.
+		PlaceThug(Enemy(World, TEXT("hall")), FVector(1950.f, 1200.f, 0.f), 90.f);
+		// On the gallery with him, 4.8 m along it from where the stair's door lets her out: on his floor the parapet
+		// does not hide him (from the hall floor under it only his head shows, and from the stage 9 m off he was small
+		// and washed pale by the pendants over the hall), and he turns from the rail to her.
+		PlaceThug(Gunner, FVector(1155.f, 450.f, FloorHeight), 109.f);
+		Place(World, FVector(1000.f, 900.f, FloorHeight), -71.f, -2.f);
 		return true;
 	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
