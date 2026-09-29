@@ -62,6 +62,8 @@
 #include "UI/HawkeyeObjectiveWidget.h"
 #include "UI/PhoneWidget.h"
 #include "UI/HawkeyeMapWidget.h"
+#include "Playtest/PlaytestPhotoMode.h"
+#include "Playtest/PlaytestSubsystem.h"
 
 AHawkeyePlayerController::AHawkeyePlayerController()
 {
@@ -183,6 +185,16 @@ bool AHawkeyePlayerController::InputKey(const FInputKeyEventArgs& Params)
 	// place that reliably knows which device was touched last.
 	bUsingGamepad = Params.Key.IsGamepadKey();
 
+	// Photo mode takes every key and axis, so nothing reaches the frozen game under it.
+	if (PhotoMode && PhotoMode->IsActive())
+	{
+		return PhotoMode->HandleKey(Params);
+	}
+	if (HandlePlaytestKey(Params))
+	{
+		return true;
+	}
+
 	if (Params.Event == IE_Pressed)
 	{
 		// Input is allowed under the title card; the first press after its lockout also fades it.
@@ -225,6 +237,7 @@ void AHawkeyePlayerController::PlayerTick(float DeltaTime)
 	// Real time, like the quiver wheel: the hold is the thumb, not game time.
 	TickDPadDown(FPlatformTime::Seconds());
 	TickDPadUp(FPlatformTime::Seconds());
+	TickPlaytestKeys(FPlatformTime::Seconds());
 
 	const double Now = FPlatformTime::Seconds();
 	// Automation drives its own notices (UpdatePlaceNotices directly), so no toast or marker lands in a shot;
@@ -581,7 +594,8 @@ bool AHawkeyePlayerController::CanTogglePause() const
 {
 	// The slideshow pauses the game itself and restores the previous state on finish; letting
 	// Escape unpause underneath it would leave the flashback running over live gameplay.
-	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bPhoneOpen || bMapOpen)
+	if (bFlashbackActive || bMainMenuOpen || bSafehouseMenuOpen || bChallengeResultsOpen || bPhoneOpen || bMapOpen
+		|| IsPhotoModeActive())
 	{
 		return false;
 	}
@@ -701,6 +715,7 @@ UHawkeyePauseWidget* AHawkeyePlayerController::ShowPauseWidget()
 		PauseWidget->OnReplayFlashbacksClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseReplayFlashbacksClicked);
 		PauseWidget->OnMarkSafehouseClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseMarkSafehouseClicked);
 		PauseWidget->OnMarkChallengeClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseMarkChallengeClicked);
+		PauseWidget->OnPhotoModeClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePausePhotoModeClicked);
 		PauseWidget->OnRestartMissionClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseRestartClicked);
 		PauseWidget->OnQuitToDesktopClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitClicked);
 		PauseWidget->OnQuitToMenuClicked.AddDynamic(this, &AHawkeyePlayerController::HandlePauseQuitToMenuClicked);
@@ -1447,6 +1462,7 @@ UHawkeyeHudWidget* AHawkeyePlayerController::GetHawkeyeHudFor(const UObject* Wor
 
 void AHawkeyePlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	ExitPhotoMode();
 	if (UHawkeyeSettingsSubsystem* SettingsSubsystem = UHawkeyeSettingsSubsystem::Get(this))
 	{
 		SettingsSubsystem->OnSettingsChanged.RemoveDynamic(this, &AHawkeyePlayerController::HandleSettingsChanged);
@@ -2288,4 +2304,200 @@ void AHawkeyePlayerController::ApplyVolumeSettings(const FHawkeyeSettings& Setti
 	}
 	UE_LOG(LogHawkeye, Verbose, TEXT("%s: volumes master %.2f, sfx %.2f, ambient %.2f, ui %.2f, music %.2f."), *GetName(),
 		AppliedVolumes.Master, AppliedVolumes.Sfx, AppliedVolumes.Ambient, AppliedVolumes.UI, AppliedVolumes.Music);
+}
+
+// --- Playtest capture ----------------------------------------------------------------------------
+
+bool AHawkeyePlayerController::HandlePlaytestKey(const FInputKeyEventArgs& Params)
+{
+	const double Now = FPlatformTime::Seconds();
+	if (Params.Key == EKeys::F12)
+	{
+		if (Params.Event == IE_Pressed)
+		{
+			TakePlaytestNote();
+			NoteKeyDownSeconds = Now;
+			bVerboseBumpStarted = false;
+		}
+		else if (Params.Event == IE_Released)
+		{
+			NoteKeyDownSeconds = -1.0;
+		}
+		return true;
+	}
+	if (Params.Key == EKeys::F11)
+	{
+		if (Params.Event == IE_Pressed)
+		{
+			EnterPhotoMode();
+		}
+		return true;
+	}
+	// Menu on a pad in play: held back from IA_Pause so a hold can be a note. A tap pauses on release. Under
+	// a menu (the world paused) it passes through as before, to close it.
+	if (Params.Key == EKeys::Gamepad_Special_Right)
+	{
+		if (Params.Event == IE_Pressed && !IsPaused())
+		{
+			MenuHold.HoldSeconds = NoteHoldSeconds;
+			MenuHold.Press(Now);
+			NoteKeyDownSeconds = Now;
+			bVerboseBumpStarted = false;
+			return true;
+		}
+		if (MenuHold.IsDown() && Params.Event == IE_Released)
+		{
+			NoteKeyDownSeconds = -1.0;
+			switch (MenuHold.Release(Now))
+			{
+			case EHawkeyeTapHold::Tap:
+				Input_Pause(FInputActionValue());
+				break;
+			case EHawkeyeTapHold::Hold:
+				TakePlaytestNote();
+				break;
+			default:
+				break;
+			}
+			return true;
+		}
+		if (MenuHold.IsDown())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void AHawkeyePlayerController::TickPlaytestKeys(double NowSeconds)
+{
+	if (MenuHold.Tick(NowSeconds) == EHawkeyeTapHold::Hold)
+	{
+		TakePlaytestNote();
+	}
+	if (NoteKeyDownSeconds >= 0.0 && !bVerboseBumpStarted && NowSeconds - NoteKeyDownSeconds >= VerboseBumpHoldSeconds)
+	{
+		bVerboseBumpStarted = true;
+		if (UPlaytestSubsystem* Playtest = UPlaytestSubsystem::Get(this))
+		{
+			Playtest->StartVerboseBump(VerboseBumpSeconds);
+		}
+	}
+}
+
+int32 AHawkeyePlayerController::TakePlaytestNote()
+{
+	UPlaytestSubsystem* Playtest = UPlaytestSubsystem::Get(this);
+	if (!Playtest || !IsLocalController())
+	{
+		return 0;
+	}
+	TWeakObjectPtr<AHawkeyePlayerController> WeakThis(this);
+	return Playtest->TakeNote(this, [WeakThis](int32 Index, bool bShotOk)
+	{
+		if (AHawkeyePlayerController* Self = WeakThis.Get())
+		{
+			Self->PushHudToast(FText::GetEmpty(), FText::Format(bShotOk
+				? NSLOCTEXT("Hawkeye", "PlaytestNoteSaved", "Note {0} saved")
+				: NSLOCTEXT("Hawkeye", "PlaytestNoteNoShot", "Note {0} saved (no screenshot)"), FText::AsNumber(Index)));
+		}
+	});
+}
+
+bool AHawkeyePlayerController::IsPhotoModeActive() const
+{
+	return PhotoMode && PhotoMode->IsActive();
+}
+
+FString AHawkeyePlayerController::GetPhotoModeRefusal(bool bFromPauseMenu) const
+{
+	if (!IsLocalController())
+	{
+		return TEXT("not a local player");
+	}
+	if (IsPhotoModeActive())
+	{
+		return TEXT("already on");
+	}
+	if (bFlashbackActive)
+	{
+		return TEXT("a flashback");
+	}
+	const bool bPauseMenuOnly = bFromPauseMenu && bPauseMenuOpen && !bSettingsOpen && !bFlashbackReplayOpen;
+	if ((IsPaused() && !bPauseMenuOnly) || (bPauseMenuOpen && !bPauseMenuOnly) || bMainMenuOpen || bDifficultyPromptOpen
+		|| bSafehouseMenuOpen || bChallengeResultsOpen || bInventoryOpen || bPhoneOpen || bMapOpen)
+	{
+		return TEXT("a menu is open");
+	}
+	if (bCloseUpActive || (MissionFlow && MissionFlow->IsRunning()) || IsChapterTitleShowing())
+	{
+		return TEXT("a chapter beat");
+	}
+	if (const AHawkeyeGameMode* GameMode = GetWorld() ? GetWorld()->GetAuthGameMode<AHawkeyeGameMode>() : nullptr;
+		GameMode && GameMode->IsRestartPending())
+	{
+		return TEXT("reloading");
+	}
+	const APawn* ControlledPawn = GetPawn();
+	if (!ControlledPawn)
+	{
+		return TEXT("no pawn");
+	}
+	const UHealthComponent* Health = ControlledPawn->FindComponentByClass<UHealthComponent>();
+	if (Health && !Health->IsAlive())
+	{
+		return TEXT("dead");
+	}
+	if (const AHawkeyeCharacter* Kate = Cast<AHawkeyeCharacter>(ControlledPawn))
+	{
+		if (Kate->IsDowned())
+		{
+			return TEXT("downed");
+		}
+		if (Kate->IsQuiverWheelOpen())
+		{
+			return TEXT("the quiver wheel is open");
+		}
+	}
+	return FString();
+}
+
+bool AHawkeyePlayerController::EnterPhotoMode()
+{
+	const FString Refusal = GetPhotoModeRefusal();
+	if (!Refusal.IsEmpty())
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("Photo mode: not now (%s)."), *Refusal);
+		if (!IsPhotoModeActive())
+		{
+			PushHudToast(FText::GetEmpty(), NSLOCTEXT("Hawkeye", "PhotoModeRefused", "Photo mode is not available right now"));
+		}
+		return false;
+	}
+	if (!PhotoMode)
+	{
+		PhotoMode = NewObject<UPlaytestPhotoMode>(this, TEXT("PhotoMode"));
+	}
+	return PhotoMode->Enter(this);
+}
+
+void AHawkeyePlayerController::ExitPhotoMode()
+{
+	if (PhotoMode)
+	{
+		PhotoMode->Exit();
+	}
+}
+
+void AHawkeyePlayerController::HandlePausePhotoModeClicked()
+{
+	const FString Refusal = GetPhotoModeRefusal(/*bFromPauseMenu=*/true);
+	if (!Refusal.IsEmpty())
+	{
+		UE_LOG(LogHawkeye, Log, TEXT("Photo mode: not now (%s)."), *Refusal);
+		return;
+	}
+	// The menu goes first (and the world unpauses for a moment); photo mode pauses it again the same frame.
+	SetPauseMenuOpen(false);
+	EnterPhotoMode();
 }

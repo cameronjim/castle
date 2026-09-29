@@ -19,6 +19,7 @@ class UBanterComponent;
 class UChallengeResultsWidget;
 class UChapterTitleWidget;
 class UPhoneWidget;
+class UPlaytestPhotoMode;
 class USnowfallComponent;
 class UHawkeyeHudWidget;
 class UHawkeyeInventoryWidget;
@@ -498,6 +499,45 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Input")
 	bool IsUsingGamepad() const { return bUsingGamepad; }
 
+	// --- Playtest capture (claude-docs/testing.md, "Playtest capture") ---------------------------
+
+	/**
+	 * F12, or Menu held NoteHoldSeconds on a pad: a playtest note (UPlaytestSubsystem::TakeNote) and a
+	 * "Note 3 saved" toast once its screenshot is written. Returns the note's index, 0 when none was taken.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Playtest")
+	int32 TakePlaytestNote();
+
+	/** A Menu hold this long is a note; a shorter press pauses, on release. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Playtest", meta = (ClampMin = "0.1"))
+	float NoteHoldSeconds = 0.6f;
+
+	/** F12 or Menu still held this long after the press: LogHawkeye at Verbose for VerboseBumpSeconds. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Playtest", meta = (ClampMin = "0.5"))
+	float VerboseBumpHoldSeconds = 2.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Playtest", meta = (ClampMin = "1.0"))
+	float VerboseBumpSeconds = 10.f;
+
+	/** F11, or Photo mode in the pause menu. False (with a toast) when GetPhotoModeRefusal has a reason. */
+	UFUNCTION(BlueprintCallable, Category = "Playtest")
+	bool EnterPhotoMode();
+
+	UFUNCTION(BlueprintCallable, Category = "Playtest")
+	void ExitPhotoMode();
+
+	UFUNCTION(BlueprintPure, Category = "Playtest")
+	bool IsPhotoModeActive() const;
+
+	/**
+	 * Empty when photo mode may start now; otherwise why not: "a menu is open", "a flashback", "a chapter
+	 * beat", "downed", "dead", "no pawn", "the quiver wheel is open", "reloading". bFromPauseMenu lets the
+	 * pause menu's own row through.
+	 */
+	FString GetPhotoModeRefusal(bool bFromPauseMenu = false) const;
+
+	UPlaytestPhotoMode* GetPhotoMode() const { return PhotoMode; }
+
 	// --- Partner and switching (claude-docs/gameplay-semantics.md) -----------------------------
 
 	/**
@@ -918,4 +958,23 @@ protected:
 	/** Last device seen by InputKey: true for a Gamepad_* key, false for mouse or keyboard. */
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "Input")
 	bool bUsingGamepad = false;
+
+	/** F12, F11 and the pad's Menu hold. True when the key was the kit's and is used up. */
+	bool HandlePlaytestKey(const FInputKeyEventArgs& Params);
+
+	/** The Menu hold and the verbose bump's 2 s, from real time. */
+	void TickPlaytestKeys(double NowSeconds);
+
+	UFUNCTION()
+	void HandlePausePhotoModeClicked();
+
+	UPROPERTY(Transient)
+	TObjectPtr<UPlaytestPhotoMode> PhotoMode = nullptr;
+
+	/** Menu on a pad in play: a tap pauses on release, a hold of NoteHoldSeconds is a note. */
+	FHawkeyeTapHold MenuHold;
+
+	/** When the held note key (F12 or Menu) went down, real s; negative when none is held. */
+	double NoteKeyDownSeconds = -1.0;
+	bool bVerboseBumpStarted = false;
 };

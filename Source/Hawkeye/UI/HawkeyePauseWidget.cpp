@@ -40,6 +40,10 @@ void UHawkeyePauseWidget::ApplyDefaultLabels()
 	{
 		MarkChallengeLabel = NSLOCTEXT("Hawkeye", "PauseMarkChallenge", "Mark nearest challenge");
 	}
+	if (PhotoModeLabel.IsEmpty())
+	{
+		PhotoModeLabel = NSLOCTEXT("Hawkeye", "PausePhotoMode", "Photo mode");
+	}
 	if (RestartMissionLabel.IsEmpty())
 	{
 		RestartMissionLabel = NSLOCTEXT("Hawkeye", "PauseRestart", "Restart mission");
@@ -122,6 +126,7 @@ TSharedRef<SWidget> UHawkeyePauseWidget::RebuildWidget()
 		AddButton(ReplayFlashbacksButton, TEXT("ReplayFlashbacksButton"), ReplayFlashbacksLabel);
 		AddButton(MarkSafehouseButton, TEXT("MarkSafehouseButton"), MarkSafehouseLabel);
 		AddButton(MarkChallengeButton, TEXT("MarkChallengeButton"), MarkChallengeLabel);
+		AddButton(PhotoModeButton, TEXT("PhotoModeButton"), PhotoModeLabel);
 		AddButton(RestartMissionButton, TEXT("RestartMissionButton"), RestartMissionLabel);
 		AddButton(QuitToMenuButton, TEXT("QuitToMenuButton"), QuitToMenuLabel);
 		AddButton(QuitToDesktopButton, TEXT("QuitToDesktopButton"), QuitToDesktopLabel);
@@ -161,6 +166,10 @@ void UHawkeyePauseWidget::NativeConstruct()
 	{
 		MarkChallengeButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleMarkChallengeClicked);
 	}
+	if (PhotoModeButton)
+	{
+		PhotoModeButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandlePhotoModeClicked);
+	}
 	if (RestartMissionButton)
 	{
 		RestartMissionButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleRestartMissionClicked);
@@ -174,7 +183,7 @@ void UHawkeyePauseWidget::NativeConstruct()
 		QuitToDesktopButton->OnClicked.AddDynamic(this, &UHawkeyePauseWidget::HandleQuitToDesktopClicked);
 	}
 	for (UButton* Button : { ResumeButton.Get(), SettingsButton.Get(), ReplayFlashbacksButton.Get(), MarkSafehouseButton.Get(),
-			 MarkChallengeButton.Get(), RestartMissionButton.Get(), QuitToMenuButton.Get(), QuitToDesktopButton.Get() })
+			 MarkChallengeButton.Get(), PhotoModeButton.Get(), RestartMissionButton.Get(), QuitToMenuButton.Get(), QuitToDesktopButton.Get() })
 	{
 		if (Button)
 		{
@@ -209,6 +218,10 @@ void UHawkeyePauseWidget::NativeDestruct()
 		if (MarkChallengeButton)
 		{
 			MarkChallengeButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandleMarkChallengeClicked);
+		}
+		if (PhotoModeButton)
+		{
+			PhotoModeButton->OnClicked.RemoveDynamic(this, &UHawkeyePauseWidget::HandlePhotoModeClicked);
 		}
 		if (RestartMissionButton)
 		{
@@ -261,6 +274,11 @@ void UHawkeyePauseWidget::HandleMarkSafehouseClicked()
 void UHawkeyePauseWidget::HandleMarkChallengeClicked()
 {
 	OnMarkChallengeClicked.Broadcast();
+}
+
+void UHawkeyePauseWidget::HandlePhotoModeClicked()
+{
+	OnPhotoModeClicked.Broadcast();
 }
 
 void UHawkeyePauseWidget::HandleRestartMissionClicked()

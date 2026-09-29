@@ -47,6 +47,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnMarkChallengeClicked;
 
+	/** "Photo mode": the free camera (the pad's way in; F11 on keys). */
+	UPROPERTY(BlueprintAssignable, Category = "Pause")
+	FOnPauseMenuChoiceSignature OnPhotoModeClicked;
+
 	UPROPERTY(BlueprintAssignable, Category = "Pause")
 	FOnPauseMenuChoiceSignature OnRestartMissionClicked;
 
@@ -74,6 +78,9 @@ public:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText MarkChallengeLabel;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
+	FText PhotoModeLabel;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Pause")
 	FText RestartMissionLabel;
@@ -105,6 +112,9 @@ protected:
 
 	UFUNCTION()
 	void HandleMarkChallengeClicked();
+
+	UFUNCTION()
+	void HandlePhotoModeClicked();
 
 	UFUNCTION()
 	void HandleRestartMissionClicked();
@@ -140,6 +150,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> MarkChallengeButton = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
+	TObjectPtr<UButton> PhotoModeButton = nullptr;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Pause", meta = (BindWidgetOptional))
 	TObjectPtr<UButton> RestartMissionButton = nullptr;
