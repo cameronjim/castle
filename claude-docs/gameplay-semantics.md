@@ -117,7 +117,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   fits the capsule. Mantle: up to 200 cm with room to stand, or over a thin top such as a
   parapet onto a floor no more than 120 cm below. Ledge grab: 200 to 260 cm; hang with
   feet 145 cm below the edge and the capsule 36 cm off the wall; jump climbs, crouch
-  drops. Falling past a ledge 150 to 260 cm above the feet catches it. Auto triggers
+  drops (the stick adds shimmy, corners, hang jumps and the auto climb: "Hang" below). Falling past a ledge 150 to 260 cm above the feet catches it. Auto triggers
   within 120 cm while sprinting at 300 cm/s or more, and refuses a vault whose far floor
   is more than 150 cm down (the jump key allows up to 400), so sprinting at a parapet
   never throws the character off a roof. Durations: vault 0.5 s, mantle 0.8 s, jump to
@@ -179,6 +179,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   (a child with the sample's level-visual lookups off) along every roof edge of 1 m or
   more, hidden, blocking only that channel, 2 cm proud of the facade; 3,723 on the
   district. Verify checks every spline end against the parapet corners within 5 cm.
+  The hang reads the same splines for the line it shimmies along ("Hang" below).
 - Ledges and grapple anchors are not saved in the map. `generate_city.py` writes their
   transforms into `DA_EastVillage_CityProps` (`UCityLedgeData`) and one `ACityLedgeSpawner`
   spawns them at load: all anchors and the ledges within 100 m immediately (about 180 ms),
@@ -198,6 +199,62 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   above the feet so floor-spaced landings chain: hang, drop, catch, repeat. A drop never
   re-catches the ledge it let go of. Walking off an edge, letting go of a hang, or
   cancelling a zip is a controlled drop; landings over 150 cm get the dip.
+- Hang (built 2026-09-29, `ParkourHang.cpp`; tests `Hawkeye.Parkour.Hang*` headless on boxes,
+  `Hawkeye.Parkour.DistrictHangCorner` standalone on a tenement corner). There is no hang timeout:
+  she hangs until a press or the stick moves her. Every rule below logs at Log (`hang: ...`).
+- The ledge line: when a hang starts, the straight line of the edge she holds. First the traversable
+  ledge splines (`Ledge_1..4` on the spawned city ledges, the fire-escape rail blocks and the sample's
+  traversable blocks, found by an overlap on the Traversable channel within 60 cm): one parallel to the
+  edge within 25 cm with its ends within 15 cm of her top, joined end to end with collinear neighbours
+  whose ends meet within 15 cm (a row of tenements of one height is one line), then followed along the
+  wall up to 300 cm past the data where the same edge carries on. With no ledge data it is probed along
+  the wall, up to 20 m each way. A point is on the edge when there is a top within 15 cm of hers 5 cm in
+  from the face, open air 30 cm out in front of the face (a wall across the ledge ends it), the face
+  itself, and nothing standing on the top at the edge (a chimney ends it). Each end remembers why.
+- Shimmy: the stick along the wall (at least 0.4 of it along, so within about 66 degrees; camera
+  relative, like walking) moves her along the line at up to 120 cm/s (`ShimmySpeed`, times how far the
+  stick is pushed), hands on the edge, feet 145 cm below it, the capsule 36 cm out, as in any hang. She
+  stops 25 cm (`ShimmyEndMargin`) short of the line's end so both hands stay on it, where the leading
+  hand (22 cm ahead) would meet something on the top, and where a sweep of the capsule meets something
+  (a fire-escape rail, a ladder, a wall across the ledge). The stop logs why ("the ledge's end: Chimney
+  on the top", "FireEscapeLanding_12 in the way"). The climb, the drop and the auto climb all measure
+  the top where she is now, not where she caught it.
+- Hands (procedural: the Game Animation Sample and the Mixamo folder have no hang or shimmy clip): from
+  her first shimmy in a hang the bow-IK post-process graph's hand IK takes both hands through the strike
+  channel (`UParkourComponent::GetHangArmPose`, fed by `UpdateArmPoses`), starting from the pose's own
+  hand positions so nothing jumps. The hand furthest behind its place steps (the leading one first) over
+  0.22 s, lifting 6 cm off the edge and landing ahead by what the body covers in the step, so the hands
+  alternate and sit up to about 25 cm staggered; each step leans the body toward it (the hit lean's
+  channel, up to 0.7 of its 5 degrees). A strike's pose overrides it; off the hang the IK lets go over
+  0.15 s.
+- Corners: pushing into the line's end, or into a wall across the ledge within 44 cm of her, looks for a
+  ledge round the corner: outside (a face turning away at the end, facing her way along) or inside (a
+  wall across the end facing back at her), its top within 15 cm of hers, its corner end within 60 cm
+  (`CornerReach`) of this one's, long enough for both hands, and room for the capsule where she will
+  hang (and, outside, half way round). Then a 0.4 s move (`HangCorner`) onto it: on an arc round the
+  corner (outside) or turning where she is (inside), turned by the corner's angle with the camera turned
+  the same, into a hang 25 cm (outside) or 38 cm (inside, clear of her old wall) from its corner end.
+  Anything else and she stops at the end (a taller wing, a 30 cm wall end, a ledge starting past 60 cm).
+- Hang jumps. Jump with the stick at least half pushed and at least 0.6 of it to one side leaps sideways
+  (`HangLeap`, 0.3 to 0.45 s by distance, a 25 cm arc, the catch clip reaching for the edge) to the first
+  ledge past where a shimmy would stop that way: its top within 40 cm of hers, its face from 60 cm behind
+  to 150 cm out from hers (a fire-escape landing's rail stands 95 cm out), the new hang 25 cm in from its
+  near end and at most 250 cm (`HangLeapReach`) from where she hangs. A ledge farther off, a blocked way
+  or no room refuses it: she stays hanging and the log gives the distance ("the nearest ledge to the right
+  is 285 cm off"). Jump with the stick at least 0.6 back turns her round (180 degrees, the camera with her)
+  and hops (`HangHop`, 0.5 s) to a wall facing her within 200 cm (`HangHopReach`) of the capsule with a top
+  from 150 cm below hers to 40 above; with none she turns round and pushes off (250 cm/s out, 150 up), a
+  controlled drop with the late catch armed. A plain jump still climbs.
+- Auto climb: the stick held toward the wall (within about 32 degrees, at least half pushed) for 0.5 s
+  (`AutoClimbHoldSeconds`) climbs, when there is somewhere to stand. Not when the top is a parapet (a back
+  edge within 120 cm) with more than 400 cm (`RoofEdgeGuardDrop`) below its top on the far side: there the
+  roof-edge guard stays in charge and only the jump press climbs; the stick's refusal is logged once a hold.
+  A roof parapet from outside (the roof 90 cm under its top behind it) climbs.
+- Hang camera: the control yaw is eased back (at 6/s) to within 65 degrees (`HangCameraMaxYaw`) of looking
+  straight at the wall, so the arm never swings behind the wall's plane into it; the lens's shoulder offset
+  moves to the open side (the left once the camera's right points into the wall past 0.35, back once under
+  0.15) over 0.5 s, and back to the right after the hang. A corner or the hop carries the camera round with
+  her.
 - Grapple launch: the zip starts from a launch point 120 cm above the feet, reached by a
   0.15 s hop, and ignores her own roof, parapet, and fire escape until 250 cm plus the
   capsule radius clear of the start (plus the 150 cm allowance at the anchor). Level and
@@ -718,6 +775,64 @@ the last input came from a pad.
   collapse runs instead: 0.6 s tip of 85 degrees away from the killer, 20 cm drop,
   animation stopped. Either way the flashlight turns off and the capsule stops colliding.
   Which path ran is logged once per guard at Warning.
+
+## Interiors: enemies and the AI indoors (built 2026-09-29, for chapter 4's auction house)
+Tested by `Hawkeye.Interior.*` (InteriorAITest.cpp, the rules and the sample in a real world) and played by
+`Hawkeye.Lap.InteriorStealth` and `Hawkeye.Lap.InteriorLoud` (InteriorLapTest.cpp, standalone). The layout
+format is in `claude-docs/asset-conventions.md`, "Interior layouts".
+- Enemies come from the layout's `enemies` list (type, room, start, facing, patrol, wait, alert group) and
+  `keycards` (who carries which), placed by `generate_interior.py` as BP_Thug, BP_Archer or BP_Thug_Heavy with
+  TargetPoint patrols; `verify_interiors.py` checks each starts on the navmesh, every patrol point is on a path
+  from him, and no capsule of his (start or any point) is inside a wall, a prop or a doorway. The sample has
+  four: a fists thug walking the lobby into the office (crew `front`), a bat thug on the hall floor, a gunner
+  at the gallery rail and an archer on a beat by the vault door who carries its keycard (crew `hall`).
+- A carried keycard is a placed pickup in the thug's `CarriedPickups`: hidden, without collision and not
+  takeable until he goes down (takedown or fight), then dropped at his feet on the loot fan.
+- Eyes follow the body (everywhere, fixed 2026-09-29): perception's sight looks along the thug's body yaw,
+  pitched by his `LookPitch`, while he is Calm or Suspicious, and along his aim once Alerted. The thug
+  controller never ticks, so its control rotation (which the cone used to follow) stayed where he spawned
+  facing; a patrolling thug looked the same way all his life.
+- A patrol point tagged `PatrolFacing` (a layout point with a yaw, and optionally a pitch) is one he turns to
+  while he waits there, his gaze pitched by it. The gallery gunner waits facing the hall at -25 degrees: with
+  the 35 degree cone round a level gaze he could not see the floor under a gallery at all.
+- Sight goes through an open doorway and over a gallery rail; walls, shut door leaves and glass block it. From
+  the rail (50 cm back) the gunner sees the hall floor from 2.5 m out; 150 cm back from the rail he would see
+  almost none of it, which is why his beat runs along the rail.
+- Hearing has walls (`HawkeyeThugHearing`, the engine's hearing is a sphere through anything): a noise is heard
+  within HearingRange x loudness when the straight line to his head is clear, or the line 1.5 m above both
+  ends (over a balustrade, a counter); otherwise along the navmesh path from the noise to him, within the
+  range, a quarter of it when that path crosses a shut door; with no path, not at all.
+- A takedown makes the body-drop noise at the body (0.6, so 720 cm): in the office with its door shut, not
+  heard in the lobby past the door nor in the hall behind two walls; with the door open, heard in the lobby.
+- A thug's squad alert reaches only his crew (`AlertGroup`; a thug with none reaches only thugs with none),
+  within 1500 cm with a line to him, as before. An interior is its own map, so nothing leaves the building.
+- An indoor archer (`bArcherSeesAllRound` off, set by the generator) sees only inside his sight cone while
+  Calm, like any thug; Suspicious or Alerted he sees all round as on the roofs.
+- An unlocked door opens for a thug who walks into its zone (patrols go through doors); doors do not close.
+  While a door is locked and shut its nav link's area is Null (left out of the navmesh) and its leaf cuts the
+  navmesh (a 100 cm doorway is not always eroded shut: with the crate moved off the vault's threshold a strip
+  ran under the leaf), so no path, and no thug investigating a noise, goes through it. Opening it puts the
+  link back (Default), lets the leaf go and rebuilds the tiles.
+- Cover indoors stays on the floor he stands on: EQS and ring candidates count only where they project onto
+  the navmesh (the flat donut round a gallery gunner used to put cover points in the air past the rail).
+- Thugs take the stair between floors (the sample's bat thug, hall floor to gallery by the lobby, the stair
+  and its upper door, which opens for him).
+- Ragdolls and knockdown ragdolls use CCD: a thug thrown at a 20 cm wall at 1500 cm/s (a blast, a death
+  throw) or knocked down by a heavy stays in his room.
+- Senses coming back on (thinking re-enabled, a challenge over) take what perception already sees at once,
+  not at its next change.
+- The fight camera is still capped by `IndoorArmLength` (250 cm) indoors; the loud lap measures the longest
+  arm seen while it is up.
+- Measured (standalone, 2026-09-29): `Hawkeye.Lap.InteriorStealth` in 57.2 s with 0 alerts, 0 suspicions,
+  4 takedowns and 0 hits (the gunner taken when neither the bat thug nor the archer would hear the body);
+  `Hawkeye.Lap.InteriorLoud` won in 40.1 s, all 4 alerted, 2 hits taken (24 damage, the gunner's), 18 arrows,
+  7 lights, 1 heavy, 1 finisher, the fight camera's arm held at 250 cm. Kate twice stood up by herself a moment
+  into a creep (at the stair's top landing and the hall archway, walking, not dodging or traversing); the lap
+  crouches her again. Cause not found.
+- Seen in `Hawkeye.Screenshot.Interior`: `int_patrol.png` (the bat thug walking his beat through the chairs,
+  from the archway), `int_takedown.png` (the lobby thug going limp in front of her), `int_gallery_gunner.png`
+  (the gunner at the rail from the stage, 9 m off: small, washed pale by the gallery's pendants, his pistol not
+  legible), `int_vault_open.png` (the vault doorway open on its shelves and lit case).
 
 ## Save data (built 2026-09-26 on SPUD)
 - SPUD (MIT, vendored at `Plugins/SPUD`, commit 12a30da) persists the world; it built on

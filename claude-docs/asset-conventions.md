@@ -106,6 +106,27 @@ numbered in slide order: `T_FB02_04` is the fourth slide of the second flashback
   use the kept material and light vocabulary (concrete, painted steel, fluorescent tubes,
   red emergency lights, green exit signs over doors).
 
+## Interior layouts
+A chapter interior (`/Game/Maps/L_Int_<Name>`) is built from `Tools/Interiors/<Name>.json` by
+`Tools/generate-interior.ps1` (`Tools/Editor/generate_interior.py`); `verify_interiors.py` checks the map
+against it and `Tools/test-interior.ps1` tests the rules with no editor. The full key list and the geometry
+rules are the docstring of `Tools/Editor/_interior.py`; in short, in cm in the map's frame (+X east, +Y south,
+floor k at k x 330):
+
+- `rooms` (id, floor, rect, floors, surface, paint, light, tone; `overlooks` and `rail` for a gallery),
+  `doors` (between two rooms, leaf none/wood/steel, `locked` to a `keycard`), `exits` (one is the entrance),
+  `windows`, `stairs`, `props` (by tag), `anchors` (grapple anchors on a rail), `exit_signs`, loose `pickups`.
+- `enemies`: `{"id", "type": FISTS|BAT|PISTOL|BOW|SHIELD, "room", "at": [dx, dy], "facing", "patrol":
+  [[room, dx, dy], [room, dx, dy, yaw, pitch], ...], "wait", "alert_group"}`. Points are room-relative on that
+  room's floor and at least 40 cm inside its walls. With no `at` he starts on his first point. A point with a
+  yaw is one he turns to while he waits (tagged PatrolFacing), its pitch where his gaze points (a gallery
+  lookout at -25). `alert_group` is his crew for the squad alert. BOW spawns BP_Archer, SHIELD BP_Thug_Heavy,
+  the rest BP_Thug; every interior thug has `bArcherSeesAllRound` off.
+- `keycards`: `{"keycard", "carrier": <enemy id>}`, a keycard pickup placed in that thug's pocket
+  (CarriedPickups); it must open a locked door. The old `patrols` list still reads, as enemies.
+- Actors are labelled `Int_<Room>_<Kind>_<n>` and tagged `Interior`; thugs also `enemy:<id>` and `alert:<crew>`,
+  carried keycards `carried:<id>`. A second run with the same layout changes nothing and does not save.
+
 ## Blueprint hygiene
 - Parent class is the C++ class when one exists. `BP_Guard` derives `AGuardCharacter`,
   not `ACharacter`.
