@@ -53,6 +53,10 @@
  *   vfx_footstep.png   0.9 s into a walk away from the camera: snow kicked back from her heels
  *   vfx_explosion.png  0.15 s after an explosive arrow 9 m ahead: fireball, core flash, sparks
  *   vfx_emp.png        0.25 s after an EMP 7 m ahead: the ring racing out, arcs, the screen split
+ *   emp_flash.png              the EMP 0.05 s in, time stopped: the 0.14 s flash up beside the ring
+ *   emp_flash_later.png        0.5 s later: the flash gone (the ring and lamp-out may remain)
+ *   explosion_flash.png        the explosion 0.05 s in, time stopped: the 0.1 s core flash up
+ *   explosion_flash_later.png  0.6 s later: the flash gone (smoke and scorch may remain)
  *   arrow_hit_spark.png        a standard arrow into a thug 4.5 m ahead, time stopped in the tick the spark
  *                              is asked for: the purple-white star and streaks, no blood
  *   arrow_hit_spark_later.png  0.5 s later: the spark gone (its 0.2 s star, its streaks under 0.3 s)
@@ -61,7 +65,7 @@
  *   muzzle_flash_later.png     0.3 s after it: the 0.05 s flash and its sparks gone (the thin smoke may stay)
  *   anchor_spark.png           her own grapple bites into the nearest anchor she can target, time stopped
  *                              0.04 s after (at the bite's first tick it is all inside the anchor's block)
- *   anchor_spark_later.png     0.5 s later, mid-zip: the 0.1 s bite flash gone
+ *   anchor_spark_later.png     0.5 s later, mid-zip: the 0.12 s bite flash gone
  *
  * Each logs how many effects the VFX subsystem was asked for and actually spawned; the flash shots log
  * every live particle of their system by emitter, and the later shots fail if a flash is still alive.
@@ -76,6 +80,8 @@ namespace HawkeyeVfxShots
 		StopWalk,
 		Explosion,
 		Emp,
+		ExplosionFlash,
+		EmpFlash,
 		HitSparkSetup,
 		HitSparkFire,
 		Smoke,
@@ -477,10 +483,21 @@ bool FHawkeyeVfxShot::Update()
 		break;
 	case EShot::Explosion:
 		PlaceKate(Kate, PC, -4.f);
+		FreezeOn(Kate->GetWorld(), UHawkeyeVfxSubsystem::ExplosionEvent, 0.15f);
 		SetOff(Test, Kate, TEXT("DA_Arrow_Explosive"), 900.f);
 		break;
 	case EShot::Emp:
 		PlaceKate(Kate, PC, -10.f);
+		SetOff(Test, Kate, TEXT("DA_Arrow_EMP"), 700.f);
+		break;
+	case EShot::ExplosionFlash:
+		PlaceKate(Kate, PC, -4.f);
+		FreezeOn(Kate->GetWorld(), UHawkeyeVfxSubsystem::ExplosionEvent, 0.05f);
+		SetOff(Test, Kate, TEXT("DA_Arrow_Explosive"), 900.f);
+		break;
+	case EShot::EmpFlash:
+		PlaceKate(Kate, PC, -10.f);
+		FreezeOn(Kate->GetWorld(), UHawkeyeVfxSubsystem::EmpPulseEvent, 0.05f);
 		SetOff(Test, Kate, TEXT("DA_Arrow_EMP"), 700.f);
 		break;
 	case EShot::HitSparkSetup:
@@ -665,7 +682,7 @@ public:
 			if (AGrappleAnchor* Anchor = Grapple->GetTargetAnchor())
 			{
 				// Stopped 0.04 s in: at the bite's first tick its flash and sparks are all still inside the anchor's
-				// block, hidden from her lens; by 0.04 s the sparks are out and the 0.1 s flash is still up.
+				// block, hidden from her lens; by 0.04 s the sparks are out and the 0.12 s flash is still up.
 				FreezeOn(World, UHawkeyeVfxSubsystem::AnchorSparksEvent, 0.04f);
 				const bool bFired = Grapple->TryFire();
 				Test->AddInfo(FString::Printf(TEXT("anchor_spark.png: grapple at %s, %.0f cm from her, fired %d."), *Anchor->GetName(),
@@ -782,10 +799,6 @@ void HawkeyeAddVfxShots(FAutomationTestBase* Test)
 	Step(EShot::StopWalk);
 	Wait(1.f);
 
-	Step(EShot::Explosion);
-	Wait(0.15f);
-	Take(TEXT("vfx_explosion.png"));
-	Wait(4.5f);
 
 	Step(EShot::Emp);
 	Wait(0.25f);
@@ -802,6 +815,38 @@ void HawkeyeAddVfxShots(FAutomationTestBase* Test)
 		// A beat of real time (none of the world's): the stopped world ticks and draws the effect's first frame.
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.2f));
 	};
+
+	// The explosion 0.15 s in, time stopped (the world drew it as it was at that moment, whatever a capture costs).
+	Step(EShot::Explosion);
+	Frozen(TEXT("vfx_explosion.png"), 1.f);
+	Take(TEXT("vfx_explosion.png"));
+	Wait(0.3f);
+	Step(EShot::Thaw);
+	Wait(4.5f);
+
+	// The EMP's and the explosion's flashes: time stops 0.05 s in (their flashes live 0.14 s and 0.1 s), then runs
+	// on 0.5 s and 0.6 s. The ring, the lamp-out, the smoke and the scorch may stay; the flash sprites may not.
+	Step(EShot::EmpFlash);
+	Frozen(TEXT("emp_flash.png"), 1.f);
+	Report(TEXT("emp_flash.png"), TEXT("NS_EmpPulse"), TEXT(""), false);
+	Take(TEXT("emp_flash.png"));
+	Wait(0.3f);
+	Step(EShot::Thaw);
+	Wait(0.5f);
+	Report(TEXT("emp_flash_later.png"), TEXT("NS_EmpPulse"), TEXT("Flash"), true);
+	Take(TEXT("emp_flash_later.png"));
+	Wait(1.5f);
+
+	Step(EShot::ExplosionFlash);
+	Frozen(TEXT("explosion_flash.png"), 1.f);
+	Report(TEXT("explosion_flash.png"), TEXT("NS_Explosion"), TEXT(""), false);
+	Take(TEXT("explosion_flash.png"));
+	Wait(0.3f);
+	Step(EShot::Thaw);
+	Wait(0.6f);
+	Report(TEXT("explosion_flash_later.png"), TEXT("NS_Explosion"), TEXT("Core"), true);
+	Take(TEXT("explosion_flash_later.png"));
+	Wait(4.5f);
 
 	// The arrow's spark: time stops in the tick it is asked for, then runs on for 0.5 s.
 	Step(EShot::HitSparkSetup);
