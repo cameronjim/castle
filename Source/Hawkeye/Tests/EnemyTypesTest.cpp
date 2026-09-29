@@ -175,7 +175,7 @@ bool FHawkeyeGunnerBurstTelegraph::RunTest(const FString& Parameters)
 	}
 	UWeaponComponent* Pistol = Gunner->GetWeaponComponent();
 	TestEqual(TEXT("12 a shot"), Pistol->Damage, 12.f);
-	TestEqual(TEXT("5 degree base cone (widened by her sideways speed)"), Brain->AimSpreadDegrees, 5.f);
+	TestEqual(TEXT("6 degree base cone (widened by her sideways speed)"), Brain->AimSpreadDegrees, 6.f);
 	TestEqual(TEXT("0.8 s telegraph"), Brain->Burst.TelegraphSeconds, 0.8f);
 	TestEqual(TEXT("3-shot bursts"), Brain->Burst.ShotsPerBurst, 3);
 

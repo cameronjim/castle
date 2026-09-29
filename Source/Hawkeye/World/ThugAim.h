@@ -35,7 +35,7 @@ namespace HawkeyeThugAim
 	inline constexpr float MissMargin = 50.f;
 	/** The archer's and the gunner's base cones, degrees. */
 	inline constexpr float ArcherBaseConeDegrees = 0.75f;
-	inline constexpr float GunnerBaseConeDegrees = 5.f;
+	inline constexpr float GunnerBaseConeDegrees = 6.f;
 }
 
 /** One look at the target. */
