@@ -558,6 +558,14 @@ EFFECTS = {
         spark_streaks("Streaks", 22, (0.15, 0.3), (2.5, 1.6, 5.0, 1.0), (4.0, 20.0, 6.0, 44.0), (1, 0, 0), 75,
                       (500, 1100), gravity=0, drag=4.0),
     ],
+    # Kate's fist or foot landing (2026-09-29, combat readability): small, very bright and very short, at the
+    # contact point and out toward her (the system's X). The thug's own hit flash is what reads; this only
+    # marks where. A pinpoint core, not the arrow spark's 120 cm star.
+    "NS_MeleeSpark": [
+        flash("Core", 0.06, (6.0, 4.6, 7.5, 1.0), 26),
+        spark_streaks("Streaks", 9, (0.06, 0.14), (5.0, 3.6, 6.5, 1.0), (1.2, 5.0, 2.0, 11.0), (1, 0, 0), 70,
+                      (350, 750), gravity=0, drag=5.0),
+    ],
     # The bow string's release: a tiny puff of breath-like haze.
     "NS_BowRelease": [
         burst_sprites("Puff", "M_Vfx_Smoke", 5, (0.25, 0.4), (0.7, 0.7, 0.75, 0.25), (4, 8), 2, (20, 60),
