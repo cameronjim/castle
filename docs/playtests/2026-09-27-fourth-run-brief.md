@@ -183,6 +183,53 @@ Still waiting on you: Mixamo roll and get-up clips (the landing roll is the plac
 dip until then). Chapter 1 still ends at the arrow, the slides and the grey room; that is
 the story session, not a bug.
 
+## Third wave, 2026-09-29 to 30: the queue while Cameron thinks about the story
+Same gate every time. 468 tests at the end of it. New since the second night:
+- **World map.** M on keys, hold D-pad up on a pad. The whole district drawn from the
+  footprints, with Kate, Clint, the objective, safehouses (hollow until found), pedestals
+  with medals, crimes, the door. Hover for names and distance, A or Enter to mark a place.
+- **First-time hints.** One line above the hotbar with the key as a cap, once per
+  campaign, learned when you do the thing: sprint, vault, climb, hang, grapple, chain,
+  draw, strike, parry, dodge, finisher, takedown, wheel, phone, map, safehouse, challenge,
+  fast travel, crime. Settings, Hints: On / Off.
+- **Playtest capture.** F12 saves a note: screenshot, position, state, the last twenty
+  log lines. Hold it two seconds for ten seconds of verbose logging. F11 is photo mode,
+  free camera, no HUD. On a pad, hold Menu for a note, photo mode is in the pause menu.
+  Quitting writes `Saved\Playtest\<session>\` with notes, photos, a summary and the log;
+  `python Tools\playtest-report.py <folder>` turns it into one page.
+- **Hanging.** Shimmy along ledges, turn outside and inside corners, leap sideways up
+  to 2.5 m to the next ledge or a fire escape rail, hop backwards off a wall, and hold
+  toward the wall for half a second to climb. Roof-edge parapets still need the press.
+- **Music.** A first synthesized score: a pulse on alert, percussion in a fight, a motif
+  for archers and the heavy, a resolve on the win, a drone when down. Pauses with menus.
+  Settings, Music slider. Nobody has listened to it critically yet.
+- **Clint on a pad.** Press the right stick to send him to a point.
+- **Interior enemies.** The auction house has four thugs from its layout file: a lobby
+  patrol, a bat thug in the hall, a gunner on the gallery, an archer with the vault key.
+  Hearing goes through open doors and not walls, squads stay in their crew, the vault
+  door blocks the navmesh while locked. A scripted stealth lap clears it with zero
+  alerts; a loud lap wins. Found on the way: thugs' eyes never turned with their bodies
+  while patrolling, everywhere.
+- **Crimes.** Scripted laps for robbery, ambush and rooftop as well as the mugging, three
+  alley spots on the block, and two fixes they found: roof thugs stuck off the navmesh
+  after a zip landing, music flipping win/alert every frame.
+- **Combat readability.** Purple ring under the thug you're swinging at, telegraph "!"
+  and parry line stacked just above his head with his health bar, a spark at the contact
+  point, thud and dust on knockdowns, fight camera pulls back when two thugs close in
+  (now 9 m). Heavy is the roundhouse. Every flash effect now honours its lifetime.
+- **Day look.** Warm winter afternoon, lamp buzz off, EMP and time of day reconciled,
+  beacons and signs readable by day, a day street bed.
+- **Performance.** Steady state about 6 ms a frame at 1080p, working set about 8 GB. The
+  650 ms hitch after every level change was thousands of ledge splines rendering; hidden.
+- **Campaign lap.** Chapter 1 cold from the main menu to the street after the scene, 226 s,
+  with quit-and-continue in the middle and a death in a crime. Four bugs fixed: quitting
+  to the menu didn't save, fast travel could be taken under fire, the chapter end could
+  fire mid-fight or while downed. Open: the arrow's roof cannot be grappled onto from any
+  standing spot, and street anchors are erratic; an anchor audit is next.
+- **Crouch.** A toggled crouch survives stairs, doorways and one-frame falls; a real fall
+  or a vault or zip ends it. Worth a feel check.
+- **Also:** zero build warnings, packaged build refreshed on 09-29 (before this wave).
+
 ## Known rough edges
 - Challenge pedestal cap and icon read white instead of purple.
 - Distant archery targets are small at 30 to 40 m.
