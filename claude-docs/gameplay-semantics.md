@@ -771,10 +771,20 @@ the last input came from a pad.
   following the camera. Scorch decal placed by a ground trace; EMP chromatic aberration is
   a post-process material.
 - Chimney smoke on the 6 chimneys nearest the player at load. Frame time 7.4 to 7.7 ms.
+- Flash lifetimes (2026-09-29): a `SimpleSpriteBurst` flash keeps the template's own lifetime unless its
+  Lifetime Mode is set to Direct Set, and Lifetime Min/Max are then never read; `create_vfx.py`'s
+  `flash(..., direct_life=True)` sets it. Every flash a shot checks uses it: `NS_MeleeSpark`'s core and glow
+  (0.08 s), `NS_HitSpark`'s star (0.2 s), `NS_ParryRing`'s flash (0.08 s; the ring itself, 0.22 to 0.3 s, is
+  a burst and was always honoured), `NS_MuzzleFlash`'s flash (0.05 s), `NS_AnchorSparks`' bite (0.1 s). The
+  EMP's and the explosion's flashes are still built the old way. Checked by particle count in the screenshot
+  passes: `arrow_hit_spark_later.png` (0.5 s after the hit, nothing of `NS_HitSpark` left),
+  `muzzle_flash_later.png` (0.3 s after the shot, no flash or sparks; the smoke puff may stay),
+  `anchor_spark_later.png` (0.5 s after the bite, no bite flash) and `parry_flash.png` (0.17 s after the
+  parry, no flash, the ring out) fail if a flash is still alive. `Hawkeye.Screenshot.Vfx` runs the effect
+  shots on their own.
 - Open: the explosion still reads washed out (its light plus camera-shake blur); the footstep
   kick is faint. (The arrow's hit spark competing with the thug's hit flash: melee now has its own
-  small `NS_MeleeSpark` and the flash dominates, see "Combat readability"; the arrow's
-  `NS_HitSpark` is unchanged.)
+  small `NS_MeleeSpark` and the flash dominates, see "Combat readability".)
 
 ## Narrative plumbing (built 2026-09-27; placeholder text only, story is written with Cameron)
 - Phone (`UPhoneWidget`, P or hold D-pad down 0.4 s): contacts and threads from
@@ -880,9 +890,13 @@ Rules in `Source/Hawkeye/Combat/CombatReadability.h` (pure, tested by `Hawkeye.M
   her; an archer never does (his purple glint is the tell).
 - Glyph anchor (2026-09-29): the alert "!" and "?" and the telegraph "!" sit on his head bone plus 20 cm
   (`GlyphHeadClearance` on the thug, about the top of his head), not on his capsule's top plus 28 cm, which
-  put the "!" about 60 px over his head at close range. The health bar keeps the capsule anchor; while it
-  shows, the glyph (and the parry line under a telegraph) is lifted to sit over the bar's top, never on it
-  (`HawkeyeCombatReadability::ComputeGlyphBottom`, tested in `Hawkeye.Melee.HitStopAndTelegraphGlyph`).
+  put the "!" about 60 px over his head at close range. The health bar sits on the same anchor (2026-09-29,
+  second pass: it had kept the capsule's top plus 28 cm, about 65 px over his head close up, so a hurt thug's
+  "!" still rode high). The stack, bottom up: the bar (its bottom on the anchor), then the parry line under a
+  telegraph, then the glyph, each `StackGap` (4 px, dark edges included) over the one below; with no bar the
+  glyph or parry line sits on the anchor itself. The glyph's gap is measured from its ink (its baseline less its
+  outline), not its text box, which runs on below by the font's descent. They never overlap (`HawkeyeCombatReadability::ComputeGlyphBottom`,
+  tested in `Hawkeye.Melee.HitStopAndTelegraphGlyph`). A thug with no head bone uses the capsule anchor.
 - Parry line: under the telegraph glyph, an 18 x 3 px cream line on a dark edge, drawn only while a
   tap now would parry him: in the difficulty's window (Hard: not the first 0.1 s), within 250 cm and
   70 degrees of her view, 150 cm up or down (`AHawkeyeCharacter::CanParryNow`, the same test the
