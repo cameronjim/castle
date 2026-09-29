@@ -7,9 +7,11 @@
 #include "Combat/BowComponent.h"
 #include "Combat/BowIKAnimInstance.h"
 #include "Combat/CombatAnimSet.h"
+#include "Combat/CombatReadability.h"
 #include "Combat/FinisherComponent.h"
 #include "Combat/HealthComponent.h"
 #include "Combat/MeleeComponent.h"
+#include "Combat/MeleeRules.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/PointLightComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -51,6 +53,15 @@
  *                     first heavy of a run is AM_Heavy_SurpriseUppercut)
  *   heavy_strike_2.png the same, her next heavy: the next variant (AM_Heavy_Roundhouse), never the same clip
  *   kick.png          side on, the Kick role (AM_Kick_*) at the moment its hit window opens
+ *   telegraph_glyph.png her own camera, a fists thug 130 cm in front of her 0.3 s into his 0.6 s wind-up: the
+ *                     red-orange telegraph "!" over him, grown and pulsing, the parry line under it
+ *   thug_punch_2.png  side on, his next fists swing (the second variant) 0.3 s into its wind-up
+ *   thug_punch.png    side on, the one after (the first variant again) 0.3 s in: the two clips' wind-ups
+ *   fight_camera.png  her own camera, two alerted fists thugs 3 to 4.5 m in front of her on the street: the
+ *                     fight camera all the way in (boom 70 cm longer, lens tipped 4 degrees down)
+ *   fight_camera_wall.png the same with her back 150 cm from a building: the probe pulls the longer boom in,
+ *                     and she must still be in frame and drawn (the report gives the arm, the lens and where
+ *                     she and the thugs land on screen; she hidden or off screen fails the test)
  *
  * The heavies and the kick fail the test when another montage plays (the second heavy: the first's clip
  * again), or when her pelvis at the capture is more than 15 cm below its height standing just before the press,
@@ -83,12 +94,19 @@ namespace HawkeyeMeleeShots
 		Heavy,
 		KickSetup,
 		Kick,
+		TelegraphSetup,
+		TelegraphSwing,
+		PunchSetup,
+		FightSetup,
+		FightWallSetup,
 		Crawl,
 		Uncrawl,
 		Cleanup,
 	};
 
 	static TWeakObjectPtr<AThugCharacter> Foe;
+	/** The fight camera shots' second thug (Foe is the first). */
+	static TWeakObjectPtr<AThugCharacter> SecondFoe;
 	static TArray<TWeakObjectPtr<AThugCharacter>> Spawned;
 	static TWeakObjectPtr<ACameraActor> ShotCamera;
 	static TWeakObjectPtr<APointLight> FillLight;
@@ -187,8 +205,8 @@ namespace HawkeyeMeleeShots
 		}
 	}
 
-	/** A fresh bat thug from BP_Thug, not thinking, at Feet facing Yaw. */
-	static AThugCharacter* SpawnFoe(UWorld* World, const FVector& Feet, float Yaw)
+	/** A fresh thug from BP_Thug (a bat unless told otherwise), not thinking, at Feet facing Yaw. */
+	static AThugCharacter* SpawnFoe(UWorld* World, const FVector& Feet, float Yaw, EThugWeapon Weapon = EThugWeapon::Bat)
 	{
 		UClass* ThugClass = LoadClass<AThugCharacter>(nullptr, ThugClassPath);
 		if (!ThugClass)
@@ -202,7 +220,7 @@ namespace HawkeyeMeleeShots
 		{
 			return nullptr;
 		}
-		Thug->Weapon = EThugWeapon::Bat;
+		Thug->Weapon = Weapon;
 		UGameplayStatics::FinishSpawningActor(Thug, At);
 		Thug->RefreshHeldWeapon();
 		if (AThugAIController* Brain = Cast<AThugAIController>(Thug->GetController()))
@@ -215,7 +233,8 @@ namespace HawkeyeMeleeShots
 	}
 
 	/** Kate on the street spot facing along it, and a fresh foe Distance in front of her facing her. */
-	static bool FaceOff(UWorld* World, AHawkeyeCharacter* Kate, float Distance, float Yaw = 0.f)
+	static bool FaceOff(UWorld* World, AHawkeyeCharacter* Kate, float Distance, float Yaw = 0.f,
+		EThugWeapon Weapon = EThugWeapon::Bat)
 	{
 		if (!bHaveStreet)
 		{
@@ -232,8 +251,85 @@ namespace HawkeyeMeleeShots
 		{
 			FoeFeet = StreetFeet + Facing * Distance;
 		}
-		Foe = SpawnFoe(World, FoeFeet, (-Facing).Rotation().Yaw);
+		Foe = SpawnFoe(World, FoeFeet, (-Facing).Rotation().Yaw, Weapon);
 		return Foe.IsValid();
+	}
+
+	/**
+	 * Two alerted fists thugs in front of Kate (at Feet, facing Facing): one 320 cm out 25 degrees to her
+	 * left, one 440 cm out 20 degrees to her right, both facing her. Old ones are removed.
+	 */
+	static bool StandPair(UWorld* World, AHawkeyeCharacter* Kate, const FVector& Feet, const FVector& Facing)
+	{
+		for (TWeakObjectPtr<AThugCharacter>* Old : { &Foe, &SecondFoe })
+		{
+			if (AThugCharacter* Thug = Old->Get())
+			{
+				Thug->Destroy();
+			}
+			*Old = nullptr;
+		}
+		Stand(Kate, Feet, Facing.Rotation().Yaw);
+		const struct { float Distance; float Yaw; } Spots[] = { { 320.f, -25.f }, { 440.f, 20.f } };
+		for (int32 Index = 0; Index < 2; ++Index)
+		{
+			const FVector Out = FRotator(0.f, Facing.Rotation().Yaw + Spots[Index].Yaw, 0.f).Vector() * Spots[Index].Distance;
+			FVector At;
+			if (!Ground(World, Feet + Out, Feet.Z + 200.f, { Kate }, At))
+			{
+				At = Feet + Out;
+			}
+			AThugCharacter* Thug = SpawnFoe(World, At, (Feet - At).Rotation().Yaw, EThugWeapon::Fists);
+			if (!Thug)
+			{
+				return false;
+			}
+			Thug->SetAlertState(EThugAlertState::Alerted);
+			(Index == 0 ? Foe : SecondFoe) = Thug;
+		}
+		return true;
+	}
+
+	/** The nearest building face to the street spot within 15 m (a camera-blocking wall), its point and flat normal. */
+	static bool FindWall(UWorld* World, const AHawkeyeCharacter* Kate, FVector& OutPoint, FVector& OutNormal)
+	{
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(MeleeShotWall), false, Kate);
+		for (const TWeakObjectPtr<AThugCharacter>& Weak : Spawned)
+		{
+			Params.AddIgnoredActor(Weak.Get());
+		}
+		const FVector Chest = StreetFeet + FVector(0.f, 0.f, 150.f);
+		float Best = BIG_NUMBER;
+		for (int32 Step = 0; Step < 24; ++Step)
+		{
+			const FVector Direction = FRotator(0.f, Step * 15.f, 0.f).Vector();
+			FHitResult Hit;
+			if (World->LineTraceSingleByChannel(Hit, Chest, Chest + Direction * 1500.f, ECC_Camera, Params)
+				&& FMath::Abs(Hit.ImpactNormal.Z) < 0.3f && Hit.Distance < Best)
+			{
+				Best = Hit.Distance;
+				OutPoint = Hit.ImpactPoint;
+				OutNormal = Hit.ImpactNormal.GetSafeNormal2D();
+			}
+		}
+		return Best < BIG_NUMBER;
+	}
+
+	/** Where Point lands on screen, as a fraction of the view from its centre (x right, y down), or "off screen". */
+	static FString ScreenOffset(APlayerController* PC, const FVector& Point, bool* bOutOnScreen = nullptr)
+	{
+		FVector2D Screen = FVector2D::ZeroVector;
+		int32 Width = 0;
+		int32 Height = 0;
+		PC->GetViewportSize(Width, Height);
+		const bool bProjected = Width > 0 && Height > 0 && PC->ProjectWorldLocationToScreen(Point, Screen, false);
+		const bool bOn = bProjected && Screen.X >= 0.f && Screen.Y >= 0.f && Screen.X <= Width && Screen.Y <= Height;
+		if (bOutOnScreen)
+		{
+			*bOutOnScreen = bOn;
+		}
+		return bProjected ? FString::Printf(TEXT("(%+.2f, %+.2f)"), Screen.X / Width - 0.5f, Screen.Y / Height - 0.5f)
+			: FString(TEXT("off screen"));
 	}
 
 	static void SetCrawl(UWorld* World, bool bCrawl)
@@ -483,6 +579,60 @@ bool FHawkeyeMeleeShot::Update()
 		break;
 	}
 
+	case EShot::TelegraphSetup:
+		// A fists thug square in front of her, inside the parry's 250 cm: the glyph and its parry line.
+		if (!FaceOff(World, Kate, 130.f, 0.f, EThugWeapon::Fists))
+		{
+			Test->AddWarning(TEXT("telegraph_glyph.png: could not stand a thug in front of her."));
+			break;
+		}
+		OwnCamera(PC, Kate, 20.f);
+		break;
+
+	case EShot::TelegraphSwing:
+		if (Thug && !Thug->GetMeleeComponent()->StartAttack(Thug->GetMeleeAttack()))
+		{
+			Test->AddWarning(TEXT("telegraph_glyph.png: his swing did not start."));
+		}
+		break;
+
+	case EShot::PunchSetup:
+		// Side on to the pair of them, the same thug: his next swings are the next clip variants.
+		if (Thug)
+		{
+			PC->SetControlRotation(FRotator(-10.f, Kate->GetActorRotation().Yaw, 0.f));
+			FrameSideOn(World, PC, Kate, 65.f, 420.f);
+		}
+		break;
+
+	case EShot::FightSetup:
+		if (!bHaveStreet || !StandPair(World, Kate, StreetFeet, Along))
+		{
+			Test->AddWarning(TEXT("fight_camera.png: could not stand two thugs in the street."));
+			break;
+		}
+		OwnCamera(PC, Kate, 0.f);
+		break;
+
+	case EShot::FightWallSetup:
+	{
+		// Her back to the nearest building, 150 cm off it, facing out: the boom points into the wall.
+		FVector Wall;
+		FVector Normal;
+		FVector Feet;
+		if (!bHaveStreet || !FindWall(World, Kate, Wall, Normal)
+			|| !Ground(World, Wall + Normal * 150.f, StreetFeet.Z + 200.f, { Kate }, Feet)
+			|| !StandPair(World, Kate, Feet, Normal))
+		{
+			Test->AddWarning(TEXT("fight_camera_wall.png: no building face near the street spot."));
+			break;
+		}
+		OwnCamera(PC, Kate, 0.f);
+		Test->AddInfo(FString::Printf(TEXT("fight_camera_wall.png: Kate %.0f cm off the wall at %s, facing away from it."),
+			FVector::Dist2D(Feet, Wall), *Wall.ToCompactString()));
+		break;
+	}
+
 	case EShot::Crawl:
 		SetCrawl(World, true);
 		break;
@@ -511,6 +661,7 @@ bool FHawkeyeMeleeShot::Update()
 		}
 		Spawned.Reset();
 		Foe = nullptr;
+		SecondFoe = nullptr;
 		Kate->TeleportTo(KateStart.GetLocation(), KateStart.Rotator(), false, true);
 		Kate->GetHealthComponent()->Heal(1000.f);
 		Kate->GetHealthComponent()->SetInvulnerable(bKateWasInvulnerable);
@@ -750,6 +901,67 @@ public:
 			}
 			return true;
 		}
+		if (Label == TEXT("telegraph_glyph.png") || Label == TEXT("thug_punch.png") || Label == TEXT("thug_punch_2.png"))
+		{
+			const UMeleeComponent* Melee = Thug ? Thug->GetMeleeComponent() : nullptr;
+			const float Elapsed = Thug ? UHawkeyeMeleeRules::GetTelegraphElapsed(Thug) : -1.f;
+			const float Windup = Melee ? Melee->GetCurrentAttack().WindupSeconds : 0.f;
+			const USkeletalMeshComponent* His = Thug ? Thug->GetMesh() : nullptr;
+			auto Limb = [&](const TCHAR* Bone)
+			{
+				if (!His || His->GetBoneIndex(Bone) == INDEX_NONE)
+				{
+					return FString::Printf(TEXT("%s -"), Bone);
+				}
+				const FVector At = His->GetBoneLocation(Bone);
+				const FVector Local = Thug->GetActorTransform().InverseTransformVectorNoScale(At - Thug->GetActorLocation());
+				const float Feet = Thug->GetActorLocation().Z - Thug->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+				return FString::Printf(TEXT("%s %.0f/%.0f/%.0f"), Bone, Local.X, Local.Y, At.Z - Feet);
+			};
+			const bool bParry = Thug && Kate->CanParryNow(Thug);
+			Test->AddInfo(FString::Printf(TEXT("%s: %s plays %s (variant %d), %.2f s into his %.2f s telegraph, winding up %d, parry now %d, ")
+				TEXT("glyph scale %.2f; %s, %s (forward/right/up cm)."),
+				*Label, *GetNameSafe(Thug), *GetNameSafe(Melee ? Melee->GetCurrentMontage() : nullptr),
+				Melee ? Melee->GetPickedVariantIndex() + 1 : 0, Elapsed, Windup, Melee && Melee->IsWindingUp() ? 1 : 0, bParry ? 1 : 0,
+				HawkeyeCombatReadability::ComputeTelegraphLook(Elapsed, Windup).Scale, *Limb(TEXT("hand_r")), *Limb(TEXT("hand_l"))));
+			if (!Melee || !Melee->IsWindingUp())
+			{
+				Test->AddError(FString::Printf(TEXT("%s: he is not winding up."), *Label));
+			}
+			if (Label == TEXT("telegraph_glyph.png") && !bParry)
+			{
+				Test->AddError(TEXT("telegraph_glyph.png: a thug 130 cm in front in his wind-up should be parryable (the line under the glyph)."));
+			}
+			return true;
+		}
+		if (Label == TEXT("fight_camera.png") || Label == TEXT("fight_camera_wall.png"))
+		{
+			const UCameraComponent* Lens = Kate->GetFollowCamera();
+			const float LensDistance = Lens && Arm ? FVector::Dist(Lens->GetComponentLocation(), Arm->GetComponentLocation()) : 0.f;
+			bool bHeadOn = false;
+			bool bFeetOn = false;
+			const FVector Feet = Kate->GetActorLocation() - FVector(0.f, 0.f, Kate->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+			const FString Head = ScreenOffset(PC, Feet + FVector(0.f, 0.f, 175.f), &bHeadOn);
+			const FString Toes = ScreenOffset(PC, Feet, &bFeetOn);
+			const AThugCharacter* Second = SecondFoe.Get();
+			const bool bHidden = Body && (Body->bOwnerNoSee || !Body->IsVisible());
+			Test->AddInfo(FString::Printf(TEXT("%s: %d alerted thugs engaged, fight alpha %.2f; boom target %.0f cm (hip %.0f), lens %.0f cm ")
+				TEXT("from the pivot, lens pitch %.1f deg; Kate hidden %d, her head %s, feet %s; thugs %s and %s."),
+				*Label, Kate->GetEngagedThugCount(), Kate->GetFightCameraAlpha(), Arm ? Arm->TargetArmLength : 0.f,
+				Kate->ComputeCameraTargets(false).ArmLength, LensDistance, Lens ? Lens->GetRelativeRotation().Pitch : 0.f,
+				bHidden ? 1 : 0, *Head, *Toes, Thug ? *ScreenOffset(PC, Thug->GetActorLocation()) : TEXT("-"),
+				Second ? *ScreenOffset(PC, Second->GetActorLocation()) : TEXT("-")));
+			if (Kate->GetFightCameraAlpha() < 0.99f)
+			{
+				Test->AddError(FString::Printf(TEXT("%s: the fight camera is only %.2f in."), *Label, Kate->GetFightCameraAlpha()));
+			}
+			if (bHidden || !bHeadOn || !bFeetOn)
+			{
+				Test->AddError(FString::Printf(TEXT("%s: Kate is not framed (hidden %d, head on screen %d, feet on screen %d)."), *Label,
+					bHidden ? 1 : 0, bHeadOn ? 1 : 0, bFeetOn ? 1 : 0));
+			}
+			return true;
+		}
 		if (Label == TEXT("strike_pose.png"))
 		{
 			const FVector Hand = Body ? Body->GetSocketLocation(TEXT("hand_r")) : FVector::ZeroVector;
@@ -871,6 +1083,34 @@ void HawkeyeAddMeleeShots(FAutomationTestBase* Test)
 	Wait(TEXT("kick.png"), 0.f);
 	Take(TEXT("kick.png"));
 	Shot(EShot::Uncrawl, 1.f);
+
+	// A fists thug's wind-up 0.3 s in, through her eyes (the glyph), then his next two swings side on.
+	Shot(EShot::TelegraphSetup, 1.2f);
+	Shot(EShot::TelegraphSwing, 0.3f);
+	Shot(EShot::Crawl, 0.05f);
+	Wait(TEXT("telegraph_glyph.png"), 0.f);
+	Take(TEXT("telegraph_glyph.png"));
+	Shot(EShot::Uncrawl, 1.8f);
+	Shot(EShot::PunchSetup, 0.3f);
+	Shot(EShot::TelegraphSwing, 0.3f);
+	Shot(EShot::Crawl, 0.05f);
+	Wait(TEXT("thug_punch_2.png"), 0.f);
+	Take(TEXT("thug_punch_2.png"));
+	Shot(EShot::Uncrawl, 1.8f);
+	Shot(EShot::TelegraphSwing, 0.3f);
+	Shot(EShot::Crawl, 0.05f);
+	Wait(TEXT("thug_punch.png"), 0.f);
+	Take(TEXT("thug_punch.png"));
+	Shot(EShot::Uncrawl, 1.8f);
+
+	// Two alerted thugs in front of her: the fight camera in (0.5 s, plus the arm's lag), in the open and
+	// with her back to a building.
+	Shot(EShot::FightSetup, 1.5f);
+	Wait(TEXT("fight_camera.png"), 0.f);
+	Take(TEXT("fight_camera.png"));
+	Shot(EShot::FightWallSetup, 1.5f);
+	Wait(TEXT("fight_camera_wall.png"), 0.f);
+	Take(TEXT("fight_camera_wall.png"));
 
 	Shot(EShot::Cleanup, 0.5f);
 }
