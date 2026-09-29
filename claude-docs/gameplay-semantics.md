@@ -294,7 +294,11 @@ for code not yet written; write the tests from them. Everything unmarked stands.
   reach her before he is put beside her (was 12), so the revive lands inside the 8 s down
   (see "Health and damage", downed). (Changed 2026-09-28.)
 - The partner can't drop below 1 health, self-heals under 50%, can be staggered. T marks
-  a point for him to go to (no pad button yet).
+  a point for him to go to; on a pad it is R3 (press the right stick, which nothing else
+  used; added 2026-09-29). Either way the mark is where the reticle sits: a trace straight
+  down the camera's centre (the player camera manager's view point), up to
+  `MarkTraceDistance`, projected onto the navmesh. The HUD's partner line ends with the
+  hint, "Clint: following  [T] send" or "[R3] send" by the last input.
 - `SwitchCharacter()` on X or LB: only when the chapter's `bAllowSwitching` is set (CH01
   true); refused if either character is mid-traversal, mid-zip, mid-takedown, or down.
   Swaps possession, hands the old pawn to the partner controller, rebinds the HUD
@@ -475,6 +479,7 @@ for code not yet written; write the tests from them. Everything unmarked stands.
 | X | Strike (tap light, hold heavy) |
 | Y | Takedown when a target is valid, otherwise interact |
 | L3 (press left stick) | Sprint: one press toggles it on (the Sprint setting can make it a hold) |
+| R3 (press right stick) | Send the partner to the point under the reticle (T on keys) |
 | Right trigger | Draw and release |
 | Left trigger | Aim |
 | RB | Grapple |
@@ -512,8 +517,9 @@ the last input came from a pad.
   dimmer): the level's M_Emissive materials (objective beacons, safehouse doors, the chapter-end
   arrow) by a swapped copy, lit windows at a quarter times that, and every glow a class sets
   through `UTimeOfDaySubsystem::SetGlow` (pedestal cap and icon, target faces, checkpoint rings),
-  rescaled on every change. City_Ambience's street bed is at 0.6 by day (one bed serves both,
-  there is no day bed yet). Snow falls in both, unchanged (the snowfall component has no density
+  rescaled on every change. City_Ambience crossfades from the night street bed to the day bed
+  over 2 s (the row's `DayBedWeight`, 0 at night and 1 by day; see "Audio"; this replaced the
+  night bed turned down to 0.6 on 2026-09-29). Snow falls in both, unchanged (the snowfall component has no density
   setting). Going back to Night restores every recorded value exactly. Interiors and flashback scenes (no outdoor weather) and anything
   tagged Interior are left alone. `-TimeOfDay=Day|Night` overrides without saving, like
   `-Difficulty=`; the `hawkeye.TimeOfDay Day|Night` console command overrides both, also
@@ -687,7 +693,7 @@ the last input came from a pad.
 - Nothing else in the game reads these. Keep it that way.
 
 ## Audio (built 2026-09-27, all synthesized, nothing downloaded)
-- 39 MetaSounds (33 one-shots, 6 loops) under `/Game/Audio`, authored headless by
+- 45 MetaSounds (37 one-shots, 8 loops) under `/Game/Audio`, authored headless by
   `Tools/Editor/create_audio.py` through the MetaSound builder API. Nodes: Sine, Saw,
   Noise, state-variable and one-pole filters, AD envelopes, Multiply/Add/Subtract,
   RandomFloat, LFO, Trigger Delay/Repeat. Every sound has a `PitchVariation` input; the bow
@@ -701,10 +707,45 @@ the last input came from a pad.
   click, objective chimes and toasts.
 - Ambience: `City_Ambience` crossfades street hum to rooftop wind above 10 m. The 20 lamps
   nearest the park carry a 120 Hz buzz that the EMP silences with the light and that is off
-  by day with the lamps; by day the street bed is also turned down to 0.6 (see Settings, Time
-  of day).
-- Sound classes `SCL_Master`, `SCL_SFX`, `SCL_Ambient`, `SCL_UI` and the mix `SMX_Settings`
-  drive Master, Sound effects, and Ambience sliders in Settings (settings version 4).
+  by day with the lamps. Two street beds (2026-09-29): `MS_Amb_Street` by night (the mains
+  drone, a traffic rumble, far horns) and `MS_Amb_StreetDay` by day (wind through the block,
+  a wider and brighter traffic hum with tyre hiss, a far horn every 20 to 50 s, no mains
+  drone). Both loops run; the time of day's `DayBedWeight` (Night 0, Day 1) splits the street
+  level between them, `night = street x (1 - w)`, `day = street x w`
+  (`HawkeyeAudioMath::ComputeStreetBeds`), and a change of the weight fades over 2 s instead
+  of the usual 1 s (`Hawkeye.Audio.DayBedSelection`). The day bed's path is a C++ default on
+  `AHawkeyeAmbience`, so the generated map needs no rebuild for it.
+- Music (built 2026-09-29, a first pass for feel, not a score): `UHawkeyeMusicSubsystem`
+  (world) plays `MS_Music_Score`, one looping MetaSound that holds every layer on one clock
+  (90 bpm, D minor), and sets its five gain inputs every frame: `PadGain` (a low D minor pad),
+  `PulseGain` (a low D pulse on each beat, a ghost on the off-beat), `PercGain` (an off-beat
+  tick and a thump on 2 and 4), `MotifGain` (two notes, D3 then A3 a beat and a half later,
+  every two bars), `DroneGain` (a dark low drone). One graph instead of separate loops keeps
+  the layers sample-locked without the engine's Quartz clock (Quartz only earns its keep with
+  separate sources; not used). States, from the thugs, the player, the crime and the
+  challenge subsystems:
+  - Roam: nothing, or the pad at half at night or while a challenge runs.
+  - Alert: one thug alerted (or a crime on within 40 m of Kate): the pulse.
+  - Fight: two or more alerted, or an alerted one within 8 m: pulse and percussion.
+  - Duel: an alerted archer, heavy, or anything with a boss phase component: pulse,
+    percussion and the motif.
+  - Win: every thug alerted in this fight is down (dead, limp or despawned) and at least one
+    went down: all layers out in 1 s under `MS_Music_Win` (a 2 s D major resolve), then Roam.
+    A thug alerted during the sting goes straight back to the fight.
+  - Downed: Kate is downed: every layer out in 1 s, the drone in. On the revive the music
+    goes straight to what the fight is.
+  Rising is immediate. Falling waits: the level must be lower for 4 s before it drops, one
+  step at a time (Duel to Fight to Alert to Roam), and any rise resets the wait. Layers fade in
+  over 1.5 s and out over 2 s (1 s into Win and Downed). A thug counts toward "this fight"
+  once he is alerted; the fight is forgotten when the music reaches Roam. Every transition
+  logs `Music: <from> -> <to>` at Log with the numbers behind it. The graph peaks near 0.35
+  of full scale and `SCL_Music` defaults to 0.6 on the slider (0.36 gain), so the music sits
+  well under the effects. Rules in `Source/Hawkeye/Audio/HawkeyeMusicRules.h`; tests
+  `Hawkeye.Music.*`.
+- Sound classes `SCL_Master`, `SCL_SFX`, `SCL_Ambient`, `SCL_UI`, `SCL_Music` and the mix
+  `SMX_Settings` drive Master, Sound effects, Ambience and Music sliders in Settings
+  (Music added in settings version 9, default 0.6; a version 5 to 8 save migrates and gets
+  the default).
   Attenuations: `ATT_World` 300 to 3000 cm, `ATT_Lamp` 50 to 400 cm. Naming: `MS_` for
   MetaSounds, `SCL_` classes, `SMX_` mixes, `ATT_` attenuations.
 - Verification: `Hawkeye.Audio.Smoke` plays every sound in a `-game` run and checks it
