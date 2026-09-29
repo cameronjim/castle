@@ -37,6 +37,7 @@
 #include "Settings/DifficultySubsystem.h"
 #include "Settings/HawkeyeSettingsSubsystem.h"
 #include "Tests/AutomationCommon.h"
+#include "Tests/GrappleAuditKit.h"
 #include "Tests/HawkeyeShots.h"
 #include "Tests/HawkeyeTestUtils.h"
 #include "Tests/PartnerScreenshots.h"
@@ -60,8 +61,10 @@
  * Hawkeye.Lap.EastVillage: from the PlayerStart, sprint 25 m out along the street and back past the
  * start (47 m in all), auto-vault City_Test_Vault (90 cm) and auto-mantle City_Test_Mantle (150 cm)
  * at a sprint, grapple to the nearest rooftop anchor, run across that roof, grapple to another
- * building and chain on from it up to two more times before landing (preferring roofs with a fire
- * escape), come down the fire escape of the roof she ends on (crouch at the parapet over its top
+ * building and chain on from it up to two more times before landing, then grapple on to a third roof
+ * (preferring roofs with a fire escape; every planned grapple's anchor seen by the camera from the spot,
+ * as the picker needs, not only zip-clear), so three roofs are crossed without the street; the JSON
+ * gives roofs_without_street and roof_chain_seconds. Then come down the fire escape of the roof she ends on (crouch at the parapet over its top
  * landing: hang, drop, and then crouch at each landing's rail or let each drop catch the next rail,
  * down to a last drop to the street), and run back to the start along the navmesh. Nothing
  * teleports her after the start. Measures the time, how often the capsule was stopped for more than 0.5 s with
@@ -534,6 +537,10 @@ private:
 	TArray<FString> ChainLegs;
 	int32 ChainTouchDowns = 0;
 	double ChainShotAt = -1.0;
+	// Roof to roof without the street: from the first roof-to-roof press to the last landing before the descent.
+	double RoofChainStart = -1.0;
+	double RoofChainEnd = -1.0;
+	TArray<const AActor*> RoofChainLandings;
 	bool bChainShotTaken = false;
 	FVector RunTarget = FVector::ZeroVector;
 
@@ -595,6 +602,22 @@ private:
 	/** The grapple's own offline rule (launch point, hop, start and anchor supports) from From to Anchor. */
 	bool ZipClear(UWorld* World, const AHawkeyeCharacter* Kate, const FVector& From, const AGrappleAnchor* Anchor,
 		bool bFromGround = true) const;
+
+	/**
+	 * The camera with her capsule centre at From, turned to put Anchor in the middle of the screen, would mark it:
+	 * in the cone, on the screen and in sight, as the grapple checks (Hawkeye.Grapple.Audit's lens). A zip that is
+	 * clear but hidden behind her own parapet or a neighbour's wall was planned and never targeted.
+	 */
+	bool CameraSees(const AHawkeyeCharacter* Kate, const FVector& From, const AGrappleAnchor* Anchor) const
+	{
+		const UGrappleComponent* Grapple = Kate->GetGrappleComponent();
+		const FVector Marker = Anchor->GetMarkerLocation();
+		FVector Lens, Forward;
+		HawkeyeGrappleView::PredictLens(Kate, From, Marker, Lens, Forward);
+		const float Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
+			FVector::DotProduct(Forward, (Marker - Lens).GetSafeNormal()), -1.f, 1.f)));
+		return Angle <= Grapple->ConeDegrees - 3.f && Grapple->IsOnScreen(Lens, Forward, Marker) && Grapple->HasLineOfSight(Anchor, Lens);
+	}
 
 	/**
 	 * Picks a spot on the roof Kate stands on and an anchor on another building (not in Exclude)
@@ -1021,7 +1044,7 @@ bool FHawkeyeLapRunner::FindRoofGrapple(UWorld* World, const AHawkeyeCharacter* 
 				continue;
 			}
 			++OutTried;
-			if (ZipClear(World, Kate, Spot, Anchor))
+			if (ZipClear(World, Kate, Spot, Anchor) && CameraSees(Kate, Spot, Anchor))
 			{
 				BestScore = Score;
 				OutSpot = Spot;
@@ -1329,7 +1352,7 @@ void FHawkeyeLapRunner::Finish(UWorld* World, APlayerController* PC, AHawkeyeCha
 		"  \"blocked_events\": %d,\n  \"blocked_where\": [%s],\n  \"max_attempts\": %d,\n  \"all_first_attempt\": %s,\n"
 		"  \"moves\": [\n    %s\n  ],\n  \"roofs\": [%s],\n  \"longest_chain_zips\": %d,\n"
 		"  \"chain_midair_redirects\": %d,\n  \"chain_touch_and_go\": %d,\n  \"chain_longest_touch_seconds\": %.2f,\n"
-		"  \"chain_touchdowns\": %d,\n  \"chain_legs\": [%s],\n"
+		"  \"chain_touchdowns\": %d,\n  \"chain_legs\": [%s],\n  \"roofs_without_street\": %d,\n  \"roof_chain_seconds\": %.2f,\n"
 		"  \"frames\": %d,\n  \"excluded_script_frames\": %d,\n  \"excluded_capture_frames\": %d,\n  \"average_frame_ms\": %.2f,\n  \"worst_frame_ms\": %.2f,\n  \"worst_frame_index\": %d,\n  \"frames_over_33ms\": %d,\n  \"frames_over_100ms\": %d,\n"
 		"  \"ledge_spawn_load_ms\": %.1f,\n  \"ledge_spawn_total_ms\": %.1f,\n  \"anchor_spawn_ms\": %.1f,\n"
 		"  \"street_grapple_note\": \"%s\",\n  \"kate_health\": %.1f,\n  \"survey_roofs\": %d,\n  \"survey_roofs_with_clear_roof_grapple\": %d\n}\n"),
@@ -1339,7 +1362,8 @@ void FHawkeyeLapRunner::Finish(UWorld* World, APlayerController* PC, AHawkeyeCha
 		*FailReason.ReplaceCharWithEscapedChar(), Seconds, StreetMetres,
 		Meter.BlockedEvents, *FString::Join(Blocked, TEXT(", ")), MaxAttempts, bAllFirst ? TEXT("true") : TEXT("false"),
 		*FString::Join(MoveLines, TEXT(",\n    ")), *FString::Join(Roofs, TEXT(", ")), LongestChain, ChainMidAir, ChainTouchAndGo, LongestTouch,
-		ChainTouchDowns, *FString::Join(ChainLegs, TEXT(", ")), Meter.Frames, ExcludedFrames, Meter.CaptureFrames,
+		ChainTouchDowns, *FString::Join(ChainLegs, TEXT(", ")), Roof1.IsValid() ? RoofChainLandings.Num() + 1 : 0,
+		RoofChainStart > 0.0 && RoofChainEnd > RoofChainStart ? RoofChainEnd - RoofChainStart : -1.0, Meter.Frames, ExcludedFrames, Meter.CaptureFrames,
 		Meter.AverageMs(), Meter.WorstFrame * 1000.0, Meter.WorstFrameIndex, Meter.FramesOver33, Meter.FramesOver100, Spawner ? Spawner->GetLoadLedgeSpawnSeconds() * 1000.f : -1.f,
 		Spawner ? Spawner->GetTotalLedgeSpawnSeconds() * 1000.f : -1.f, Spawner ? Spawner->GetAnchorSpawnSeconds() * 1000.f : -1.f,
 		*StreetGrappleNote.ReplaceCharWithEscapedChar(), Kate->GetHealthComponent()->GetCurrentHealth(), SurveyRoofs, SurveyRoofsWithExit);
@@ -1543,6 +1567,10 @@ bool FHawkeyeLapRunner::Update()
 		if (Result > 0)
 		{
 			Test->AddInfo(FString::Printf(TEXT("Lap: %s fired at %s on press %d"), *Move.Name, *GetNameSafe(ZipTarget.Get()), Move.Attempts));
+			if (Step == EStep::GrappleAcross)
+			{
+				RoofChainStart = Now(World);
+			}
 			bChainPressed = false;
 			bChainedThisZip = false;
 			ChainPressesThisZip = 0;
@@ -1655,7 +1683,7 @@ bool FHawkeyeLapRunner::Update()
 							{
 								continue;
 							}
-							if (!ZipClear(World, Kate, PressAt, *It, /*bFromGround=*/false))
+							if (!ZipClear(World, Kate, PressAt, *It, /*bFromGround=*/false) || !CameraSees(Kate, PressAt, *It))
 							{
 								++Blocked;
 								continue;
@@ -1670,7 +1698,9 @@ bool FHawkeyeLapRunner::Update()
 					}
 					if (!ChainTarget.IsValid())
 					{
-						ChainMove.Note = FString::Printf(TEXT("no clear anchor on a third building ahead of the zip (%d blocked)"), Blocked);
+						const FString None = FString::Printf(TEXT("no clear anchor on a%s building ahead of the zip (%d blocked)"),
+							ChainNotes.Num() ? TEXT("nother") : TEXT(" third"), Blocked);
+						ChainMove.Note = ChainNotes.Num() ? FString::Join(ChainNotes, TEXT(", then ")) + TEXT("; ") + None : None;
 					}
 				}
 				if (AGrappleAnchor* Next = ChainTarget.Get())
@@ -1726,7 +1756,12 @@ bool FHawkeyeLapRunner::Update()
 		ZipsWithoutLanding = 0;
 		Test->AddInfo(FString::Printf(TEXT("Lap %.1f s: landed on %s at %s"), Now(World) - LapStart, *RoofName,
 			*Kate->GetActorLocation().ToCompactString()));
-		if (Step == EStep::ZipToRoof || (Step == EStep::ZipAcross && !bChainedThisZip))
+		if (Step != EStep::ZipToRoof)
+		{
+			RoofChainEnd = Now(World);
+			RoofChainLandings.AddUnique(Roof);
+		}
+		if (Step == EStep::ZipToRoof || Step == EStep::ZipAcross)
 		{
 			const bool bFirst = Step == EStep::ZipToRoof;
 			if (bFirst)
@@ -1745,9 +1780,17 @@ bool FHawkeyeLapRunner::Update()
 			}
 			// The roofs landed on, with the one she stands on last. A building whose anchor a chain
 			// only passed through may be landed on later.
+			// After a chain the buildings it passed through are left out too: the third roof is a new one.
 			TArray<const AActor*> Exclude = { Roof1.Get() };
 			if (!bFirst)
 			{
+				for (const TWeakObjectPtr<AActor>& Passed : ChainedRoofs)
+				{
+					if (Passed.IsValid() && Passed.Get() != Roof2.Get())
+					{
+						Exclude.AddUnique(Passed.Get());
+					}
+				}
 				Exclude.Add(Roof2.Get());
 			}
 			FString Note;
