@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Camera/CameraComponent.h"
+#include "Combat/TakedownComponent.h"
 #include "Combat/ArrowDefinition.h"
 #include "Combat/BowDefinition.h"
 #include "Combat/HealthComponent.h"
@@ -14,6 +15,7 @@
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerStart.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformFileManager.h"
 #include "HawkeyeGameMode.h"
@@ -66,7 +68,7 @@ namespace HawkeyeInteriorMap
 	static const FName DoorstepTag(TEXT("City_InteriorReturn_Sample"));
 	static const FName RoofTag(TEXT("City_InteriorRoof_Sample"));
 	static constexpr float FloorHeight = 330.f;
-	static constexpr int32 ExpectedThugs = 6;
+	static constexpr int32 ExpectedThugs = 4;
 	static constexpr int32 ExpectedDoors = 3;
 	static constexpr int32 ExpectedExits = 2;
 	static constexpr int32 ExpectedAnchors = 2;
@@ -282,9 +284,10 @@ namespace HawkeyeInteriorMap
 
 /**
  * Opens L_Int_Sample and checks it is a playable interior: Kate is the pawn with the indoor camera arm, no
- * snow, a navmesh, the six patrolling thugs (and at least one of them walking a few seconds in), three
- * doors (the vault's locked to the keycard on the office desk), the two exits back to the district, the
- * lamps the EMP can kill, and the two grapple anchors on the gallery rail.
+ * snow, a navmesh, the four patrolling thugs (and at least one of them walking a few seconds in), three
+ * doors (the vault's locked to the keycard the archer carries), the two exits back to the district, the
+ * lamps the EMP can kill, and the two grapple anchors on the gallery rail. The enemies in detail are
+ * Hawkeye.Interior.EnemiesInPlace (InteriorAITest.cpp).
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHawkeyeSmokeLoadInteriorSample, "Hawkeye.Smoke.LoadInteriorSample",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::ProductFilter)
@@ -293,7 +296,8 @@ bool FHawkeyeSmokeLoadInteriorSample::RunTest(const FString& Parameters)
 {
 	using namespace HawkeyeInteriorMap;
 	TSharedRef<TArray<TPair<TWeakObjectPtr<AActor>, FVector>>> Starts = MakeShared<TArray<TPair<TWeakObjectPtr<AActor>, FVector>>>();
-	AutomationOpenMap(MapPath);
+	// A fresh copy: the interior AI tests leave bodies and open doors in the last one.
+	AutomationOpenMap(MapPath, /*bForceReload=*/true);
 	ADD_LATENT_AUTOMATION_COMMAND(FUntilCommand([]()
 	{
 		UWorld* World = FindWorld();
@@ -315,7 +319,7 @@ bool FHawkeyeSmokeLoadInteriorSample::RunTest(const FString& Parameters)
 		TestTrue(TEXT("The indoor camera arm is on"), Kate->IsIndoorCamera());
 		TestFalse(TEXT("No snow indoors"), AHawkeyeGameMode::WantsOutdoorWeather(World));
 		TestTrue(TEXT("The game mode says interior"), AHawkeyeGameMode::WantsInteriorCamera(World));
-		TestEqual(TEXT("Six thugs"), All<AThugCharacter>(World).Num(), ExpectedThugs);
+		TestEqual(TEXT("Four thugs"), All<AThugCharacter>(World).Num(), ExpectedThugs);
 		for (AThugCharacter* Thug : All<AThugCharacter>(World))
 		{
 			TestTrue(FString::Printf(TEXT("%s patrols two points or more"), *Thug->GetName()), Thug->PatrolPoints.Num() >= 2);
@@ -332,8 +336,8 @@ bool FHawkeyeSmokeLoadInteriorSample::RunTest(const FString& Parameters)
 		const ADoorActor* const* Locked = Doors.FindByPredicate([](const ADoorActor* Door) { return Door->bLocked; });
 		TestTrue(TEXT("One of them is locked to the vault keycard"), Locked && (*Locked)->RequiredKeycardId == FName(TEXT("vault")));
 		const TArray<APickupActor*> Pickups = All<APickupActor>(World);
-		TestTrue(TEXT("The vault keycard is on the office desk"), Pickups.Num() == 1
-			&& Pickups[0]->PickupType == EPickupType::Keycard && Pickups[0]->KeycardId == FName(TEXT("vault")));
+		TestTrue(TEXT("The vault keycard is in a thug's pocket"), Pickups.Num() == 1
+			&& Pickups[0]->PickupType == EPickupType::Keycard && Pickups[0]->KeycardId == FName(TEXT("vault")) && Pickups[0]->IsCarried());
 		const TArray<AInteriorExit*> Exits = All<AInteriorExit>(World);
 		TestEqual(TEXT("Two exits"), Exits.Num(), ExpectedExits);
 		TestTrue(TEXT("One goes to the roof"), Exits.ContainsByPredicate([](const AInteriorExit* Exit)
@@ -472,6 +476,34 @@ namespace HawkeyeInteriorMap
 		}));
 		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	}
+
+	/** The sample's enemy with layout id Id (tagged enemy:<id> by generate_interior.py). */
+	static AThugCharacter* Enemy(UWorld* World, const TCHAR* Id)
+	{
+		return Cast<AThugCharacter>(FindTagged(World, FName(*FString::Printf(TEXT("enemy:%s"), Id))));
+	}
+
+	/** Stands Thug with his feet at Where facing Yaw, stopped. */
+	static void PlaceThug(AThugCharacter* Thug, const FVector& Where, float Yaw)
+	{
+		if (Thug)
+		{
+			Thug->TeleportTo(Where + FVector(0.f, 0.f, Thug->GetCapsuleComponent()->GetScaledCapsuleHalfHeight() + 2.f), FRotator(0.f, Yaw, 0.f));
+			Thug->GetCharacterMovement()->StopMovementImmediately();
+		}
+	}
+
+	/** Queues the capture of FileName now, then half a second for it to land. */
+	static void AddCapture(FAutomationTestBase* Test, const TCHAR* FileName)
+	{
+		const FString Name(FileName);
+		ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([Test, Name]()
+		{
+			HawkeyeShots::Request(Test, ShotPath(TEXT("Interior"), Name), true);
+			return true;
+		}));
+		ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	}
 }
 
 /**
@@ -481,8 +513,12 @@ namespace HawkeyeInteriorMap
  *   interior_hall.png     from the stage end of the hall back over the display cases to the gallery above
  *   interior_stairs.png   at the foot of the stair, looking up the first flight to the mid landing
  *   interior_gallery.png  at the gallery's balustrade, looking down into the hall
+ *   int_patrol.png        from the lobby side of the hall's archway, the bat thug walking his beat in the hall
+ *   int_takedown.png      a quarter second into her takedown of the lobby thug from behind
+ *   int_gallery_gunner.png from the hall floor, the gunner at the gallery rail aiming down at her, the indoor arm
+ *   int_vault_open.png    the vault door slid open, from the hall, looking in
  *
- * Thugs are frozen for the pass. Run from the standalone game:
+ * Thugs are frozen for the pass (the bat thug walks, calm, for his shot). Run from the standalone game:
  *   UnrealEditor-Cmd.exe Hawkeye.uproject -game -windowed -ResX=1280 -ResY=720 -unattended -nosplash -log
  *       -ExecCmds="Automation RunTests Hawkeye.Screenshot.Interior; Quit"
  * interior_entrance.png, the district door, is in the Kate pass (HawkeyeAddInteriorShots).
@@ -498,7 +534,7 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 		AddInfo(TEXT("No RHI: skipping the interior screenshots. Run them from the standalone game (-game)."));
 		return true;
 	}
-	AutomationOpenMap(MapPath);
+	AutomationOpenMap(MapPath, /*bForceReload=*/true);
 	ADD_LATENT_AUTOMATION_COMMAND(FUntilCommand([]()
 	{
 		UWorld* World = FindWorld();
@@ -508,6 +544,19 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 		AddError(TEXT("L_Int_Sample did not load within 20 s."));
 		return true;
 	}, 20.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
+	{
+		// At once: the lobby patrol would see her standing inside the door.
+		for (TActorIterator<AThugAIController> It(FindWorld()); It; ++It)
+		{
+			It->SetThinkingEnabled(false);
+		}
+		if (AHawkeyeCharacter* Kate = FindPlayer(FindWorld()); Kate && Kate->GetHealthComponent())
+		{
+			Kate->GetHealthComponent()->SetInvulnerable(true);
+		}
+		return true;
+	}));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(3.f));
 	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
 	{
@@ -524,6 +573,92 @@ bool FHawkeyeScreenshotInterior::RunTest(const FString& Parameters)
 	AddShot(this, FVector(1930.f, 700.f, 40.f), 180.f, 12.f, TEXT("interior_hall.png"));
 	AddShot(this, FVector(565.f, 900.f, 83.f), 90.f, 12.f, TEXT("interior_stairs.png"));
 	AddShot(this, FVector(1140.f, 520.f, FloorHeight), 20.f, -24.f, TEXT("interior_gallery.png"));
+
+	// The bat thug on his beat down the hall (x 1500), calm, seen through the archway from the lobby.
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
+	{
+		UWorld* World = FindWorld();
+		if (AThugAIController* Brain = Cast<AThugAIController>(Enemy(World, TEXT("hall")) ? Enemy(World, TEXT("hall"))->GetController() : nullptr))
+		{
+			Brain->SetPacified(true);
+			Brain->SetThinkingEnabled(true);
+		}
+		return true;
+	}));
+	AddShot(this, FVector(700.f, 300.f, 0.f), 0.f, -4.f, TEXT("int_patrol.png"));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this]()
+	{
+		const AThugCharacter* Thug = Enemy(FindWorld(), TEXT("hall"));
+		AddInfo(FString::Printf(TEXT("int_patrol.png: the bat thug at %s, %.0f cm/s."), Thug ? *Thug->GetActorLocation().ToCompactString() : TEXT("?"),
+			Thug ? Thug->GetVelocity().Size2D() : 0.f));
+		if (AThugAIController* Brain = Thug ? Cast<AThugAIController>(Thug->GetController()) : nullptr)
+		{
+			Brain->SetThinkingEnabled(false);
+		}
+		return true;
+	}));
+
+	// The lobby thug from behind: F, and the shot a quarter second into it.
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
+	{
+		UWorld* World = FindWorld();
+		PlaceThug(Enemy(World, TEXT("lobby")), FVector(250.f, 330.f, 0.f), 60.f);
+		Place(World, FVector(195.f, 235.f, 0.f), 60.f, -10.f);
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(2.f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this]()
+	{
+		const AHawkeyeCharacter* Kate = FindPlayer(FindWorld());
+		UTakedownComponent* Takedown = Kate ? Kate->GetTakedownComponent() : nullptr;
+		TestTrue(TEXT("int_takedown.png: the takedown goes in"), Takedown && Takedown->TryTakedown());
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.25f));
+	AddCapture(this, TEXT("int_takedown.png"));
+
+	// The gunner at the rail over the hall with his pistol up at her, from the floor 6 m out.
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
+	{
+		UWorld* World = FindWorld();
+		AThugCharacter* Gunner = Enemy(World, TEXT("gallery"));
+		PlaceThug(Gunner, FVector(1150.f, 760.f, FloorHeight), -5.f);
+		Place(World, FVector(1750.f, 700.f, 0.f), 175.f, 16.f);
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.5f));
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([this]()
+	{
+		UWorld* World = FindWorld();
+		AThugCharacter* Gunner = Enemy(World, TEXT("gallery"));
+		const AHawkeyeCharacter* Kate = FindPlayer(World);
+		if (Gunner && Kate)
+		{
+			Gunner->SetWeaponRaised(true, Kate->GetActorLocation() + FVector(0.f, 0.f, 30.f));
+			Gunner->SetTelegraphGlint(true);
+			AddInfo(FString::Printf(TEXT("int_gallery_gunner.png: indoor arm %s, arm %.0f cm."), Kate->IsIndoorCamera() ? TEXT("on") : TEXT("off"),
+				Kate->GetCameraBoom() ? Kate->GetCameraBoom()->TargetArmLength : -1.f));
+		}
+		return true;
+	}));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.f));
+	AddCapture(this, TEXT("int_gallery_gunner.png"));
+
+	// The vault, opened, from the hall (the archer stepped off his beat so he is not in the doorway).
+	ADD_LATENT_AUTOMATION_COMMAND(FFunctionLatentCommand([]()
+	{
+		UWorld* World = FindWorld();
+		PlaceThug(Enemy(World, TEXT("vault")), FVector(2080.f, 880.f, 0.f), 180.f);
+		for (ADoorActor* Door : All<ADoorActor>(World))
+		{
+			if (Door->bLocked)
+			{
+				Door->OpenNow(FindPlayer(World));
+			}
+		}
+		return true;
+	}));
+	AddShot(this, FVector(1960.f, 1150.f, 0.f), 0.f, -6.f, TEXT("int_vault_open.png"));
 	ADD_LATENT_AUTOMATION_COMMAND(FHawkeyeWaitForShots(this));
 	return true;
 }
