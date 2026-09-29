@@ -19,12 +19,14 @@
 #include "Materials/MaterialInterface.h"
 #include "Math/RotationMatrix.h"
 #include "Misc/App.h"
+#include "World/TimeOfDaySubsystem.h"
 #include "UObject/ConstructorHelpers.h"
 
 namespace HawkeyeChallengeStart
 {
 	static const TCHAR* GlowPath = TEXT("/Game/Materials/M_Emissive.M_Emissive");
-	static const FLinearColor Purple(0.62f, 0.25f, 1.f);
+	// Deep and saturated: a paler purple clips toward white on the cap long before it glows.
+	static const FLinearColor Purple(0.5f, 0.06f, 1.f);
 	static const FLinearColor Steel(0.035f, 0.035f, 0.04f);
 	static constexpr float PedestalHeight = 100.f;
 	static constexpr float PedestalDiameter = 70.f;
@@ -167,7 +169,10 @@ void AChallengeStart::RefreshLook()
 	UWorld* World = GetWorld();
 	UMaterialInterface* Emissive = World && World->IsGameWorld() && FApp::CanEverRender() && !GlowMaterial.IsNull()
 		? GlowMaterial.LoadSynchronous() : nullptr;
-	auto Light = [Emissive](UStaticMeshComponent* Part, const FLinearColor& Color, float Intensity)
+	const UTimeOfDaySubsystem* TimeOfDay = World && World->IsGameWorld() ? UTimeOfDaySubsystem::Get(this) : nullptr;
+	bLitForDay = TimeOfDay && TimeOfDay->GetApplied() == EHawkeyeTimeOfDay::Day;
+	const float Scale = bLitForDay ? DayGlowScale : 1.f;
+	auto Light = [Emissive, Scale](UStaticMeshComponent* Part, const FLinearColor& Color, float Intensity)
 	{
 		if (Emissive)
 		{
@@ -176,7 +181,7 @@ void AChallengeStart::RefreshLook()
 		if (UMaterialInstanceDynamic* Material = Part->CreateDynamicMaterialInstance(0))
 		{
 			Material->SetVectorParameterValue(TEXT("Color"), Color);
-			Material->SetScalarParameterValue(TEXT("Intensity"), Intensity);
+			Material->SetScalarParameterValue(TEXT("Intensity"), Intensity * Scale);
 		}
 	};
 	Light(Cap, Purple, CapGlow);
@@ -199,6 +204,12 @@ void AChallengeStart::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	IconSpinner->AddLocalRotation(FRotator(0.f, IconSpinDegreesPerSecond * DeltaSeconds, 0.f));
+	// The time of day changes without a reload (Settings, hawkeye.TimeOfDay): relight for it.
+	const UTimeOfDaySubsystem* TimeOfDay = UTimeOfDaySubsystem::Get(this);
+	if (TimeOfDay && (TimeOfDay->GetApplied() == EHawkeyeTimeOfDay::Day) != bLitForDay)
+	{
+		RefreshLook();
+	}
 	// The name turns to face the camera so it reads from any side.
 	const UWorld* World = GetWorld();
 	const APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr;

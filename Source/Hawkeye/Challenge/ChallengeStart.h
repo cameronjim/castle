@@ -40,15 +40,19 @@ public:
 	TSoftObjectPtr<UMaterialInterface> GlowMaterial;
 
 	/**
-	 * The cap's emissive intensity. Bright, because the point light is only a pool at its foot: the top
-	 * and the icon are what read from the next roof.
+	 * The cap's emissive intensity at night. The top and the icon are what read from the next roof, but
+	 * past about 1 the night's +2 EV clips all three channels and the purple reads white (2.5 did).
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float CapGlow = 2.5f;
+	float CapGlow = 0.8f;
 
-	/** The icon's emissive intensity (a ring icon twice it). */
+	/** The icon's emissive intensity at night (a ring icon twice it). */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
-	float IconGlow = 1.8f;
+	float IconGlow = 0.6f;
+
+	/** Day's exposure is 2.5 EV under the night's and the roofs are sunlit: the glows times this by day. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
+	float DayGlowScale = 6.f;
 
 	/** The purple point light's brightness, lm: 135, 30% of the 450 that washed the whole roof. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Challenge", meta = (ClampMin = "0.0"))
@@ -117,4 +121,7 @@ protected:
 	/** Standing in here counts as being at the pedestal, as with the safehouse door. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Challenge")
 	TObjectPtr<UBoxComponent> EntryZone;
+
+	/** The time of day RefreshLook last lit for, so a change relights it. */
+	bool bLitForDay = false;
 };
