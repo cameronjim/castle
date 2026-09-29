@@ -80,4 +80,5 @@ private:
 	float Opacity = 0.f;
 	float LastPadding = -1.f;
 	float HudScale = 1.f;
+	bool bBackingOpen = false;
 };

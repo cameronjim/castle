@@ -29,11 +29,14 @@ TSharedRef<SWidget> UHawkeyeHintWidget::RebuildWidget()
 		Backing = WidgetTree->ConstructWidget<UBorder>(UBorder::StaticClass(), TEXT("HintBacking"));
 		Backing->SetBrush(FSlateColorBrush(FLinearColor::White));
 		Backing->SetBrushColor(HawkeyeHintWidget::BackingColor);
-		Backing->SetPadding(FMargin(14.f, 5.f));
+		Backing->SetPadding(FMargin(0.f));
 		WidgetTree->RootWidget = Backing;
 		Row = WidgetTree->ConstructWidget<UHorizontalBox>(UHorizontalBox::StaticClass(), TEXT("HintRow"));
 		Backing->SetContent(Row);
-		SetVisibility(ESlateVisibility::Collapsed);
+		// Never collapsed: a collapsed widget does not tick, and the line is driven from its own tick. With
+		// nothing up it is an empty box at opacity 0.
+		SetVisibility(ESlateVisibility::HitTestInvisible);
+		SetRenderOpacity(0.f);
 	}
 	return Super::RebuildWidget();
 }
@@ -143,8 +146,21 @@ void UHawkeyeHintWidget::UpdateLine(const FHawkeyeHintRule* Rule, float Age, con
 			ShownText.Reset();
 		}
 	}
-	SetRenderOpacity(Opacity);
-	SetVisibility(!ShownId.IsNone() && Opacity > 0.f ? ESlateVisibility::HitTestInvisible : ESlateVisibility::Collapsed);
+	SetRenderOpacity(ShownId.IsNone() ? 0.f : Opacity);
+	// The backing only has size with a line in it.
+	const bool bHasLine = !ShownId.IsNone();
+	if (bHasLine != bBackingOpen)
+	{
+		bBackingOpen = bHasLine;
+		if (!bHasLine && Row)
+		{
+			Row->ClearChildren();
+		}
+		if (Backing)
+		{
+			Backing->SetPadding(bHasLine ? FMargin(14.f, 5.f) : FMargin(0.f));
+		}
+	}
 	PlaceAboveHotbar();
 }
 
