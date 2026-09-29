@@ -430,7 +430,7 @@ def flash(name, life, color, size, delay=0.0, direct_life=False):
     direct_life: set the lifetime the way the template reads it (Lifetime Mode Direct Set). Without it the
     template keeps its own lifetime and Lifetime Min/Max go unread: NS_MeleeSpark's 0.08 s core was still
     on screen 1.5 s later (knockdown_dust.png, 2026-09-29). Every short flash a shot checks sets it (the
-    melee, arrow hit, parry, muzzle and anchor flashes); the EMP's and the explosion's are left as built.
+    melee, arrow hit, parry, muzzle, anchor, EMP and explosion flashes).
     """
     e = Emitter(name, "SimpleSpriteBurst")
     e.burst(1, delay).life(life, life).color(*color).size(size, size)
@@ -500,7 +500,7 @@ EFFECTS = {
         burst_sprites("Ring", "M_Vfx_Glow", 160, (0.55, 0.7), (0.3, 0.7, 1.5, 1.0), (30, 50), 25, (1350, 1450),
                       drag=1.8, fade=((0.0, 1.0), (0.6, 0.8), (1.0, 0.0)), grow=((0.0, 0.6), (1.0, 1.4)))
         .i("Shape Location", "Non Uniform Scale", vec(1, 1, 0.02)),
-        flash("Flash", 0.14, (0.5, 1.0, 2.2, 1.0), 300),
+        flash("Flash", 0.14, (0.5, 1.0, 2.2, 1.0), 300, direct_life=True),
         spark_streaks("Sparks", 70, (0.15, 0.45), (1.5, 3.2, 6.0, 1.0), (2.0, 14.0, 3.0, 40.0), (0, 0, 1), 85,
                       (400, 1100), gravity=-400, drag=2.0),
         spark_streaks("Arcs", 40, (0.08, 0.2), (2.5, 4.0, 8.0, 1.0), (1.5, 30.0, 2.5, 70.0), (0, 0, 1), 90,
@@ -511,7 +511,7 @@ EFFECTS = {
         burst_sprites("Fireball", "M_Vfx_Glow", 22, (0.35, 0.75), (1.1, 0.4, 0.08, 1.0), (70, 140), 50, (200, 560),
                       gravity=(0, 0, 250), drag=3.0, fade=((0.0, 1.0), (0.4, 0.7), (1.0, 0.0)),
                       grow=((0.0, 0.5), (0.25, 1.3), (1.0, 1.7))),
-        flash("Core", 0.1, (1.6, 1.1, 0.5, 1.0), 260),
+        flash("Core", 0.1, (1.6, 1.1, 0.5, 1.0), 260, direct_life=True),
         spark_streaks("Sparks", 60, (0.5, 1.3), (3.0, 1.4, 0.35, 1.0), (2.0, 10.0, 3.5, 30.0), (0, 0, 1), 75,
                       (700, 1700), gravity=-980, drag=0.6),
         burst_sprites("Smoke", "M_Vfx_Smoke", 18, (2.2, 3.6), (0.09, 0.085, 0.08, 0.85), (150, 260), 90, (60, 220),
@@ -590,7 +590,7 @@ EFFECTS = {
     ],
     # Sparks where the grapple arrow bites into the parapet.
     "NS_AnchorSparks": [
-        flash("Bite", 0.1, (5.0, 3.2, 1.2, 1.0), 60, direct_life=True),
+        flash("Bite", 0.12, (9.0, 5.5, 1.8, 1.0), 120, direct_life=True),
         spark_streaks("Sparks", 22, (0.2, 0.5), (5.0, 3.0, 1.0, 1.0), (1.5, 6.0, 2.5, 16.0), (1, 0, 0), 60,
                       (300, 900), gravity=-980, drag=0.5),
     ],
